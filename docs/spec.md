@@ -1,7 +1,7 @@
 # asqr specification (draft)
 
 Status: reviewed with the user on 2026-09-27 (all review answers are
-worked in). The decisions behind it are recorded as ADRs 2 to 11 in
+worked in). The decisions behind it are recorded as ADRs 2 to 20 in
 `docs/adr/`.
 
 ## 1. Purpose
@@ -67,6 +67,13 @@ into it and waits for the matching result file in the outbox.
 - A session file with the same id as a session already waiting replaces
   it, as long as nothing has been answered. Otherwise asqr rejects it
   with an error result.
+- An id whose earlier session was already answered, with its result
+  still in the outbox, is rejected, so an unread result is never lost.
+  `asqr ask --force` moves the old result into the archive and accepts
+  the new session (user, plan Q5).
+- One asqr instance per queue: a lock file in the queue keeps a second
+  instance out, and it names the process that holds the lock (user, plan
+  Q10).
 - An invalid session file gets an error result in the outbox (section
   6), so the asker never waits forever.
 
@@ -78,8 +85,8 @@ it; the default queue is `default`. It can be changed with `--queue
 <name>` (a named queue under the root), `--dir <path>` (any directory),
 or the environment variables `ASQR_QUEUE` and `ASQR_DIR`.
 
-`asqr paths [--queue <name>] [--json]` prints the root and the inbox,
-outbox, drafts and archive directories of a queue, so an agent or script
+`asqr paths [--queue <name>] [--json]` prints the root, the inbox,
+outbox, drafts and archive directories of a queue and the log file, so an agent or script
 finds them without knowing the platform rules.
 
 Files only, no socket (user, Q1): dropping a file already triggers
@@ -118,8 +125,12 @@ language can do it without a client library.
 Fields:
 
 - `asqr` (required): format version, `1`.
-- `id` (required): unique per queue; letters, digits, `-`, `_`, `.`.
-  It names the result file.
+- `id` (optional): unique per queue; letters, digits, `-`, `_`, `.`.
+  It names the result file. Ids are ULIDs by default (user, plan Q5):
+  without an `id`, `asqr ask` assigns a fresh ULID and prints it, and
+  `asqr new` prints a session skeleton with a fresh ULID. A custom id in
+  the allowed syntax is still accepted. Ids asqr creates internally are
+  ULIDs too.
 - `title`, `intro`, `from`: optional texts shown in the session header.
 - `questions` (required, at least one).
 
@@ -184,8 +195,9 @@ The repo ships a JSON Schema (`schema/session.v1.json` and
 - One result per session, written on submit. There are no partial
   submits (user, Q11); answers in progress stay in `drafts/`.
 - `status`: `submitted` (the person submitted, possibly with skipped
-  questions), `cancelled` (the person discarded the session) or `error`
-  (the file was invalid; `error` holds the message).
+  questions), `cancelled` (the person rejected the session; the optional
+  `reason` holds why) or `error` (the file was invalid; `error` holds
+  the message).
 - Every question of the session appears exactly once, in session order.
 - `selected` lists option ids; `custom` holds the typed text; `note` is
   the note; `skipped: true` marks an unanswered question.
@@ -225,8 +237,9 @@ Layout:
   options, `tab`/`shift-tab` or `J`/`K` move between questions, `space`
   or `enter` selects, digits `1`-`9` pick an option directly, `c` opens
   the custom entry, `n` the note, `esc` leaves a text field, `S` submits
-  (with a summary of skipped questions first), `q` quits and keeps the
-  draft, `?` shows help.
+  (with a summary of skipped questions first), `X` rejects the whole
+  session after a confirmation, with an optional reason (user, plan Q7),
+  `q` quits and keeps the draft, `?` shows help.
 - Text fields are multi-line editors, with the length counter where the
   question sets `length`.
 - The session list: when more than one session is waiting, a key opens
@@ -245,7 +258,9 @@ Layout:
 
 ## 8. Asking from the command line
 
-- `asqr ask <file> [--queue <name>] [--wait] [--timeout <secs>]`:
+- `asqr new`: prints a session skeleton with a fresh ULID as its id.
+- `asqr ask <file> [--queue <name>] [--wait] [--timeout <secs>]
+  [--force]`:
   validates the file, drops it atomically into the inbox and prints the
   session id. With `--wait` it blocks until the result exists, prints it
   to stdout, and exits 0 for `submitted`, 1 for `cancelled` or `error`,
@@ -298,10 +313,17 @@ questions carried over from batch 1".
   before any answer (section 3).
 - Windows support (it may work, but it is not tested).
 - Formats other than JSON.
+- A config file: version 1 is configured through flags and environment
+  variables only (user, plan Q9).
+- Publishing: asqr is used locally first and published on crates.io
+  later (user, plan Q13).
 
 ## 12. Technology
 
-Rust (edition 2024). Licence: MPL-2.0 (user, Q10).
+Rust (edition 2024), minimum version 1.97 (`rust-version`, user, plan
+Q4). One crate with a library (`src/lib.rs`) and a thin binary
+(`src/main.rs`), so tests and the later MCP server reach the logic
+without the terminal (user, plan Q3). Licence: MPL-2.0 (user, Q10).
 
 Crates (user: use clap, anyhow and/or thiserror, and other best-practice
 crates as needed):
@@ -316,7 +338,9 @@ crates as needed):
 | Format | `serde`, `serde_json`, `schemars` to derive the JSON Schema from the same types |
 | Atomic writes | `tempfile` (`NamedTempFile::persist` in the target directory) |
 | Timestamps | `jiff` (RFC 3339 with offset in results) |
-| Logging | `tracing` and `tracing-subscriber`, writing to a log file, as stdout belongs to the TUI |
+| Logging | `tracing` and `tracing-subscriber`, writing to a log file in the platform cache directory, as stdout belongs to the TUI (user, plan Q6) |
+| Markdown subset | `pulldown-cmark`, rendering only the allowed elements (user, plan Q8) |
+| Session ids | `ulid` |
 | Tests | `insta` for snapshot tests of rendered screens and results, `assert_cmd` for the CLI |
 
 The exact versions come in with `cargo add` when the code needs them.
@@ -328,7 +352,9 @@ The exact versions come in with `cargo add` when the code needs them.
 - Zero clippy warnings from the start. `just check` runs `cargo fmt
   --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
   `cargo test` and `cargo llvm-cov`. A versioned git pre-commit hook runs
-  it, and GitHub Actions follows once the repo has a remote.
+  it, and GitHub Actions runs it on Ubuntu and macOS.
+- One commit per finished feature, with its tests; every commit passes
+  the hook. Push at the end of each plan phase (user, plan Q1 and Q2).
 - Every piece of code that is written or changed gets excellent test
   coverage. `cargo llvm-cov` reports it without a threshold (user);
   review checks that changes are covered.

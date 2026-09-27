@@ -24,7 +24,9 @@ best-practice crates where they are needed.
 | Format | `serde`, `serde_json`, `schemars` |
 | Atomic writes | `tempfile` |
 | Timestamps | `jiff` |
-| Logging | `tracing` and `tracing-subscriber`, into a file |
+| Logging | `tracing` and `tracing-subscriber`, into a file in the platform cache directory |
+| Markdown subset | `pulldown-cmark`, rendering only the allowed elements |
+| Session ids | `ulid` |
 | Tests | `insta`, `assert_cmd` |
 
 Crates are added with `cargo add` when the first test needs them.
