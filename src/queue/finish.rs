@@ -123,11 +123,14 @@ pub enum Recovery {
 }
 
 /// Completes interrupted finishes and clears collisions, run when the TUI
-/// starts. Sessions without a result are left alone.
+/// starts. Sessions without a result are left alone, and so are files that
+/// cannot be read: whoever loads the session reports those.
 pub fn recover(location: &QueueLocation) -> io::Result<Vec<Recovery>> {
     let mut recovered = Vec::new();
     for waiting in scan_inbox(location)?.sessions {
-        let bytes = std::fs::read(&waiting.path)?;
+        let Ok(bytes) = std::fs::read(&waiting.path) else {
+            continue;
+        };
         match outbox_state(location, &waiting.id, &bytes)? {
             OutboxState::NoResult => {}
             OutboxState::ThisSession => {
@@ -307,6 +310,27 @@ mod tests {
         assert_eq!(recovered, [Recovery::Completed("batch-01".into())]);
         assert_eq!(names(&location.inbox()), Vec::<String>::new());
         assert_eq!(load_draft(&location, "batch-01").expect("readable"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recovery_leaves_an_unreadable_session_alone() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_scratch, location) = queue();
+        let locked = dropped(&location, "locked", b"session");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
+        dropped(&location, "batch-01", b"session");
+        fs::write(
+            location.outbox().join("batch-01.json"),
+            serde_json::to_vec(&submitted("batch-01", b"session")).expect("json"),
+        )
+        .expect("written");
+
+        let recovered = recover(&location).expect("recovery runs");
+
+        assert_eq!(recovered, [Recovery::Completed("batch-01".into())]);
+        assert_eq!(names(&location.inbox()), ["locked.json"]);
     }
 
     #[test]
