@@ -51,3 +51,6 @@ jobs:
           tool: just,cargo-llvm-cov
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: just check
+      # Coverage stays out of the pre-commit hook (ADR 21), so CI is where it
+      # is measured on every push.
+      - run: just coverage

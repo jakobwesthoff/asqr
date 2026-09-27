@@ -30,8 +30,10 @@ The full design is in [`docs/spec.md`](docs/spec.md).
 
 Development is test first, and `just check` is the validation pipeline:
 license headers, `cargo fmt --check`, clippy with `-D warnings`, tests and
-a coverage report. After cloning, run `just setup` once, so the
-pre-commit hook in `.githooks/` runs the pipeline before every commit.
+doctests. `just coverage` reports test coverage; CI runs both on Ubuntu
+and macOS. After cloning, run `just setup` once: it makes the pre-commit
+hook in `.githooks/` run the pipeline before every commit, and names any
+tool that is missing (`just`, `cargo-llvm-cov`, `llvm-tools-preview`).
 
 ## Decisions
 

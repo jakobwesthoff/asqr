@@ -5,6 +5,10 @@
 
 # Runs the validation pipeline before every commit (ADR 11). Enabled per
 # clone with `just setup`.
+#
+# Known limitation: the pipeline checks the working tree, not the index.
+# With a partially staged commit it can pass while the staged content alone
+# does not build, or fail on edits that are not part of the commit.
 set -euo pipefail
 
 exec just check
