@@ -427,19 +427,32 @@ Outside a text field (vim style plus arrows):
 | `q`, `ctrl-c` | quit, keeping the draft |
 | `?` | help, listing `shift-tab` and `K` side by side, since some terminals send `shift-tab` as `esc` plus `tab` |
 
+Selecting: on a `single` question, `space` or `enter` on the chosen
+option deselects it again, while a digit always picks (it never
+deselects). On a `multi` question both toggle, and a selection beyond
+`max` is refused with a message. On a `text` question, `space` and
+`enter` open the answer's editor, like `c`. `S` with unanswered
+`required` questions names them and moves to the first one instead of
+asking.
+
 Inside a text field every key goes to the editor except `esc`, which
 leaves the field and keeps the text. Edits are saved to the draft
 continuously, so there is no discard.
 
 ### 7.3 Text fields and counters
 
-Text fields are multi-line editors (`tui-textarea`). Where the question
+Text fields are editors (`ratatui-textarea`). Where the question
 sets `length`, a counter shows the length as text, and colour is only
 added on top:
 
 - `112/125` within the target
 - `140/125 !` above the target, up to `warn`
 - `max` at the hard limit, where more input is refused
+
+The answer of a `text` question and notes are multi-line (`enter`
+starts a new line). A custom entry is single-line unless its `multiline`
+is set; in a single-line field `enter` does nothing, and `esc` leaves it.
+The rejection reason is single-line, and there `enter` confirms.
 
 ### 7.4 Sessions and notifications
 
@@ -574,7 +587,7 @@ MCP server reach the logic without the terminal. Licence: MPL-2.0.
 |---|---|
 | Command line | `clap` with the derive feature |
 | Errors | `thiserror` for the typed errors of the format and queue code (validation errors name the field), `anyhow` with `.context()` at the binary's edges |
-| TUI | `ratatui` with `crossterm`, `tui-textarea`, `ratatui-image` |
+| TUI | `ratatui` with `crossterm`, `ratatui-textarea` (the maintained continuation of `tui-textarea`, ADR 9), `ratatui-image` |
 | Watching the inbox | `notify` with `notify-debouncer-full` |
 | Platform paths | `directories` |
 | Format | `serde`, `serde_json`, `schemars` (the JSON Schema is derived from the same types) |

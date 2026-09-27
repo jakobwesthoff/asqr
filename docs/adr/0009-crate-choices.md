@@ -34,3 +34,12 @@ Crates are added with `cargo add` when the first test needs them.
 ## Consequences
 
 The tracing output goes to a file, because the TUI owns the terminal.
+
+## Amendment (2026-09-27, phase 4)
+
+`ratatui-textarea` replaces `tui-textarea` for the text fields.
+`tui-textarea` 0.7 supports ratatui up to 0.29, and `ratatui-image` 11
+needs ratatui 0.30. `ratatui-textarea` is the continuation of the same
+widget under the ratatui organisation and supports ratatui 0.30. It uses
+the crossterm version ratatui re-exports, so the whole tree has one
+crossterm.

@@ -122,7 +122,7 @@ events.
    `shift-tab`, `J`, `K`), direct pick with `1`-`9`.
 3. Selection rules: `single` replaces and clears custom text, `multi`
    toggles, defaults preselect, any edit clears `defaulted`.
-4. Text fields with `tui-textarea`: `c` and `n` open them, every key goes
+4. Text fields with `ratatui-textarea`: `c` and `n` open them, every key goes
    to the editor except `esc`, which keeps the text; the counter with
    target, warn and max; input beyond `max` is refused.
 5. Submit (`S`) and reject (`X`): the confirmation with the counts, the

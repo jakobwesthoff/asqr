@@ -13,3 +13,4 @@
 pub mod cli;
 pub mod format;
 pub mod queue;
+pub mod tui;
