@@ -9,9 +9,9 @@ where they change a step.
 
 ## Status
 
-- Done: phases 0, 1, 2, 3, 4, 5 and 5b (last commit of phase 5b:
-  `8a835fb`).
-- Next: phase 6, the watcher and the running app.
+- Done: phases 0 to 6 and 5b (phase 6 ends with `cb2481d`).
+- Next: bring every dependency to its newest version (user, after phase
+  6), then phase 7, the skill.
 
 ## How every step runs
 
@@ -22,8 +22,8 @@ where they change a step.
   `just coverage` and in CI (ADR 21), and review checks that every
   written or changed line is covered.
 - Terminal setup and teardown, and the terminal query for the image
-  protocol, live in `main.rs` and stay as thin as possible. They are the
-  only code the tests do not reach.
+  protocol, live in the binary (`src/terminal.rs`) and stay as thin as
+  possible. The pseudo-terminal tests in `tests/tui_pty.rs` run them.
 - Every source file carries the MPL 2.0 notice (ADR 10).
 - Crates come in with `cargo add` when the first test needs them
   (ADR 9).

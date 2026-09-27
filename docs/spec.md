@@ -518,8 +518,8 @@ Images appear only when a question has one.
 - `ratatui-image` shows them inline through the Kitty graphics protocol
   (Ghostty, kitty, WezTerm), the iTerm2 protocol or Sixel. Terminals
   without any of these get a coarse block rendering.
-- The protocol is detected only in the binary (`main.rs`), by querying
-  the terminal. The library takes the detected `Picker` as an argument,
+- The protocol is detected only in the binary (`src/terminal.rs`), by
+  querying the terminal. The library takes the detected `Picker` as an argument,
   so tests never talk to a terminal.
 - Placement adapts: a column to the right when the terminal is wide
   enough, below the options otherwise.
