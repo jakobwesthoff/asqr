@@ -22,12 +22,14 @@ pub struct Waiting {
     pub modified: SystemTime,
 }
 
-/// What the inbox holds: sessions in queue order, and `.json` files whose
-/// stem is no valid id, which only get archived (spec section 3.8).
+/// What the inbox holds: sessions in queue order, `.json` files whose stem
+/// is no valid id, which only get archived (spec section 3.8), and
+/// everything else, which is left alone.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InboxScan {
     pub sessions: Vec<Waiting>,
     pub invalid_stems: Vec<PathBuf>,
+    pub ignored: Vec<PathBuf>,
 }
 
 /// Lists the inbox. Sessions are ordered by drop time; ids break ties,
@@ -44,7 +46,7 @@ pub fn scan_inbox(location: &QueueLocation) -> io::Result<InboxScan> {
                 modified: entry.metadata()?.modified()?,
             }),
             Some(InboxName::InvalidStem(_)) => scan.invalid_stems.push(entry.path()),
-            Some(InboxName::Ignored) | None => {}
+            Some(InboxName::Ignored) | None => scan.ignored.push(entry.path()),
         }
     }
     scan.sessions.sort_by(|a, b| {
@@ -53,6 +55,7 @@ pub fn scan_inbox(location: &QueueLocation) -> io::Result<InboxScan> {
             .then_with(|| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()))
     });
     scan.invalid_stems.sort();
+    scan.ignored.sort();
     Ok(scan)
 }
 
@@ -117,6 +120,14 @@ mod tests {
 
         assert_eq!(scan.sessions.len(), 1);
         assert_eq!(scan.invalid_stems, [inbox.join("bad name.json")]);
+        assert_eq!(
+            scan.ignored,
+            [
+                inbox.join(".DS_Store"),
+                inbox.join(".tmpk3j4h.tmp"),
+                inbox.join("4913")
+            ]
+        );
     }
 
     #[test]

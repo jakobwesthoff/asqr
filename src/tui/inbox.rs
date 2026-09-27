@@ -10,6 +10,7 @@
 //! events. An inbox holds a handful of files, and a full scan cannot miss
 //! a rename or a burst of events the way event bookkeeping can.
 
+use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 
@@ -47,6 +48,7 @@ pub enum Applied {
 pub struct Inbox {
     location: QueueLocation,
     known: Vec<Known>,
+    ignored: HashSet<PathBuf>,
 }
 
 impl Inbox {
@@ -54,6 +56,7 @@ impl Inbox {
         Inbox {
             location,
             known: Vec::new(),
+            ignored: HashSet::new(),
         }
     }
 
@@ -93,6 +96,13 @@ impl Inbox {
         }
 
         let scan = scan_inbox(&self.location)?;
+        // Each ignored file is logged once per run: a `.DS_Store` stays
+        // for good and would otherwise be logged on every change.
+        for path in scan.ignored {
+            if self.ignored.insert(path.clone()) {
+                tracing::info!(path = %path.display(), "ignored a file in the inbox");
+            }
+        }
         for path in &scan.invalid_stems {
             tracing::warn!(path = %path.display(), "archived a file whose name is no session id");
             if let Err(error) = archive_invalid_stem(&self.location, path) {
@@ -496,6 +506,21 @@ mod tests {
         let archived = names(&location.archive());
         assert_eq!(archived.len(), 1);
         assert!(parse_archive_name(&archived[0]).is_some(), "{archived:?}");
+    }
+
+    #[test]
+    fn other_files_in_the_inbox_are_left_alone() {
+        let (_scratch, location) = queue();
+        put(&location, ".DS_Store", "");
+        put(&location, "notes.txt", "");
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+        inbox.sync(&mut app).expect("synced");
+
+        assert!(app.sessions().is_empty() && app.current_notice().is_none());
+        assert_eq!(names(&location.inbox()), [".DS_Store", "notes.txt"]);
+        assert_eq!(inbox.ignored.len(), 2, "each is logged once");
     }
 
     #[test]
