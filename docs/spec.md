@@ -152,7 +152,9 @@ be repeated safely:
 1. Write the result into `outbox/<id>.json` (atomically). Every result
    carries `session_sha256`, the SHA-256 of the session file's bytes as
    read from the inbox.
-2. Move the session file to `archive/<id>.<ulid>.json`.
+2. Move the session file to `archive/<id>.<ulid>.json`. (A result that
+   `ask --force` moves out of the way is archived as
+   `<id>.<ulid>.result.json`.)
 3. Delete the draft. This is the one thing asqr deletes on its own.
 
 Recovery on start: for an inbox session whose outbox result has the same
@@ -169,7 +171,8 @@ naming the field and the problem, and is then archived, so it is handled
 once. An error result never overwrites an existing `outbox/<id>.json`: in
 that case the file is archived and the conflict logged. A file whose
 stem is not a valid id gets no result at all, since no asker can be
-waiting on that name. It is logged and archived.
+waiting on that name. It is logged with its original name and archived as
+`invalid.<ulid>.json`.
 
 ### 3.9 Cleaning up
 

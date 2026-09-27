@@ -6,5 +6,7 @@
 //! file rules that keep askers and the TUI from stepping on each other.
 
 mod location;
+mod names;
 
 pub use location::*;
+pub use names::*;
