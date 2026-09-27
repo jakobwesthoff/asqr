@@ -87,3 +87,47 @@ impl Images {
         }
     }
 }
+
+/// Whether the terminal may be asked for its graphics protocol. `tmux` is
+/// the `TMUX` variable, and `passthrough` reads tmux's `allow-passthrough`
+/// option for the pane.
+///
+/// Inside tmux the query only reaches the terminal through passthrough.
+/// Without it nothing answers, and the query's reader goes on taking the
+/// keys the person types, so the query is skipped and images fall back to
+/// half blocks (spec section 7.7).
+pub fn may_query_protocol(
+    tmux: Option<&str>,
+    passthrough: impl FnOnce() -> Option<String>,
+) -> bool {
+    if tmux.is_none_or(str::is_empty) {
+        return true;
+    }
+    // `on` lets the pane pass sequences through, `all` any pane.
+    passthrough().is_some_and(|value| matches!(value.trim(), "on" | "all"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outside_tmux_the_terminal_is_asked() {
+        assert!(may_query_protocol(None, || unreachable!(
+            "not asked outside tmux"
+        )));
+        assert!(may_query_protocol(Some(""), || unreachable!(
+            "an empty TMUX is unset"
+        )));
+    }
+
+    #[test]
+    fn inside_tmux_only_with_passthrough() {
+        let tmux = Some("/tmp/tmux-501/default,1234,0");
+
+        assert!(may_query_protocol(tmux, || Some("on\n".into())));
+        assert!(may_query_protocol(tmux, || Some("all".into())));
+        assert!(!may_query_protocol(tmux, || Some("off\n".into())));
+        assert!(!may_query_protocol(tmux, || None), "unknown counts as off");
+    }
+}
