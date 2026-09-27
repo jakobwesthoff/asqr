@@ -9,3 +9,5 @@
 //! The library holds all of asqr's logic, so tests and later front ends
 //! reach it without a terminal. The `asqr` binary only parses arguments and
 //! drives the terminal (ADR 16).
+
+pub mod format;

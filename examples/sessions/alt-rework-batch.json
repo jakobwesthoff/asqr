@@ -1,0 +1,46 @@
+{
+  "asqr": 1,
+  "id": "alt-rework-3-batch-01",
+  "title": "Alt rework 3, batch 1",
+  "intro": "Pick the best line per mascot. **More** sends it back with new variations.",
+  "from": "claude-code, torchsnap mascots",
+  "follows": "alt-rework-3-batch-00",
+  "questions": [
+    {
+      "id": "301-holly-crown-green-robe-feast-ghost",
+      "header": "301",
+      "text": "holly-crown-green-robe-feast-ghost: Ghost of Christmas Present (A Christmas Carol)",
+      "image": "/tmp/asqr-example/301-holly-crown-green-robe-feast-ghost.png",
+      "kind": "single",
+      "options": [
+        { "id": "old", "label": "Old", "description": "Snappy in holly -- the old line." },
+        { "id": "new1", "label": "New 1", "description": "Snappy in holly -- the first new line." },
+        { "id": "new2", "label": "New 2", "description": "Snappy in holly -- the second new line." },
+        { "id": "more", "label": "More", "description": "None of these; new variations next batch." }
+      ],
+      "custom": { "label": "Own line", "length": { "target": [80, 125], "warn": 145, "max": 175 } },
+      "note": true
+    },
+    {
+      "id": "extras",
+      "text": "Which extras should the next batch include?",
+      "kind": "multi",
+      "min": 1,
+      "max": 2,
+      "options": [
+        { "id": "nsfw", "label": "NSFW keys", "default": true },
+        { "id": "retries", "label": "Retries" },
+        { "id": "notes", "label": "Notes from the last round" }
+      ],
+      "custom": true
+    },
+    {
+      "id": "comment",
+      "text": "Anything else?",
+      "kind": "text",
+      "length": { "max": 500 },
+      "note": false,
+      "required": false
+    }
+  ]
+}
