@@ -11,6 +11,7 @@ mod exit;
 mod format;
 mod paths;
 mod prune;
+mod skill;
 mod status;
 mod wait;
 
@@ -110,6 +111,13 @@ enum Command {
         results: bool,
     },
 
+    /// Print the agent skill, or install it under a skills directory.
+    Skill {
+        /// Write it to <DIR>/asqr/SKILL.md, for example .claude/skills.
+        #[arg(long, value_name = "DIR")]
+        install: Option<PathBuf>,
+    },
+
     /// Print the JSON Schema of session files.
     Schema {
         /// Print the schema of result files instead.
@@ -170,6 +178,7 @@ pub fn run(cli: Cli, environment: Selection) -> Exit {
             older_than,
             results,
         } => prune::run(&location, older_than, results),
+        Command::Skill { install } => skill::run(install.as_deref()),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),
     }
