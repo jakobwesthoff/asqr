@@ -324,8 +324,9 @@ A question is **answered** when:
 
 - `single`: an option is selected, or the custom text is not empty after
   trimming
-- `multi`: at least one option is selected or the custom text is not
-  empty, and the count lies within `min` and `max`
+- `multi`: custom text that is not empty, or selected options whose
+  number lies within `min` and `max` (the bounds count options only, so
+  custom text alone answers the question)
 - `text`: the typed text is not empty after trimming
 
 Otherwise it is **skipped**.
