@@ -83,3 +83,39 @@ fn fails_when_the_skill_cannot_be_written() {
 
     assert_eq!(output.status.code(), Some(1));
 }
+
+/// The skill's first JSON block: the example session it teaches with.
+fn example_session() -> &'static str {
+    let start = SKILL
+        .find("```json\n")
+        .expect("the skill shows an example session")
+        + 8;
+    let end = start + SKILL[start..].find("```").expect("the example block ends");
+    &SKILL[start..end]
+}
+
+#[test]
+fn the_example_session_validates_without_warnings() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("example.json", example_session());
+
+    let output = sandbox
+        .asqr()
+        .arg("validate")
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0), "{}", common::stderr(&output));
+    assert_eq!(common::stderr(&output), "", "no warnings");
+}
+
+#[test]
+fn the_skill_explains_every_exit_code() {
+    for code in ["0", "1", "2", "10", "11", "12", "13"] {
+        assert!(
+            SKILL.contains(&format!("| {code} |")),
+            "exit code {code} is missing from the skill's table"
+        );
+    }
+}
