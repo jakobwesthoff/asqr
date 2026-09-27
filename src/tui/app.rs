@@ -215,19 +215,21 @@ mod tests {
     fn turns_session_effects_into_app_effects() {
         let mut app = app(&["one"]);
 
+        // Picking moves on to the review, whose rows are the question,
+        // Submit and Reject.
         let AppEffect::SaveDraft(draft) = app.handle(key('1')) else {
-            panic!("selecting saves the draft");
+            panic!("picking saves the draft");
         };
         assert_eq!(draft.id, "one");
 
-        app.handle(key('S'));
+        app.handle(key('j'));
         let AppEffect::Finish { id, outcome } = app.handle(code(KeyCode::Enter)) else {
-            panic!("confirming finishes the session");
+            panic!("enter on Submit finishes the session");
         };
         assert_eq!(id, "one");
         assert!(matches!(outcome, Outcome::Submitted(answers) if answers.len() == 1));
 
-        app.handle(key('X'));
+        app.handle(key('j'));
         assert_eq!(
             app.handle(code(KeyCode::Enter)),
             AppEffect::Finish {
@@ -235,6 +237,7 @@ mod tests {
                 outcome: Outcome::Rejected(None)
             }
         );
+        app.handle(code(KeyCode::Esc));
         assert_eq!(app.handle(key('q')), AppEffect::Quit);
     }
 
@@ -242,7 +245,8 @@ mod tests {
     fn opening_an_image_passes_through() {
         let mut app = App::default();
         let with_image: Session = serde_json::from_str(
-            r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "text", "image": "/i.png"}]}"#,
+            r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "single", "image": "/i.png",
+                "options": [{"id": "a", "label": "A"}]}]}"#,
         )
         .expect("parses");
         app.add(SessionState::new("img", with_image, None));

@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&app, 60, 15)"
+---
+" asqr · queue: default · 1 session waiting                  "
+"┌ Keys ────────────────────────────────────────────────────┐"
+"│↑/↓, k/j   move between the rows                          │"
+"│←/→, h/l   previous and next question                     │"
+"│enter      pick and go on; open or submit on the review   │"
+"│space      toggle an option of a multi question           │"
+"│1-9        pick or toggle an option directly              │"
+"│n          write a note                                   │"
+"│ctrl-j     new line in an answer or a note                │"
+"│esc        stop typing in a field                         │"
+"│L          the list of waiting sessions                   │"
+"│o, z       open the image; show it full screen            │"
+"│q, ctrl-c  quit, keeping the draft                        │"
+"│?          this help                                      │"
+"└────────────────────────────────────────── any key closes ┘"

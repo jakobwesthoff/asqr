@@ -3,15 +3,18 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The state of one session while the person answers it (spec sections
-//! 5.2, 7.2 and 7.3), driven by key events and nothing else.
+//! 5.2 and 7.1 to 7.4, ADR 22), driven by key events and nothing else.
 //!
-//! The working answers live here in the draft's shape. [`SessionState::handle`]
-//! returns an [`Effect`] for everything the state cannot do itself: saving
-//! the draft, finishing the session, quitting, opening an image. The
-//! running app carries those out.
+//! A session is a row of tabs: one per question and the review last. Each
+//! tab is a list of rows: the options and the own answer, a text answer,
+//! or on the review the questions, Submit and Reject. Rows that take text
+//! are live fields, typed into in place as soon as the cursor lands on
+//! them. [`SessionState::handle`] returns an [`Effect`] for everything the
+//! state cannot do itself: saving the draft, finishing the session,
+//! quitting, opening an image.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui_textarea::TextArea;
+use ratatui_textarea::{CursorMove, TextArea};
 
 pub use crate::format::Length;
 use crate::format::{
@@ -25,7 +28,7 @@ pub enum Effect {
     None,
     /// The answers or the current question changed; save the draft.
     DraftChanged,
-    /// The person confirmed the submit; these are the result's answers.
+    /// The person submitted; these are the result's answers.
     Submit(Vec<Answer>),
     /// The person rejected the session, with a reason if they gave one.
     Reject(Option<String>),
@@ -34,9 +37,37 @@ pub enum Effect {
     OpenSessionList,
 }
 
+/// One row of the current tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Field {
-    Custom,
+pub enum Row {
+    /// The option with this index.
+    Option(usize),
+    /// The own answer of a question with `custom`.
+    Own,
+    /// The answer of a `text` question.
+    Answer,
+    /// A question in the review, by index.
+    Question(usize),
+    Submit,
+    /// The reject row with its reason field.
+    Reject,
+}
+
+impl Row {
+    /// Rows that are text fields, focused when the cursor lands on them.
+    fn is_field(self) -> bool {
+        matches!(self, Row::Own | Row::Answer | Row::Reject)
+    }
+}
+
+/// Where typed keys go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    /// Keys are commands.
+    None,
+    /// The field of the current row.
+    Field,
+    /// The note of the current question.
     Note,
 }
 
@@ -48,42 +79,6 @@ pub struct Counts {
     pub defaulted: usize,
 }
 
-/// What the keys currently act on.
-#[derive(Debug, Clone)]
-pub enum Mode {
-    Browse,
-    Editing {
-        field: Field,
-        editor: TextArea<'static>,
-    },
-    ConfirmSubmit(Counts),
-    /// The editor holds the optional reason.
-    ConfirmReject(TextArea<'static>),
-    Help,
-}
-
-/// Modes compare by what they show; editors by their text.
-impl PartialEq for Mode {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Mode::Browse, Mode::Browse) | (Mode::Help, Mode::Help) => true,
-            (
-                Mode::Editing {
-                    field: a,
-                    editor: x,
-                },
-                Mode::Editing {
-                    field: b,
-                    editor: y,
-                },
-            ) => a == b && x.lines() == y.lines(),
-            (Mode::ConfirmSubmit(a), Mode::ConfirmSubmit(b)) => a == b,
-            (Mode::ConfirmReject(x), Mode::ConfirmReject(y)) => x.lines() == y.lines(),
-            _ => false,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnswerState {
     Answered,
@@ -92,7 +87,7 @@ pub enum AnswerState {
     Skipped,
 }
 
-/// A question's line in the question list.
+/// A question's mark in the tab bar and its line in the review.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuestionState {
     pub answer: AnswerState,
@@ -104,10 +99,13 @@ pub struct QuestionState {
 struct Working {
     /// Option ids, kept in option order.
     selected: Vec<String>,
+    /// The own answer, or the answer of a `text` question. On a `single`
+    /// question it counts only while no option is chosen (spec section
+    /// 5.2).
     custom: String,
     note: String,
     /// The person edited the question; a default then no longer counts as
-    /// untouched (spec section 5.2).
+    /// untouched.
     touched: bool,
 }
 
@@ -116,9 +114,14 @@ pub struct SessionState {
     id: String,
     session: Session,
     working: Vec<Working>,
-    current: usize,
-    cursor: usize,
-    mode: Mode,
+    /// The current tab; `session.questions.len()` is the review.
+    tab: usize,
+    row: usize,
+    focus: Focus,
+    /// The editor of the focused field or note.
+    editor: Option<TextArea<'static>>,
+    reject_reason: String,
+    help: bool,
     message: Option<String>,
     image_full_screen: bool,
 }
@@ -150,7 +153,7 @@ impl SessionState {
                 }
             })
             .collect();
-        let current = draft
+        let tab = draft
             .and_then(|draft| draft.current.as_deref())
             .and_then(|current| {
                 session
@@ -159,16 +162,21 @@ impl SessionState {
                     .position(|question| question.id == current)
             })
             .unwrap_or(0);
-        SessionState {
+        let mut state = SessionState {
             id: id.into(),
             session,
             working,
-            current,
-            cursor: 0,
-            mode: Mode::Browse,
+            tab,
+            row: 0,
+            focus: Focus::None,
+            editor: None,
+            reject_reason: String::new(),
+            help: false,
             message: None,
             image_full_screen: false,
-        }
+        };
+        state.arrive();
+        state
     }
 
     /// Takes over a session file that was replaced while it was open,
@@ -186,18 +194,30 @@ impl SessionState {
         &self.session
     }
 
-    /// The index of the current question.
-    pub fn current(&self) -> usize {
-        self.current
+    /// The current tab: a question index, or the review after the last.
+    pub fn tab(&self) -> usize {
+        self.tab
     }
 
-    /// The option under the cursor in the current question.
-    pub fn cursor(&self) -> usize {
-        self.cursor
+    pub fn tab_count(&self) -> usize {
+        self.session.questions.len() + 1
     }
 
-    pub fn mode(&self) -> &Mode {
-        &self.mode
+    pub fn on_review(&self) -> bool {
+        self.tab == self.session.questions.len()
+    }
+
+    /// The row under the cursor, an index into [`Self::rows`].
+    pub fn row(&self) -> usize {
+        self.row
+    }
+
+    pub fn focus(&self) -> Focus {
+        self.focus
+    }
+
+    pub fn help(&self) -> bool {
+        self.help
     }
 
     /// Feedback on the last key, shown until the next one.
@@ -209,8 +229,35 @@ impl SessionState {
         self.image_full_screen
     }
 
-    fn question(&self) -> &Question {
-        &self.session.questions[self.current]
+    pub fn reject_reason(&self) -> &str {
+        &self.reject_reason
+    }
+
+    /// The question of the current tab; the review has none.
+    pub fn question(&self) -> Option<&Question> {
+        self.session.questions.get(self.tab)
+    }
+
+    /// The rows of the current tab.
+    pub fn rows(&self) -> Vec<Row> {
+        let Some(question) = self.question() else {
+            let questions = (0..self.session.questions.len()).map(Row::Question);
+            return questions.chain([Row::Submit, Row::Reject]).collect();
+        };
+        if question.kind == Kind::Text {
+            return vec![Row::Answer];
+        }
+        let options = (0..question.options.as_ref().map_or(0, Vec::len)).map(Row::Option);
+        let own = question
+            .custom
+            .as_ref()
+            .is_some_and(|custom| custom.is_enabled())
+            .then_some(Row::Own);
+        options.chain(own).collect()
+    }
+
+    fn current_row(&self) -> Option<Row> {
+        self.rows().get(self.row).copied()
     }
 
     /// The working answers in the draft's shape, one per question.
@@ -233,8 +280,25 @@ impl SessionState {
             .collect()
     }
 
+    /// What a submit would send, counted.
+    pub fn counts(&self) -> Counts {
+        let result = result_answers(&self.session, &self.answers());
+        Counts {
+            answered: result.iter().filter(|answer| !answer.skipped).count(),
+            skipped: result.iter().filter(|answer| answer.skipped).count(),
+            defaulted: result.iter().filter(|answer| answer.defaulted).count(),
+        }
+    }
+
+    /// The draft; on the review it points at the last question.
     pub fn to_draft(&self) -> SessionResult {
-        SessionResult::draft(&self.id, &self.question().id, self.answers())
+        let current = self.tab.min(self.session.questions.len().saturating_sub(1));
+        let current = self
+            .session
+            .questions
+            .get(current)
+            .map_or("", |question| question.id.as_str());
+        SessionResult::draft(&self.id, current, self.answers())
     }
 
     pub fn question_states(&self) -> Vec<QuestionState> {
@@ -253,250 +317,245 @@ impl SessionState {
             .collect()
     }
 
-    /// The text in the open editor, if one is open.
-    pub fn editor_text(&self) -> Option<String> {
-        match &self.mode {
-            Mode::Editing { editor, .. } | Mode::ConfirmReject(editor) => {
-                Some(editor.lines().join("\n"))
-            }
-            _ => None,
-        }
+    /// The text of the focused field.
+    pub fn field_text(&self) -> Option<String> {
+        (self.focus == Focus::Field)
+            .then(|| self.editor_text())
+            .flatten()
     }
 
-    /// The length of the text in the open editor and the limits it is
-    /// counted against, when the field has limits.
-    pub fn editor_length(&self) -> Option<(usize, Length)> {
-        let Mode::Editing { field, editor } = &self.mode else {
+    /// The text of the note being edited.
+    pub fn note_text(&self) -> Option<String> {
+        (self.focus == Focus::Note)
+            .then(|| self.editor_text())
+            .flatten()
+    }
+
+    fn editor_text(&self) -> Option<String> {
+        self.editor.as_ref().map(|editor| editor.lines().join("\n"))
+    }
+
+    /// The text cursor (line, column) of the focused field or note.
+    pub fn field_cursor(&self) -> Option<(usize, usize)> {
+        self.editor.as_ref().map(|editor| {
+            let cursor = editor.cursor();
+            (cursor.0, cursor.1)
+        })
+    }
+
+    /// The length of the focused field and the limits it is counted
+    /// against, when the field has limits.
+    pub fn field_length(&self) -> Option<(usize, Length)> {
+        if self.focus != Focus::Field {
             return None;
-        };
-        let limits = self.limits(*field)?;
-        Some((text_length(editor), limits))
+        }
+        let limits = self.limits(self.current_row()?)?;
+        Some((text_length(self.editor.as_ref()?), limits))
     }
 
-    fn limits(&self, field: Field) -> Option<Length> {
-        let question = self.question();
-        match (field, question.kind) {
-            (Field::Note, _) => None,
-            (Field::Custom, Kind::Text) => question.length,
-            (Field::Custom, _) => question
+    fn limits(&self, row: Row) -> Option<Length> {
+        let question = self.question()?;
+        // Only the answer of a text question and the own answer carry a
+        // length; the reject reason has none, and the review has no
+        // question at all.
+        if row == Row::Answer {
+            question.length
+        } else {
+            question
                 .custom
                 .as_ref()
                 .and_then(|custom| custom.length())
-                .copied(),
+                .copied()
         }
-    }
-
-    fn is_multiline(&self, field: Field) -> bool {
-        let question = self.question();
-        // Own answers are always one line (ADR 22).
-        matches!(
-            (field, question.kind),
-            (Field::Note, _) | (Field::Custom, Kind::Text)
-        )
     }
 
     /// Handles one key.
     pub fn handle(&mut self, key: KeyEvent) -> Effect {
         self.message = None;
-        match std::mem::replace(&mut self.mode, Mode::Browse) {
-            Mode::Browse => self.browse(key),
-            Mode::Help => Effect::None,
-            Mode::Editing { field, editor } => self.edit(field, editor, key),
-            Mode::ConfirmSubmit(counts) => match key.code {
-                KeyCode::Enter => Effect::Submit(result_answers(&self.session, &self.answers())),
-                KeyCode::Esc => Effect::None,
-                _ => {
-                    self.mode = Mode::ConfirmSubmit(counts);
-                    Effect::None
-                }
-            },
-            Mode::ConfirmReject(reason) => self.reject(reason, key),
+        if self.help {
+            self.help = false;
+            return Effect::None;
+        }
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Effect::Quit;
+        }
+        match self.focus {
+            Focus::None => self.command(key),
+            Focus::Field => self.field_key(key),
+            Focus::Note => self.note_key(key),
         }
     }
 
-    fn browse(&mut self, key: KeyEvent) -> Effect {
+    // -----------------------------------------------------------------
+    // Keys outside fields
+    // -----------------------------------------------------------------
+
+    fn command(&mut self, key: KeyEvent) -> Effect {
         if key.modifiers.contains(KeyModifiers::CONTROL) {
-            return if key.code == KeyCode::Char('c') {
-                Effect::Quit
-            } else {
-                Effect::None
-            };
+            return Effect::None;
         }
-        let options = self.question().options.as_ref().map_or(0, Vec::len);
         match key.code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                self.cursor = (self.cursor + 1).min(options.saturating_sub(1));
-                Effect::None
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                self.cursor = self.cursor.saturating_sub(1);
-                Effect::None
-            }
-            KeyCode::Tab | KeyCode::Char('J') => self.go_to(self.current + 1),
-            KeyCode::BackTab | KeyCode::Char('K') => match self.current.checked_sub(1) {
-                Some(previous) => self.go_to(previous),
+            KeyCode::Char('k') | KeyCode::Up => self.move_row(-1),
+            KeyCode::Char('j') | KeyCode::Down => self.move_row(1),
+            KeyCode::Char('h') | KeyCode::Left => match self.tab.checked_sub(1) {
+                Some(previous) => self.go_to_tab(previous),
                 None => Effect::None,
             },
-            KeyCode::Char(' ') | KeyCode::Enter if self.question().kind == Kind::Text => {
-                self.open_editor(Field::Custom)
-            }
-            KeyCode::Char(' ') | KeyCode::Enter => self.toggle(self.cursor),
+            KeyCode::Char('l') | KeyCode::Right => self.go_to_tab(self.tab + 1),
+            KeyCode::Enter => self.enter(),
+            KeyCode::Char(' ') => match self.current_row() {
+                Some(Row::Option(index)) if self.kind() == Some(Kind::Multi) => self.toggle(index),
+                _ => Effect::None,
+            },
             KeyCode::Char(digit @ '1'..='9') => {
                 let index = digit as usize - '1' as usize;
-                if index < options {
-                    self.cursor = index;
-                    // A digit picks: on a single question it never
-                    // deselects the option it names.
-                    let picked = self.question().kind == Kind::Single
-                        && option_ids(self.question()).nth(index).is_some_and(|id| {
-                            self.working[self.current].selected == [id.to_owned()]
-                        });
-                    if picked {
-                        self.working[self.current].touched = true;
-                        Effect::DraftChanged
-                    } else {
-                        self.toggle(index)
-                    }
-                } else {
-                    Effect::None
+                if !self.rows().contains(&Row::Option(index)) {
+                    return Effect::None;
+                }
+                self.row = index;
+                match self.kind() {
+                    Some(Kind::Multi) => self.toggle(index),
+                    _ => self.pick(index),
                 }
             }
-            KeyCode::Char('c') => self.open_editor(Field::Custom),
-            KeyCode::Char('n') => self.open_editor(Field::Note),
-            KeyCode::Char('S') => self.ask_submit(),
-            KeyCode::Char('X') => {
-                self.mode = Mode::ConfirmReject(TextArea::default());
-                Effect::None
-            }
+            KeyCode::Char('n') => self.open_note(),
             KeyCode::Char('q') => Effect::Quit,
             KeyCode::Char('?') => {
-                self.mode = Mode::Help;
+                self.help = true;
                 Effect::None
             }
             KeyCode::Char('L') => Effect::OpenSessionList,
-            KeyCode::Char('o') => match &self.question().image {
-                Some(image) => Effect::OpenImage(image.clone()),
+            KeyCode::Char('o') => match self.question().and_then(|question| question.image.clone())
+            {
+                Some(image) => Effect::OpenImage(image),
                 None => Effect::None,
             },
             KeyCode::Char('z') => {
-                self.image_full_screen = self.question().image.is_some() && !self.image_full_screen;
+                let has_image = self
+                    .question()
+                    .is_some_and(|question| question.image.is_some());
+                self.image_full_screen = has_image && !self.image_full_screen;
                 Effect::None
             }
             _ => Effect::None,
         }
     }
 
-    fn go_to(&mut self, index: usize) -> Effect {
-        if index >= self.session.questions.len() {
+    fn kind(&self) -> Option<Kind> {
+        self.question().map(|question| question.kind)
+    }
+
+    /// `enter` on the current row.
+    fn enter(&mut self) -> Effect {
+        let row = self
+            .current_row()
+            .expect("validation leaves every tab at least one row");
+        match row {
+            Row::Option(index) if self.kind() == Some(Kind::Single) => self.pick(index),
+            Row::Option(_) | Row::Answer => self.go_to_tab(self.tab + 1),
+            Row::Own => self.pick_own(),
+            Row::Question(index) => self.go_to_tab(index),
+            Row::Submit => self.submit(),
+            Row::Reject => {
+                let reason = self.reject_reason.trim();
+                Effect::Reject((!reason.is_empty()).then(|| reason.to_owned()))
+            }
+        }
+    }
+
+    fn move_row(&mut self, delta: isize) -> Effect {
+        let last = self.rows().len().saturating_sub(1);
+        let row = self.row.saturating_add_signed(delta).min(last);
+        // Landing on a row focuses its field; a field left with esc is
+        // landed on again when the move stays on it, as on a text question
+        // with its single row.
+        if row != self.row || self.focus == Focus::None {
+            self.row = row;
+            self.arrive();
+        }
+        Effect::None
+    }
+
+    fn go_to_tab(&mut self, tab: usize) -> Effect {
+        if tab >= self.tab_count() {
             return Effect::None;
         }
-        self.current = index;
-        self.cursor = 0;
+        self.tab = tab;
+        self.row = 0;
         self.image_full_screen = false;
+        self.arrive();
         Effect::DraftChanged
     }
 
+    /// Focuses the field of the current row, if it is one. Called whenever
+    /// the cursor lands on a row.
+    fn arrive(&mut self) {
+        match self.current_row() {
+            Some(row) if row.is_field() => {
+                let text = match row {
+                    Row::Reject => self.reject_reason.clone(),
+                    _ => self.working[self.tab].custom.clone(),
+                };
+                self.editor = Some(editor_with(&text));
+                self.focus = Focus::Field;
+            }
+            _ => {
+                self.editor = None;
+                self.focus = Focus::None;
+            }
+        }
+    }
+
+    /// Picks option `index` of a single question and moves on.
+    fn pick(&mut self, index: usize) -> Effect {
+        let id = self
+            .question()
+            .and_then(|question| option_ids(question).nth(index).map(str::to_owned))
+            .expect("callers only pick options the question has");
+        let working = &mut self.working[self.tab];
+        working.selected = vec![id];
+        working.touched = true;
+        self.go_to_tab(self.tab + 1)
+    }
+
+    /// Picks the own answer and moves on. On a single question that
+    /// deselects the options, since the own answer counts only without one.
+    fn pick_own(&mut self) -> Effect {
+        if self.kind() == Some(Kind::Single) {
+            let working = &mut self.working[self.tab];
+            working.selected.clear();
+            working.touched = true;
+        }
+        self.go_to_tab(self.tab + 1)
+    }
+
     fn toggle(&mut self, index: usize) -> Effect {
-        let question = &self.session.questions[self.current];
+        let question = &self.session.questions[self.tab];
         let id = option_ids(question)
             .nth(index)
             .map(str::to_owned)
             .expect("callers only toggle options the question has");
-        let working = &mut self.working[self.current];
-        match question.kind {
-            Kind::Single if working.selected == [id.clone()] => working.selected.clear(),
-            Kind::Single => {
-                working.selected = vec![id];
-                working.custom.clear();
+        let working = &mut self.working[self.tab];
+        if working.selected.contains(&id) {
+            working.selected.retain(|selected| *selected != id);
+        } else {
+            if let Some(max) = question.max
+                && working.selected.len() >= max as usize
+            {
+                self.message = Some(format!("at most {max} options"));
+                return Effect::None;
             }
-            _ if working.selected.contains(&id) => {
-                working.selected.retain(|selected| *selected != id)
-            }
-            _ => {
-                if let Some(max) = question.max
-                    && working.selected.len() >= max as usize
-                {
-                    self.message = Some(format!("at most {max} options"));
-                    return Effect::None;
-                }
-                working.selected.push(id);
-                let order: Vec<&str> = option_ids(question).collect();
-                working
-                    .selected
-                    .sort_by_key(|selected| order.iter().position(|id| id == selected));
-            }
+            working.selected.push(id);
+            let order: Vec<&str> = option_ids(question).collect();
+            working
+                .selected
+                .sort_by_key(|selected| order.iter().position(|id| id == selected));
         }
         working.touched = true;
         Effect::DraftChanged
     }
 
-    fn open_editor(&mut self, field: Field) -> Effect {
-        let question = self.question();
-        let allowed = match field {
-            Field::Note => question.note,
-            Field::Custom => {
-                question.kind == Kind::Text
-                    || question
-                        .custom
-                        .as_ref()
-                        .is_some_and(|custom| custom.is_enabled())
-            }
-        };
-        if !allowed {
-            self.message = Some(
-                match field {
-                    Field::Note => "this question takes no note",
-                    Field::Custom => "this question takes no typed answer",
-                }
-                .to_owned(),
-            );
-            return Effect::None;
-        }
-        let working = &self.working[self.current];
-        let text = match field {
-            Field::Custom => &working.custom,
-            Field::Note => &working.note,
-        };
-        self.mode = Mode::Editing {
-            field,
-            editor: editor_with(text),
-        };
-        Effect::None
-    }
-
-    fn edit(&mut self, field: Field, mut editor: TextArea<'static>, key: KeyEvent) -> Effect {
-        if key.code == KeyCode::Esc {
-            let text = editor.lines().join("\n");
-            let working = &mut self.working[self.current];
-            match field {
-                Field::Custom => {
-                    // A single question is answered by an option or by
-                    // typed text, never both.
-                    if self.session.questions[self.current].kind == Kind::Single
-                        && !text.trim().is_empty()
-                    {
-                        working.selected.clear();
-                    }
-                    working.custom = text;
-                }
-                Field::Note => working.note = text,
-            }
-            working.touched = true;
-            return Effect::DraftChanged;
-        }
-
-        // The key is tried on a copy, so a line break in a single-line
-        // field is dropped as a whole.
-        let before = editor.clone();
-        editor.input(key);
-        if !self.is_multiline(field) && editor.lines().len() > 1 {
-            editor = before;
-        }
-        self.mode = Mode::Editing { field, editor };
-        Effect::None
-    }
-
-    fn ask_submit(&mut self) -> Effect {
+    fn submit(&mut self) -> Effect {
         let answers = self.answers();
         let missing = unanswered_required(&self.session, &answers);
         if let Some(first) = missing.first() {
@@ -510,30 +569,101 @@ impl SessionState {
                 .iter()
                 .position(|question| question.id == *first)
                 .expect("unanswered_required returns ids of this session");
-            return self.go_to(first);
+            return self.go_to_tab(first);
         }
-        let result = result_answers(&self.session, &answers);
-        self.mode = Mode::ConfirmSubmit(Counts {
-            answered: result.iter().filter(|answer| !answer.skipped).count(),
-            skipped: result.iter().filter(|answer| answer.skipped).count(),
-            defaulted: result.iter().filter(|answer| answer.defaulted).count(),
-        });
+        Effect::Submit(result_answers(&self.session, &answers))
+    }
+
+    fn open_note(&mut self) -> Effect {
+        let Some(question) = self.question() else {
+            return Effect::None;
+        };
+        if !question.note {
+            self.message = Some("this question takes no note".to_owned());
+            return Effect::None;
+        }
+        self.editor = Some(editor_with(&self.working[self.tab].note));
+        self.focus = Focus::Note;
         Effect::None
     }
 
-    fn reject(&mut self, mut reason: TextArea<'static>, key: KeyEvent) -> Effect {
+    // -----------------------------------------------------------------
+    // Keys inside fields
+    // -----------------------------------------------------------------
+
+    fn field_key(&mut self, key: KeyEvent) -> Effect {
         match key.code {
-            KeyCode::Esc => Effect::None,
-            KeyCode::Enter => {
-                let reason = reason.lines().join(" ").trim().to_owned();
-                Effect::Reject((!reason.is_empty()).then_some(reason))
-            }
-            _ => {
-                reason.input(key);
-                self.mode = Mode::ConfirmReject(reason);
+            KeyCode::Esc => {
+                self.focus = Focus::None;
+                self.editor = None;
                 Effect::None
             }
+            KeyCode::Up => self.move_row(-1),
+            KeyCode::Down => self.move_row(1),
+            KeyCode::Enter => self.enter(),
+            _ => {
+                // Only a text answer spans several lines; own answers and
+                // the reject reason are one line (ADR 22).
+                let multiline = self.current_row() == Some(Row::Answer);
+                if !self.edit(key, multiline) {
+                    return Effect::None;
+                }
+                let text = self.editor_text().unwrap_or_default();
+                if self.current_row() == Some(Row::Reject) {
+                    self.reject_reason = text;
+                    return Effect::None;
+                }
+                let working = &mut self.working[self.tab];
+                working.custom = text;
+                working.touched = true;
+                Effect::DraftChanged
+            }
         }
+    }
+
+    fn note_key(&mut self, key: KeyEvent) -> Effect {
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter => {
+                self.arrive();
+                Effect::None
+            }
+            _ => {
+                if !self.edit(key, true) {
+                    return Effect::None;
+                }
+                let working = &mut self.working[self.tab];
+                working.note = self
+                    .editor
+                    .as_ref()
+                    .map(|editor| editor.lines().join("\n"))
+                    .unwrap_or_default();
+                working.touched = true;
+                Effect::DraftChanged
+            }
+        }
+    }
+
+    /// Applies `key` to the editor and says whether the text changed.
+    /// `ctrl-j` adds a line where `multiline` allows one; any other way to
+    /// a second line in a one-line field is undone.
+    fn edit(&mut self, key: KeyEvent, multiline: bool) -> bool {
+        let editor = self
+            .editor
+            .as_mut()
+            .expect("a focused field or note always has its editor");
+        let before = editor.lines().to_vec();
+        if key.code == KeyCode::Char('j') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if multiline {
+                editor.insert_newline();
+            }
+        } else {
+            let previous = editor.clone();
+            editor.input(key);
+            if !multiline && editor.lines().len() > 1 {
+                *editor = previous;
+            }
+        }
+        editor.lines() != before.as_slice()
     }
 }
 
@@ -573,8 +703,8 @@ fn restored(question: &Question, answer: &Answer) -> Working {
 fn editor_with(text: &str) -> TextArea<'static> {
     let mut editor = TextArea::new(text.split('\n').map(str::to_owned).collect());
     editor.set_hard_tab_indent(true);
-    editor.move_cursor(ratatui_textarea::CursorMove::Bottom);
-    editor.move_cursor(ratatui_textarea::CursorMove::End);
+    editor.move_cursor(CursorMove::Bottom);
+    editor.move_cursor(CursorMove::End);
     editor
 }
 
@@ -617,14 +747,14 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
-    fn ch(c: char) -> KeyEvent {
-        code(KeyCode::Char(c))
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
     }
 
     fn press(state: &mut SessionState, keys: &str) -> Effect {
         let mut last = Effect::None;
         for c in keys.chars() {
-            last = state.handle(ch(c));
+            last = state.handle(code(KeyCode::Char(c)));
         }
         last
     }
@@ -637,105 +767,119 @@ mod tests {
             .expect("every question has an answer")
     }
 
+    /// Moves right until tab `tab` is current, leaving any focused field
+    /// first, as a person would with `esc`.
+    fn go_to_tab(state: &mut SessionState, tab: usize) {
+        while state.tab() < tab {
+            if state.focus() != Focus::None {
+                state.handle(code(KeyCode::Esc));
+            }
+            state.handle(code(KeyCode::Right));
+        }
+    }
+
     // ---------------------------------------------------------------
-    // Navigation
+    // Tabs and rows
     // ---------------------------------------------------------------
 
     #[test]
-    fn starts_on_the_first_question_and_option() {
+    fn starts_on_the_first_row_of_the_first_question() {
         let state = state();
 
-        assert_eq!((state.current(), state.cursor()), (0, 0));
-        assert_eq!(state.mode(), &Mode::Browse);
+        assert_eq!((state.tab(), state.row()), (0, 0));
+        assert_eq!(state.focus(), Focus::None);
+        assert_eq!(state.tab_count(), 5, "four questions and the review");
     }
 
     #[test]
-    fn moves_within_the_options_and_stops_at_the_ends() {
+    fn the_rows_are_the_options_then_the_own_answer() {
         let mut state = state();
 
-        press(&mut state, "jjj");
-        assert_eq!(state.cursor(), 1);
-        state.handle(code(KeyCode::Up));
-        state.handle(code(KeyCode::Up));
-        assert_eq!(state.cursor(), 0);
-        state.handle(code(KeyCode::Down));
-        assert_eq!(state.cursor(), 1);
+        assert_eq!(state.rows(), [Row::Option(0), Row::Option(1), Row::Own]);
+        go_to_tab(&mut state, 2);
+        assert_eq!(state.rows(), [Row::Answer]);
+        go_to_tab(&mut state, 4);
+        assert_eq!(
+            state.rows(),
+            [
+                Row::Question(0),
+                Row::Question(1),
+                Row::Question(2),
+                Row::Question(3),
+                Row::Submit,
+                Row::Reject
+            ]
+        );
+    }
+
+    #[test]
+    fn up_and_down_move_between_rows_and_stop_at_the_ends() {
+        let mut state = state();
+
         press(&mut state, "k");
-        assert_eq!(state.cursor(), 0);
-    }
-
-    #[test]
-    fn moves_between_questions_and_saves_the_position() {
-        let mut state = state();
-
-        assert_eq!(state.handle(code(KeyCode::Tab)), Effect::DraftChanged);
-        assert_eq!(state.current(), 1);
-        press(&mut state, "JJJJ");
-        assert_eq!(state.current(), 3, "stops at the last question");
-        state.handle(code(KeyCode::BackTab));
-        press(&mut state, "K");
-        assert_eq!(state.current(), 1);
-        assert_eq!(
-            state.cursor(),
-            0,
-            "each question starts on its first option"
-        );
-        assert_eq!(state.to_draft().current.as_deref(), Some("multi"));
-    }
-
-    #[test]
-    fn moving_past_either_end_changes_nothing() {
-        let mut state = state();
-
-        assert_eq!(press(&mut state, "K"), Effect::None);
-        assert_eq!(state.current(), 0);
-    }
-
-    // ---------------------------------------------------------------
-    // Selecting
-    // ---------------------------------------------------------------
-
-    #[test]
-    fn a_default_counts_until_the_person_edits_the_question() {
-        let mut state = state();
-        assert_eq!(
-            answer(&state, "single"),
-            Answer {
-                selected: vec!["b".into()],
-                defaulted: true,
-                ..Answer::new("single")
-            }
-        );
-
-        // Choosing another option and then the default again is still an
-        // edit.
-        press(&mut state, " ");
+        assert_eq!(state.row(), 0);
+        press(&mut state, "j");
         state.handle(code(KeyCode::Down));
-        state.handle(code(KeyCode::Enter));
-
-        assert_eq!(answer(&state, "single").selected, ["b"]);
-        assert!(!answer(&state, "single").defaulted);
+        assert_eq!(state.row(), 2);
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.row(), 2, "the own-answer row is the last");
+        state.handle(code(KeyCode::Up));
+        assert_eq!(state.row(), 1);
     }
 
     #[test]
-    fn single_selects_one_option_and_toggles_it_off_again() {
+    fn left_and_right_switch_questions_up_to_the_review() {
         let mut state = state();
 
-        assert_eq!(press(&mut state, " "), Effect::DraftChanged);
-        assert_eq!(answer(&state, "single").selected, ["a"]);
-        press(&mut state, " ");
-        assert!(answer(&state, "single").selected.is_empty());
+        assert_eq!(state.handle(code(KeyCode::Right)), Effect::DraftChanged);
+        assert_eq!(state.tab(), 1);
+        press(&mut state, "l");
+        // The text question's field takes the keys until esc.
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "lll");
+        assert_eq!(state.tab(), 4, "the review is the last tab");
+        assert!(state.on_review());
+        press(&mut state, "h");
+        state.handle(code(KeyCode::Left));
+        assert_eq!((state.tab(), state.row()), (2, 0));
+        assert_eq!(state.to_draft().current.as_deref(), Some("text"));
     }
 
     #[test]
-    fn digits_pick_an_option_directly() {
+    fn switching_past_either_end_changes_nothing() {
+        let mut state = state();
+
+        assert_eq!(press(&mut state, "h"), Effect::None);
+        assert_eq!(state.tab(), 0);
+    }
+
+    // ---------------------------------------------------------------
+    // Picking
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn enter_picks_on_a_single_question_and_moves_on() {
+        let mut state = state();
+
+        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::DraftChanged);
+
+        assert_eq!(answer(&state, "single").selected, ["a"]);
+        assert_eq!(state.tab(), 1);
+    }
+
+    #[test]
+    fn a_digit_picks_directly_and_moves_on() {
         let mut state = state();
 
         press(&mut state, "2");
-        assert_eq!(
-            (state.cursor(), answer(&state, "single").selected),
-            (1, vec!["b".to_owned()])
+        assert_eq!(answer(&state, "single").selected, ["b"]);
+        assert!(
+            !answer(&state, "single").defaulted,
+            "picking the default is an answer"
         );
+        assert_eq!(state.tab(), 1);
+
+        go_to_tab(&mut state, 3);
         assert_eq!(
             press(&mut state, "9"),
             Effect::None,
@@ -744,11 +888,33 @@ mod tests {
     }
 
     #[test]
-    fn multi_toggles_options_up_to_max() {
+    fn space_does_nothing_on_a_single_question() {
         let mut state = state();
-        press(&mut state, "J");
 
-        press(&mut state, "31");
+        assert_eq!(press(&mut state, " "), Effect::None);
+        assert_eq!(answer(&state, "single").selected, ["b"]);
+    }
+
+    #[test]
+    fn a_default_counts_until_the_person_edits_the_question() {
+        let state = state();
+
+        assert_eq!(
+            answer(&state, "single"),
+            Answer {
+                selected: vec!["b".into()],
+                defaulted: true,
+                ..Answer::new("single")
+            }
+        );
+    }
+
+    #[test]
+    fn multi_toggles_with_space_and_digits_up_to_max_and_enter_moves_on() {
+        let mut state = state();
+        press(&mut state, "l");
+
+        press(&mut state, " 3");
         assert_eq!(
             answer(&state, "multi").selected,
             ["x", "z"],
@@ -758,122 +924,243 @@ mod tests {
         assert_eq!(state.message(), Some("at most 2 options"));
         press(&mut state, "1");
         assert_eq!(answer(&state, "multi").selected, ["z"]);
-    }
+        assert_eq!(state.tab(), 1, "toggling stays on the question");
 
-    #[test]
-    fn selecting_does_nothing_on_a_text_question_but_opens_its_editor() {
-        let mut state = state();
-        press(&mut state, "JJ");
-
-        press(&mut state, "1");
-        assert_eq!(state.mode(), &Mode::Browse);
         state.handle(code(KeyCode::Enter));
-        assert!(matches!(
-            state.mode(),
-            Mode::Editing {
-                field: Field::Custom,
-                ..
-            }
-        ));
+        assert_eq!(state.tab(), 2);
+    }
+
+    #[test]
+    fn enter_on_the_last_question_moves_on_to_the_review() {
+        let mut state = state();
+        go_to_tab(&mut state, 3);
+
+        state.handle(code(KeyCode::Enter));
+
+        assert!(state.on_review());
     }
 
     // ---------------------------------------------------------------
-    // Text fields
+    // The own answer
     // ---------------------------------------------------------------
 
     #[test]
-    fn typed_custom_text_replaces_the_selection_of_a_single() {
+    fn landing_on_the_own_answer_row_focuses_its_field() {
         let mut state = state();
-        press(&mut state, "1c");
 
-        press(&mut state, "own");
-        assert_eq!(state.handle(code(KeyCode::Esc)), Effect::DraftChanged);
+        press(&mut state, "jj");
 
+        assert_eq!(state.focus(), Focus::Field);
+        // Letters that are keys elsewhere type into the field.
+        press(&mut state, "jkhlnq1 ");
+        assert_eq!(state.field_text().as_deref(), Some("jkhlnq1 "));
+        assert_eq!(answer(&state, "single").custom.as_deref(), Some("jkhlnq1 "));
+    }
+
+    #[test]
+    fn arrows_edit_inside_the_field() {
+        let mut state = state();
+        press(&mut state, "jjac");
+
+        state.handle(code(KeyCode::Left));
+        press(&mut state, "b");
+
+        assert_eq!(state.field_text().as_deref(), Some("abc"));
+        assert_eq!(
+            state.tab(),
+            0,
+            "left moved the text cursor, not the question"
+        );
+    }
+
+    #[test]
+    fn up_leaves_the_field_and_keeps_the_text() {
+        let mut state = state();
+        press(&mut state, "jjown");
+
+        state.handle(code(KeyCode::Up));
+
+        assert_eq!((state.row(), state.focus()), (1, Focus::None));
+        assert_eq!(answer(&state, "single").custom.as_deref(), Some("own"));
+    }
+
+    #[test]
+    fn a_chosen_option_wins_over_typed_text_until_the_own_answer_is_picked() {
+        let mut state = state();
+        press(&mut state, "jjown");
+        state.handle(code(KeyCode::Up));
+
+        // The default b is still chosen, so it counts.
         let single = answer(&state, "single");
         assert_eq!(
-            (single.selected.len(), single.custom.as_deref()),
-            (0, Some("own"))
+            (single.selected.clone(), single.custom.as_deref()),
+            (vec!["b".to_owned()], Some("own"))
         );
-        // And selecting clears the text again.
-        press(&mut state, "1");
-        assert_eq!(answer(&state, "single").custom, None);
+
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::DraftChanged);
+
+        let single = answer(&state, "single");
+        assert!(
+            single.selected.is_empty(),
+            "picking the own answer deselects the options"
+        );
+        assert_eq!(single.custom.as_deref(), Some("own"));
+        assert_eq!(state.tab(), 1, "and moves on");
     }
 
     #[test]
-    fn every_key_but_esc_goes_to_the_editor() {
+    fn esc_leaves_the_field_so_keys_work_again() {
         let mut state = state();
-        press(&mut state, "c");
+        press(&mut state, "jjx");
 
-        press(&mut state, "qSXJ?1");
-        state.handle(code(KeyCode::Tab));
-        state.handle(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
         state.handle(code(KeyCode::Esc));
+        assert_eq!((state.row(), state.focus()), (2, Focus::None));
+        press(&mut state, "l");
 
-        assert_eq!(state.current(), 0);
-        assert_eq!(answer(&state, "single").custom.as_deref(), Some("qSXJ?1\t"));
+        assert_eq!(state.tab(), 1);
     }
 
     #[test]
-    fn a_single_line_custom_entry_ignores_enter() {
+    fn the_own_answer_is_one_line() {
         let mut state = state();
-        press(&mut state, "cab");
+        press(&mut state, "jja");
 
+        state.handle(ctrl('j'));
+        press(&mut state, "b");
+
+        assert_eq!(state.field_text().as_deref(), Some("ab"));
+    }
+
+    #[test]
+    fn on_a_multi_question_the_own_answer_counts_once_it_has_text() {
+        let mut state = state();
+        press(&mut state, "l ");
+        press(&mut state, "jjjmore");
         state.handle(code(KeyCode::Enter));
-        press(&mut state, "c");
-        state.handle(code(KeyCode::Esc));
 
-        assert_eq!(answer(&state, "single").custom.as_deref(), Some("abc"));
+        let multi = answer(&state, "multi");
+        assert_eq!(
+            (multi.selected, multi.custom.as_deref()),
+            (vec!["x".to_owned()], Some("more"))
+        );
+        assert_eq!(state.tab(), 2);
     }
 
+    // ---------------------------------------------------------------
+    // Text questions
+    // ---------------------------------------------------------------
+
     #[test]
-    fn typing_beyond_the_target_is_never_refused() {
+    fn a_text_question_types_right_away_and_takes_new_lines() {
         let mut state = state();
-        press(&mut state, "JJc");
+        go_to_tab(&mut state, 2);
+        assert_eq!(state.focus(), Focus::Field);
 
-        press(&mut state, "123456");
+        press(&mut state, "one");
+        state.handle(ctrl('j'));
+        press(&mut state, "two");
 
-        assert_eq!(state.editor_text().as_deref(), Some("123456"));
+        assert_eq!(answer(&state, "text").custom.as_deref(), Some("one\ntwo"));
         assert_eq!(
-            state.editor_length(),
+            state.field_length(),
             Some((
-                6,
+                7,
                 Length {
                     target: None,
                     warn: Some(5)
                 }
             ))
         );
+
+        state.handle(code(KeyCode::Enter));
+        assert_eq!(state.tab(), 3, "enter moves on");
     }
 
     #[test]
-    fn notes_are_multiline_and_count_as_an_edit() {
+    fn a_text_question_can_be_left_with_esc() {
         let mut state = state();
-        press(&mut state, "na");
-        state.handle(code(KeyCode::Enter));
-        press(&mut state, "b");
+        go_to_tab(&mut state, 2);
+
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "h");
+
+        assert_eq!(state.tab(), 1);
+    }
+
+    #[test]
+    fn up_or_down_on_a_left_field_focuses_it_again() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
         state.handle(code(KeyCode::Esc));
 
-        let single = answer(&state, "single");
-        assert_eq!(single.note.as_deref(), Some("a\nb"));
-        assert!(!single.defaulted, "the person edited the question");
+        state.handle(code(KeyCode::Down));
+
+        assert_eq!(state.focus(), Focus::Field);
     }
 
     #[test]
-    fn questions_without_notes_or_custom_entry_say_so() {
+    fn coming_back_to_a_field_row_focuses_it_again() {
         let mut state = state();
-        press(&mut state, "JJJ");
+        go_to_tab(&mut state, 2);
+        state.handle(code(KeyCode::Esc));
+
+        press(&mut state, "lh");
+
+        assert_eq!(state.focus(), Focus::Field);
+    }
+
+    // ---------------------------------------------------------------
+    // Notes
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn n_edits_the_note_in_place_over_several_lines() {
+        let mut state = state();
+
+        press(&mut state, "n");
+        assert_eq!(state.focus(), Focus::Note);
+        press(&mut state, "a");
+        state.handle(ctrl('j'));
+        press(&mut state, "b");
+        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::None);
+
+        assert_eq!(state.focus(), Focus::None);
+        let single = answer(&state, "single");
+        assert_eq!(single.note.as_deref(), Some("a\nb"));
+        assert!(!single.defaulted, "a note is an edit of the question");
+        assert_eq!(state.tab(), 0, "enter leaves the note without moving on");
+    }
+
+    #[test]
+    fn esc_leaves_the_note_too() {
+        let mut state = state();
+        press(&mut state, "nx");
+
+        state.handle(code(KeyCode::Esc));
+
+        assert_eq!(
+            (state.focus(), answer(&state, "single").note.as_deref()),
+            (Focus::None, Some("x"))
+        );
+    }
+
+    #[test]
+    fn questions_without_notes_say_so() {
+        let mut state = state();
+        go_to_tab(&mut state, 3);
 
         assert_eq!(press(&mut state, "n"), Effect::None);
+
         assert_eq!(state.message(), Some("this question takes no note"));
-        press(&mut state, "c");
-        assert_eq!(state.message(), Some("this question takes no typed answer"));
-        assert_eq!(state.mode(), &Mode::Browse);
+        assert_eq!(state.focus(), Focus::None);
     }
 
     #[test]
     fn a_message_lasts_until_the_next_key() {
         let mut state = state();
-        press(&mut state, "JJJn");
+        go_to_tab(&mut state, 3);
+        press(&mut state, "n");
 
         press(&mut state, "k");
 
@@ -881,19 +1168,30 @@ mod tests {
     }
 
     // ---------------------------------------------------------------
-    // Submitting, rejecting, quitting
+    // The review
     // ---------------------------------------------------------------
 
     #[test]
-    fn required_questions_block_submit_and_take_the_cursor() {
+    fn enter_on_a_question_in_the_review_goes_there() {
         let mut state = state();
+        go_to_tab(&mut state, 4);
 
-        // The jump to the question is a change of position, saved with the
-        // draft.
-        assert_eq!(press(&mut state, "S"), Effect::DraftChanged);
+        press(&mut state, "j");
+        state.handle(code(KeyCode::Enter));
 
-        assert_eq!(state.mode(), &Mode::Browse);
-        assert_eq!(state.current(), 2);
+        assert_eq!((state.tab(), state.row()), (1, 0));
+    }
+
+    #[test]
+    fn submitting_with_missing_required_answers_goes_to_the_first() {
+        let mut state = state();
+        go_to_tab(&mut state, 4);
+        press(&mut state, "jjjj");
+        assert_eq!(state.rows()[state.row()], Row::Submit);
+
+        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::DraftChanged);
+
+        assert_eq!(state.tab(), 2);
         assert_eq!(
             state.message(),
             Some("answer the required questions first: text")
@@ -901,62 +1199,67 @@ mod tests {
     }
 
     #[test]
-    fn submit_asks_first_with_the_counts() {
+    fn submitting_sends_every_question() {
         let mut state = state();
-        press(&mut state, "JJcok");
-        state.handle(code(KeyCode::Esc));
+        go_to_tab(&mut state, 2);
+        press(&mut state, "ok");
+        state.handle(code(KeyCode::Enter));
+        go_to_tab(&mut state, 4);
+        press(&mut state, "jjjj");
 
-        press(&mut state, "S");
-        assert_eq!(
-            state.mode(),
-            &Mode::ConfirmSubmit(Counts {
-                answered: 2,
-                skipped: 2,
-                defaulted: 1
-            })
-        );
-        assert_eq!(state.handle(code(KeyCode::Esc)), Effect::None);
-        assert_eq!(state.mode(), &Mode::Browse);
-
-        press(&mut state, "S");
-        press(&mut state, "x");
         let Effect::Submit(answers) = state.handle(code(KeyCode::Enter)) else {
-            panic!("enter confirms the submit");
+            panic!("enter on Submit submits");
         };
+
         assert_eq!(answers.len(), 4);
         assert_eq!(answers[1], Answer::skipped("multi"));
         assert_eq!(answers[2].custom.as_deref(), Some("ok"));
     }
 
     #[test]
-    fn rejecting_asks_for_an_optional_reason() {
+    fn the_reject_row_takes_an_optional_reason() {
         let mut state = state();
+        go_to_tab(&mut state, 4);
+        press(&mut state, "jjjjj");
+        assert_eq!(state.focus(), Focus::Field);
 
-        press(&mut state, "X");
-        assert!(matches!(state.mode(), Mode::ConfirmReject(_)));
         press(&mut state, "  out of date ");
         assert_eq!(
             state.handle(code(KeyCode::Enter)),
             Effect::Reject(Some("out of date".into()))
         );
 
-        press(&mut state, "X");
-        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::Reject(None));
-
-        press(&mut state, "X");
-        state.handle(code(KeyCode::Esc));
-        assert_eq!(state.mode(), &Mode::Browse);
+        let mut empty = self::state();
+        go_to_tab(&mut empty, 4);
+        press(&mut empty, "jjjjj");
+        assert_eq!(empty.handle(code(KeyCode::Enter)), Effect::Reject(None));
     }
 
     #[test]
-    fn q_and_ctrl_c_quit() {
-        let mut state = state();
+    fn the_review_counts_what_a_submit_would_send() {
+        let state = state();
 
-        assert_eq!(press(&mut state, "q"), Effect::Quit);
         assert_eq!(
-            state.handle(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
-            Effect::Quit
+            state.counts(),
+            Counts {
+                answered: 1,
+                skipped: 3,
+                defaulted: 1
+            }
         );
+    }
+
+    // ---------------------------------------------------------------
+    // Everywhere
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn q_quits_outside_fields_and_ctrl_c_quits_everywhere() {
+        let mut state = state();
+        assert_eq!(press(&mut state, "q"), Effect::Quit);
+
+        press(&mut state, "jj");
+        assert_eq!(state.handle(ctrl('c')), Effect::Quit);
     }
 
     #[test]
@@ -964,38 +1267,40 @@ mod tests {
         let mut state = state();
 
         press(&mut state, "?");
-        assert_eq!(state.mode(), &Mode::Help);
+        assert!(state.help());
         assert_eq!(
             press(&mut state, "q"),
             Effect::None,
             "the key only closes the help"
         );
-        assert_eq!(state.mode(), &Mode::Browse);
+        assert!(!state.help());
     }
 
     #[test]
-    fn l_asks_for_the_session_list() {
-        assert_eq!(press(&mut state(), "L"), Effect::OpenSessionList);
-    }
-
-    #[test]
-    fn images_open_and_toggle_full_screen_where_there_is_one() {
+    fn l_asks_for_the_session_list_and_images_open_or_fill_the_screen() {
         let mut state = state();
+        assert_eq!(press(&mut state, "L"), Effect::OpenSessionList);
 
-        assert_eq!(press(&mut state, "o"), Effect::None);
+        assert_eq!(
+            press(&mut state, "o"),
+            Effect::None,
+            "no image on this question"
+        );
         press(&mut state, "z");
         assert!(!state.image_full_screen());
 
-        press(&mut state, "JJJ");
+        go_to_tab(&mut state, 3);
         assert_eq!(
             press(&mut state, "o"),
             Effect::OpenImage("/pictures/p.png".into())
         );
         press(&mut state, "z");
         assert!(state.image_full_screen());
-        press(&mut state, "J");
-        press(&mut state, "z");
-        assert!(!state.image_full_screen());
+        press(&mut state, "l");
+        assert!(
+            !state.image_full_screen(),
+            "another tab ends the full-screen view"
+        );
     }
 
     #[test]
@@ -1004,67 +1309,18 @@ mod tests {
 
         assert_eq!(press(&mut state, "w"), Effect::None);
         assert_eq!(state.handle(code(KeyCode::F(5))), Effect::None);
-        assert_eq!(
-            state.handle(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL)),
-            Effect::None
-        );
-        assert_eq!(state.cursor(), 0);
-    }
-
-    #[test]
-    fn knows_its_id_and_session() {
-        let state = state();
-
-        assert_eq!(state.id(), "batch");
-        assert_eq!(state.session().questions.len(), 4);
-    }
-
-    #[test]
-    fn has_no_editor_text_outside_an_editor() {
-        let mut state = state();
-        assert_eq!((state.editor_text(), state.editor_length()), (None, None));
-
-        press(&mut state, "c");
-        assert_eq!(state.editor_text().as_deref(), Some(""));
-        assert_eq!(
-            state.editor_length(),
-            None,
-            "the custom entry of this question has no limits"
-        );
-    }
-
-    #[test]
-    fn modes_compare_by_what_they_show() {
-        let editing = |text: &str| Mode::Editing {
-            field: Field::Note,
-            editor: editor_with(text),
-        };
-
-        assert_eq!(editing("a"), editing("a"));
-        assert_ne!(editing("a"), editing("b"));
-        assert_ne!(
-            editing("a"),
-            Mode::Editing {
-                field: Field::Custom,
-                editor: editor_with("a")
-            }
-        );
-        assert_eq!(
-            Mode::ConfirmReject(editor_with("r")),
-            Mode::ConfirmReject(editor_with("r"))
-        );
-        assert_ne!(Mode::ConfirmReject(editor_with("r")), Mode::Help);
+        assert_eq!(state.handle(ctrl('j')), Effect::None);
+        assert_eq!((state.tab(), state.row()), (0, 0));
     }
 
     // ---------------------------------------------------------------
-    // Drafts
+    // Drafts and the review list
     // ---------------------------------------------------------------
 
     #[test]
     fn a_draft_restores_answers_and_position() {
         let mut state = state();
-        press(&mut state, "1Jcown");
-        state.handle(code(KeyCode::Esc));
+        press(&mut state, "1jjjown");
         let draft = state.to_draft();
 
         let restored = SessionState::new(
@@ -1074,7 +1330,7 @@ mod tests {
         );
 
         assert_eq!(restored.answers(), state.answers());
-        assert_eq!(restored.current(), 1);
+        assert_eq!(restored.tab(), 1);
     }
 
     #[test]
@@ -1105,12 +1361,16 @@ mod tests {
             ["a"],
             "one option for a single"
         );
-        assert_eq!(
-            restored.current(),
-            0,
-            "an unknown cursor question starts at the top"
-        );
+        assert_eq!(restored.tab(), 0, "an unknown question starts at the top");
         assert_eq!(restored.answers().len(), 4);
+    }
+
+    #[test]
+    fn the_review_is_saved_as_the_last_question() {
+        let mut state = state();
+        go_to_tab(&mut state, 4);
+
+        assert_eq!(state.to_draft().current.as_deref(), Some("plain"));
     }
 
     #[test]
@@ -1125,16 +1385,20 @@ mod tests {
             answer(&state, "single").selected.is_empty(),
             "option a is gone"
         );
-        press(&mut state, "J1");
-        assert_eq!(answer(&state, "multi").selected, ["x"]);
+        assert_eq!(state.id(), "batch");
+        assert_eq!(
+            state.session().questions[0].options.as_ref().map(Vec::len),
+            Some(1)
+        );
     }
 
     #[test]
-    fn reports_each_questions_state_for_the_list() {
+    fn reports_each_questions_state_for_the_tabs_and_the_review() {
         let mut state = state();
-        press(&mut state, "Jnwhy");
+        press(&mut state, "lnwhy");
         state.handle(code(KeyCode::Esc));
-        press(&mut state, "JJ1");
+        go_to_tab(&mut state, 3);
+        press(&mut state, "1");
 
         assert_eq!(
             state.question_states(),
@@ -1157,5 +1421,54 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn keys_that_change_nothing_in_a_field_save_nothing() {
+        let mut state = state();
+        press(&mut state, "jja");
+
+        assert_eq!(state.handle(code(KeyCode::F(5))), Effect::None);
+        // ctrl-m is another way to a line break, refused in a one-line field.
+        assert_eq!(state.handle(ctrl('m')), Effect::None);
+        assert_eq!(state.field_text().as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn the_review_takes_no_note_and_its_reject_field_no_counter() {
+        let mut state = state();
+        go_to_tab(&mut state, 4);
+
+        assert_eq!(press(&mut state, "n"), Effect::None);
+        assert_eq!(state.focus(), Focus::None);
+        press(&mut state, "jjjjj");
+        assert_eq!((state.focus(), state.field_length()), (Focus::Field, None));
+    }
+
+    #[test]
+    fn a_key_that_changes_nothing_in_a_note_saves_nothing() {
+        let mut state = state();
+        press(&mut state, "n");
+
+        assert_eq!(state.handle(code(KeyCode::F(5))), Effect::None);
+    }
+
+    #[test]
+    fn exposes_the_editors_for_drawing() {
+        let mut state = state();
+        assert_eq!(
+            (state.field_text(), state.note_text(), state.field_cursor()),
+            (None, None, None)
+        );
+
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Left));
+        assert_eq!(state.field_cursor(), Some((0, 1)));
+        assert_eq!(state.field_length(), None, "this own answer has no length");
+
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "nx");
+        assert_eq!(state.note_text().as_deref(), Some("x"));
+        assert_eq!(state.field_cursor(), Some((0, 1)));
     }
 }

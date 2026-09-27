@@ -453,7 +453,9 @@ a frame (user, 2026-09-27):
 - **The own-answer row** is a field as soon as the cursor lands on it:
   every key that produces text types into it. `←`/`→` move the text
   cursor, `↑`/`↓` leave the row, and `esc` leaves the field while the
-  cursor stays. `enter` picks the own answer and moves on, like an
+  cursor stays. `↑`/`↓` on a field that was left with `esc` focus it
+  again, which on a `text` question with its single row is the way back
+  into the answer. `enter` picks the own answer and moves on, like an
   option. It is one line and scrolls sideways when the text is longer
   than the line. On a `multi` question the own answer counts once it has
   text.

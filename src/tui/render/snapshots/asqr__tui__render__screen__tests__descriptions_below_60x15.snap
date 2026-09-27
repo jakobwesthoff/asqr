@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&app, 60, 15)"
+---
+" asqr · queue: default · 1 session waiting                  "
+" approach                                                   "
+"   ☐ q  ✔ Review                                            "
+"────────────────────────────────────────────────────────────"
+" Which approach?                                            "
+" pick one                                                   "
+"                                                            "
+" ❯ ( ) 1. Rewrite the parser from scratch                   "
+"       Cleanest result, takes the longest.                  "
+"   ( ) 2. Patch the tokenizer                               "
+"       Quick, but the grammar stays odd.                    "
+"                                                            "
+" Notes: —                                                   "
+"                                                            "
+" ↑/↓  move   enter  pick   ←/→  question   n  note   ?  help"

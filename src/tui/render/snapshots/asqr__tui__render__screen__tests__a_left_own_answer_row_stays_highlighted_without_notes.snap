@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&app, 60, 15)"
+---
+" asqr · queue: default · 1 session waiting                  "
+" name                                                       "
+"   ☒ q  ✔ Review                                            "
+"────────────────────────────────────────────────────────────"
+" Name it                                                    "
+" pick one, or type your own                                 "
+"                                                            "
+"   ( ) 1. asqr                                              "
+" ❯ (•) ✎ Own answer: mine                                   "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+" ↑/↓  move   enter  pick   ←/→  question   ?  help   q  quit"

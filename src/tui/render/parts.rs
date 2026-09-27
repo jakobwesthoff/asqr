@@ -79,7 +79,7 @@ pub fn kind_hint(question: &Question) -> String {
         (Kind::Multi, Some(min), None) => format!("pick at least {min}"),
         (Kind::Multi, None, Some(max)) => format!("pick up to {max}"),
         (Kind::Multi, None, None) => "pick any".to_owned(),
-        (Kind::Text, _, _) => "type your answer with enter or c".to_owned(),
+        (Kind::Text, _, _) => "type your answer".to_owned(),
     };
     if question.kind != Kind::Text
         && question
@@ -87,7 +87,7 @@ pub fn kind_hint(question: &Question) -> String {
             .as_ref()
             .is_some_and(|custom| custom.is_enabled())
     {
-        hint.push_str(", or type your own with c");
+        hint.push_str(", or type your own");
     }
     if question.required {
         hint.push_str(" · required");
@@ -206,7 +206,7 @@ mod tests {
             hint(
                 r#"{"id": "q", "text": "?", "kind": "single", "custom": true, "required": true, "options": []}"#
             ),
-            "pick one, or type your own with c · required"
+            "pick one, or type your own · required"
         );
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "multi", "options": []}"#),
@@ -226,7 +226,7 @@ mod tests {
         );
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "text"}"#),
-            "type your answer with enter or c"
+            "type your answer"
         );
     }
 }

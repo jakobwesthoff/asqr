@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&app, 60, 15)"
+---
+" asqr · queue: default · 1 session waiting                  "
+" Release 0.2.0  (release script)                            "
+"   ☒ Go?  ☒ Channels  ☐ Highlights  ✔ Review                "
+"────────────────────────────────────────────────────────────"
+" Where should the release be announced?                     "
+" pick up to 3, or type your own                             "
+"                                                            "
+"   [x] 1. Changelog                                         "
+"   [ ] 2. Blog post                                         "
+" ❯ [ ] 3. Social media                                      "
+"   [x] ✎ Somewhere else: an own answer much longer than th… "
+"                                                            "
+" Notes: —                                                   "
+"                                                            "
+" ↑/↓  move   space  toggle   enter  next   ←/→  question   n"

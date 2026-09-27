@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&app, 60, 15)"
+---
+" asqr · queue: default · 1 session waiting                  "
+" many                                                       "
+"   ☐ q  ✔ Review                                            "
+"────────────────────────────────────────────────────────────"
+"   ( ) 5. Option 5    What option 5 means.                  "
+"   ( ) 6. Option 6    What option 6 means.                  "
+"   ( ) 7. Option 7    What option 7 means.                  "
+"   ( ) 8. Option 8    What option 8 means.                  "
+"   ( ) 9. Option 9    What option 9 means.                  "
+"   ( ) 10. Option 10  What option 10 means.                 "
+"   ( ) 11. Option 11  What option 11 means.                 "
+"   ( ) 12. Option 12  What option 12 means.                 "
+" ❯ ( ) ✎ Own answer:                                        "
+"                                                            "
+" enter  pick   ↑/↓  leave   esc  stop typing                "
