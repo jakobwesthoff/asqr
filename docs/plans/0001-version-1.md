@@ -119,6 +119,11 @@ exit codes from spec section 8.
 
 ## Phase 4: the TUI state (no terminal yet)
 
+Phases 4 and 5 were built as written here; phase 5b then replaced their
+keys and screens (the question list, `tab`, `J`/`K`, `c`, `S`, `X`, the
+confirmation dialog, `length.max`) with ADR 22. The spec describes the
+result.
+
 The whole interaction as a pure state machine, tested through key
 events.
 
