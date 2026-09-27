@@ -170,7 +170,9 @@ impl SessionState {
             row: 0,
             focus: Focus::None,
             editor: None,
-            reject_reason: String::new(),
+            reject_reason: draft
+                .and_then(|draft| draft.reason.clone())
+                .unwrap_or_default(),
             help: false,
             message: None,
             image_full_screen: false,
@@ -290,7 +292,8 @@ impl SessionState {
         }
     }
 
-    /// The draft; on the review it points at the last question.
+    /// The draft; on the review it points at the last question. It also
+    /// keeps the reject reason typed so far.
     pub fn to_draft(&self) -> SessionResult {
         let current = self.tab.min(self.session.questions.len().saturating_sub(1));
         let current = self
@@ -298,7 +301,12 @@ impl SessionState {
             .questions
             .get(current)
             .map_or("", |question| question.id.as_str());
-        SessionResult::draft(&self.id, current, self.answers())
+        let mut draft = SessionResult::draft(&self.id, current, self.answers());
+        // Kept as typed, so a restored field reads exactly as it was left.
+        if !self.reject_reason.is_empty() {
+            draft.reason = Some(self.reject_reason.clone());
+        }
+        draft
     }
 
     pub fn question_states(&self) -> Vec<QuestionState> {
@@ -611,7 +619,7 @@ impl SessionState {
                 let text = self.editor_text().unwrap_or_default();
                 if self.current_row() == Some(Row::Reject) {
                     self.reject_reason = text;
-                    return Effect::None;
+                    return Effect::DraftChanged;
                 }
                 let working = &mut self.working[self.tab];
                 working.custom = text;
@@ -1233,6 +1241,26 @@ mod tests {
         go_to_tab(&mut empty, 4);
         press(&mut empty, "jjjjj");
         assert_eq!(empty.handle(code(KeyCode::Enter)), Effect::Reject(None));
+    }
+
+    #[test]
+    fn the_reject_reason_is_saved_with_the_draft() {
+        let mut state = state();
+        go_to_tab(&mut state, 4);
+        press(&mut state, "jjjjj");
+
+        assert_eq!(press(&mut state, "stale"), Effect::DraftChanged);
+        let draft = state.to_draft();
+        assert_eq!(draft.reason.as_deref(), Some("stale"));
+
+        let session = serde_json::from_str(SESSION).expect("test session parses");
+        let restored = SessionState::new("batch", session, Some(&draft));
+        assert_eq!(restored.reject_reason(), "stale");
+    }
+
+    #[test]
+    fn an_empty_reject_reason_is_no_draft_reason() {
+        assert_eq!(state().to_draft().reason, None);
     }
 
     #[test]
