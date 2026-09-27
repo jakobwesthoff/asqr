@@ -13,6 +13,7 @@ use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
+use super::Images;
 use super::markdown;
 use super::parts::{Level, answer_summary, counter, kind_hint};
 use crate::format::{Kind, Question};
@@ -28,7 +29,7 @@ pub struct View<'a> {
     pub queue: &'a str,
 }
 
-pub fn draw(frame: &mut Frame, app: &App, view: &View) {
+pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let text = format!(
@@ -67,13 +68,20 @@ pub fn draw(frame: &mut Frame, app: &App, view: &View) {
     };
 
     draw_header(frame, state, header);
+    let image = state.session().questions[state.current()].image.as_deref();
     let [list, question] = Layout::horizontal([
         Constraint::Length((main.width / 3).clamp(20, 32)),
         Constraint::Fill(1),
     ])
     .areas(main);
-    draw_question_list(frame, state, list);
-    draw_question(frame, state, question);
+    match image {
+        // `z`: the image takes the whole area of list and question.
+        Some(path) if state.image_full_screen() => images.draw_full_screen(frame, path, main),
+        _ => {
+            draw_question_list(frame, state, list);
+            draw_question(frame, state, question, images);
+        }
+    }
 
     let feedback = app.current_notice().or(state.message()).unwrap_or_default();
     frame.render_widget(
@@ -176,8 +184,33 @@ fn draw_question_list(frame: &mut Frame, state: &SessionState, area: Rect) {
     frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
 }
 
-fn draw_question(frame: &mut Frame, state: &SessionState, area: Rect) {
-    let inner = area.inner(ratatui::layout::Margin::new(1, 0));
+/// From this width on, the question has room for its image beside it.
+const IMAGE_BESIDE_WIDTH: u16 = 100;
+
+fn draw_question(frame: &mut Frame, state: &SessionState, area: Rect, images: &mut Images) {
+    let question = &state.session().questions[state.current()];
+    let mut inner = area.inner(ratatui::layout::Margin::new(1, 0));
+
+    // The image adapts to the room there is: a column beside the question
+    // when the panel is wide, a band below it otherwise (spec section 7.6).
+    if let Some(path) = &question.image {
+        let image = if inner.width >= IMAGE_BESIDE_WIDTH {
+            let [text, image] = Layout::horizontal([Constraint::Fill(3), Constraint::Fill(2)])
+                .spacing(1)
+                .areas(inner);
+            inner = text;
+            image
+        } else {
+            let [text, image] = Layout::vertical([
+                Constraint::Fill(1),
+                Constraint::Length((inner.height / 2).min(12)),
+            ])
+            .areas(inner);
+            inner = text;
+            image
+        };
+        images.draw(frame, path, image);
+    }
 
     let (content, editor_area) = match state.mode() {
         Mode::Editing { .. } => {
@@ -188,7 +221,6 @@ fn draw_question(frame: &mut Frame, state: &SessionState, area: Rect) {
         _ => (inner, None),
     };
 
-    let question = &state.session().questions[state.current()];
     let answer = &state.answers()[state.current()];
     let mut lines: Vec<Line> = markdown::render(&question.text);
     lines.push(Line::from(kind_hint(question)).dim());
@@ -242,11 +274,6 @@ fn draw_question(frame: &mut Frame, state: &SessionState, area: Rect) {
     if question.note {
         lines.push(labelled("Note", answer.note.as_deref()));
     }
-    if let Some(image) = &question.image {
-        lines.push(Line::default());
-        lines.push(Line::from(format!("[image: {image}]")).dim());
-    }
-
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), content);
 
     if let (Some(area), Mode::Editing { field, editor }) = (editor_area, state.mode()) {
@@ -487,6 +514,7 @@ mod tests {
 
     use super::*;
     use crate::format::Session;
+    use crate::tui::render::Images;
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
     const RELEASE: &str = include_str!("../../../examples/sessions/release-checklist.json");
@@ -511,11 +539,130 @@ mod tests {
     }
 
     fn screen(app: &App, width: u16, height: u16) -> TestBackend {
+        let mut images = Images::new(ratatui_image::picker::Picker::halfblocks());
         let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
         terminal
-            .draw(|frame| draw(frame, app, &View { queue: "default" }))
+            .draw(|frame| draw(frame, app, &View { queue: "default" }, &mut images))
             .expect("draws");
         terminal.backend().clone()
+    }
+
+    /// A session with one question showing `image`.
+    fn with_image(image: &str) -> App {
+        app(&[(
+            "pictured",
+            &format!(
+                r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "Which one?", "kind": "single",
+                    "image": {image:?}, "options": [{{"id": "a", "label": "This one"}}]}}]}}"#
+            ),
+        )])
+    }
+
+    /// A small two-colour PNG, so the halfblock rendering is visible.
+    fn png() -> tempfile::NamedTempFile {
+        let file = tempfile::Builder::new()
+            .suffix(".png")
+            .tempfile()
+            .expect("temp file");
+        let image = image::RgbImage::from_fn(160, 160, |x, _| {
+            if x < 80 {
+                image::Rgb([255, 0, 0])
+            } else {
+                image::Rgb([0, 0, 255])
+            }
+        });
+        image.save(file.path()).expect("png is written");
+        file
+    }
+
+    /// The columns and rows of cells the test image painted: its red
+    /// and blue halves show as background colours.
+    fn image_cells(
+        backend: &TestBackend,
+    ) -> (std::ops::RangeInclusive<u16>, std::ops::RangeInclusive<u16>) {
+        let buffer = backend.buffer();
+        let painted: Vec<(u16, u16)> = (0..buffer.area.height)
+            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
+            .filter(|&position| {
+                let cell = &buffer[position];
+                [cell.bg, cell.fg]
+                    .iter()
+                    .any(|colour| matches!(colour, Color::Rgb(255, 0, 0) | Color::Rgb(0, 0, 255)))
+            })
+            .collect();
+        assert!(!painted.is_empty(), "the image is drawn");
+        let xs = painted.iter().map(|(x, _)| *x);
+        let ys = painted.iter().map(|(_, y)| *y);
+        (
+            xs.clone().min().expect("cells")..=xs.max().expect("cells"),
+            ys.clone().min().expect("cells")..=ys.max().expect("cells"),
+        )
+    }
+
+    #[test]
+    fn a_wide_screen_shows_the_image_beside_the_question() {
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+
+        let (columns, rows) = image_cells(&screen(&app, 140, 20));
+
+        assert!(
+            *columns.start() > 90,
+            "right of the question text: {columns:?}"
+        );
+        assert_eq!(*rows.start(), 3, "from the top of the panel: {rows:?}");
+    }
+
+    #[test]
+    fn a_narrow_screen_shows_the_image_below_the_question() {
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+
+        let (columns, rows) = image_cells(&screen(&app, 80, 24));
+
+        assert!(
+            *columns.start() > 25,
+            "inside the question panel: {columns:?}"
+        );
+        assert!(*rows.start() > 10, "below the question text: {rows:?}");
+    }
+
+    #[test]
+    fn z_shows_the_image_full_screen() {
+        let file = png();
+        let mut app = with_image(file.path().to_str().expect("UTF-8 path"));
+        keys(&mut app, "z");
+
+        let (columns, rows) = image_cells(&screen(&app, 80, 20));
+
+        assert_eq!(*columns.start(), 0, "the list gives way: {columns:?}");
+        assert!(
+            rows.end() - rows.start() >= 12,
+            "it fills the height: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_missing_or_relative_image_shows_a_placeholder() {
+        insta::assert_snapshot!(
+            "missing_image",
+            screen(&with_image("/nonexistent/x.png"), 80, 20)
+        );
+        insta::assert_snapshot!(
+            "relative_image",
+            screen(&with_image("images/x.png"), 80, 20)
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_no_image_shows_a_placeholder() {
+        let file = tempfile::Builder::new()
+            .suffix(".png")
+            .tempfile()
+            .expect("temp file");
+        std::fs::write(file.path(), "not a picture").expect("written");
+        let screen = screen(&with_image(file.path().to_str().expect("UTF-8")), 80, 20).to_string();
+        assert!(screen.contains("image not shown"), "{screen}");
     }
 
     #[test]

@@ -4,8 +4,10 @@
 
 //! Drawing the TUI (spec section 7) from the state in [`super::App`].
 
+mod images;
 pub mod markdown;
 mod parts;
 mod screen;
 
+pub use images::Images;
 pub use screen::{MIN_HEIGHT, MIN_WIDTH, View, draw};
