@@ -58,6 +58,12 @@ pub fn drop_session(
 ) -> Result<Dropped, DropError> {
     location.create_layout()?;
 
+    // Every refusal comes before the first change, so a refused drop
+    // leaves the queue as it was.
+    let waiting = find_session_file(&location.inbox(), id)?;
+    if waiting.is_some() && has_answered_draft(location, id) {
+        return Err(DropError::BeingAnswered(id.to_owned()));
+    }
     if let Some(result) = find_session_file(&location.outbox(), id)? {
         if !force {
             return Err(DropError::UnreadResult(id.to_owned()));
@@ -65,11 +71,8 @@ pub fn drop_session(
         archive_result(location, &result)?;
     }
 
-    match find_session_file(&location.inbox(), id)? {
+    match waiting {
         Some(waiting) => {
-            if has_answered_draft(location, id) {
-                return Err(DropError::BeingAnswered(id.to_owned()));
-            }
             write_atomically(&waiting, bytes)?;
             Ok(Dropped::Replaced(waiting))
         }
@@ -172,6 +175,28 @@ mod tests {
             fs::read(location.inbox().join("Batch-01.json")).expect("readable"),
             b"two"
         );
+    }
+
+    #[test]
+    fn a_forced_drop_refused_over_an_answered_draft_leaves_the_result() {
+        let (_scratch, location) = queue();
+        drop_session(&location, "batch-01", b"one", false).expect("dropped");
+        let started = Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("q")
+        };
+        save_draft(
+            &location,
+            &SessionResult::draft("batch-01", "q", vec![started]),
+        )
+        .expect("saved");
+        fs::write(location.outbox().join("batch-01.json"), b"unread").expect("written");
+
+        let refused = drop_session(&location, "batch-01", b"two", true);
+
+        assert!(matches!(refused, Err(DropError::BeingAnswered(_))));
+        assert_eq!(files(&location.outbox()), ["batch-01.json"]);
+        assert_eq!(files(&location.archive()), Vec::<String>::new());
     }
 
     #[test]
