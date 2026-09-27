@@ -8,6 +8,7 @@
 //! of the app goes through [`Host`], so tests run the loop against a test
 //! backend.
 
+use std::io;
 use std::sync::mpsc::Receiver;
 
 use anyhow::Context;
@@ -34,7 +35,7 @@ pub trait Host {
     /// Sessions arrived while asqr was running.
     fn alert(&mut self, arrived: &[String]);
     /// Open the image at `path` in the system viewer.
-    fn open_image(&mut self, path: &str);
+    fn open_image(&mut self, path: &str) -> io::Result<()>;
 }
 
 /// Reads the queue for the first time: what waits when asqr starts is
@@ -75,7 +76,11 @@ where
                 match inbox.apply(app, effect) {
                     Applied::Continue => {}
                     Applied::Quit => return Ok(()),
-                    Applied::OpenImage(path) => host.open_image(&path),
+                    Applied::OpenImage(path) => {
+                        if let Err(error) = host.open_image(&path) {
+                            app.notice(format!("cannot open {path}: {error}"));
+                        }
+                    }
                 }
             }
             Event::Resize => {}
@@ -114,6 +119,8 @@ mod tests {
     struct Recorder {
         alerts: Vec<Vec<String>>,
         opened: Vec<String>,
+        /// Opening an image fails with this, when set.
+        viewer_missing: bool,
     }
 
     impl Host for Recorder {
@@ -121,8 +128,12 @@ mod tests {
             self.alerts.push(arrived.to_vec());
         }
 
-        fn open_image(&mut self, path: &str) {
+        fn open_image(&mut self, path: &str) -> io::Result<()> {
+            if self.viewer_missing {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "no viewer"));
+            }
             self.opened.push(path.to_owned());
+            Ok(())
         }
     }
 
@@ -298,6 +309,23 @@ mod tests {
         harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
 
         assert_eq!(harness.host.opened, ["/nowhere/cat.png"]);
+    }
+
+    #[test]
+    fn an_image_that_cannot_be_opened_is_a_notice() {
+        let mut harness = Harness::new();
+        harness.host.viewer_missing = true;
+        harness.put("batch-01");
+
+        harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
+
+        assert!(
+            harness
+                .screen()
+                .contains("cannot open /nowhere/cat.png: no viewer"),
+            "{}",
+            harness.screen()
+        );
     }
 
     #[test]
