@@ -53,9 +53,13 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
     let mut bytes = serde_json::to_vec_pretty(raw).expect("a serde_json Value always serializes");
     bytes.push(b'\n');
 
-    if let Err(error) = drop_session(location, &id, &bytes, options.force) {
-        eprintln!("error: {error}");
-        return Exit::Failure;
+    match drop_session(location, &id, &bytes, options.force) {
+        Ok(dropped) => tracing::info!(id, ?dropped, "dropped session"),
+        Err(error) => {
+            tracing::warn!(id, %error, "ask refused");
+            eprintln!("error: {error}");
+            return Exit::Failure;
+        }
     }
     warn_if_nobody_watches(location);
 

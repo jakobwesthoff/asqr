@@ -9,6 +9,7 @@
 mod ask;
 mod exit;
 mod format;
+mod log;
 mod paths;
 mod prune;
 mod skill;
@@ -140,6 +141,7 @@ pub fn environment_selection() -> Selection {
 /// [`environment_selection`] read, passed in so the precedence of flags
 /// over the environment is decided in one place.
 pub fn run(cli: Cli, environment: Selection) -> Exit {
+    log::init();
     let flags = Selection {
         queue: cli.queue,
         dir: cli.dir,

@@ -37,6 +37,7 @@ pub(super) fn run(location: &QueueLocation, older_than: Duration, include_result
     match prune(location, older_than, include_results, SystemTime::now()) {
         Ok(removed) => {
             for path in removed {
+                tracing::info!(path = %path.display(), "pruned");
                 println!("removed {}", path.display());
             }
             Exit::Success
