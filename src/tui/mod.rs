@@ -10,7 +10,9 @@ mod app;
 mod inbox;
 pub mod render;
 mod session;
+mod watch;
 
 pub use app::*;
 pub use inbox::*;
 pub use session::*;
+pub use watch::*;
