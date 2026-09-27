@@ -157,6 +157,10 @@ be repeated safely:
    `<id>.<ulid>.result.json`.)
 3. Delete the draft. This is the one thing asqr deletes on its own.
 
+Step 1 never overwrites a result: an existing result with the same bytes
+means the step already ran, any other result belongs to another session
+and stops the finish with a conflict.
+
 Recovery on start: for an inbox session whose outbox result has the same
 `session_sha256`, the finish was interrupted, so steps 2 and 3 are
 completed and the session is not shown again. With a different hash, the
