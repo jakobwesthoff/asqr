@@ -74,6 +74,10 @@ pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
                 .centered()
                 .wrap(Wrap { trim: true });
         frame.render_widget(empty, center(main, main.width.saturating_sub(4), 3));
+        // A notice matters most here: an invalid session that was the only
+        // one leaves the queue empty, and the notice is all that says why.
+        let notice = app.current_notice().unwrap_or_default();
+        frame.render_widget(Line::from(notice).fg(Color::Yellow), status);
         frame.render_widget(key_line(&[("q", "quit")]), keys);
         return;
     };
@@ -985,6 +989,14 @@ mod tests {
     #[test]
     fn an_empty_queue_says_so() {
         insta::assert_snapshot!(screen(&App::default(), 80, 20));
+    }
+
+    #[test]
+    fn an_empty_queue_still_shows_notices() {
+        let mut app = App::default();
+        app.notice("broken is invalid and was answered with an error: questions[0].min");
+
+        insta::assert_snapshot!(screen(&app, 80, 20));
     }
 
     // -----------------------------------------------------------------
