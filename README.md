@@ -1,26 +1,36 @@
 # asqr
 
+**Your agent saved up some questions. Answer them all in one go, right in
+your terminal.**
+
 > Work in progress. Nothing here works yet; this README describes the
 > intent, not the current state.
 
-asqr (pronounced "asker") is a terminal UI for answering questions that
-another program puts in front of you. A script, a build or an AI coding
-agent writes a question file into an inbox. asqr, running in a terminal of
-its own, picks it up and lets you work through the questions. When you
-submit, it writes your answers into a result file that the asking program
-reads back.
+asqr (pronounced "asker") makes it easy to answer questions that an AI
+coding agent has prepared for you. The agent writes its questions into a
+file, asqr shows them in a terminal of its own, and you work through them
+at your own pace. When you submit, asqr writes your answers into a result
+file that the agent reads back. Scripts and builds can ask the same way.
 
 ## Planned
 
 - Any number of questions per file.
 - Single and multiple choice, with any number of options.
 - A custom answer instead of the given options, and an optional note on
-  every answer.
-- Images next to a question, shown inline in terminals that support it.
-- A documented, versioned JSON format for questions and answers, so any
-  tool can ask.
+  every question.
+- Optional images next to a question, shown inline in terminals that
+  support it.
+- A documented, versioned JSON format with a JSON Schema, so any tool can
+  ask.
+- A skill that teaches agents how to use asqr, built into the binary.
+
+The full design is in [`docs/spec.md`](docs/spec.md).
 
 ## Decisions
 
 Architecture decisions are recorded in [`docs/adr/`](docs/adr/) and
 managed with [adrs](https://github.com/joshrotenberg/adrs).
+
+## License
+
+[Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/).
