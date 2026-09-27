@@ -22,15 +22,14 @@ pub fn is_answered(question: &Question, answer: &Answer) -> bool {
     match question.kind {
         Kind::Single => !answer.selected.is_empty() || has_text(answer),
         Kind::Multi => {
-            // `min` and `max` bound the selected options, so they only apply
-            // once one is selected; custom text alone answers the question.
+            // Custom text answers the question on its own. `min` and `max`
+            // bound the selected options, so they only apply once one is
+            // selected, and only decide when there is no text.
             let count = answer.selected.len() as u32;
-            if count == 0 {
-                has_text(answer)
-            } else {
-                question.min.is_none_or(|min| count >= min)
-                    && question.max.is_none_or(|max| count <= max)
-            }
+            has_text(answer)
+                || (count > 0
+                    && question.min.is_none_or(|min| count >= min)
+                    && question.max.is_none_or(|max| count <= max))
         }
         Kind::Text => has_text(answer),
     }
@@ -168,6 +167,22 @@ mod tests {
         );
         // The bounds count options; custom text alone answers the question.
         assert!(is_answered(&multi, &custom("m", "own")));
+    }
+
+    #[test]
+    fn custom_text_answers_a_multi_whatever_is_selected() {
+        let multi = question(MULTI);
+        let below_min_with_text = Answer {
+            custom: Some("own".into()),
+            ..selected("m", &["a"])
+        };
+
+        assert!(is_answered(&multi, &below_min_with_text));
+        assert_eq!(
+            result_answers(&session(MULTI), std::slice::from_ref(&below_min_with_text)),
+            [below_min_with_text],
+            "the result keeps the options next to the text"
+        );
     }
 
     #[test]
