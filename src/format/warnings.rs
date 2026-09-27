@@ -250,6 +250,32 @@ mod tests {
     }
 
     #[test]
+    fn every_example_session_is_valid_and_uses_only_known_fields() {
+        let examples = repo().join("examples/sessions");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&examples).expect("examples directory exists") {
+            let path = entry.expect("directory entry is readable").path();
+            let json = std::fs::read_to_string(&path).expect("example is readable");
+            let raw: serde_json::Value = serde_json::from_str(&json).expect("example is JSON");
+            let session: Session = serde_json::from_value(raw.clone()).expect("example parses");
+
+            assert_eq!(
+                super::super::validate(&session, None),
+                Ok(()),
+                "{}",
+                path.display()
+            );
+            let unknown: Vec<_> = warnings(&raw, &session, None)
+                .into_iter()
+                .filter(|warning| warning.kind == WarningKind::UnknownField)
+                .collect();
+            assert!(unknown.is_empty(), "{}: {unknown:?}", path.display());
+            checked += 1;
+        }
+        assert!(checked >= 3, "only {checked} examples found");
+    }
+
+    #[test]
     fn an_existing_absolute_image_is_fine() {
         let image = repo().join("Cargo.toml");
         let json = format!(

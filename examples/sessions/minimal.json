@@ -1,0 +1,6 @@
+{
+  "asqr": 1,
+  "questions": [
+    { "id": "name", "text": "What should the new command be called?", "kind": "text" }
+  ]
+}

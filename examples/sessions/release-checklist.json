@@ -1,0 +1,41 @@
+{
+  "asqr": 1,
+  "id": "release-0-2-0",
+  "title": "Release 0.2.0",
+  "intro": "Three decisions before the release. `required` questions block submit.",
+  "from": "release script",
+  "questions": [
+    {
+      "id": "go",
+      "header": "Go?",
+      "text": "All checks passed. Publish **0.2.0** now?",
+      "kind": "single",
+      "required": true,
+      "options": [
+        { "id": "yes", "label": "Publish now" },
+        { "id": "later", "label": "Later", "description": "Keep the tag, publish after the weekend." },
+        { "id": "no", "label": "Do not publish", "description": "Delete the tag again." }
+      ]
+    },
+    {
+      "id": "channels",
+      "header": "Channels",
+      "text": "Where should the release be announced?",
+      "kind": "multi",
+      "max": 3,
+      "options": [
+        { "id": "changelog", "label": "Changelog", "default": true },
+        { "id": "blog", "label": "Blog post" },
+        { "id": "social", "label": "Social media" }
+      ],
+      "custom": { "label": "Somewhere else" }
+    },
+    {
+      "id": "highlights",
+      "header": "Highlights",
+      "text": "One sentence for the release notes:",
+      "kind": "text",
+      "length": { "target": [40, 120], "warn": 140, "max": 200 }
+    }
+  ]
+}
