@@ -3,8 +3,8 @@
 **Your agent saved up some questions. Answer them all in one go, right in
 your terminal.**
 
-> Work in progress. Nothing here works yet; this README describes the
-> intent, not the current state.
+> Work in progress. The TUI and the command line work; the agent skill
+> and this README are still being written.
 
 asqr (pronounced "asker") makes it easy to answer questions that an AI
 coding agent has prepared for you. The agent writes its questions into a
@@ -25,6 +25,16 @@ file that the agent reads back. Scripts and builds can ask the same way.
 - A skill that teaches agents how to use asqr, built into the binary.
 
 The full design is in [`docs/spec.md`](docs/spec.md).
+
+## Inside tmux
+
+Inline images and desktop notifications only reach the terminal around
+tmux when tmux passes escape sequences through:
+
+    set -g allow-passthrough on
+
+Without it, asqr shows images as coarse blocks and rings the bell
+instead of sending a notification.
 
 ## Development
 
