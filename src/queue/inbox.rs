@@ -9,6 +9,7 @@ use std::io;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+use super::names::entries_if_present;
 use super::{InboxName, QueueLocation, classify_inbox_name};
 
 /// A session file waiting in the inbox.
@@ -34,13 +35,7 @@ pub struct InboxScan {
 /// instant. A missing inbox is empty.
 pub fn scan_inbox(location: &QueueLocation) -> io::Result<InboxScan> {
     let mut scan = InboxScan::default();
-    let entries = match std::fs::read_dir(location.inbox()) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(scan),
-        Err(error) => return Err(error),
-    };
-    for entry in entries {
-        let entry = entry?;
+    for entry in entries_if_present(&location.inbox())? {
         let name = entry.file_name();
         match name.to_str().map(classify_inbox_name) {
             Some(InboxName::Session(id)) => scan.sessions.push(Waiting {

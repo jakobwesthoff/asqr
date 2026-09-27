@@ -13,6 +13,7 @@ mod inbox;
 mod location;
 mod lock;
 mod names;
+mod prune;
 
 pub use drafts::*;
 pub use drop::*;
@@ -21,3 +22,4 @@ pub use inbox::*;
 pub use location::*;
 pub use lock::*;
 pub use names::*;
+pub use prune::*;

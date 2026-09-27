@@ -43,13 +43,7 @@ pub fn classify_inbox_name(file_name: &str) -> InboxName<'_> {
 /// was written with, so the path is found by listing, never built from
 /// `id`. A missing directory holds no session.
 pub fn find_session_file(dir: &Path, id: &str) -> io::Result<Option<PathBuf>> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    for entry in entries {
-        let entry = entry?;
+    for entry in entries_if_present(dir)? {
         let name = entry.file_name();
         if let Some(InboxName::Session(stem)) = name.to_str().map(classify_inbox_name)
             && same_session_id(stem, id)
@@ -58,6 +52,16 @@ pub fn find_session_file(dir: &Path, id: &str) -> io::Result<Option<PathBuf>> {
         }
     }
     Ok(None)
+}
+
+/// The entries of `dir`, or none when it does not exist: queue directories
+/// are created on first use, so an absent one simply holds nothing yet.
+pub(crate) fn entries_if_present(dir: &Path) -> io::Result<Vec<std::fs::DirEntry>> {
+    match std::fs::read_dir(dir) {
+        Ok(entries) => entries.collect(),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error),
+    }
 }
 
 /// What an archive entry holds.
