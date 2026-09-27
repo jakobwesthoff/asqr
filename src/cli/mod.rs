@@ -6,11 +6,14 @@
 //! hands them to [`run`]; everything else happens here, so the commands
 //! are reachable from tests.
 
+mod ask;
 mod exit;
 mod format;
 mod paths;
+mod wait;
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
@@ -53,6 +56,24 @@ enum Command {
         file: PathBuf,
     },
 
+    /// Drop a session file into the queue and print its id.
+    Ask {
+        /// The session file.
+        file: PathBuf,
+
+        /// Wait for the result and print it instead of the id.
+        #[arg(long)]
+        wait: bool,
+
+        /// Stop waiting after this many seconds (exit code 12).
+        #[arg(long, value_name = "SECONDS", requires = "wait")]
+        timeout: Option<u64>,
+
+        /// Move an unread result with the same id into the archive first.
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Print the JSON Schema of session files.
     Schema {
         /// Print the schema of result files instead.
@@ -90,6 +111,20 @@ pub fn run(cli: Cli, environment: Selection) -> Exit {
     match cli.command {
         Command::Paths { json } => paths::run(&location, json),
         Command::New => format::run_new(),
+        Command::Ask {
+            file,
+            wait,
+            timeout,
+            force,
+        } => ask::run(
+            &location,
+            &file,
+            ask::AskOptions {
+                wait,
+                timeout: timeout.map(Duration::from_secs),
+                force,
+            },
+        ),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),
     }

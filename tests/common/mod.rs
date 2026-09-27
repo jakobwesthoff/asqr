@@ -47,6 +47,19 @@ impl Sandbox {
         command
     }
 
+    /// `asqr` as a plain process with the same environment, for tests that
+    /// run it in the background while they act as the answering side.
+    pub fn spawnable_asqr(&self) -> std::process::Command {
+        let mut command = std::process::Command::new(assert_cmd::cargo::cargo_bin("asqr"));
+        command
+            .env("HOME", self.home.path())
+            .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
+            .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
+            .env_remove("ASQR_QUEUE")
+            .env_remove("ASQR_DIR");
+        command
+    }
+
     /// `asqr --dir <sandbox queue> <args>`.
     pub fn asqr_in_queue(&self, args: &[&str]) -> Command {
         let mut command = self.asqr();
