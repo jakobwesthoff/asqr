@@ -14,14 +14,23 @@ pub struct Alerts {
     pub bell: bool,
 }
 
-/// Writes the alerts for the sessions in `arrived` to `out`. `term` is the
-/// `TERM` variable, which picks the escape sequence.
+/// What the environment says about the terminal the alerts go to.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AlertTerminal {
+    /// The `TERM` variable, which picks the escape sequence.
+    pub term: Option<String>,
+    /// Whether asqr runs inside tmux (`TMUX` is set).
+    pub tmux: bool,
+}
+
+/// Writes the alerts for the sessions in `arrived` to `out`.
 pub fn alert(
     out: &mut impl Write,
     alerts: Alerts,
-    term: Option<&str>,
+    terminal: &AlertTerminal,
     arrived: &[String],
 ) -> io::Result<()> {
+    let term = terminal.term.as_deref();
     let body = match arrived {
         [] => return Ok(()),
         [id] => format!("new session {id}"),
@@ -30,13 +39,25 @@ pub fn alert(
     if alerts.notify {
         // OSC 9 is what Ghostty, iTerm2, kitty and WezTerm show. rxvt,
         // through its notify extension, and foot document OSC 777, which
-        // takes a title of its own. Session
-        // ids hold no control characters, so the body cannot end the
-        // sequence early.
-        if term.is_some_and(|term| term.starts_with("rxvt") || term.starts_with("foot")) {
-            write!(out, "\x1b]777;notify;asqr;{body}\x07")?;
+        // takes a title of its own. Session ids hold no control
+        // characters, so the body cannot end the sequence early.
+        let sequence =
+            if term.is_some_and(|term| term.starts_with("rxvt") || term.starts_with("foot")) {
+                format!("\x1b]777;notify;asqr;{body}\x07")
+            } else {
+                format!("\x1b]9;asqr: {body}\x07")
+            };
+        if terminal.tmux {
+            // tmux hands a sequence to the outer terminal only inside its
+            // passthrough wrapper, with every escape doubled, and only
+            // with `allow-passthrough on` (spec section 7.7).
+            write!(
+                out,
+                "\x1bPtmux;{}\x1b\\",
+                sequence.replace('\x1b', "\x1b\x1b")
+            )?;
         } else {
-            write!(out, "\x1b]9;asqr: {body}\x07")?;
+            out.write_all(sequence.as_bytes())?;
         }
     }
     if alerts.bell {
@@ -56,8 +77,12 @@ mod tests {
 
     fn written(alerts: Alerts, term: Option<&str>, arrived: &[&str]) -> String {
         let arrived: Vec<String> = arrived.iter().map(|id| (*id).to_owned()).collect();
+        let terminal = AlertTerminal {
+            term: term.map(str::to_owned),
+            tmux: false,
+        };
         let mut out = Vec::new();
-        alert(&mut out, alerts, term, &arrived).expect("written");
+        alert(&mut out, alerts, &terminal, &arrived).expect("written");
         String::from_utf8(out).expect("UTF-8")
     }
 
@@ -109,6 +134,24 @@ mod tests {
         );
         assert_eq!(written(no_notify, None, &["x"]), "\x07");
         assert_eq!(written(none, None, &["x"]), "");
+    }
+
+    #[test]
+    fn inside_tmux_the_notification_is_wrapped_for_passthrough() {
+        let mut out = Vec::new();
+        let tmux = AlertTerminal {
+            term: Some("tmux-256color".into()),
+            tmux: true,
+        };
+
+        alert(&mut out, ALL, &tmux, &["batch-01".to_owned()]).expect("written");
+
+        // Every escape inside the wrapper is doubled; the bell goes to
+        // tmux itself, which passes it on without passthrough.
+        assert_eq!(
+            String::from_utf8(out).expect("UTF-8"),
+            "\x1bPtmux;\x1b\x1b]9;asqr: new session batch-01\x07\x1b\\\x07"
+        );
     }
 
     #[test]

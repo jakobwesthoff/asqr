@@ -14,7 +14,7 @@ use std::sync::mpsc;
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
 use asqr::tui::render::{Images, View, may_query_protocol};
-use asqr::tui::{Alerts, Event, Host, alert, run, start, watch_inbox};
+use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{self, Event as TerminalEvent};
 use ratatui_image::picker::Picker;
 
@@ -53,13 +53,13 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // The protocol query reads the terminal's answers from stdin, so it
     // runs before the thread that reads key events starts.
     let tmux = std::env::var("TMUX").ok();
-    let picker = if may_query_protocol(tmux.as_deref(), tmux_passthrough) {
+    let picker = if may_query_protocol(tmux.as_deref(), tmux_state) {
         Picker::from_query_stdio().unwrap_or_else(|error| {
             tracing::info!(%error, "no graphics protocol detected; using half blocks");
             Picker::halfblocks()
         })
     } else {
-        tracing::info!("tmux passes no escape sequences through; using half blocks");
+        tracing::info!("tmux cannot forward the graphics query; using half blocks");
         Picker::halfblocks()
     };
     let mut images = Images::new(picker);
@@ -85,7 +85,10 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     };
     let mut host = TerminalHost {
         alerts: watch.alerts(),
-        term: std::env::var("TERM").ok(),
+        terminal: AlertTerminal {
+            term: std::env::var("TERM").ok(),
+            tmux: tmux.is_some_and(|tmux| !tmux.is_empty()),
+        },
     };
     let result = run(
         &mut terminal,
@@ -100,10 +103,14 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     result
 }
 
-/// The pane's `allow-passthrough` option, inherited values included.
-fn tmux_passthrough() -> Option<String> {
+/// What [`may_query_protocol`] needs to know from tmux.
+fn tmux_state() -> Option<String> {
     let output = Command::new("tmux")
-        .args(["show-options", "-Apv", "allow-passthrough"])
+        .args([
+            "display-message",
+            "-p",
+            "#{allow-passthrough} #{session_attached}",
+        ])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -116,13 +123,13 @@ fn tmux_passthrough() -> Option<String> {
 
 struct TerminalHost {
     alerts: Alerts,
-    term: Option<String>,
+    terminal: AlertTerminal,
 }
 
 impl Host for TerminalHost {
     fn alert(&mut self, arrived: &[String]) {
         let mut stdout = io::stdout().lock();
-        if let Err(error) = alert(&mut stdout, self.alerts, self.term.as_deref(), arrived) {
+        if let Err(error) = alert(&mut stdout, self.alerts, &self.terminal, arrived) {
             tracing::warn!(%error, "could not write the alert");
         }
         let _ = stdout.flush();

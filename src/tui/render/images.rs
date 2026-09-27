@@ -89,27 +89,36 @@ impl Images {
 }
 
 /// Whether the terminal may be asked for its graphics protocol. `tmux` is
-/// the `TMUX` variable, and `passthrough` reads tmux's `allow-passthrough`
-/// option for the pane.
+/// the `TMUX` variable, and `tmux_state` asks tmux for
+/// `#{allow-passthrough} #{session_attached}`: the pane's passthrough
+/// option and the number of clients attached to the session.
 ///
-/// Inside tmux the query only reaches the terminal through passthrough.
-/// Without it nothing answers, and the query's reader goes on taking the
-/// keys the person types, so the query is skipped and images fall back to
-/// half blocks (spec section 7.7).
-pub fn may_query_protocol(
-    tmux: Option<&str>,
-    passthrough: impl FnOnce() -> Option<String>,
-) -> bool {
+/// Inside tmux the query only reaches a terminal through passthrough, and
+/// only while a client is attached. Without an answer the query's reader
+/// goes on taking the keys the person types, so the query is skipped and
+/// images fall back to half blocks (spec section 7.7).
+pub fn may_query_protocol(tmux: Option<&str>, tmux_state: impl FnOnce() -> Option<String>) -> bool {
     if tmux.is_none_or(str::is_empty) {
         return true;
     }
+    let Some(state) = tmux_state() else {
+        return false;
+    };
+    let mut words = state.split_whitespace();
     // `on` lets the pane pass sequences through, `all` any pane.
-    passthrough().is_some_and(|value| matches!(value.trim(), "on" | "all"))
+    let passthrough = matches!(words.next(), Some("on" | "all"));
+    let attached = words
+        .next()
+        .and_then(|clients| clients.parse::<u32>().ok())
+        .is_some_and(|clients| clients > 0);
+    passthrough && attached
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TMUX: Option<&str> = Some("/tmp/tmux-501/default,1234,0");
 
     #[test]
     fn outside_tmux_the_terminal_is_asked() {
@@ -122,12 +131,21 @@ mod tests {
     }
 
     #[test]
-    fn inside_tmux_only_with_passthrough() {
-        let tmux = Some("/tmp/tmux-501/default,1234,0");
+    fn inside_tmux_only_with_passthrough_and_a_client() {
+        assert!(may_query_protocol(TMUX, || Some("on 1\n".into())));
+        assert!(may_query_protocol(TMUX, || Some("all 2".into())));
+        assert!(!may_query_protocol(TMUX, || Some("off 1\n".into())));
+        assert!(
+            !may_query_protocol(TMUX, || Some("on 0\n".into())),
+            "detached"
+        );
+    }
 
-        assert!(may_query_protocol(tmux, || Some("on\n".into())));
-        assert!(may_query_protocol(tmux, || Some("all".into())));
-        assert!(!may_query_protocol(tmux, || Some("off\n".into())));
-        assert!(!may_query_protocol(tmux, || None), "unknown counts as off");
+    #[test]
+    fn inside_tmux_anything_unexpected_counts_as_no() {
+        assert!(!may_query_protocol(TMUX, || None));
+        assert!(!may_query_protocol(TMUX, || Some(String::new())));
+        assert!(!may_query_protocol(TMUX, || Some("on".into())));
+        assert!(!may_query_protocol(TMUX, || Some("on many".into())));
     }
 }

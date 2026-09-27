@@ -529,7 +529,12 @@ Images appear only when a question has one.
 
 Known limitation: inside tmux, inline images and OSC notifications need
 `set -g allow-passthrough on`. Without it, asqr falls back to the block
-rendering and the bell.
+rendering and the bell. Inside tmux, asqr asks tmux for
+`#{allow-passthrough} #{session_attached}` and queries the terminal only
+when passthrough is `on` or `all` and a client is attached: otherwise
+the query gets no answer, and its reader would go on taking the keys
+typed afterwards.
+Notifications inside tmux go out in tmux's passthrough wrapper.
 
 ## 8. The command line
 
