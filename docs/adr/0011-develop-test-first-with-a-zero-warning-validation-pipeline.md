@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [21. Run coverage in CI and on demand only](0021-run-coverage-in-ci-and-on-demand-only.md)
+
 ## Context
 
 The user wants the tool developed test driven from the first line, with

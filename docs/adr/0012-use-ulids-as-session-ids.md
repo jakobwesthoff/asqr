@@ -32,3 +32,13 @@ results.
 
 ULIDs sort by creation time, so file listings show the queue in order.
 Askers that pick their own ids have to keep them unique themselves.
+
+## Amendment (2026-09-27, adversarial review F3, F10)
+
+- The file stem is the session id. An `id` field that differs from the
+  stem is a validation error.
+- `ask` without an id writes the assigned ULID into the file and names
+  the file after it.
+- Ids are compared case-insensitively on every platform.
+- Waiting sessions are ordered by file modification time, not by id,
+  since custom ids do not sort by time.

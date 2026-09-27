@@ -1,20 +1,20 @@
 # asqr specification (draft)
 
-Status: reviewed with the user on 2026-09-27 (all review answers are
-worked in). The decisions behind it are recorded as ADRs 2 to 20 in
-`docs/adr/`.
+Status: reviewed with the user and in an adversarial review on
+2026-09-27, with the findings F1 to F12 worked in. The decisions behind
+it are recorded as ADRs 2 to 21 in `docs/adr/`.
 
 ## 1. Purpose
 
 asqr (pronounced "asker") puts questions from another program in front
 of a person and hands the answers back. Its main use is AI coding agents
-that have prepared questions for the person working with them: the agent
+that have prepared questions for the person working with them. The agent
 writes the questions down, and the person answers them at their own pace
 in a terminal that runs asqr. Scripts and builds can ask the same way.
 
 The asqr file format is the part other tools build on. The TUI is one
-way to answer those files, and the CLI and agent integration are ways to
-ask.
+way to answer those files, and the CLI and the agent integration are
+ways to ask.
 
 Design goals:
 
@@ -22,8 +22,8 @@ Design goals:
   question.
 - Answering is fast: keyboard only, no dialogs to click through, and the
   person can move freely between questions before submitting.
-- The asking side needs nothing but files. Wrappers (CLI, skill, MCP) are
-  conveniences on top.
+- The asking side needs nothing but files. Wrappers (CLI, skill, MCP)
+  are conveniences on top.
 - Works for anyone: macOS and Linux, any terminal, no account, no
   network.
 
@@ -36,62 +36,157 @@ Design goals:
   optional options, an optional image, and optional custom entry and
   note.
 - **Result**: the answer file for one session.
-- **Queue**: a directory pair (inbox and outbox) that one asqr instance
-  watches. The default queue serves everything, and named queues keep
-  projects apart.
+- **Draft**: the answers to a session while it is being answered.
+- **Queue**: a directory with an inbox, an outbox, drafts and an archive,
+  watched by at most one asqr instance. The default queue serves
+  everything, and named queues keep projects apart.
 
-## 3. Transport
+## 3. Queues and files
 
-asqr watches the inbox of a queue. The asking side writes a session file
-into it and waits for the matching result file in the outbox.
+### 3.1 Layout
 
 ```
 <queue>/
-  inbox/<session-id>.json      written by the asker
-  outbox/<session-id>.json     written by asqr on submit
-  drafts/<session-id>.json     answers in progress, kept across restarts
-  archive/<session-id>.json    answered sessions, moved out of the inbox
+  inbox/<id>.json              sessions waiting, written by askers
+  outbox/<id>.json             results, written by asqr, owned by the asker
+  drafts/<id>.json             answers in progress
+  archive/<id>.<ulid>.json     finished sessions (submitted, cancelled, error)
+  lock                         the instance lock (section 3.6)
 ```
 
-- Writers create files atomically: write `<name>.tmp` and rename it.
-  asqr ignores `*.tmp`.
-- asqr picks up new files while running and shows the existing ones on
-  start, oldest first.
-- On submit asqr writes the result into the outbox and then moves the
-  session file to `archive/`. The result belongs to the asker, who may
-  delete it after reading.
-- Nothing is deleted automatically. `asqr prune --older-than <duration>`
-  removes archived sessions and their results on request (user, round 2).
-- All four directories live under one root (user, round 2), so `asqr
-  paths` reports a single place.
-- A session file with the same id as a session already waiting replaces
-  it, as long as nothing has been answered. Otherwise asqr rejects it
-  with an error result.
-- An id whose earlier session was already answered, with its result
-  still in the outbox, is rejected, so an unread result is never lost.
-  `asqr ask --force` moves the old result into the archive and accepts
-  the new session (user, plan Q5).
-- One asqr instance per queue: a lock file in the queue keeps a second
-  instance out, and it names the process that holds the lock (user, plan
-  Q10).
-- An invalid session file gets an error result in the outbox (section
-  6), so the asker never waits forever.
+The four directories are created on first use.
 
-The default queue root is the platform's data directory, resolved with
-the `directories` crate (`ProjectDirs`): `~/Library/Application
-Support/asqr/` on macOS, `$XDG_DATA_HOME/asqr/` (usually
-`~/.local/share/asqr/`) on Linux. Queues live in `queues/<name>/` below
-it; the default queue is `default`. It can be changed with `--queue
-<name>` (a named queue under the root), `--dir <path>` (any directory),
-or the environment variables `ASQR_QUEUE` and `ASQR_DIR`.
+### 3.2 Location
 
-`asqr paths [--queue <name>] [--json]` prints the root, the inbox,
-outbox, drafts and archive directories of a queue and the log file, so an agent or script
-finds them without knowing the platform rules.
+The default root is the platform's data directory, resolved with the
+`directories` crate: `~/Library/Application Support/asqr/` on macOS,
+`$XDG_DATA_HOME/asqr/` (usually `~/.local/share/asqr/`) on Linux. Named
+queues live in `<root>/queues/<name>/`, and the default queue is
+`default`.
 
-Files only, no socket (user, Q1): dropping a file already triggers
-asqr, it queues while asqr is not running, it survives crashes, and any
-language can do it without a client library.
+- `--queue <name>` or `ASQR_QUEUE` picks a named queue under the root.
+- `--dir <path>` or `ASQR_DIR` is the queue directory itself, the one
+  with `inbox/` inside. `--queue` together with `--dir` is a usage error.
+- Flags win over environment variables, and environment variables win
+  over the default.
+
+`asqr paths [--json]` prints the root (`none` with `--dir`), the queue
+directory, its four directories, the lock file and the log file, so
+agents and scripts find them without knowing the platform rules.
+
+Queues on network or synced filesystems (NFS, Dropbox, iCloud Drive)
+are not supported: the lock is per host (section 3.6).
+
+### 3.3 Ids and file names
+
+- The file stem is the session id: `inbox/batch-01.json` is session
+  `batch-01`.
+- Id syntax: letters, digits, `-`, `_` and `.`, not starting with `.`, at
+  most 200 bytes.
+- Ids are compared case-insensitively on every platform: `Batch-01` and
+  `batch-01` are the same session for every rule in this section. A file
+  keeps the spelling it was given. Lookups therefore search directory
+  listings case-insensitively instead of building a path from the id.
+- Ids asqr creates are ULIDs: the ids `asqr ask` assigns, the ids `asqr
+  new` writes, and the suffix of archive names.
+
+### 3.4 What the watcher considers
+
+asqr only considers files named `inbox/<stem>.json` whose stem is a
+valid id. Everything else is logged and ignored: `*.tmp`, dotfiles,
+editor swap and backup files, `.DS_Store`.
+
+- Waiting sessions are ordered by file modification time (the drop
+  time), with the id as the tie-break.
+- On start, the watcher is registered first and the inbox scanned
+  second. A file dropped in between then shows up twice, which is
+  harmless because the state is keyed by id.
+- A changed inbox file is reloaded, and its draft is re-matched by
+  question id and option id (section 5.3).
+
+### 3.5 Writing into the inbox
+
+`asqr ask` writes through a temp file in the inbox
+(`tempfile::Builder::new().suffix(".tmp")`) and renames it into place.
+
+- No session with that id is waiting: the file is placed with
+  `persist_noclobber`, so two parallel `ask` calls with the same id
+  cannot both win.
+- A session with that id is waiting and its draft has no answer: `ask`
+  replaces it (`persist`).
+- A session with that id is waiting and its draft has at least one
+  answer: `ask` refuses. It exits with 1, writes nothing and writes no
+  error result.
+- A result with that id is still in the outbox: `ask` refuses, so an
+  unread result is never lost. `ask --force` first moves the old result
+  into the archive and then drops the new session.
+
+These are rules of `asqr ask`, not of the queue. A file someone drops
+into the inbox by hand replaces whatever is there, draft or not. The
+watcher never writes an error result for a replacement.
+
+When no asqr holds the queue lock, `ask` still drops the file and warns
+on stderr: "no asqr is watching queue <name>; start `asqr` in another
+terminal".
+
+### 3.6 The instance lock
+
+One asqr instance per queue. On start the TUI opens `<queue>/lock` and
+takes an exclusive advisory lock with `std::fs::File::try_lock` (flock
+on Unix).
+
+- `TryLockError::WouldBlock` means another instance runs. asqr prints
+  the holder and exits. Any other error is a plain failure.
+- The file holds the pid and host name of the holder, only for that
+  message. The file stays after exit and its text may be stale. The
+  lock itself is released by the kernel when the process ends, so there
+  is no stale-lock handling.
+- `ask`, `wait`, `result`, `status`, `paths` and `prune` do not take the
+  lock. The TUI never reads the outbox or the archive after a submit.
+
+### 3.7 Finishing a session
+
+Submit, cancel (`X`) and an error result take one path. Each step can
+be repeated safely:
+
+1. Write the result into `outbox/<id>.json` (atomically). Every result
+   carries `session_sha256`, the SHA-256 of the session file's bytes as
+   read from the inbox.
+2. Move the session file to `archive/<id>.<ulid>.json`.
+3. Delete the draft. This is the one thing asqr deletes on its own.
+
+Recovery on start: for an inbox session whose outbox result has the same
+`session_sha256`, the finish was interrupted, so steps 2 and 3 are
+completed and the session is not shown again. With a different hash, the
+file is a new session colliding with an unread result. It is moved to
+the archive and logged, the TUI shows a notice, and no result is
+written.
+
+### 3.8 Invalid sessions
+
+A file that fails validation gets a result with `"status": "error"`
+naming the field and the problem, and is then archived, so it is handled
+once. An error result never overwrites an existing `outbox/<id>.json`: in
+that case the file is archived and the conflict logged. A file whose
+stem is not a valid id gets no result at all, since no asker can be
+waiting on that name. It is logged and archived.
+
+### 3.9 Cleaning up
+
+Nothing is deleted automatically, apart from drafts in step 3 of section
+3.7.
+
+- `asqr prune --older-than <duration>` removes archive entries older than
+  the duration, going by the ULID in their name. Names are parsed from
+  the end, since the ULID is a fixed 26 characters and ids may contain
+  `.`.
+- `--results` also removes outbox results older than the duration. Its
+  help text says plainly that unread results are removed too.
+- Both print every file they remove.
+
+Why files and not a socket: dropping a file already triggers asqr, files
+queue while asqr is not running, they survive crashes, and any language
+can write them without a client library.
 
 ## 4. Session file (version 1)
 
@@ -102,12 +197,13 @@ language can do it without a client library.
   "title": "Alt rework 3, batch 1",
   "intro": "Pick the best line per mascot. 'More' sends it back with new variations.",
   "from": "claude-code, torchsnap mascots",
+  "follows": "alt-rework-3-batch-00",
   "questions": [
     {
       "id": "301-holly-crown-green-robe-feast-ghost",
       "header": "301",
       "text": "holly-crown-green-robe-feast-ghost: Ghost of Christmas Present (A Christmas Carol)",
-      "image": "../mascots/301-holly-crown-green-robe-feast-ghost.png",
+      "image": "/Users/someone/mascots/301-holly-crown-green-robe-feast-ghost.png",
       "kind": "single",
       "options": [
         { "id": "old",  "label": "Old",   "description": "Snappy ... -- ..." },
@@ -122,54 +218,72 @@ language can do it without a client library.
 }
 ```
 
-Fields:
+Session fields:
 
-- `asqr` (required): format version, `1`.
-- `id` (optional): unique per queue; letters, digits, `-`, `_`, `.`.
-  It names the result file. Ids are ULIDs by default (user, plan Q5):
-  without an `id`, `asqr ask` assigns a fresh ULID and prints it, and
-  `asqr new` prints a session skeleton with a fresh ULID. A custom id in
-  the allowed syntax is still accepted. Ids asqr creates internally are
-  ULIDs too.
-- `title`, `intro`, `from`: optional texts shown in the session header.
+- `asqr` (required): the format version, `1`. Any other value is the
+  validation error "unsupported format version".
+- `id` (optional): must equal the file stem when present (section 3.3).
+  Without it, `asqr ask` assigns a fresh ULID, writes it into the file
+  and names the file after it. A file dropped by hand without `id` has
+  its stem as the id.
+- `title`, `intro`, `from` (optional): shown in the session header.
+- `follows` (optional): the id of an earlier session this one continues.
+  The header shows `follows: <id>`.
 - `questions` (required, at least one).
 
-Per question:
+Question fields:
 
 - `id` (required, unique within the session), `text` (required),
-  `header` (optional short label for the question list).
-- `kind`: `single` (pick one), `multi` (pick several, with optional
-  `min` and `max`), or `text` (free text only, no options). No other
-  kinds in version 1 (user, Q5); `confirm`, `rank` and `number` were
-  considered.
-- `options`: for `single` and `multi`. Each has an `id`, a `label` and
-  an optional `description` of any length, shown in full and wrapped.
-  An optional `default: true` preselects an option.
-- `image` (optional): a path to an image file. Most questions have none.
-  Section 7 describes the display. `asqr ask` resolves relative paths
-  against the file it was given and writes absolute ones into the inbox
-  (user, round 2), since a relative path means nothing once the file sits
-  in the inbox. Files dropped into the inbox directly must use absolute
-  paths; `asqr validate` warns about relative ones.
-- `custom` (optional): allows a typed answer instead of or next to the
-  options. `true` or an object with `label`, `multiline` and `length`.
-- `length` (optional, on `custom` and on `text` questions): `target`
-  (a range shown in green), `warn` (above it the counter turns yellow),
-  `max` (hard limit; asqr refuses more input). All are optional.
+  `header` (optional, a short label for the question list).
+- `kind`: `single` (pick one), `multi` (pick several, with optional `min`
+  and `max`) or `text` (typed answer, no options). Version 1 has no other
+  kinds.
+- `options` (required for `single` and `multi`, not allowed for `text`):
+  each option has an `id` (unique within the question), a `label`, an
+  optional `description` of any length shown in full and wrapped, and an
+  optional `default: true`.
+- `custom` (optional, only on `single` and `multi`): allows a typed
+  answer. `true`, or an object with `label`, `multiline` and `length`.
+- `length` (optional, on `custom` and on `text` questions): `target` (a
+  range), `warn` (above it the counter warns) and `max` (a hard limit;
+  asqr refuses more input). All parts are optional, and they must be
+  consistent (`target` within `warn` within `max`).
+- `image` (optional): an absolute path to an image file. Most questions
+  have none. `asqr ask` resolves relative paths against the file it was
+  given and writes absolute ones. `asqr validate` warns about relative
+  paths in files meant for dropping by hand.
 - `note` (optional, default `true`): whether the person may add a note.
-  One note per question, whatever is selected (user, Q4).
-- `required` (optional, default `false`): a question that must be
-  answered before submit.
+  One note per question.
+- `required` (optional, default `false`): the question must be answered
+  before submit (section 5.2).
+
+Validation errors, besides missing or mistyped fields:
+
+- a duplicate question id or option id
+- `options` on `text`, or missing on `single` or `multi`
+- `custom` or `default` on `text`
+- more than one `default` in a `single`, or more defaults than `max` in a
+  `multi`
+- `min` greater than `max`, or either outside `0..=options`
+- inconsistent `length` bounds
+- an `id` that differs from the file stem
+
+Unknown fields are ignored when parsing, so later format versions can
+add optional fields. `asqr validate` and `asqr ask` warn about them,
+comparing the keys against the schema, so a typo like `requred` is
+reported.
 
 Text fields (`intro`, question `text`, option `description`) may use a
-small Markdown subset: bold, italic, inline code, lists and line breaks
-(user, Q6). Anything else shows as written.
+small Markdown subset: bold, italic, inline code, lists and line breaks.
+Everything else is shown exactly as written in the source (section 7.5).
 
-The repo ships a JSON Schema (`schema/session.v1.json` and
-`schema/result.v1.json`), `asqr schema` prints it, and `asqr validate
+The repo ships the JSON Schema (`schema/session.v1.json`,
+`schema/result.v1.json`). `asqr schema` prints it and `asqr validate
 <file>` checks a file.
 
-## 5. Result file
+## 5. Results and drafts
+
+### 5.1 Result file
 
 ```json
 {
@@ -177,50 +291,94 @@ The repo ships a JSON Schema (`schema/session.v1.json` and
   "id": "alt-rework-3-batch-01",
   "status": "submitted",
   "submitted_at": "2026-09-27T17:05:12+02:00",
+  "session_sha256": "9f2c...",
   "answers": [
-    {
-      "question": "301-holly-crown-green-robe-feast-ghost",
-      "selected": ["new1"],
-      "custom": null,
-      "note": "maybe shorter setup"
-    },
-    {
-      "question": "302-...",
-      "skipped": true
-    }
+    { "question": "301-...", "selected": ["new1"], "note": "maybe shorter setup" },
+    { "question": "302-...", "selected": ["old"], "defaulted": true },
+    { "question": "303-...", "skipped": true, "note": "skip, the image is wrong" },
+    { "question": "304-...", "custom": "Snappy ... -- ..." }
   ]
 }
 ```
 
-- One result per session, written on submit. There are no partial
-  submits (user, Q11); answers in progress stay in `drafts/`.
-- `status`: `submitted` (the person submitted, possibly with skipped
-  questions), `cancelled` (the person rejected the session; the optional
-  `reason` holds why) or `error` (the file was invalid; `error` holds
-  the message).
-- Every question of the session appears exactly once, in session order.
-- `selected` lists option ids; `custom` holds the typed text; `note` is
-  the note; `skipped: true` marks an unanswered question.
+- One result per session, written when the session is finished. There
+  are no partial submits.
+- `status`:
+  - `submitted`: the person submitted, possibly with skipped questions
+  - `cancelled`: the person rejected the session, with an optional
+    `reason`
+  - `error`: the file was invalid, and `error` holds the message
+- `submitted_at` holds the time of finishing, as RFC 3339 with the
+  offset. It is present for every status.
+- For `submitted`, every question appears exactly once, in session
+  order. For `cancelled` and `error`, `answers` is empty.
+
+### 5.2 Answer state
+
+A question is **answered** when:
+
+- `single`: an option is selected, or the custom text is not empty after
+  trimming
+- `multi`: at least one option is selected or the custom text is not
+  empty, and the count lies within `min` and `max`
+- `text`: the typed text is not empty after trimming
+
+Otherwise it is **skipped**.
+
+- A default counts as answered, and the question list shows it as
+  "default". The answer carries `"defaulted": true` only when the person
+  never edited the question. Any edit removes the flag, even one that
+  restores the default.
+- A note never answers a question and never satisfies `required`. A
+  skipped question keeps its note.
+- `min` and `max` only apply once something is selected, so a `multi`
+  with `min: 2` can be skipped. Only `required` forces an answer, and
+  `required` with `min` means at least `min`.
+- `required` questions block submit until they are answered.
+
+Answer shape per kind:
+
+- `single`: `selected` with exactly one option id, or `custom`, never
+  both. Selecting an option clears the custom text, and typing custom
+  text clears the selection.
+- `multi`: `selected` with the chosen option ids, and `custom` as one
+  more entry next to them when present.
+- `text`: `custom` holds the answer, and there is no `selected`.
+- Every kind may carry `note`. A skipped question has `skipped: true` and
+  may carry `note`.
+
+### 5.3 Draft file
+
+A draft has the result format with `"status": "draft"`, no
+`submitted_at` and no `session_sha256`, plus `current`, the id of the
+question the cursor is on. It is written on every change. On restore,
+answers are matched by question id and option id, and anything that no
+longer fits (a question or option that is gone) is dropped. A draft
+"has an answer" (section 3.5) when at least one question is answered or
+carries a note.
 
 ## 6. Errors
 
-An invalid session produces a result with `"status": "error"` and a
-message naming the field and the problem. asqr also shows it in the TUI.
-The asker never waits for a file that will not come.
+An invalid session produces an error result (section 3.8) naming the
+field and the problem, and asqr also shows it in the TUI. While an asqr
+watches the queue, the asker never waits for a result that will not
+come. Without one, `ask` warns (section 3.5), and `--timeout` bounds the
+wait.
 
 ## 7. The TUI
 
-`asqr` (or `asqr watch`) starts on the default queue.
+`asqr` (or `asqr watch`) starts on the queue chosen by section 3.2. It
+takes the queue lock (section 3.6).
 
-Layout:
+### 7.1 Layout
 
 ```
 + asqr ── queue: default ────────── 2 sessions waiting ────────────+
 | Alt rework 3, batch 1   (claude-code, torchsnap mascots)  3/16    |
 +─────────────────────+────────────────────────────────────────────+
 | > 301  new1         | 301-holly-crown-green-robe-feast-ghost:     |
-|   302  -            | Ghost of Christmas Present (A Christmas ... |
-|   303  more +note   |                                             |
+|   302  default      | Ghost of Christmas Present (A Christmas ... |
+|   303  - +note      |                                             |
 |   304  own line     |  ( ) Old    Snappy ... -- ...          112  |
 |   ...               |  (x) New 1  Snappy ... -- ...          118  |
 |                     |  ( ) New 2  Snappy ... -- ...          131  |
@@ -232,131 +390,206 @@ Layout:
 +──────────────────────────────────────────────────────────────────+
 ```
 
-- Left: the questions with their state. Right: the current question.
-- Keys, vim style plus arrows (user, Q7): `j`/`k` or arrows move within
-  options, `tab`/`shift-tab` or `J`/`K` move between questions, `space`
-  or `enter` selects, digits `1`-`9` pick an option directly, `c` opens
-  the custom entry, `n` the note, `esc` leaves a text field, `S` submits
-  (with a summary of skipped questions first), `X` rejects the whole
-  session after a confirmation, with an optional reason (user, plan Q7),
-  `q` quits and keeps the draft, `?` shows help.
-- Text fields are multi-line editors, with the length counter where the
-  question sets `length`.
-- The session list: when more than one session is waiting, a key opens
-  the list to switch. Answers are saved as drafts continuously, so
-  nothing is lost on quit or crash.
-- New session arriving: a desktop notification (OSC 9 or 777, which
-  Ghostty, iTerm2 and kitty support) and a terminal bell (user, Q8). Both
-  can be switched off.
-- Images: only when a question has one. They show inline where the
-  terminal supports it (Kitty graphics protocol in Ghostty, kitty and
-  WezTerm, the iTerm2 protocol, Sixel), through `ratatui-image`, which
-  detects the protocol. Terminals without any fall back to a coarse block
-  rendering. `o` opens the image in the system viewer and `z` shows it
-  full screen. Placement adapts (user, Q9): a column to the right when
-  the terminal is wide enough, below the options otherwise.
+The question list on the left shows each question's state, and the
+current question is on the right. Below a minimum terminal size, asqr
+shows a message instead of the layout.
 
-## 8. Asking from the command line
+### 7.2 Keys
 
-- `asqr new`: prints a session skeleton with a fresh ULID as its id.
-- `asqr ask <file> [--queue <name>] [--wait] [--timeout <secs>]
-  [--force]`:
-  validates the file, drops it atomically into the inbox and prints the
-  session id. With `--wait` it blocks until the result exists, prints it
-  to stdout, and exits 0 for `submitted`, 1 for `cancelled` or `error`,
-  and 2 on timeout.
-- `asqr wait <id>`: waits for an existing session.
-- `asqr result <id>`: prints a result if it is there.
-- `asqr status`: lists waiting and answered sessions.
-- `asqr paths`: section 3.
-- `asqr validate <file>`, `asqr schema`: section 4.
-- `asqr prune --older-than <duration>`: section 3.
-- `asqr skill [--install <dir>]`: section 9.
+Outside a text field (vim style plus arrows):
+
+| Key | Action |
+|---|---|
+| `j`/`k`, arrows | move within the options |
+| `tab`/`shift-tab`, `J`/`K` | next and previous question |
+| `space`, `enter` | select or toggle the option |
+| `1`-`9` | pick an option directly |
+| `c` | open the custom entry |
+| `n` | open the note |
+| `L` | the list of waiting sessions |
+| `S` | submit: a confirmation with the counts (answered, skipped, defaulted); `enter` confirms, `esc` backs out |
+| `X` | reject the session: a confirmation with an optional reason |
+| `o`, `z` | open the image in the system viewer; show it full screen |
+| `q`, `ctrl-c` | quit, keeping the draft |
+| `?` | help, listing `shift-tab` and `K` side by side, since some terminals send `shift-tab` as `esc` plus `tab` |
+
+Inside a text field every key goes to the editor except `esc`, which
+leaves the field and keeps the text. Edits are saved to the draft
+continuously, so there is no discard.
+
+### 7.3 Text fields and counters
+
+Text fields are multi-line editors (`tui-textarea`). Where the question
+sets `length`, a counter shows the length as text, and colour is only
+added on top:
+
+- `112/125` within the target
+- `140/125 !` above the target, up to `warn`
+- `max` at the hard limit, where more input is refused
+
+### 7.4 Sessions and notifications
+
+- When more than one session waits, `L` lists them in queue order
+  (section 3.4) and switches between them.
+- A new session triggers a desktop notification (OSC 9 or 777, which
+  Ghostty, iTerm2 and kitty show) and a terminal bell. `--no-notify` and
+  `--no-bell` switch them off.
+- A session colliding with an unread result (section 3.7) triggers a
+  notice.
+
+### 7.5 Markdown
+
+`pulldown-cmark` parses the text, and the renderer walks the events with
+their source offsets (`into_offset_iter()`). Elements in the subset are
+styled. For every other element the raw source slice is emitted once,
+also when it is nested inside a supported element (a heading marker in a
+list item).
+
+### 7.6 Images
+
+Images appear only when a question has one.
+
+- `ratatui-image` shows them inline through the Kitty graphics protocol
+  (Ghostty, kitty, WezTerm), the iTerm2 protocol or Sixel. Terminals
+  without any of these get a coarse block rendering.
+- The protocol is detected only in the binary (`main.rs`), by querying
+  the terminal. The library takes the detected `Picker` as an argument,
+  so tests never talk to a terminal.
+- Placement adapts: a column to the right when the terminal is wide
+  enough, below the options otherwise.
+- A relative path, a missing file or an unreadable file shows a
+  placeholder with the path. A path is never resolved against the
+  working directory, and a broken image never becomes an error result.
+
+Known limitation: inside tmux, inline images and OSC notifications need
+`set -g allow-passthrough on`. Without it, asqr falls back to the block
+rendering and the bell.
+
+## 8. The command line
+
+| Command | What it does |
+|---|---|
+| `asqr` / `asqr watch` | the TUI (section 7) |
+| `asqr new` | prints a session skeleton with a fresh ULID as its id |
+| `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes image paths absolute, drops the file (section 3.5), prints the id |
+| `asqr wait <id> [--timeout <secs>]` | waits for the result and prints it; blocks without `--timeout` |
+| `asqr result <id>` | prints the result if it is there |
+| `asqr status [--json]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
+| `asqr paths [--json]` | section 3.2 |
+| `asqr validate <file>`, `asqr schema` | section 4 |
+| `asqr prune --older-than <duration> [--results]` | section 3.9 |
+| `asqr skill [--install <dir>]` | prints the skill, or writes it to `<dir>/asqr/SKILL.md` (section 9) |
+
+Every command takes `--queue` or `--dir` (section 3.2).
+
+With `--wait`, the id goes to stderr and stdout carries only the result
+JSON, so the output can be piped into `jq`.
+
+Exit codes, the same for every command:
+
+| Code | Meaning |
+|---|---|
+| 0 | success: the result is `submitted`, or the file was dropped (`ask` without `--wait`), or the command did its job |
+| 1 | failure of asqr itself (I/O, a refused `ask`, a held lock) |
+| 2 | usage error (clap) |
+| 10 | the result is `cancelled` |
+| 11 | the result is `error`, or `ask` got a file that fails validation |
+| 12 | timeout |
+| 13 | unknown id: nothing in the inbox, outbox or archive (`wait`, `result`) |
 
 ## 9. Agents
 
-Agents are the main askers. Version 1 ships the skill, and the MCP server
-comes later as a thin layer on the same queue code (user, Q3):
+Agents are the main askers. Version 1 ships a skill, and an MCP server
+comes later as a thin layer on the same library.
 
-- **A skill in the repo** (`skills/asqr/SKILL.md`): it explains the file
-  format, `asqr ask --wait` in the background, how to wait without
-  blocking the agent, and patterns for longer sessions (batches, follow-up
-  rounds, keeping a record). It is cheap, works with any agent that can
-  write files and run commands, and does not depend on a protocol.
-- **An MCP server** (`asqr mcp`, stdio): tools such as `ask` (submit a
-  session, returns the id), `wait_result` (wait up to N seconds, then
-  return the result or "pending") and `status`. It is typed and easy to
-  discover, but it needs configuring per agent. MCP calls have time
-  limits, so a person answering for 20 minutes has to be bridged with
-  repeated `wait_result` calls.
+The skill lives in the repo at `skills/asqr/SKILL.md` in the Agent Skills
+format (`name` and `description` frontmatter, a plain Markdown body). It
+is compiled into the binary, so `asqr skill` prints the version that
+matches the installed asqr. `asqr skill --install <dir>` takes a skills
+root and writes `<dir>/asqr/SKILL.md`, so `asqr skill --install
+.claude/skills` works.
 
-The skill documents `asqr paths` as the way to find the queue. It lives
-in the repo at `skills/asqr/SKILL.md`, is compiled into the binary, and
-`asqr skill` prints it or `asqr skill --install <dir>` writes it, so the
-installed skill always matches the installed asqr (user, round 2).
+The skill teaches:
+
+- when asking through asqr beats asking in the chat
+- `asqr paths`, `asqr new` and the format, with a short example
+- the main waiting pattern, which works under any command time limit:
+  `asqr ask`, then a loop of `asqr wait <id> --timeout <secs>` until the
+  exit code is not 12
+- as a variant for agents that run commands in the background: `asqr ask
+  --wait` in the background
+- the exit codes, the "no asqr is watching" warning, which the agent
+  should pass on to the person, and `asqr status --json` to find sessions
+  it lost track of
+- longer sessions: batches, follow-up rounds with `follows`, and keeping
+  a record of the answers
+
+The planned MCP server (`asqr mcp`, stdio) offers `ask`, `wait_result`
+(waits up to N seconds, then returns the result or "pending") and
+`status`. MCP calls have time limits, so long answering times are
+bridged with repeated `wait_result` calls.
 
 ## 10. Follow-up rounds
 
-asqr itself has no loop. A follow-up is a new session. An optional
-`follows` field names the previous session id, so the TUI can show "3
-questions carried over from batch 1".
+asqr itself has no loop. A follow-up is a new session, and its optional
+`follows` field names the previous one. The header shows it. asqr does
+not count or match carried-over questions.
 
 ## 11. Not in version 1
 
-- Networking, several people on one queue, sockets.
-- The MCP server (later, section 9).
+- Networking, several people on one queue, sockets, queues on network or
+  synced filesystems.
+- The MCP server (section 9).
 - `asqr answer <file>`, answering one file in the current terminal
-  without a queue (later, user, Q12).
-- Partial submits (user, Q11).
-- Question kinds beyond `single`, `multi` and `text` (user, Q5).
-- Editing a session while it is being answered, beyond replacing it
-  before any answer (section 3).
+  without a queue.
+- Partial submits.
+- Question kinds beyond `single`, `multi` and `text`.
+- A tmux passthrough hint in the TUI (todo).
 - Windows support (it may work, but it is not tested).
 - Formats other than JSON.
-- A config file: version 1 is configured through flags and environment
-  variables only (user, plan Q9).
-- Publishing: asqr is used locally first and published on crates.io
-  later (user, plan Q13).
+- A config file: flags and environment variables only.
+- Publishing: asqr is used locally first and goes to crates.io later.
 
 ## 12. Technology
 
-Rust (edition 2024), minimum version 1.97 (`rust-version`, user, plan
-Q4). One crate with a library (`src/lib.rs`) and a thin binary
-(`src/main.rs`), so tests and the later MCP server reach the logic
-without the terminal (user, plan Q3). Licence: MPL-2.0 (user, Q10).
-
-Crates (user: use clap, anyhow and/or thiserror, and other best-practice
-crates as needed):
+Rust (edition 2024), minimum version 1.97. One crate with a library
+(`src/lib.rs`) and a thin binary (`src/main.rs`), so tests and the later
+MCP server reach the logic without the terminal. Licence: MPL-2.0.
 
 | Need | Crate |
 |---|---|
 | Command line | `clap` with the derive feature |
-| Errors | `thiserror` for the typed errors of the format and queue code (validation errors must name the field for the error result), `anyhow` with `.context()` at the binary's edges |
-| TUI | `ratatui` with `crossterm`, `tui-textarea` for text fields, `ratatui-image` for images |
-| Watching the inbox | `notify` (through `notify-debouncer-full`, so a write followed by a rename counts once) |
+| Errors | `thiserror` for the typed errors of the format and queue code (validation errors name the field), `anyhow` with `.context()` at the binary's edges |
+| TUI | `ratatui` with `crossterm`, `tui-textarea`, `ratatui-image` |
+| Watching the inbox | `notify` with `notify-debouncer-full` |
 | Platform paths | `directories` |
-| Format | `serde`, `serde_json`, `schemars` to derive the JSON Schema from the same types |
-| Atomic writes | `tempfile` (`NamedTempFile::persist` in the target directory) |
-| Timestamps | `jiff` (RFC 3339 with offset in results) |
-| Logging | `tracing` and `tracing-subscriber`, writing to a log file in the platform cache directory, as stdout belongs to the TUI (user, plan Q6) |
-| Markdown subset | `pulldown-cmark`, rendering only the allowed elements (user, plan Q8) |
+| Format | `serde`, `serde_json`, `schemars` (the JSON Schema is derived from the same types) |
+| Atomic writes | `tempfile` (`.tmp` suffix, `persist_noclobber` and `persist` in the target directory) |
+| Hashes | `sha2` for `session_sha256` |
+| Locking | `std::fs::File::try_lock` (no crate) |
+| Timestamps | `jiff` (RFC 3339 with the offset) |
+| Logging | `tracing` and `tracing-subscriber`, into a file in the platform cache directory |
+| Markdown subset | `pulldown-cmark` |
 | Session ids | `ulid` |
-| Tests | `insta` for snapshot tests of rendered screens and results, `assert_cmd` for the CLI |
+| Tests | `insta` for snapshots of rendered screens and results, `assert_cmd` for the CLI |
 
-The exact versions come in with `cargo add` when the code needs them.
+Crates come in with `cargo add` when the first test needs them.
 
-## 13. Development rules (user)
+## 13. Development rules
 
-- Test driven from the first line: write the test, watch it fail (red),
-  write the feature, watch it pass (green), then the next one.
-- Zero clippy warnings from the start. `just check` runs `cargo fmt
-  --check`, `cargo clippy --all-targets --all-features -- -D warnings`,
-  `cargo test` and `cargo llvm-cov`. A versioned git pre-commit hook runs
-  it, and GitHub Actions runs it on Ubuntu and macOS.
-- One commit per finished feature, with its tests; every commit passes
-  the hook. Push at the end of each plan phase (user, plan Q1 and Q2).
-- Every piece of code that is written or changed gets excellent test
-  coverage. `cargo llvm-cov` reports it without a threshold (user);
-  review checks that changes are covered.
-- The TUI is tested through its state and a rendered test buffer
-  (ratatui's `TestBackend` with `insta` snapshots), not by hand.
+- Test first: write the test, watch it fail (red), write the feature,
+  watch it pass (green), then the next one.
+- `just check` is the pipeline the pre-commit hook runs: license
+  notices, `cargo fmt --check`, `cargo clippy --all-targets
+  --all-features -- -D warnings`, `cargo test --all-targets` and `cargo
+  test --doc`. Zero warnings, from the start.
+- Coverage runs in CI and on demand with `just coverage` (`cargo
+  llvm-cov`), not in the hook (ADR 21). It is reported without a
+  threshold, and review checks that every written or changed line is
+  covered.
+- GitHub Actions runs `just check` and `just coverage` on Ubuntu and
+  macOS.
+- One commit per finished feature, with its tests. Push at the end of
+  each plan phase.
+- The TUI is tested through its state and ratatui's `TestBackend` with
+  `insta` snapshots, not by hand.
