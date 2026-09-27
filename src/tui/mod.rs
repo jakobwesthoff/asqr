@@ -7,6 +7,7 @@
 //! tests can run every key without one.
 
 mod app;
+pub mod render;
 mod session;
 
 pub use app::*;
