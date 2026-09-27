@@ -7,6 +7,7 @@
 //! are reachable from tests.
 
 mod exit;
+mod format;
 mod paths;
 
 use std::path::PathBuf;
@@ -42,6 +43,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+
+    /// Print a session skeleton with a fresh id.
+    New,
+
+    /// Check a session file and report errors and warnings.
+    Validate {
+        /// The session file.
+        file: PathBuf,
+    },
+
+    /// Print the JSON Schema of session files.
+    Schema {
+        /// Print the schema of result files instead.
+        #[arg(long)]
+        result: bool,
+    },
 }
 
 /// The queue the environment chooses: `ASQR_QUEUE` or `ASQR_DIR`. Empty
@@ -72,5 +89,8 @@ pub fn run(cli: Cli, environment: Selection) -> Exit {
 
     match cli.command {
         Command::Paths { json } => paths::run(&location, json),
+        Command::New => format::run_new(),
+        Command::Validate { file } => format::run_validate(&file),
+        Command::Schema { result } => format::run_schema(result),
     }
 }
