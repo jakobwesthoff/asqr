@@ -449,6 +449,10 @@ added on top:
 - `140/125 !` above the target, up to `warn`
 - `max` at the hard limit, where more input is refused
 
+The number after the slash is the end of the target range, or `warn`
+without a target, or `max` without either. Green within the target,
+yellow above it up to `warn`, red above `warn` and at `max`.
+
 The answer of a `text` question and notes are multi-line (`enter`
 starts a new line). A custom entry is single-line unless its `multiline`
 is set; in a single-line field `enter` does nothing, and `esc` leaves it.

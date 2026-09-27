@@ -1,0 +1,14 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&App::default(), 40, 10)"
+---
+"asqr needs at least 60×15; this terminal"
+"is 40×10.                               "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
+"                                        "
