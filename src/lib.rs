@@ -10,5 +10,6 @@
 //! reach it without a terminal. The `asqr` binary only parses arguments and
 //! drives the terminal (ADR 16).
 
+pub mod cli;
 pub mod format;
 pub mod queue;
