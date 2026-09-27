@@ -61,11 +61,23 @@ fn acquired(attempt: Result<(), TryLockError>) -> io::Result<bool> {
     }
 }
 
+/// How often, and how far apart, a held lock is tried before the queue
+/// counts as watched: 200 ms in all.
+const LOCK_ATTEMPTS: u32 = 10;
+const LOCK_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
+
 /// Takes the queue lock for this process.
 pub fn lock_queue(location: &QueueLocation) -> Result<QueueLock, LockError> {
     let mut file = open_lock_file(location)?;
-    if !acquired(file.try_lock())? {
-        return Err(LockError::Held(read_holder(&mut file)?));
+    // `lock_holder` takes a shared lock for a moment, so a refusal is only
+    // final once it lasts longer than such a check.
+    let mut attempts = 0;
+    while !acquired(file.try_lock())? {
+        attempts += 1;
+        if attempts == LOCK_ATTEMPTS {
+            return Err(LockError::Held(read_holder(&mut file)?));
+        }
+        std::thread::sleep(LOCK_RETRY);
     }
     let host = gethostname::gethostname();
     file.set_len(0)?;
@@ -105,6 +117,25 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let location = QueueLocation::at(scratch.path().join("queue"));
         (scratch, location)
+    }
+
+    #[test]
+    fn a_holder_check_at_the_same_moment_does_not_refuse_the_start() {
+        let (_scratch, location) = queue();
+        location.create_layout().expect("layout");
+        std::fs::write(location.lock_file(), "").expect("lock file");
+        // What `lock_holder` does: a shared lock, held for a moment.
+        let probe = std::fs::File::open(location.lock_file()).expect("opens");
+        probe.try_lock_shared().expect("shared lock");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            drop(probe);
+        });
+
+        let locked = lock_queue(&location);
+        release.join().expect("joined");
+
+        assert!(locked.is_ok(), "{locked:?}");
     }
 
     #[test]
