@@ -44,31 +44,52 @@ pub fn counter(length: usize, limits: &Length) -> (String, Level) {
     (text, level)
 }
 
-/// The short state of a question in the question list: the chosen option
-/// ids, `own` or `typed` for typed text, `default`, or `-` while it is not
-/// answered; `+note` when it carries a note.
+/// What the review shows for an answer: the chosen options by label, own
+/// text in quotes, a text answer as typed on one line, `-` for a skipped
+/// question, and marks for a default and a note.
 pub fn answer_summary(question: &Question, answer: &Answer) -> String {
-    let typed = answer
+    let own = answer
         .custom
         .as_deref()
-        .is_some_and(|text| !text.trim().is_empty());
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| format!("\"{}\"", text.lines().collect::<Vec<_>>().join(" ⏎ ")));
     let mut summary = if !is_answered(question, answer) {
         "-".to_owned()
-    } else if answer.defaulted {
-        "default".to_owned()
-    } else if question.kind == Kind::Text {
-        "typed".to_owned()
     } else {
-        let mut parts: Vec<&str> = answer.selected.iter().map(String::as_str).collect();
-        if typed {
-            parts.push("own");
-        }
-        parts.join(",")
+        let options = question.options.as_deref().unwrap_or_default();
+        let mut parts: Vec<String> = answer
+            .selected
+            .iter()
+            .map(|id| {
+                options
+                    .iter()
+                    .find(|option| &option.id == id)
+                    .map_or_else(|| id.clone(), |option| option.label.clone())
+            })
+            .collect();
+        parts.extend(own);
+        parts.join(", ")
     };
+    if answer.defaulted {
+        summary.push_str(" (default)");
+    }
     if answer.note.is_some() {
         summary.push_str(" +note");
     }
     summary
+}
+
+/// `text` in at most `room` characters, ending in `…` when it had to be
+/// cut.
+pub fn cut(text: &str, room: usize) -> String {
+    if text.chars().count() <= room {
+        return text.to_owned();
+    }
+    if room == 0 {
+        return String::new();
+    }
+    let kept: String = text.chars().take(room - 1).collect();
+    format!("{kept}…")
 }
 
 /// One line under the question text on how to answer it.
@@ -146,7 +167,7 @@ mod tests {
     fn the_question_list_shows_what_was_answered() {
         let multi = question(
             r#"{"id": "m", "text": "?", "kind": "multi",
-                "options": [{"id": "x", "label": "X"}, {"id": "y", "label": "Y"}]}"#,
+                "options": [{"id": "x", "label": "Extra"}, {"id": "y", "label": "Yes"}]}"#,
         );
         let chosen = Answer {
             selected: vec!["x".into(), "y".into()],
@@ -163,9 +184,9 @@ mod tests {
             ..Answer::new("m")
         };
 
-        assert_eq!(answer_summary(&multi, &chosen), "x,y");
-        assert_eq!(answer_summary(&multi, &typed), "own +note");
-        assert_eq!(answer_summary(&multi, &defaulted), "default");
+        assert_eq!(answer_summary(&multi, &chosen), "Extra, Yes");
+        assert_eq!(answer_summary(&multi, &typed), "\"own\" +note");
+        assert_eq!(answer_summary(&multi, &defaulted), "Extra (default)");
         assert_eq!(answer_summary(&multi, &Answer::new("m")), "-");
     }
 
@@ -180,18 +201,26 @@ mod tests {
             ..Answer::new("m")
         };
 
-        assert_eq!(answer_summary(&multi, &both), "x,own");
+        assert_eq!(answer_summary(&multi, &both), "X, \"more\"");
     }
 
     #[test]
     fn a_text_answer_shows_as_typed() {
         let text = question(r#"{"id": "t", "text": "?", "kind": "text"}"#);
         let typed = Answer {
-            custom: Some("done".into()),
+            custom: Some("done\nand dusted".into()),
             ..Answer::new("t")
         };
 
-        assert_eq!(answer_summary(&text, &typed), "typed");
+        assert_eq!(answer_summary(&text, &typed), "\"done ⏎ and dusted\"");
+    }
+
+    #[test]
+    fn cutting_keeps_text_within_its_room() {
+        assert_eq!(cut("Changelog, Blog post", 30), "Changelog, Blog post");
+        assert_eq!(cut("Changelog, Blog post", 12), "Changelog, …");
+        assert_eq!(cut("Changelog", 1), "…");
+        assert_eq!(cut("Changelog", 0), "");
     }
 
     #[test]

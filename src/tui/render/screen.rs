@@ -17,7 +17,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use super::Images;
 use super::markdown;
-use super::parts::{Level, answer_summary, counter, kind_hint};
+use super::parts::{Level, answer_summary, counter, cut, kind_hint};
 use crate::format::{Kind, Question};
 use crate::tui::{AnswerState, App, Focus, Row, SessionState};
 
@@ -49,6 +49,9 @@ fn shorten_from_left(text: &str, room: usize) -> String {
     };
     format!("…{tail}")
 }
+
+/// Marks a required question the review still misses.
+const REQUIRED: &str = "  required";
 
 /// What the screen shows besides the state.
 pub struct View<'a> {
@@ -614,23 +617,23 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                     .chars()
                     .take(label_width)
                     .collect();
-                let mut spans = vec![
-                    Span::from(format!(
-                        "{pointer}{} {label:<label_width$}  ",
-                        if skipped { "☐" } else { "☒" }
-                    )),
-                    Span::from(answer_summary(question, &answers[question_index])).dim(),
-                ];
-                if question.required && skipped {
-                    spans.push(Span::from("  required").fg(Color::Red));
+                let lead = format!(
+                    "{pointer}{} {label:<label_width$}  ",
+                    if skipped { "☐" } else { "☒" }
+                );
+                let required = question.required && skipped;
+                // One line per question: the summary gets what is left of
+                // the width and ends in `…` when it is longer.
+                let room = width
+                    .saturating_sub(lead.chars().count())
+                    .saturating_sub(if required { REQUIRED.len() } else { 0 });
+                let summary = cut(&answer_summary(question, &answers[question_index]), room);
+                let mut spans = vec![Span::from(lead), Span::from(summary).dim()];
+                if required {
+                    spans.push(Span::from(REQUIRED).fg(Color::Red));
                 }
                 let line = Line::from(spans);
-                wrap(
-                    if current { line.reversed() } else { line },
-                    width,
-                    0,
-                    label_width + 6,
-                )
+                vec![if current { line.reversed() } else { line }]
             }
             Row::Submit => {
                 let counts = state.counts();
@@ -1006,6 +1009,20 @@ mod tests {
                 screen(&app, width, height)
             );
         }
+    }
+
+    #[test]
+    fn the_review_shows_labels_and_text_cut_to_the_line() {
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "223");
+        special(&mut app, KeyCode::Enter);
+        keys(
+            &mut app,
+            "Queue scans are faster and the review shows what you picked",
+        );
+        special(&mut app, KeyCode::Enter);
+
+        insta::assert_snapshot!(screen(&app, 60, 15));
     }
 
     #[test]
