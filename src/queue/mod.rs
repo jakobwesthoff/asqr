@@ -11,6 +11,7 @@ mod drop;
 mod finish;
 mod inbox;
 mod location;
+mod lock;
 mod names;
 
 pub use drafts::*;
@@ -18,4 +19,5 @@ pub use drop::*;
 pub use finish::*;
 pub use inbox::*;
 pub use location::*;
+pub use lock::*;
 pub use names::*;
