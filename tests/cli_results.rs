@@ -48,8 +48,8 @@ fn result_prints_a_result_that_is_there() {
         .output()
         .expect("runs");
 
-    // `result` did its job whatever the status says.
-    assert_eq!(output.status.code(), Some(0));
+    // The exit says the status, the same way `wait` does.
+    assert_eq!(output.status.code(), Some(10));
     let result: SessionResult = serde_json::from_str(&stdout(&output)).expect("result JSON");
     assert_eq!(result.id, "done");
 }
@@ -65,6 +65,25 @@ fn result_of_a_missing_result_is_the_unknown_id_code() {
 
     assert_eq!(output.status.code(), Some(13));
     assert_eq!(stdout(&output), "");
+}
+
+#[test]
+fn result_of_a_session_still_waiting_is_the_timeout_code() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "pending");
+
+    let output = sandbox
+        .asqr_in_queue(&["result", "pending"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(12));
+    assert_eq!(stdout(&output), "");
+    assert!(
+        stderr(&output).contains("no result for pending yet"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]
@@ -135,20 +154,69 @@ fn wait_times_out_on_a_waiting_session() {
 }
 
 #[test]
-fn an_archived_session_is_known_even_without_a_result() {
+fn an_archived_session_whose_result_is_gone_ends_the_wait() {
     let sandbox = Sandbox::new();
     ask(&sandbox, "gone");
     answer(&sandbox, "gone", |sha| {
         SessionResult::submitted("gone", sha, &now_rfc3339(), Vec::new())
     });
-    std::fs::remove_file(sandbox.queue_dir().join("outbox/gone.json")).expect("the asker read it");
+    std::fs::remove_file(sandbox.queue_dir().join("outbox/gone.json")).expect("pruned");
 
-    let output = sandbox
-        .asqr_in_queue(&["wait", "gone", "--timeout", "0"])
-        .output()
-        .expect("runs");
+    for command in ["wait", "result"] {
+        let output = sandbox
+            .asqr_in_queue(&[command, "gone"])
+            .timeout(std::time::Duration::from_secs(10))
+            .output()
+            .expect("runs");
 
-    assert_eq!(output.status.code(), Some(12));
+        assert_eq!(output.status.code(), Some(13), "{command}");
+        assert!(
+            stderr(&output).contains("result of gone is gone"),
+            "{command}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn a_session_taken_out_of_the_inbox_ends_the_wait() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "withdrawn");
+    let mut waiting = sandbox
+        .spawnable_asqr()
+        .args(["--dir"])
+        .arg(sandbox.queue_dir())
+        .args(["wait", "withdrawn"])
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("wait starts");
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    std::fs::remove_file(sandbox.queue_dir().join("inbox/withdrawn.json")).expect("removed");
+
+    let output = wait_with_deadline(&mut waiting);
+    assert_eq!(output.status.code(), Some(13));
+}
+
+/// Waits for `child`, killing it when it runs over, so a regression fails
+/// the test instead of hanging it.
+fn wait_with_deadline(child: &mut std::process::Child) -> std::process::Output {
+    let started = std::time::Instant::now();
+    while child.try_wait().expect("status").is_none() {
+        if started.elapsed() > std::time::Duration::from_secs(10) {
+            child.kill().expect("killed");
+            panic!("the wait never ended");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let mut stderr = String::new();
+    std::io::Read::read_to_string(child.stderr.as_mut().expect("piped"), &mut stderr)
+        .expect("stderr");
+    std::process::Output {
+        status: child.wait().expect("status"),
+        stdout: Vec::new(),
+        stderr: stderr.into_bytes(),
+    }
 }
 
 #[test]
