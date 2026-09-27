@@ -67,9 +67,15 @@ pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
         return;
     }
 
+    let header_lines = app
+        .active()
+        .map(|state| header_lines(state, usize::from(area.width), area.height))
+        .unwrap_or_default();
+    let header_height = u16::try_from(header_lines.len()).expect("at most four header lines");
+
     let [title, header, tabs, main, status, keys] = Layout::vertical([
         Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Length(header_height.max(1)),
         Constraint::Length(2),
         Constraint::Fill(1),
         Constraint::Length(1),
@@ -102,7 +108,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
         return;
     };
 
-    draw_header(frame, state, header);
+    frame.render_widget(Paragraph::new(header_lines), header);
     draw_tabs(frame, state, tabs);
 
     let full_screen_image = state
@@ -136,7 +142,10 @@ pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
     }
 }
 
-fn draw_header(frame: &mut Frame, state: &SessionState, area: Rect) {
+/// The session header: the title line, then the intro. The intro takes
+/// at most three lines, one on short terminals, so the question keeps its
+/// room; a cut intro ends in `…`.
+fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'static>> {
     let session = state.session();
     let title = session
         .title
@@ -149,7 +158,34 @@ fn draw_header(frame: &mut Frame, state: &SessionState, area: Rect) {
     if let Some(follows) = &session.follows {
         spans.push(Span::from(format!("  follows: {follows}")).dim());
     }
-    frame.render_widget(Line::from(spans), area);
+    let mut lines = vec![Line::from(spans)];
+
+    let Some(intro) = session.intro.as_deref() else {
+        return lines;
+    };
+    let room = if height < 24 { 1 } else { 3 };
+    let mut intro: Vec<Line<'static>> = markdown::render(intro)
+        .into_iter()
+        .flat_map(|line| wrap(line, width.saturating_sub(1), 1, 1))
+        .map(|line| line.dim())
+        .collect();
+    if intro.len() > room {
+        intro.truncate(room);
+        let last = intro.last_mut().expect("room is at least one line");
+        // Replace the end of the last line with the ellipsis, keeping it
+        // inside the width.
+        let mut text: String = last
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        while text.chars().count() + 1 > width.saturating_sub(1) {
+            text.pop();
+        }
+        *last = Line::from(format!("{}…", text.trim_end())).dim();
+    }
+    lines.extend(intro);
+    lines
 }
 
 // ---------------------------------------------------------------------
@@ -941,6 +977,25 @@ mod tests {
     // -----------------------------------------------------------------
     // Sizes
     // -----------------------------------------------------------------
+
+    #[test]
+    fn the_intro_shows_under_the_title_as_far_as_there_is_room() {
+        let long_intro = RELEASE.replace(
+            "Three decisions before the release. `required` questions block submit.",
+            "Three decisions before the release. `required` questions block submit. \
+             The **channels** question takes several answers, and the highlights \
+             line goes into the release notes as it is typed, so write it the way \
+             it should read on the blog. Nothing is published before you submit.",
+        );
+        let app = app(&[("release", &long_intro)]);
+
+        for (width, height) in [(60, 15), (80, 24)] {
+            insta::assert_snapshot!(
+                format!("intro_{width}x{height}"),
+                screen(&app, width, height)
+            );
+        }
+    }
 
     #[test]
     fn a_question_adapts_to_every_terminal_size() {
