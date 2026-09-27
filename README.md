@@ -26,6 +26,13 @@ file that the agent reads back. Scripts and builds can ask the same way.
 
 The full design is in [`docs/spec.md`](docs/spec.md).
 
+## Development
+
+Development is test first, and `just check` is the validation pipeline:
+license headers, `cargo fmt --check`, clippy with `-D warnings`, tests and
+a coverage report. After cloning, run `just setup` once, so the
+pre-commit hook in `.githooks/` runs the pipeline before every commit.
+
 ## Decisions
 
 Architecture decisions are recorded in [`docs/adr/`](docs/adr/) and
@@ -33,4 +40,5 @@ managed with [adrs](https://github.com/joshrotenberg/adrs).
 
 ## License
 
-[Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/).
+[Mozilla Public License 2.0](LICENSE). Every source file carries the
+license notice in its header.
