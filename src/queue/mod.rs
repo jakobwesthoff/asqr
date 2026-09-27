@@ -5,10 +5,15 @@
 //! Queues (spec section 3): where sessions wait, where results go, and the
 //! file rules that keep askers and the TUI from stepping on each other.
 
+mod atomic;
+mod drafts;
+mod drop;
 mod inbox;
 mod location;
 mod names;
 
+pub use drafts::*;
+pub use drop::*;
 pub use inbox::*;
 pub use location::*;
 pub use names::*;
