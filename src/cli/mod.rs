@@ -15,13 +15,15 @@ mod prune;
 mod skill;
 mod status;
 mod wait;
+mod watch;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 pub use exit::Exit;
+pub use watch::Watch;
 
 use crate::queue::{QueueLocation, Selection, platform_data_dir};
 
@@ -38,12 +40,30 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "PATH")]
     dir: Option<PathBuf>,
 
+    /// Without a command, asqr answers sessions like `asqr watch`.
+    #[command(flatten)]
+    watch: WatchArgs,
+
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
+}
+
+#[derive(Debug, Default, Args)]
+struct WatchArgs {
+    /// Do not send desktop notifications when sessions arrive.
+    #[arg(long)]
+    no_notify: bool,
+
+    /// Do not ring the terminal bell when sessions arrive.
+    #[arg(long)]
+    no_bell: bool,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Answer waiting sessions in the terminal (the default).
+    Watch(WatchArgs),
+
     /// Print where the queue and its files are.
     Paths {
         /// Print the paths as JSON.
@@ -139,9 +159,14 @@ pub fn environment_selection() -> Selection {
 
 /// Runs the parsed command line. `environment` is what
 /// [`environment_selection`] read, passed in so the precedence of flags
-/// over the environment is decided in one place.
-pub fn run(cli: Cli, environment: Selection) -> Exit {
+/// over the environment is decided in one place. `terminal_ui` runs the
+/// TUI; only the binary has a terminal to hand it.
+pub fn run(cli: Cli, environment: Selection, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
     log::init();
+    dispatch(cli, environment, terminal_ui)
+}
+
+fn dispatch(cli: Cli, environment: Selection, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
     let flags = Selection {
         queue: cli.queue,
         dir: cli.dir,
@@ -154,7 +179,23 @@ pub fn run(cli: Cli, environment: Selection) -> Exit {
         }
     };
 
-    match cli.command {
+    // Plain `asqr` takes the watch flags, so they may stand before
+    // `watch` too; next to any other command they would do nothing.
+    let before = cli.watch;
+    let command = cli.command.unwrap_or(Command::Watch(WatchArgs::default()));
+    if !matches!(command, Command::Watch(_)) && (before.no_notify || before.no_bell) {
+        eprintln!("error: --no-notify and --no-bell only apply to watching the queue");
+        return Exit::Usage;
+    }
+
+    match command {
+        Command::Watch(after) => {
+            let args = WatchArgs {
+                no_notify: before.no_notify || after.no_notify,
+                no_bell: before.no_bell || after.no_bell,
+            };
+            watch::run(location, &args, terminal_ui)
+        }
         Command::Paths { json } => paths::run(&location, json),
         Command::New => format::run_new(),
         Command::Ask {
@@ -183,5 +224,112 @@ pub fn run(cli: Cli, environment: Selection) -> Exit {
         Command::Skill { install } => skill::run(install.as_deref()),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::queue::{lock_holder, lock_queue};
+    use crate::tui::Alerts;
+
+    /// Runs `args` against a queue in `dir` and returns the exit and what
+    /// the terminal UI was started with, if it was.
+    fn watched(dir: &Path, args: &[&str]) -> (Exit, Option<Alerts>) {
+        let mut argv = vec!["asqr", "--dir", dir.to_str().expect("UTF-8 temp path")];
+        argv.extend(args);
+        let cli = Cli::try_parse_from(argv).expect("parses");
+        let mut started = None;
+        let exit = dispatch(cli, Selection::default(), |watch| {
+            let location = watch.location();
+            assert!(location.inbox().is_dir(), "the layout exists");
+            assert!(
+                lock_holder(location).expect("readable").is_some(),
+                "the TUI runs with the queue locked"
+            );
+            started = Some(watch.alerts());
+            Exit::Success
+        });
+        (exit, started)
+    }
+
+    const ALL: Alerts = Alerts {
+        notify: true,
+        bell: true,
+    };
+
+    #[test]
+    fn without_a_command_asqr_watches_with_every_alert() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+
+        assert_eq!(watched(scratch.path(), &[]), (Exit::Success, Some(ALL)));
+        assert_eq!(
+            watched(scratch.path(), &["watch"]),
+            (Exit::Success, Some(ALL))
+        );
+        assert!(
+            lock_holder(&QueueLocation::at(scratch.path()))
+                .expect("readable")
+                .is_none(),
+            "the lock ends with the TUI"
+        );
+    }
+
+    #[test]
+    fn alerts_can_be_switched_off_with_or_without_the_command() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let no_bell = Alerts { bell: false, ..ALL };
+        let neither = Alerts {
+            notify: false,
+            bell: false,
+        };
+
+        assert_eq!(watched(scratch.path(), &["--no-bell"]).1, Some(no_bell));
+        assert_eq!(
+            watched(scratch.path(), &["watch", "--no-notify", "--no-bell"]).1,
+            Some(neither)
+        );
+    }
+
+    #[test]
+    fn watch_flags_belong_to_watching_only() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+
+        assert_eq!(
+            watched(scratch.path(), &["--no-bell", "status"]),
+            (Exit::Usage, None)
+        );
+    }
+
+    #[test]
+    fn watch_flags_before_and_after_the_command_add_up() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+
+        assert_eq!(
+            watched(scratch.path(), &["--no-bell", "watch", "--no-notify"]).1,
+            Some(Alerts {
+                notify: false,
+                bell: false
+            })
+        );
+    }
+
+    #[test]
+    fn a_queue_someone_else_watches_is_refused() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let _held = lock_queue(&QueueLocation::at(scratch.path())).expect("locked");
+
+        assert_eq!(watched(scratch.path(), &[]), (Exit::Failure, None));
+    }
+
+    #[test]
+    fn a_queue_that_cannot_be_set_up_is_a_failure() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let blocked = scratch.path().join("blocked");
+        std::fs::write(&blocked, "a file where the queue should be").expect("written");
+
+        assert_eq!(watched(&blocked, &[]), (Exit::Failure, None));
     }
 }
