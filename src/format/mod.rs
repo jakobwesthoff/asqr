@@ -11,6 +11,7 @@ mod result;
 mod schema;
 mod session;
 mod validate;
+mod warnings;
 
 pub use answer::*;
 pub use id::*;
@@ -18,3 +19,4 @@ pub use result::*;
 pub use schema::*;
 pub use session::*;
 pub use validate::*;
+pub use warnings::*;

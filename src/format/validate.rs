@@ -101,15 +101,15 @@ impl fmt::Display for KindName {
 pub struct FieldPath(String);
 
 impl FieldPath {
-    fn root(field: &str) -> Self {
+    pub(crate) fn root(field: &str) -> Self {
         FieldPath(field.to_owned())
     }
 
-    fn field(&self, field: &str) -> Self {
+    pub(crate) fn field(&self, field: &str) -> Self {
         FieldPath(format!("{}.{field}", self.0))
     }
 
-    fn index(&self, index: usize) -> Self {
+    pub(crate) fn index(&self, index: usize) -> Self {
         FieldPath(format!("{}[{index}]", self.0))
     }
 }
