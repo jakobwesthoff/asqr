@@ -33,6 +33,23 @@ const IMAGE_BESIDE_WIDTH: u16 = 100;
 /// least this much room; otherwise they move to their own lines.
 const MIN_DESCRIPTION_WIDTH: usize = 30;
 
+/// `text` in at most `room` characters: whole as long as it fits,
+/// otherwise its end behind `…`, cut at a `/` where one is in reach, since
+/// the end of a queue's path is what tells queues apart.
+fn shorten_from_left(text: &str, room: usize) -> String {
+    let length = text.chars().count();
+    if length <= room {
+        return text.to_owned();
+    }
+    let keep = room.saturating_sub(1);
+    let tail: String = text.chars().skip(length - keep).collect();
+    let tail = match tail.find('/') {
+        Some(slash) => &tail[slash..],
+        None => &tail,
+    };
+    format!("…{tail}")
+}
+
 /// What the screen shows besides the state.
 pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
@@ -61,11 +78,14 @@ pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
     .areas(area);
 
     let waiting = app.sessions().len();
-    let title_text = format!(
-        " asqr · queue: {} · {waiting} session{} waiting",
-        view.queue,
+    let count = format!(
+        " · {waiting} session{} waiting",
         if waiting == 1 { "" } else { "s" }
     );
+    let prefix = " asqr · queue: ";
+    let room =
+        usize::from(title.width).saturating_sub(prefix.chars().count() + count.chars().count());
+    let title_text = format!("{prefix}{}{count}", shorten_from_left(view.queue, room));
     frame.render_widget(Line::from(title_text).reversed(), title);
 
     let Some(state) = app.active() else {
@@ -897,12 +917,25 @@ mod tests {
     }
 
     fn screen(app: &App, width: u16, height: u16) -> TestBackend {
+        screen_of_queue(app, "default", width, height)
+    }
+
+    fn screen_of_queue(app: &App, queue: &str, width: u16, height: u16) -> TestBackend {
         let mut images = Images::new(ratatui_image::picker::Picker::halfblocks());
         let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
         terminal
-            .draw(|frame| draw(frame, app, &View { queue: "default" }, &mut images))
+            .draw(|frame| draw(frame, app, &View { queue }, &mut images))
             .expect("draws");
         terminal.backend().clone()
+    }
+
+    fn title_line(backend: &TestBackend) -> String {
+        let buffer = backend.buffer();
+        (0..buffer.area.width)
+            .map(|x| buffer[(x, 0)].symbol())
+            .collect::<String>()
+            .trim_end()
+            .to_owned()
     }
 
     // -----------------------------------------------------------------
@@ -989,6 +1022,27 @@ mod tests {
     #[test]
     fn an_empty_queue_says_so() {
         insta::assert_snapshot!(screen(&App::default(), 80, 20));
+    }
+
+    #[test]
+    fn a_long_queue_path_gives_way_to_the_count() {
+        let path = "/private/tmp/some/deeply/nested/scratch/directory/of/a/session/queue";
+        let app = App::default();
+
+        assert_eq!(
+            title_line(&screen_of_queue(&app, path, 60, 15)),
+            " asqr · queue: …/of/a/session/queue · 0 sessions waiting"
+        );
+        assert_eq!(
+            title_line(&screen_of_queue(&app, &"x".repeat(80), 60, 15)),
+            format!(" asqr · queue: …{} · 0 sessions waiting", "x".repeat(23)),
+            "a name without separators is cut anywhere"
+        );
+        assert_eq!(
+            title_line(&screen_of_queue(&app, "default", 60, 15)),
+            " asqr · queue: default · 0 sessions waiting",
+            "a title that fits stays as it is"
+        );
     }
 
     #[test]
