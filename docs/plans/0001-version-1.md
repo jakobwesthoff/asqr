@@ -1,6 +1,6 @@
 # Plan: asqr version 1
 
-A rough plan for building version 1, from `docs/spec.md` and ADRs 2-21.
+A rough plan for building version 1, from `docs/spec-1.0.0.md` and ADRs 2-21.
 It is a working document. It is removed from the repo again as the last
 step, once version 1 is done. The open questions Q1-Q13 were settled
 with the user on 2026-09-27 (ADRs 12-20). The adversarial review

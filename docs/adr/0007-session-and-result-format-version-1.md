@@ -14,7 +14,7 @@ versioned and checkable.
 ## Decision
 
 The format is JSON, versioned with `"asqr": 1`. The full description is
-in `docs/spec.md` sections 4 and 5.
+in `docs/spec-1.0.0.md` sections 4 and 5.
 
 - Question kinds are `single`, `multi` (with optional `min` and `max`)
   and `text`. Other kinds such as `confirm`, `rank` and `number` are left

@@ -58,4 +58,4 @@ Networking and several people on one queue are out of scope.
 - **`prune` removes only archive entries by default.** `--results` also
   removes outbox results.
 
-The details are in `docs/spec.md` section 3.
+The details are in `docs/spec-1.0.0.md` section 3.

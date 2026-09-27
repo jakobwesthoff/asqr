@@ -24,7 +24,7 @@ file that the agent reads back. Scripts and builds can ask the same way.
   ask.
 - A skill that teaches agents how to use asqr, built into the binary.
 
-The full design is in [`docs/spec.md`](docs/spec.md).
+The full design is in [`docs/spec-1.0.0.md`](docs/spec-1.0.0.md).
 
 ## Inside tmux
 

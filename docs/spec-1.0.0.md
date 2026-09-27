@@ -1,4 +1,15 @@
-# asqr specification (draft)
+---
+title: asqr specification
+version: 1.0.0
+format: 1
+status: draft
+---
+
+# asqr 1.0.0 specification (draft)
+
+This file describes asqr 1.0.0, the first release, with version 1 of
+the session and result format. A later version of asqr gets a
+specification file of its own.
 
 Status: reviewed with the user and in an adversarial review on
 2026-09-27, with the findings F1 to F12 worked in. The decisions behind
@@ -106,14 +117,14 @@ editor swap and backup files, `.DS_Store`.
 
 ### 3.5 Writing into the inbox
 
-`asqr ask` writes through a temp file in the inbox
-(`tempfile::Builder::new().suffix(".tmp")`) and renames it into place.
+`asqr ask` writes the session into a temp file in the inbox, whose
+`.tmp` suffix the watcher ignores, and renames it into place.
 
-- No session with that id is waiting: the file is placed with
-  `persist_noclobber`, so two parallel `ask` calls with the same id
+- No session with that id is waiting: the rename only succeeds while no
+  file of that name exists, so two parallel `ask` calls with the same id
   cannot both win.
 - A session with that id is waiting and its draft has no answer: `ask`
-  replaces it (`persist`).
+  replaces it.
 - A session with that id is waiting and its draft has at least one
   answer: `ask` refuses. It exits with 1, writes nothing and writes no
   error result.
@@ -132,11 +143,10 @@ terminal".
 ### 3.6 The instance lock
 
 One asqr instance per queue. On start the TUI opens `<queue>/lock` and
-takes an exclusive advisory lock with `std::fs::File::try_lock` (flock
-on Unix).
+takes an exclusive advisory lock on it without waiting (flock on Unix).
 
-- `TryLockError::WouldBlock` means another instance runs. asqr prints
-  the holder and exits. Any other error is a plain failure.
+- A lock held by another process means another instance runs. asqr
+  prints the holder and exits. Any other error is a plain failure.
 - The file holds the pid and host name of the holder, only for that
   message. The file stays after exit and its text may be stale. The
   lock itself is released by the kernel when the process ends, so there
@@ -146,8 +156,8 @@ on Unix).
 
 ### 3.7 Finishing a session
 
-Submit, cancel (`X`) and an error result take one path. Each step can
-be repeated safely:
+Submit, reject (both on the review tab) and an error result take one
+path. Each step can be repeated safely:
 
 1. Write the result into `outbox/<id>.json` (atomically). Every result
    carries `session_sha256`, the SHA-256 of the session file's bytes as
@@ -505,11 +515,9 @@ Unanswered `required` questions are marked. Below the list:
 
 ### 7.6 Markdown
 
-`pulldown-cmark` parses the text, and the renderer walks the events with
-their source offsets (`into_offset_iter()`). Elements in the subset are
-styled. For every other element the raw source slice is emitted once,
-also when it is nested inside a supported element (a heading marker in a
-list item).
+`pulldown-cmark` parses the text. Elements in the subset are styled.
+Every other element is shown once as written in the source, also when it
+is nested inside a supported element (a heading marker in a list item).
 
 ### 7.7 Images
 
@@ -518,9 +526,9 @@ Images appear only when a question has one.
 - `ratatui-image` shows them inline through the Kitty graphics protocol
   (Ghostty, kitty, WezTerm), the iTerm2 protocol or Sixel. Terminals
   without any of these get a coarse block rendering.
-- The protocol is detected only in the binary (`src/terminal.rs`), by
-  querying the terminal. The library takes the detected `Picker` as an argument,
-  so tests never talk to a terminal.
+- The protocol is detected once at start, by querying the terminal. Only
+  the binary talks to the terminal; the drawing code receives the
+  detected protocol, so tests never need a terminal.
 - Placement adapts: a column to the right when the terminal is wide
   enough, below the options otherwise.
 - A relative path, a missing file or an unreadable file shows a
@@ -529,9 +537,9 @@ Images appear only when a question has one.
 
 Known limitation: inside tmux, inline images and OSC notifications need
 `set -g allow-passthrough on`. Without it, asqr falls back to the block
-rendering and the bell. Inside tmux, asqr asks tmux for
-`#{allow-passthrough} #{session_attached}` and queries the terminal only
-when passthrough is `on` or `all` and a client is attached: otherwise
+rendering and the bell. Inside tmux, asqr asks tmux whether passthrough is on for its pane and
+whether a client is attached, and queries the terminal only when both
+hold: otherwise
 the query gets no answer, and its reader would go on taking the keys
 typed afterwards.
 Notifications inside tmux go out in tmux's passthrough wrapper.
@@ -624,20 +632,20 @@ not count or match carried-over questions.
 ## 12. Technology
 
 Rust (edition 2024), minimum version 1.97. One crate with a library
-(`src/lib.rs`) and a thin binary (`src/main.rs`), so tests and the later
-MCP server reach the logic without the terminal. Licence: MPL-2.0.
+and a thin binary, so tests and the later MCP server reach the logic
+without the terminal. Licence: MPL-2.0.
 
 | Need | Crate |
 |---|---|
 | Command line | `clap` with the derive feature |
-| Errors | `thiserror` for the typed errors of the format and queue code (validation errors name the field), `anyhow` with `.context()` at the binary's edges |
+| Errors | `thiserror` for the typed errors of the format and queue code (validation errors name the field), `anyhow` with context at the binary's edges |
 | TUI | `ratatui` with `crossterm`, `ratatui-textarea` (the maintained continuation of `tui-textarea`, ADR 9), `ratatui-image` |
 | Watching the inbox | `notify` with `notify-debouncer-full` |
 | Platform paths | `directories` |
 | Format | `serde`, `serde_json`, `schemars` (the JSON Schema is derived from the same types) |
-| Atomic writes | `tempfile` (`.tmp` suffix, `persist_noclobber` and `persist` in the target directory) |
+| Atomic writes | `tempfile` (temp files with the `.tmp` suffix in the target directory, renamed into place) |
 | Hashes | `sha2` for `session_sha256` |
-| Locking | `std::fs::File::try_lock` (no crate) |
+| Locking | the standard library's file locks (no crate) |
 | Timestamps | `jiff` (RFC 3339 with the offset) |
 | Logging | `tracing` and `tracing-subscriber`, into a file in the platform cache directory |
 | Markdown subset | `pulldown-cmark` |
