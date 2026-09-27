@@ -7,6 +7,12 @@ with the user on 2026-09-27 (ADRs 12-20). The adversarial review
 findings F1-F12 of the same day are worked into the spec and noted here
 where they change a step.
 
+## Status
+
+- Done: phases 0, 1, 2, 3, 4, 5 and 5b (last commit of phase 5b:
+  `8a835fb`).
+- Next: phase 6, the watcher and the running app.
+
 ## How every step runs
 
 - Test first: write the test, watch it fail (red), write the feature,
