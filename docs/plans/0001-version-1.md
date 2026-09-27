@@ -9,9 +9,9 @@ where they change a step.
 
 ## Status
 
-- Done: phases 0 to 6 and 5b (phase 6 ends with `cb2481d`).
-- Next: bring every dependency to its newest version (user, after phase
-  6), then phase 7, the skill.
+- Done: phases 0 to 7 and 5b, and the spec audit after phase 6.
+- Next: phase 8, the release steps (README, first real use, removing
+  this plan).
 
 ## How every step runs
 
