@@ -199,8 +199,8 @@ mod tests {
         let json = r#"{"asqr": 1, "future": 1, "questions": [
             {"id": "s", "text": "?", "kind": "single", "requred": true,
              "options": [{"id": "a", "label": "A", "colour": "red"}],
-             "custom": {"label": "Own", "x": 1, "length": {"max": 9, "z": 2}}},
-            {"id": "t", "text": "?", "kind": "text", "length": {"max": 9, "y": 3}},
+             "custom": {"label": "Own", "x": 1, "length": {"warn": 9, "z": 2}}},
+            {"id": "t", "text": "?", "kind": "text", "length": {"warn": 9, "y": 3}},
             {"id": "m", "text": "?", "kind": "multi", "custom": true,
              "options": [{"id": "a", "label": "A"}]}]}"#;
 
@@ -213,6 +213,22 @@ mod tests {
                 "questions[0].custom.x: unknown field",
                 "questions[0].custom.length.z: unknown field",
                 "questions[1].length.y: unknown field",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_dropped_max_and_multiline_are_unknown_fields() {
+        let json = r#"{"asqr": 1, "questions": [
+            {"id": "t", "text": "?", "kind": "text", "length": {"max": 9}},
+            {"id": "s", "text": "?", "kind": "single", "options": [{"id": "a", "label": "A"}],
+             "custom": {"multiline": true}}]}"#;
+
+        assert_eq!(
+            warn(json, None),
+            [
+                "questions[0].length.max: unknown field",
+                "questions[1].custom.multiline: unknown field",
             ]
         );
     }

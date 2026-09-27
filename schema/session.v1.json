@@ -55,9 +55,6 @@
               "type": "null"
             }
           ]
-        },
-        "multiline": {
-          "type": "boolean"
         }
       },
       "type": "object"
@@ -82,17 +79,8 @@
       ]
     },
     "Length": {
-      "description": "Length limits for typed text (spec section 7.3). Every part is\noptional; validation checks that they are consistent.",
+      "description": "How long typed text should be (spec section 7.3). Both parts are\noptional; validation checks that they are consistent. There is no hard\nlimit: the counter guides, and input is never refused (ADR 22).",
       "properties": {
-        "max": {
-          "description": "The hard limit; more input is refused.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
         "target": {
           "description": "The range the text should land in.",
           "maxItems": 2,
@@ -115,7 +103,7 @@
           ]
         },
         "warn": {
-          "description": "Above this the counter warns.",
+          "description": "Above this the counter warns more strongly.",
           "format": "uint32",
           "minimum": 0,
           "type": [

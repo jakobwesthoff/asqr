@@ -14,34 +14,29 @@ pub enum Level {
     Fine,
     /// Above the target, up to `warn`.
     Warn,
-    /// Above `warn`, or at the hard limit.
+    /// Above `warn`.
     Over,
 }
 
 /// The counter text for `length` characters against `limits`: the length
-/// over the end of the target range (or `warn`, or `max`), `!` above the
-/// target and `max` at the hard limit. The text says everything the
+/// over the end of the target range (or over `warn` without a target), `!`
+/// above the target and `!!` above `warn`. The text says everything the
 /// colour says, so it works without colour.
 pub fn counter(length: usize, limits: &Length) -> (String, Level) {
     let length32 = u32::try_from(length).unwrap_or(u32::MAX);
     let target_end = limits.target.map(|(_, end)| end);
+    let above_warn = limits.warn.is_some_and(|warn| length32 > warn);
     let above_target = target_end.is_some_and(|end| length32 > end);
-    let at_max = limits.max.is_some_and(|max| length32 >= max);
 
-    let mut text = match target_end.or(limits.warn).or(limits.max) {
+    let mut text = match target_end.or(limits.warn) {
         Some(reference) => format!("{length}/{reference}"),
         None => length.to_string(),
     };
-    if above_target {
-        text.push_str(" !");
-    }
-    if at_max {
-        text.push_str(" max");
-    }
-
-    let level = if at_max || limits.warn.is_some_and(|warn| length32 > warn) {
+    let level = if above_warn {
+        text.push_str(" !!");
         Level::Over
     } else if above_target {
+        text.push_str(" !");
         Level::Warn
     } else {
         Level::Fine
@@ -105,39 +100,40 @@ mod tests {
     use super::*;
     use crate::format::{Answer, Length, Question};
 
-    fn limits(target: Option<(u32, u32)>, warn: Option<u32>, max: Option<u32>) -> Length {
-        Length { target, warn, max }
+    fn limits(target: Option<(u32, u32)>, warn: Option<u32>) -> Length {
+        Length { target, warn }
     }
 
     #[test]
     fn the_counter_reads_against_the_target_end() {
-        let length = limits(Some((80, 125)), Some(145), Some(175));
+        let length = limits(Some((80, 125)), Some(145));
 
         assert_eq!(counter(112, &length), ("112/125".to_owned(), Level::Fine));
+        assert_eq!(counter(125, &length), ("125/125".to_owned(), Level::Fine));
         assert_eq!(counter(140, &length), ("140/125 !".to_owned(), Level::Warn));
-        assert_eq!(counter(150, &length), ("150/125 !".to_owned(), Level::Over));
+        assert_eq!(counter(145, &length), ("145/125 !".to_owned(), Level::Warn));
         assert_eq!(
-            counter(175, &length),
-            ("175/125 ! max".to_owned(), Level::Over)
+            counter(182, &length),
+            ("182/125 !!".to_owned(), Level::Over)
         );
     }
 
     #[test]
-    fn the_counter_falls_back_to_warn_and_max() {
+    fn the_counter_falls_back_to_warn() {
         assert_eq!(
-            counter(3, &limits(None, Some(10), Some(20))),
+            counter(3, &limits(None, Some(10))),
             ("3/10".to_owned(), Level::Fine)
         );
         assert_eq!(
-            counter(12, &limits(None, Some(10), None)),
-            ("12/10".to_owned(), Level::Over)
+            counter(12, &limits(None, Some(10))),
+            ("12/10 !!".to_owned(), Level::Over)
         );
         assert_eq!(
-            counter(5, &limits(None, None, Some(5))),
-            ("5/5 max".to_owned(), Level::Over)
+            counter(200, &limits(Some((1, 5)), None)),
+            ("200/5 !".to_owned(), Level::Warn)
         );
         assert_eq!(
-            counter(2, &limits(None, None, None)),
+            counter(2, &limits(None, None)),
             ("2".to_owned(), Level::Fine)
         );
     }

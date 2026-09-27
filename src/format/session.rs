@@ -150,13 +150,6 @@ impl Custom {
             Custom::Configured(config) => config.length.as_ref(),
         }
     }
-
-    pub fn is_multiline(&self) -> bool {
-        match self {
-            Custom::Enabled(_) => false,
-            Custom::Configured(config) => config.multiline,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -164,28 +157,22 @@ pub struct CustomConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub multiline: bool,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length: Option<Length>,
 }
 
-/// Length limits for typed text (spec section 7.3). Every part is
-/// optional; validation checks that they are consistent.
+/// How long typed text should be (spec section 7.3). Both parts are
+/// optional; validation checks that they are consistent. There is no hard
+/// limit: the counter guides, and input is never refused (ADR 22).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Length {
     /// The range the text should land in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<(u32, u32)>,
 
-    /// Above this the counter warns.
+    /// Above this the counter warns more strongly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warn: Option<u32>,
-
-    /// The hard limit; more input is refused.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max: Option<u32>,
 }
 
 #[cfg(test)]
@@ -214,7 +201,6 @@ mod tests {
         let length = custom.length().expect("custom has a length");
         assert_eq!(length.target, Some((80, 125)));
         assert_eq!(length.warn, Some(145));
-        assert_eq!(length.max, Some(175));
 
         let multi = &session.questions[1];
         assert_eq!(multi.kind, Kind::Multi);
@@ -225,7 +211,7 @@ mod tests {
         let text = &session.questions[2];
         assert_eq!(text.kind, Kind::Text);
         assert!(text.options.is_none());
-        assert_eq!(text.length.as_ref().and_then(|l| l.max), Some(500));
+        assert_eq!(text.length.as_ref().and_then(|l| l.warn), Some(500));
         assert!(!text.note);
     }
 
@@ -264,9 +250,8 @@ mod tests {
     fn custom_switch_and_configuration_answer_the_same_questions() {
         let switched_on: Custom = serde_json::from_str("true").expect("bool parses");
         let switched_off: Custom = serde_json::from_str("false").expect("bool parses");
-        let configured: Custom =
-            serde_json::from_str(r#"{"label": "Own", "multiline": true, "length": {"max": 9}}"#)
-                .expect("object parses");
+        let configured: Custom = serde_json::from_str(r#"{"label": "Own", "length": {"warn": 9}}"#)
+            .expect("object parses");
 
         assert!(switched_on.is_enabled());
         assert!(!switched_off.is_enabled());
@@ -274,11 +259,9 @@ mod tests {
 
         assert_eq!(switched_on.label(), None);
         assert_eq!(switched_on.length(), None);
-        assert!(!switched_on.is_multiline());
 
         assert_eq!(configured.label(), Some("Own"));
-        assert_eq!(configured.length().and_then(|l| l.max), Some(9));
-        assert!(configured.is_multiline());
+        assert_eq!(configured.length().and_then(|l| l.warn), Some(9));
     }
 
     #[test]

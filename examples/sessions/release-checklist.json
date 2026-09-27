@@ -35,7 +35,7 @@
       "header": "Highlights",
       "text": "One sentence for the release notes:",
       "kind": "text",
-      "length": { "target": [40, 120], "warn": 140, "max": 200 }
+      "length": { "target": [40, 120], "warn": 140 }
     }
   ]
 }

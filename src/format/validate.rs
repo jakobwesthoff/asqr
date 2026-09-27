@@ -76,9 +76,6 @@ pub enum Problem {
 
     #[error("{value} is below the end of the target range {target_end}")]
     BelowTarget { value: u32, target_end: u32 },
-
-    #[error("{max} is below warn {warn}")]
-    MaxBelowWarn { max: u32, warn: u32 },
 }
 
 /// A question kind as it is written in the file, for messages.
@@ -283,8 +280,8 @@ fn validate_bounds(
     }
 }
 
-/// The parts of a length must nest: the target range, then `warn`, then
-/// `max`. Each check only applies to the parts that are present.
+/// The warning threshold must not lie inside the target range. Each check
+/// only applies to the parts that are present.
 fn validate_length(length: &Length, path: &FieldPath, report: &mut impl FnMut(FieldPath, Problem)) {
     let target_end = match length.target {
         Some((start, end)) if start > end => {
@@ -305,24 +302,6 @@ fn validate_length(length: &Length, path: &FieldPath, report: &mut impl FnMut(Fi
                 target_end,
             },
         );
-    }
-
-    if let Some(max) = length.max {
-        if let Some(warn) = length.warn {
-            if max < warn {
-                report(path.field("max"), Problem::MaxBelowWarn { max, warn });
-            }
-        } else if let Some(target_end) = target_end
-            && max < target_end
-        {
-            report(
-                path.field("max"),
-                Problem::BelowTarget {
-                    value: max,
-                    target_end,
-                },
-            );
-        }
     }
 }
 
@@ -556,15 +535,10 @@ mod tests {
         );
         assert_eq!(
             errors(&with_question(
-                r#"{"id": "q", "text": "?", "kind": "text", "length": {"warn": 60, "max": 50}}"#
+                r#"{"id": "q", "text": "?", "kind": "text", "length": {"target": [1, 50], "warn": 50}}"#
             )),
-            ["questions[0].length.max: 50 is below warn 60"]
-        );
-        assert_eq!(
-            errors(&with_question(
-                r#"{"id": "q", "text": "?", "kind": "text", "length": {"target": [1, 60], "max": 50}}"#
-            )),
-            ["questions[0].length.max: 50 is below the end of the target range 60"]
+            Vec::<String>::new(),
+            "warn may equal the end of the target"
         );
     }
 

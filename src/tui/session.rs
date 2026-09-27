@@ -288,13 +288,11 @@ impl SessionState {
 
     fn is_multiline(&self, field: Field) -> bool {
         let question = self.question();
-        match (field, question.kind) {
-            (Field::Note, _) | (Field::Custom, Kind::Text) => true,
-            (Field::Custom, _) => question
-                .custom
-                .as_ref()
-                .is_some_and(|custom| custom.is_multiline()),
-        }
+        // Own answers are always one line (ADR 22).
+        matches!(
+            (field, question.kind),
+            (Field::Note, _) | (Field::Custom, Kind::Text)
+        )
     }
 
     /// Handles one key.
@@ -487,18 +485,12 @@ impl SessionState {
             return Effect::DraftChanged;
         }
 
-        // The key is tried on a copy, so input that breaks a rule of the
-        // field (a line break in a single-line field, text beyond the hard
-        // limit) is dropped as a whole.
+        // The key is tried on a copy, so a line break in a single-line
+        // field is dropped as a whole.
         let before = editor.clone();
         editor.input(key);
         if !self.is_multiline(field) && editor.lines().len() > 1 {
             editor = before;
-        } else if let Some(max) = self.limits(field).and_then(|limits| limits.max)
-            && text_length(&editor) > max as usize
-        {
-            editor = before;
-            self.message = Some(format!("at most {max} characters"));
         }
         self.mode = Mode::Editing { field, editor };
         Effect::None
@@ -606,9 +598,9 @@ mod tests {
     const SESSION: &str = r#"{"asqr": 1, "questions": [
         {"id": "single", "text": "?", "kind": "single", "custom": true,
          "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B", "default": true}]},
-        {"id": "multi", "text": "?", "kind": "multi", "max": 2, "custom": {"multiline": true},
+        {"id": "multi", "text": "?", "kind": "multi", "max": 2, "custom": true,
          "options": [{"id": "x", "label": "X"}, {"id": "y", "label": "Y"}, {"id": "z", "label": "Z"}]},
-        {"id": "text", "text": "?", "kind": "text", "length": {"max": 5}, "required": true},
+        {"id": "text", "text": "?", "kind": "text", "length": {"warn": 5}, "required": true},
         {"id": "plain", "text": "?", "kind": "single", "note": false, "image": "/pictures/p.png",
          "options": [{"id": "only", "label": "Only"}]}
     ]}"#;
@@ -834,39 +826,23 @@ mod tests {
     }
 
     #[test]
-    fn a_multiline_custom_entry_takes_new_lines() {
-        let mut state = state();
-        press(&mut state, "Jca");
-
-        state.handle(code(KeyCode::Enter));
-        press(&mut state, "b");
-        state.handle(code(KeyCode::Esc));
-
-        assert_eq!(answer(&state, "multi").custom.as_deref(), Some("a\nb"));
-    }
-
-    #[test]
-    fn the_hard_limit_refuses_more_input() {
+    fn typing_beyond_the_target_is_never_refused() {
         let mut state = state();
         press(&mut state, "JJc");
 
         press(&mut state, "123456");
 
-        assert_eq!(state.editor_text().as_deref(), Some("12345"));
-        assert_eq!(state.message(), Some("at most 5 characters"));
+        assert_eq!(state.editor_text().as_deref(), Some("123456"));
         assert_eq!(
             state.editor_length(),
             Some((
-                5,
+                6,
                 Length {
                     target: None,
-                    warn: None,
-                    max: Some(5)
+                    warn: Some(5)
                 }
             ))
         );
-        state.handle(code(KeyCode::Esc));
-        assert_eq!(answer(&state, "text").custom.as_deref(), Some("12345"));
     }
 
     #[test]
