@@ -184,7 +184,8 @@ Nothing is deleted automatically, apart from drafts in step 3 of section
 3.7.
 
 - `asqr prune --older-than <duration>` removes archive entries older than
-  the duration, going by the ULID in their name. Names are parsed from
+  the duration, going by the ULID in their name. A duration is a whole
+  number with one unit, `s`, `m`, `h`, `d` or `w`, such as `30d`. Names are parsed from
   the end, since the ULID is a fixed 26 characters and ids may contain
   `.`.
 - `--results` also removes outbox results older than the duration. Its

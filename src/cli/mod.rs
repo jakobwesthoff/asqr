@@ -10,6 +10,7 @@ mod ask;
 mod exit;
 mod format;
 mod paths;
+mod prune;
 mod status;
 mod wait;
 
@@ -98,6 +99,17 @@ enum Command {
         json: bool,
     },
 
+    /// Remove archived sessions, and with --results old results too.
+    Prune {
+        /// Remove what is older than this age, such as 30d, 12h or 2w.
+        #[arg(long, value_name = "AGE", value_parser = prune::parse_age)]
+        older_than: Duration,
+
+        /// Also remove results in the outbox, unread ones included.
+        #[arg(long)]
+        results: bool,
+    },
+
     /// Print the JSON Schema of session files.
     Schema {
         /// Print the schema of result files instead.
@@ -154,6 +166,10 @@ pub fn run(cli: Cli, environment: Selection) -> Exit {
         }
         Command::Result { id } => wait::run_result(&location, &id),
         Command::Status { json } => status::run(&location, json),
+        Command::Prune {
+            older_than,
+            results,
+        } => prune::run(&location, older_than, results),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),
     }
