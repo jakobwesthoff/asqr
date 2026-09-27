@@ -7,8 +7,10 @@
 //! tests can run every key without one.
 
 mod app;
+mod inbox;
 pub mod render;
 mod session;
 
 pub use app::*;
+pub use inbox::*;
 pub use session::*;
