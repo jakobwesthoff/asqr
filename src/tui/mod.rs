@@ -6,6 +6,8 @@
 //! driven by key events, kept apart from drawing and from the terminal so
 //! tests can run every key without one.
 
+mod app;
 mod session;
 
+pub use app::*;
 pub use session::*;
