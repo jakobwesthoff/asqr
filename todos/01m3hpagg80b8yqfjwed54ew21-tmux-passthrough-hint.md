@@ -17,9 +17,15 @@ key bar pointing to `allow-passthrough on`.
 
 ## Why not in version 1
 
-Knowing whether passthrough is off means running `tmux show -gv
-allow-passthrough` as a subprocess and parsing its output (per session
-and global settings, older tmux versions without the option). A wrong
-hint is worse than none. Version 1 documents the limitation in the
-README and the spec (section 7.6) and relies on the block fallback,
-which always works.
+A wrong hint is worse than none, and version 1 documents the limitation
+in the README and the spec (section 7.7) and relies on the block
+fallback, which always works.
+
+## Since then
+
+asqr already asks tmux for `#{allow-passthrough} #{session_attached}`
+at start (`tmux_state` in `src/terminal.rs`, decided by
+`may_query_protocol` in `src/tui/render/images.rs`) to avoid a graphics
+query nobody answers. A hint could reuse that answer: passthrough `off`
+is known for sure then, while a detached session (`0` clients) is a
+different case that needs no hint.
