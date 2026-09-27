@@ -43,6 +43,7 @@ pub enum Applied {
     OpenImage(String),
 }
 
+#[derive(Debug)]
 pub struct Inbox {
     location: QueueLocation,
     known: Vec<Known>,

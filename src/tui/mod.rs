@@ -10,11 +10,13 @@ mod alert;
 mod app;
 mod inbox;
 pub mod render;
+mod run;
 mod session;
 mod watch;
 
 pub use alert::*;
 pub use app::*;
 pub use inbox::*;
+pub use run::*;
 pub use session::*;
 pub use watch::*;
