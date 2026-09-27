@@ -6,12 +6,14 @@
 //! driven by key events, kept apart from drawing and from the terminal so
 //! tests can run every key without one.
 
+mod alert;
 mod app;
 mod inbox;
 pub mod render;
 mod session;
 mod watch;
 
+pub use alert::*;
 pub use app::*;
 pub use inbox::*;
 pub use session::*;

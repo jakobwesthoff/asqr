@@ -496,7 +496,10 @@ Unanswered `required` questions are marked. Below the list:
   (section 3.4) and switches between them.
 - A new session triggers a desktop notification (OSC 9 or 777, which
   Ghostty, iTerm2 and kitty show) and a terminal bell. `--no-notify` and
-  `--no-bell` switch them off.
+  `--no-bell` switch them off. The notification is OSC 777 when `TERM`
+  starts with `rxvt` or `foot`, and OSC 9 otherwise. It names the session,
+  or counts the sessions when several arrive at once. Sessions waiting when
+  asqr starts trigger nothing.
 - A session colliding with an unread result (section 3.7) triggers a
   notice.
 
