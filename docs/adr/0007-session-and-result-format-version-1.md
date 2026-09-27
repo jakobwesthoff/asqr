@@ -60,3 +60,10 @@ that version 1 readers ignore.
 - **Unknown fields** are ignored when parsing and reported as warnings.
   `"asqr": 2` is the validation error "unsupported format version".
 - **`follows`** is only shown in the header.
+
+## Amendment (2026-09-27, UX review, ADR 22)
+
+`length.max` and `custom.multiline` are dropped from format version 1
+before any release. Lengths only guide (`target`, `warn`), and own
+answers are always one line. In files that still use them they are
+unknown fields and produce a warning.

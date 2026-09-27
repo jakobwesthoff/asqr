@@ -2,7 +2,7 @@
 
 Status: reviewed with the user and in an adversarial review on
 2026-09-27, with the findings F1 to F12 worked in. The decisions behind
-it are recorded as ADRs 2 to 21 in `docs/adr/`.
+it are recorded as ADRs 2 to 22 in `docs/adr/`.
 
 ## 1. Purpose
 
@@ -219,7 +219,7 @@ can write them without a client library.
         { "id": "new2", "label": "New 2", "description": "Snappy ... -- ..." },
         { "id": "more", "label": "More",  "description": "None of these; new variations next batch." }
       ],
-      "custom": { "label": "Own line", "length": { "target": [80, 125], "warn": 145, "max": 175 } },
+      "custom": { "label": "Own line", "length": { "target": [80, 125], "warn": 145 } },
       "note": true
     }
   ]
@@ -242,7 +242,7 @@ Session fields:
 Question fields:
 
 - `id` (required, unique within the session), `text` (required),
-  `header` (optional, a short label for the question list).
+  `header` (optional, a short label for the question's tab).
 - `kind`: `single` (pick one), `multi` (pick several, with optional `min`
   and `max`) or `text` (typed answer, no options). Version 1 has no other
   kinds.
@@ -251,11 +251,12 @@ Question fields:
   optional `description` of any length shown in full and wrapped, and an
   optional `default: true`.
 - `custom` (optional, only on `single` and `multi`): allows a typed
-  answer. `true`, or an object with `label`, `multiline` and `length`.
+  answer, always one line. `true`, or an object with `label` and
+  `length`.
 - `length` (optional, on `custom` and on `text` questions): `target` (a
-  range), `warn` (above it the counter warns) and `max` (a hard limit;
-  asqr refuses more input). All parts are optional, and they must be
-  consistent (`target` within `warn` within `max`).
+  range) and `warn` (above it the counter warns). Both are optional, and
+  `warn` must not be below the end of `target`. There is no hard limit:
+  the counter guides, and input is never refused (user, 2026-09-27).
 - `image` (optional): an absolute path to an image file. Most questions
   have none. `asqr ask` resolves relative paths against the file it was
   given and writes absolute ones. `asqr validate` warns about relative
@@ -278,7 +279,7 @@ Validation errors, besides missing or mistyped fields:
 - more than one `default` in a `single`, or more defaults than `max` in a
   `multi`
 - `min` greater than `max`, or either outside `0..=options`
-- inconsistent `length` bounds
+- a reversed `target` range, or `warn` below the end of `target`
 - an `id` that differs from the file stem
 
 Unknown fields are ignored when parsing, so later format versions can
@@ -288,7 +289,7 @@ reported.
 
 Text fields (`intro`, question `text`, option `description`) may use a
 small Markdown subset: bold, italic, inline code, lists and line breaks.
-Everything else is shown exactly as written in the source (section 7.5).
+Everything else is shown exactly as written in the source (section 7.6).
 
 The repo ships the JSON Schema (`schema/session.v1.json`,
 `schema/result.v1.json`). `asqr schema` prints it and `asqr validate
@@ -339,7 +340,7 @@ A question is **answered** when:
 
 Otherwise it is **skipped**.
 
-- A default counts as answered, and the question list shows it as
+- A default counts as answered, and the review tab shows it as
   "default". The answer carries `"defaulted": true` only when the person
   never edited the question. Any edit removes the flag, even one that
   restores the default.
@@ -353,8 +354,10 @@ Otherwise it is **skipped**.
 Answer shape per kind:
 
 - `single`: `selected` with exactly one option id, or `custom`, never
-  both. Selecting an option clears the custom text, and typing custom
-  text clears the selection.
+  both. While answering, a chosen option and typed own-answer text can
+  both exist; the option counts while it is chosen, and the typed text
+  counts once no option is chosen (`enter` on the own-answer row
+  deselects the options). The result keeps only what counts.
 - `multi`: `selected` with the chosen option ids, and `custom` as one
   more entry next to them when present.
 - `text`: `custom` holds the answer, and there is no `selected`.
@@ -386,79 +389,106 @@ takes the queue lock (section 3.6).
 
 ### 7.1 Layout
 
+One column over the full width (user, 2026-09-27):
+
 ```
-+ asqr ── queue: default ────────── 2 sessions waiting ────────────+
-| Alt rework 3, batch 1   (claude-code, torchsnap mascots)  3/16    |
-+─────────────────────+────────────────────────────────────────────+
-| > 301  new1         | 301-holly-crown-green-robe-feast-ghost:     |
-|   302  default      | Ghost of Christmas Present (A Christmas ... |
-|   303  - +note      |                                             |
-|   304  own line     |  ( ) Old    Snappy ... -- ...          112  |
-|   ...               |  (x) New 1  Snappy ... -- ...          118  |
-|                     |  ( ) New 2  Snappy ... -- ...          131  |
-|                     |  ( ) More   None of these ...               |
-|                     |                                             |
-|                     |  [image, if the question has one]           |
-+─────────────────────+────────────────────────────────────────────+
-| j/k move  space select  c own  n note  tab next  S submit  ? help |
-+──────────────────────────────────────────────────────────────────+
+ asqr · queue: default · 2 sessions waiting
+ Alt rework 3, batch 1  (claude-code, torchsnap mascots)
+ ← … ☒ 300  ☐ 301  ☐ 302  ☐ 303 … ✔ Review →
+ ──────────────────────────────────────────────────────────
+ holly-crown-green-robe-feast-ghost: Ghost of Christmas
+ Present (A Christmas Carol)
+ pick one, or type your own
+
+ ❯ 1. Old     Snappy in holly -- the old line.
+   2. New 1   Snappy in holly -- the first new line.
+   3. New 2   Snappy in holly -- the second new line.
+   4. More    None of these; new variations next batch.
+   5. ✎ Own line: Snappy in holly -- my own…   112/125
+
+ Notes: —
+
+ [image, if the question has one]
+ ──────────────────────────────────────────────────────────
+ ↑/↓ move  enter pick  ←/→ question  n note  ? help  q quit
 ```
 
-The question list on the left shows each question's state, and the
-current question is on the right. Below a minimum terminal size, asqr
-shows a message instead of the layout.
+- The tab bar lists every question by its `header` (or id) with `☒`
+  once it is answered and `☐` while it is not, and `✔ Review` last. The
+  current tab is highlighted. When the tabs do not fit, the bar scrolls
+  around the current one and shows `←`/`→` where more follow.
+- Option descriptions start after the label and wrap under it.
+- The own-answer row is the last row of a question with `custom`; a
+  `text` question consists of its answer field only.
+- The notes line sits under the options (section 7.3).
+- Everything adapts to the terminal: the question scrolls so the row
+  under the cursor stays visible, dialogs never exceed the screen, and
+  below a minimum size asqr shows a message instead of the layout.
 
 ### 7.2 Keys
 
-Outside a text field (vim style plus arrows):
+On an option row (vim style plus arrows):
 
 | Key | Action |
 |---|---|
-| `j`/`k`, arrows | move within the options |
-| `tab`/`shift-tab`, `J`/`K` | next and previous question |
-| `space`, `enter` | select or toggle the option |
-| `1`-`9` | pick an option directly |
-| `c` | open the custom entry |
-| `n` | open the note |
+| `↑`/`↓`, `k`/`j` | move between the rows |
+| `←`/`→`, `h`/`l` | previous and next question; the review tab is the last one |
+| `enter` | `single`: pick the option and move on to the next question. `multi`: move on |
+| `space` | `multi`: toggle the option |
+| `1`-`9` | `single`: pick that option and move on. `multi`: toggle it |
+| `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
-| `S` | submit: a confirmation with the counts (answered, skipped, defaulted); `enter` confirms, `esc` backs out |
-| `X` | reject the session: a confirmation with an optional reason |
 | `o`, `z` | open the image in the system viewer; show it full screen |
 | `q`, `ctrl-c` | quit, keeping the draft |
-| `?` | help, listing `shift-tab` and `K` side by side, since some terminals send `shift-tab` as `esc` plus `tab` |
+| `?` | help |
 
-Selecting: on a `single` question, `space` or `enter` on the chosen
-option deselects it again, while a digit always picks (it never
-deselects). On a `multi` question both toggle, and a selection beyond
-`max` is refused with a message. On a `text` question, `space` and
-`enter` open the answer's editor, like `c`. `S` with unanswered
-`required` questions names them and moves to the first one instead of
-asking.
+- A selection beyond `max` in a `multi` is refused with a message.
+- `enter` on the last question moves on to the review tab.
 
-Inside a text field every key goes to the editor except `esc`, which
-leaves the field and keeps the text. Edits are saved to the draft
-continuously, so there is no discard.
+### 7.3 Live fields and counters
 
-### 7.3 Text fields and counters
+Typed text is entered in place, in the line where it is shown, without
+a frame (user, 2026-09-27):
 
-Text fields are editors (`ratatui-textarea`). Where the question
-sets `length`, a counter shows the length as text, and colour is only
-added on top:
+- **The own-answer row** is a field as soon as the cursor lands on it:
+  every key that produces text types into it. `←`/`→` move the text
+  cursor, `↑`/`↓` leave the row, and `esc` leaves the field while the
+  cursor stays. `enter` picks the own answer and moves on, like an
+  option. It is one line and scrolls sideways when the text is longer
+  than the line. On a `multi` question the own answer counts once it has
+  text.
+- **A `text` question's answer** is a field that is active when the
+  question is shown. It grows with its lines; `ctrl-j` adds a line, and
+  `enter` moves on.
+- **The note** is edited in its line under the options after `n`. It is
+  multi-line (`ctrl-j` adds a line); `enter` or `esc` leave it.
+- Every edit is saved to the draft continuously; there is no discard.
+
+Where the question sets `length`, a counter at the end of the field
+shows the length as text, and colour is only added on top:
 
 - `112/125` within the target
 - `140/125 !` above the target, up to `warn`
-- `max` at the hard limit, where more input is refused
+- `182/125 !!` above `warn`
 
 The number after the slash is the end of the target range, or `warn`
-without a target, or `max` without either. Green within the target,
-yellow above it up to `warn`, red above `warn` and at `max`.
+without a target. Green within the target, yellow above it, red above
+`warn`. Input is never refused.
 
-The answer of a `text` question and notes are multi-line (`enter`
-starts a new line). A custom entry is single-line unless its `multiline`
-is set; in a single-line field `enter` does nothing, and `esc` leaves it.
-The rejection reason is single-line, and there `enter` confirms.
+### 7.4 The review tab
 
-### 7.4 Sessions and notifications
+The last tab lists every question with its answer, `default` for an
+untouched default, `-` for a skipped question and `+note` for a note.
+Unanswered `required` questions are marked. Below the list:
+
+- **Submit**: `enter` submits, unless required questions are
+  unanswered; then asqr names them and moves to the first one.
+- **Reject**: a live field for the optional reason; `enter` rejects the
+  session with it.
+
+`enter` on a question in the list moves to that question.
+
+### 7.5 Sessions and notifications
 
 - When more than one session waits, `L` lists them in queue order
   (section 3.4) and switches between them.
@@ -468,7 +498,7 @@ The rejection reason is single-line, and there `enter` confirms.
 - A session colliding with an unread result (section 3.7) triggers a
   notice.
 
-### 7.5 Markdown
+### 7.6 Markdown
 
 `pulldown-cmark` parses the text, and the renderer walks the events with
 their source offsets (`into_offset_iter()`). Elements in the subset are
@@ -476,7 +506,7 @@ styled. For every other element the raw source slice is emitted once,
 also when it is nested inside a supported element (a heading marker in a
 list item).
 
-### 7.6 Images
+### 7.7 Images
 
 Images appear only when a question has one.
 

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The Markdown subset of question texts (spec section 7.5): bold, italic,
+//! The Markdown subset of question texts (spec section 7.6): bold, italic,
 //! inline code, lists and line breaks are styled. Every other element, and
 //! every escape or entity, is shown exactly as it is written in the
 //! source: the renderer walks the events with their source offsets and

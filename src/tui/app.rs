@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The state across all waiting sessions (spec section 7.4): which one is
+//! The state across all waiting sessions (spec section 7.5): which one is
 //! being answered, the session list behind `L`, and notices about the
 //! queue. Sessions are kept in the order they are added, which the running
 //! app keeps in queue order.

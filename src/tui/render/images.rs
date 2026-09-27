@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Question images (spec section 7.6). The graphics protocol is detected
+//! Question images (spec section 7.7). The graphics protocol is detected
 //! once, in the binary, by querying the terminal; this module receives the
 //! resulting [`Picker`], so tests draw with the halfblock protocol and never
 //! talk to a terminal. Images load on first display and are cached by
@@ -43,7 +43,7 @@ impl Images {
         let picker = &self.picker;
         self.cache.entry(path.to_owned()).or_insert_with(|| {
             // A relative path depends on where asqr was started, so it is
-            // never resolved (spec section 7.6).
+            // never resolved (spec section 7.7).
             if Path::new(path).is_relative() {
                 return Slot::Unavailable("relative path".to_owned());
             }

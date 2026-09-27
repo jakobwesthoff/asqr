@@ -154,6 +154,21 @@ Tests through ratatui's `TestBackend` with `insta` snapshots.
 7. Small terminals: a minimum size and a message below it.
 8. The conflict notice (spec section 3.7).
 
+## Phase 5b: the interaction revised with the user (ADR 22)
+
+After the first screens the user revised the interaction (tab bar,
+answering in place, review tab; spec sections 7.1 to 7.4).
+
+1. Format: drop `length.max` and `custom.multiline`; validation, schema,
+   examples and the counter follow (`!!` above `warn`).
+2. The session state reworked test first: rows including the own answer,
+   live fields for the own answer, text answers and notes, `enter` picks
+   and moves on, `←`/`→`/`h`/`l` between questions, the review tab with
+   Submit and Reject.
+3. The drawing reworked: tab bar, rows with inline fields, the review
+   tab, scrolling that keeps the cursor row visible, dialogs that fit the
+   screen; snapshots at several sizes (60×15, 80×24, 120×40, 200×50).
+
 ## Phase 6: the watcher and the running app
 
 1. Watching the inbox with `notify` and a debouncer, registered before

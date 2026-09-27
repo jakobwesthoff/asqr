@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [22. Answer in place with a tab bar and a review step](0022-answer-in-place-with-a-tab-bar-and-a-review-step.md)
+
 ## Context
 
 The person answering has to get through many questions fast, often with

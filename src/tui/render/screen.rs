@@ -192,7 +192,7 @@ fn draw_question(frame: &mut Frame, state: &SessionState, area: Rect, images: &m
     let mut inner = area.inner(ratatui::layout::Margin::new(1, 0));
 
     // The image adapts to the room there is: a column beside the question
-    // when the panel is wide, a band below it otherwise (spec section 7.6).
+    // when the panel is wide, a band below it otherwise (spec section 7.7).
     if let Some(path) = &question.image {
         let image = if inner.width >= IMAGE_BESIDE_WIDTH {
             let [text, image] = Layout::horizontal([Constraint::Fill(3), Constraint::Fill(2)])
