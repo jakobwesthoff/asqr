@@ -9,13 +9,15 @@
 //! fields, and every rule beyond the shape (ids, option counts, bounds)
 //! lives in validation, which can name the offending field.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// One session: a list of questions answered and submitted as a whole.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Session {
-    /// The format version. Only `1` is supported; validation reports any
-    /// other value instead of the parser, so the error names the field.
+    /// The format version. Only `1` is supported.
+    // Any number parses; validation rejects the others, so the error names
+    // the field instead of failing in the parser.
     pub asqr: u32,
 
     /// The session id. Optional, because `asqr ask` assigns a ULID when it
@@ -41,7 +43,7 @@ pub struct Session {
 }
 
 /// One thing for the person to decide.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Question {
     pub id: String,
 
@@ -53,8 +55,8 @@ pub struct Question {
 
     pub kind: Kind,
 
-    /// The choices of a `single` or `multi` question. Kept as an `Option`
-    /// so validation can tell a missing list from an empty one.
+    /// The choices of a `single` or `multi` question.
+    // An `Option`, so validation can tell a missing list from an empty one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<Vec<Choice>>,
 
@@ -90,7 +92,7 @@ fn note_allowed_by_default() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     /// Pick exactly one option.
@@ -102,7 +104,7 @@ pub enum Kind {
 }
 
 /// One option of a `single` or `multi` question.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Choice {
     pub id: String,
 
@@ -118,7 +120,7 @@ pub struct Choice {
 }
 
 /// The `custom` field: either a plain switch or a configured entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Custom {
     Enabled(bool),
@@ -157,7 +159,7 @@ impl Custom {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CustomConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -171,7 +173,7 @@ pub struct CustomConfig {
 
 /// Length limits for typed text (spec section 7.3). Every part is
 /// optional; validation checks that they are consistent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Length {
     /// The range the text should land in.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "Answer": {
+      "description": "The answer to one question. Which fields appear depends on the question\nkind and the answer state (spec section 5.2).",
+      "properties": {
+        "custom": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "defaulted": {
+          "description": "The selection is the question's default and the person never edited\nthe question.",
+          "type": "boolean"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "question": {
+          "type": "string"
+        },
+        "selected": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "skipped": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    },
+    "Status": {
+      "oneOf": [
+        {
+          "const": "submitted",
+          "description": "The person submitted, possibly with skipped questions.",
+          "type": "string"
+        },
+        {
+          "const": "cancelled",
+          "description": "The person rejected the whole session.",
+          "type": "string"
+        },
+        {
+          "const": "error",
+          "description": "The session file was invalid.",
+          "type": "string"
+        },
+        {
+          "const": "draft",
+          "description": "Answers in progress; never found in the outbox.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The file asqr writes into the outbox when a session is finished, or into\n`drafts/` while it is being answered.",
+  "properties": {
+    "answers": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Answer"
+      },
+      "type": "array"
+    },
+    "asqr": {
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "current": {
+      "description": "The question the cursor was on, so a restored draft continues there.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error": {
+      "description": "What is wrong with an invalid session file.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "reason": {
+      "description": "Why the person rejected the session, if they said so.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "session_sha256": {
+      "description": "The SHA-256 of the session file's bytes as read from the inbox. It\nties the result to one version of a session that may have been\nreplaced, and lets recovery tell an interrupted finish from a new\nsession under the same id (spec section 3.7). Absent in drafts.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "$ref": "#/$defs/Status"
+    },
+    "submitted_at": {
+      "description": "When the session was finished, as RFC 3339 with the offset. Absent in\ndrafts.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "asqr",
+    "id",
+    "status"
+  ],
+  "title": "SessionResult",
+  "type": "object"
+}

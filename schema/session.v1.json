@@ -1,0 +1,277 @@
+{
+  "$defs": {
+    "Choice": {
+      "description": "One option of a `single` or `multi` question.",
+      "properties": {
+        "default": {
+          "description": "Preselects the option.",
+          "type": "boolean"
+        },
+        "description": {
+          "description": "Shown in full and wrapped, however long it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "Custom": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/CustomConfig"
+        }
+      ],
+      "description": "The `custom` field: either a plain switch or a configured entry."
+    },
+    "CustomConfig": {
+      "properties": {
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "length": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Length"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "multiline": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Kind": {
+      "oneOf": [
+        {
+          "const": "single",
+          "description": "Pick exactly one option.",
+          "type": "string"
+        },
+        {
+          "const": "multi",
+          "description": "Pick several options.",
+          "type": "string"
+        },
+        {
+          "const": "text",
+          "description": "A typed answer, without options.",
+          "type": "string"
+        }
+      ]
+    },
+    "Length": {
+      "description": "Length limits for typed text (spec section 7.3). Every part is\noptional; validation checks that they are consistent.",
+      "properties": {
+        "max": {
+          "description": "The hard limit; more input is refused.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "target": {
+          "description": "The range the text should land in.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "warn": {
+          "description": "Above this the counter warns.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Question": {
+      "description": "One thing for the person to decide.",
+      "properties": {
+        "custom": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Custom"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether a typed answer is allowed next to the options."
+        },
+        "header": {
+          "description": "A short label for the question list; the id is shown without it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "image": {
+          "description": "An image shown next to the question. Most questions have none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Length"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Length limits of the answer of a `text` question. A custom entry\ncarries its own limits inside `custom`."
+        },
+        "max": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min": {
+          "description": "Bounds on the number of selected options of a `multi` question.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "note": {
+          "default": true,
+          "description": "Whether the person may add a note to this question.",
+          "type": "boolean"
+        },
+        "options": {
+          "description": "The choices of a `single` or `multi` question.",
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "required": {
+          "default": false,
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "kind"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One session: a list of questions answered and submitted as a whole.",
+  "properties": {
+    "asqr": {
+      "description": "The format version. Only `1` is supported.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "follows": {
+      "description": "The id of an earlier session this one continues (spec section 10).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "from": {
+      "description": "Who is asking, shown in the session header.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "description": "The session id. Optional, because `asqr ask` assigns a ULID when it\nis missing and a hand-dropped file takes its file stem as the id.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "intro": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "questions": {
+      "items": {
+        "$ref": "#/$defs/Question"
+      },
+      "type": "array"
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "asqr",
+    "questions"
+  ],
+  "title": "Session",
+  "type": "object"
+}

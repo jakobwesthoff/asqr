@@ -8,11 +8,13 @@
 mod answer;
 mod id;
 mod result;
+mod schema;
 mod session;
 mod validate;
 
 pub use answer::*;
 pub use id::*;
 pub use result::*;
+pub use schema::*;
 pub use session::*;
 pub use validate::*;

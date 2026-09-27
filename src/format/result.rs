@@ -6,13 +6,14 @@
 //! in progress: the same shape with the status `draft`, so restoring and
 //! finishing work on one type.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::FORMAT_VERSION;
 
 /// The file asqr writes into the outbox when a session is finished, or into
 /// `drafts/` while it is being answered.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SessionResult {
     pub asqr: u32,
 
@@ -48,7 +49,7 @@ pub struct SessionResult {
     pub answers: Vec<Answer>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     /// The person submitted, possibly with skipped questions.
@@ -63,7 +64,7 @@ pub enum Status {
 
 /// The answer to one question. Which fields appear depends on the question
 /// kind and the answer state (spec section 5.2).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Answer {
     pub question: String,
 
