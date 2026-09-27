@@ -6,9 +6,11 @@
 //! file an asker writes, and the result and draft files asqr writes back.
 
 mod id;
+mod result;
 mod session;
 mod validate;
 
 pub use id::*;
+pub use result::*;
 pub use session::*;
 pub use validate::*;
