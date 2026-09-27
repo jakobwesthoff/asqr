@@ -5,6 +5,10 @@
 //! The asqr file format, version 1 (spec sections 4 and 5): the session
 //! file an asker writes, and the result and draft files asqr writes back.
 
+mod id;
 mod session;
+mod validate;
 
+pub use id::*;
 pub use session::*;
+pub use validate::*;

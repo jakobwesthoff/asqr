@@ -259,9 +259,14 @@ Question fields:
 
 Validation errors, besides missing or mistyped fields:
 
+- no questions
 - a duplicate question id or option id
-- `options` on `text`, or missing on `single` or `multi`
-- `custom` or `default` on `text`
+- `options` on `text`, or missing or empty on `single` or `multi`
+- `custom` or `default` on `text` (`custom: false` is allowed, since it
+  switches the entry off)
+- `min` or `max` on anything but `multi`
+- a question-level `length` on anything but `text` (a custom entry sets
+  its length inside `custom`)
 - more than one `default` in a `single`, or more defaults than `max` in a
   `multi`
 - `min` greater than `max`, or either outside `0..=options`
