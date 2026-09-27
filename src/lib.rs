@@ -11,3 +11,4 @@
 //! drives the terminal (ADR 16).
 
 pub mod format;
+pub mod queue;
