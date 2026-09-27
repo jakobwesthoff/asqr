@@ -10,6 +10,7 @@ mod ask;
 mod exit;
 mod format;
 mod paths;
+mod status;
 mod wait;
 
 use std::path::PathBuf;
@@ -74,6 +75,29 @@ enum Command {
         force: bool,
     },
 
+    /// Wait for the result of a session and print it.
+    Wait {
+        /// The session id.
+        id: String,
+
+        /// Stop waiting after this many seconds (exit code 12).
+        #[arg(long, value_name = "SECONDS")]
+        timeout: Option<u64>,
+    },
+
+    /// Print the result of a session if it is there.
+    Result {
+        /// The session id.
+        id: String,
+    },
+
+    /// List waiting and answered sessions and who watches the queue.
+    Status {
+        /// Print the status as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Print the JSON Schema of session files.
     Schema {
         /// Print the schema of result files instead.
@@ -125,6 +149,11 @@ pub fn run(cli: Cli, environment: Selection) -> Exit {
                 force,
             },
         ),
+        Command::Wait { id, timeout } => {
+            wait::run_wait(&location, &id, timeout.map(Duration::from_secs))
+        }
+        Command::Result { id } => wait::run_result(&location, &id),
+        Command::Status { json } => status::run(&location, json),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),
     }

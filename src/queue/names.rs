@@ -56,7 +56,7 @@ pub fn find_session_file(dir: &Path, id: &str) -> io::Result<Option<PathBuf>> {
 
 /// The entries of `dir`, or none when it does not exist: queue directories
 /// are created on first use, so an absent one simply holds nothing yet.
-pub(crate) fn entries_if_present(dir: &Path) -> io::Result<Vec<std::fs::DirEntry>> {
+pub fn entries_if_present(dir: &Path) -> io::Result<Vec<std::fs::DirEntry>> {
     match std::fs::read_dir(dir) {
         Ok(entries) => entries.collect(),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
