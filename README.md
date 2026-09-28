@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-512.webp" width="256" height="256" alt="asqr logo: a fanned hand of coral cards, question marks at the back and a check mark on the front card">
+</p>
+
 # asqr
 
 **Your agent saved up some questions. Answer them all in one go, right in
