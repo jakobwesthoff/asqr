@@ -4,6 +4,13 @@ version = "0.9.0"
 edition = "2024"
 license = "MPL-2.0"
 rust-version = "1.97"
+description = "Answer questions an AI agent or a script prepared for you, right in your terminal"
+repository = "https://github.com/jakobwesthoff/asqr"
+readme = "README.md"
+keywords = ["tui", "terminal", "agent", "questions", "cli"]
+categories = ["command-line-utilities"]
+# The logo, todos and repository tooling are not needed to build asqr.
+exclude = ["assets/", "todos/", ".github/", ".githooks/"]
 
 [dependencies]
 anyhow = "1.0.104"
