@@ -210,6 +210,14 @@ fn answers_a_session_that_arrives_while_it_runs() {
         tui.output()
     );
 
+    // asqr asks for focus reports, so it can send its images again when
+    // it comes back into view (spec section 7.7); a report is no key.
+    assert!(
+        tui.output().contains("\x1b[?1004h"),
+        "focus reporting is on"
+    );
+    tui.press("\x1b[I");
+
     // Pick the second option, which moves on to the review, where the
     // cursor rests on Submit.
     tui.press("2");
@@ -222,6 +230,10 @@ fn answers_a_session_that_arrives_while_it_runs() {
     assert!(
         tui.output().contains("\x1b[?1049l"),
         "the terminal leaves the alternate screen again"
+    );
+    assert!(
+        tui.output().contains("\x1b[?1004l"),
+        "focus reporting is off again"
     );
     let result: SessionResult = serde_json::from_slice(
         &std::fs::read(sandbox.queue_dir().join("outbox/pty-test.json")).expect("result"),

@@ -15,7 +15,10 @@ use anyhow::Context;
 use asqr::cli::{Exit, Watch};
 use asqr::tui::render::{Images, View, may_query_protocol};
 use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
-use ratatui::crossterm::event::{self, Event as TerminalEvent};
+use ratatui::crossterm::event::{
+    self, DisableFocusChange, EnableFocusChange, Event as TerminalEvent,
+};
+use ratatui::crossterm::execute;
 use ratatui_image::picker::Picker;
 
 /// Runs the TUI on the queue `watch` holds, in this process's terminal.
@@ -64,6 +67,11 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     };
     let mut images = Images::new(picker);
 
+    // Focus reports tell asqr when it comes back into view, so it can send
+    // images again whose transfer tmux dropped while it was hidden (spec
+    // section 7.7). tmux forwards them with its `focus-events` option.
+    execute!(io::stdout(), EnableFocusChange).context("asking for focus reports")?;
+
     // The thread blocks in `read` for the life of the process; it ends
     // with it.
     std::thread::spawn(move || {
@@ -71,6 +79,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
             let event = match terminal_event {
                 TerminalEvent::Key(key) => Event::Key(key),
                 TerminalEvent::Resize(..) => Event::Resize,
+                TerminalEvent::FocusGained => Event::FocusGained,
                 _ => continue,
             };
             if sender.send(event).is_err() {
@@ -99,6 +108,10 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         &events,
         &mut host,
     );
+    // Left on, the shell would receive the reports as typed text.
+    if let Err(error) = execute!(io::stdout(), DisableFocusChange) {
+        tracing::warn!(%error, "could not turn focus reports off");
+    }
     ratatui::restore();
     result
 }

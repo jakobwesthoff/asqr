@@ -6,14 +6,16 @@ Status: deferred to after version 1 (adversarial review F9, 2026-09-27).
 
 Inside tmux, inline images (Kitty and iTerm2 protocols) and OSC 9/777
 desktop notifications only reach the outer terminal with
-`set -g allow-passthrough on`. Without it asqr silently falls back to
+`set -g allow-passthrough all` (or `on`, which drops what asqr sends
+while its window is hidden). Without it asqr silently falls back to
 the block rendering and the bell, and the person does not know why the
 images look coarse.
 
 ## Idea
 
 When `$TMUX` is set and passthrough is off, show a one-time hint in the
-key bar pointing to `allow-passthrough on`.
+key bar pointing to `allow-passthrough all`. The same answer tells
+when it is `on`, which could get the hint too.
 
 ## Why not in version 1
 

@@ -663,15 +663,22 @@ Images appear only when a question has one.
 - Placement adapts: beside the question, taking two fifths of the
   width, from 100 columns of content on; below the options otherwise,
   in a strip of a third of the height, at most 12 rows.
-- An image is read once and kept for as long as asqr runs.
+- An image is read once and kept until asqr's terminal gains the focus
+  again. asqr asks the terminal for focus reports; on regaining the
+  focus it reads and sends every image again as it is next shown.
 - A relative path, a missing file or a file that cannot be read or
   decoded shows a placeholder saying "image not shown" with the path and
   the reason. A path is never resolved against the working directory,
   and a broken image never becomes an error result.
 
 Known limitation: inside tmux, inline images and OSC notifications need
-`set -g allow-passthrough on`. Without it, asqr falls back to the block
-rendering and the bell. Inside tmux, asqr asks tmux whether passthrough
+`set -g allow-passthrough all`. Without passthrough, asqr falls back to
+the block rendering and the bell. With `on`, tmux passes sequences only
+while asqr's pane is visible: an image first shown while the pane is
+hidden stays empty until the pane gains the focus again, which asqr
+only learns when tmux forwards focus reports (`set -g focus-events on`).
+Inside
+tmux, asqr asks tmux whether passthrough
 is on for its pane and whether a client is attached, and queries the
 terminal only when both hold: otherwise the query gets no answer, and
 its reader would go on taking the keys typed afterwards. Notifications

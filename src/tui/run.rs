@@ -28,6 +28,8 @@ pub enum Event {
     Resize,
     /// Something changed in the inbox.
     InboxChanged,
+    /// The terminal has the focus again.
+    FocusGained,
 }
 
 /// What the app asks of the world around it.
@@ -84,6 +86,9 @@ where
                 }
             }
             Event::Resize => {}
+            // Coming back into view is when a transfer lost in the
+            // background can be repeated.
+            Event::FocusGained => images.forget(),
             // The inbox coming back or not is out of asqr's hands; the
             // notice says why nothing changes, and every later change
             // tries again.
@@ -106,6 +111,7 @@ mod tests {
 
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
+    use ratatui::style::Color;
     use ratatui_image::picker::Picker;
 
     use super::*;
@@ -174,17 +180,29 @@ mod tests {
             inbox: &mut Inbox,
             events: Vec<Event>,
         ) -> anyhow::Result<()> {
+            let mut images = Images::new(Picker::halfblocks());
+            self.run_with_images(app, inbox, &mut images, events)
+        }
+
+        /// Like [`Harness::run_started`], keeping the images loaded so far
+        /// from one run to the next.
+        fn run_with_images(
+            &mut self,
+            app: &mut App,
+            inbox: &mut Inbox,
+            images: &mut Images,
+            events: Vec<Event>,
+        ) -> anyhow::Result<()> {
             let (sender, receiver) = mpsc::channel();
             for event in events {
                 sender.send(event).expect("sent");
             }
             drop(sender);
-            let mut images = Images::new(Picker::halfblocks());
             run(
                 &mut self.terminal,
                 app,
                 inbox,
-                &mut images,
+                images,
                 &View { queue: "test" },
                 &receiver,
                 &mut self.host,
@@ -322,6 +340,57 @@ mod tests {
             "{}",
             harness.screen()
         );
+    }
+
+    /// Whether any cell of the screen is drawn in a colour of `hue`, as
+    /// the half blocks of an image are. Half blocks blend the image's edge
+    /// with the background, so a plain red image shows in shades of red.
+    fn shows_hue(terminal: &Terminal<TestBackend>, hue: fn(u8, u8, u8) -> bool) -> bool {
+        let buffer = terminal.backend().buffer();
+        buffer.content.iter().any(|cell| {
+            [cell.fg, cell.bg]
+                .into_iter()
+                .any(|colour| matches!(colour, Color::Rgb(r, g, b) if hue(r, g, b)))
+        })
+    }
+
+    #[test]
+    fn gaining_focus_sends_the_images_again() {
+        let red: fn(u8, u8, u8) -> bool = |r, g, b| r > 0 && g == 0 && b == 0;
+        let blue: fn(u8, u8, u8) -> bool = |r, g, b| r == 0 && g == 0 && b > 0;
+        let mut harness = Harness::new();
+        let picture = harness.location.dir().join("picture.png");
+        let paint = |rgb: [u8; 3]| {
+            image::RgbImage::from_pixel(8, 8, image::Rgb(rgb))
+                .save(&picture)
+                .expect("image written");
+        };
+        paint([255, 0, 0]);
+        let session = SESSION.replace("/nowhere/cat.png", picture.to_str().expect("utf-8 path"));
+        fs::write(harness.location.inbox().join("pictured.json"), session).expect("written");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let mut images = Images::new(Picker::halfblocks());
+
+        harness
+            .run_with_images(&mut app, &mut inbox, &mut images, vec![])
+            .expect("runs");
+        assert!(shows_hue(&harness.terminal, red), "{}", harness.screen());
+
+        // A changed file makes a new transfer visible: the image as loaded
+        // stays in use until focus comes back.
+        paint([0, 0, 255]);
+        harness
+            .run_with_images(&mut app, &mut inbox, &mut images, vec![Event::Resize])
+            .expect("runs");
+        assert!(
+            shows_hue(&harness.terminal, red),
+            "a redraw alone reuses the image"
+        );
+
+        harness
+            .run_with_images(&mut app, &mut inbox, &mut images, vec![Event::FocusGained])
+            .expect("runs");
+        assert!(shows_hue(&harness.terminal, blue), "{}", harness.screen());
     }
 
     #[test]

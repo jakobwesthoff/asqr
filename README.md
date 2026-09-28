@@ -72,10 +72,13 @@ exit codes. `asqr skill` prints it.
 Inline images and desktop notifications only reach the terminal around
 tmux when tmux passes escape sequences through:
 
-    set -g allow-passthrough on
+    set -g allow-passthrough all
 
 Without it, asqr shows images as coarse blocks and rings the bell
-instead of sending a notification.
+instead of sending a notification. With `on` instead of `all`, tmux
+drops what asqr sends while its window is in the background, and an
+image that arrives then stays empty until asqr gets the focus again,
+which it only learns from tmux with `set -g focus-events on`.
 
 ## Known limitations
 

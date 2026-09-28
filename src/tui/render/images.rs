@@ -57,6 +57,17 @@ impl Images {
         })
     }
 
+    /// Forgets every loaded image, so each is read and sent to the terminal
+    /// again when it is next drawn.
+    ///
+    /// The Kitty protocol sends an image's data once, on its first draw,
+    /// and afterwards only refers to it. tmux with `allow-passthrough on`
+    /// drops that transfer while the pane is not visible, and the image
+    /// would never appear (spec section 7.7).
+    pub fn forget(&mut self) {
+        self.cache.clear();
+    }
+
     /// Draws the image at `path` into `area`, never larger than it is, or
     /// the placeholder.
     pub fn draw(&mut self, frame: &mut Frame, path: &str, area: Rect) {

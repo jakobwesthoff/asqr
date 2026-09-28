@@ -8,6 +8,8 @@ Accepted
 
 Amended by [22. Answer in place with a tab bar and a review step](0022-answer-in-place-with-a-tab-bar-and-a-review-step.md)
 
+Amended by [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md)
+
 ## Context
 
 The person answering has to get through many questions fast, often with
