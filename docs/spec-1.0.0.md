@@ -14,7 +14,7 @@ specification file of its own.
 Status: reviewed with the user and in an adversarial review on
 2026-09-27, with the findings F1 to F12 worked in, and revised with the
 decisions made while building it. The decisions behind it are recorded
-as ADRs 2 to 22 in `docs/adr/`.
+as ADRs 2 to 23 in `docs/adr/`.
 
 ## 1. Purpose
 
@@ -330,8 +330,10 @@ Question fields:
   exist.
 - `note` (optional, default `true`): whether the person may add a note.
   One note per question.
-- `required` (optional, default `false`): the question must be answered
-  before submit (section 5.2).
+- Every question is optional (ADR 23): there is no way to force an
+  answer, and a skipped question comes back as `skipped: true`. Files
+  that still set the former `required` field parse as before; the field
+  is ignored and reported as unknown.
 
 Validation errors, besides missing or mistyped fields:
 
@@ -417,13 +419,11 @@ Otherwise it is **skipped**.
   default. The answer carries `"defaulted": true` only when the person
   never edited the question. Any edit removes the flag, even one that
   restores the default, and so does writing a note.
-- A note never answers a question and never satisfies `required`. A
-  skipped question keeps its note.
+- A note never answers a question. A skipped question keeps its note.
 - `min` and `max` only apply once something is selected, so a `multi`
-  with `min: 2` can be skipped. Only `required` forces an answer, and
-  `required` with `min` means at least `min` options unless custom text
-  answers it.
-- `required` questions block submit until they are answered.
+  with `min: 2` can be skipped. They count the picked options; the own
+  answer of a `multi` comes on top of them (ADR 23).
+- Nothing blocks a submit: every question is optional.
 - Typed text and notes go into the result as typed; only the check
   whether they are empty trims them.
 
@@ -514,8 +514,9 @@ One column over the full width (user, 2026-09-27):
   current tab is highlighted. When the tabs do not fit, the bar scrolls
   around the current one and shows `←`/`→` where more follow.
 - Under the question text a hint says how to answer: "pick one", "pick 2
-  to 3", "type your answer", with ", or type your own" where `custom` is
-  allowed and " · required" for a required question.
+  to 3", "type your answer", with ", or type your own" on a `single` and
+  ", and type your own if you like" on a `multi` where `custom` is
+  allowed.
 - Options show `( )`/`(•)` in a `single` and `[ ]`/`[x]` in a `multi`.
   Option descriptions start after the widest label and wrap under
   themselves; where that leaves less than 30 columns, they go below the
@@ -558,8 +559,8 @@ On an option row (vim style plus arrows):
 - `n` on a question with `note: false` says that the question takes no
   note.
 - Inside a field every key that produces text types, so `n`, `q` and
-  the others work again after `esc`. `ctrl-c` quits everywhere, except over the help, which it closes like
-  any other key.
+  the others work again after `esc`. `ctrl-c` quits everywhere, except
+  over the help, which it closes like any other key.
 - `o` opens the image with the system's opener (`open` on macOS,
   `xdg-open` elsewhere); when the opener cannot be started, a notice
   says why. `z` shows
@@ -578,7 +579,8 @@ a frame (user, 2026-09-27):
 - **The own-answer row** is a field as soon as the cursor lands on it:
   every key that produces text types into it. `←`/`→` move the text
   cursor, `↑`/`↓` leave the row, and `esc` leaves the field while the
-  cursor stays. After `esc`, `↑`/`↓` move on as usual; where the move
+  cursor stays. `←` with the text cursor at the start of the text goes
+  to the previous question, `→` at its end to the next one (ADR 23). After `esc`, `↑`/`↓` move on as usual; where the move
   cannot leave the row (the single row of a `text` question, `↓` on the
   last row), they focus the field again. `enter` picks the own answer
   and moves on, like an option. It is one line and scrolls sideways when
@@ -586,7 +588,8 @@ a frame (user, 2026-09-27):
   counts once it has text.
 - **A `text` question's answer** is a field that is active when the
   question is shown. It grows with its lines; `ctrl-j` adds a line, and
-  `enter` moves on.
+  `enter` moves on. `←`/`→` at the start or end of its text switch
+  questions as on the own-answer row.
 - **The note** is edited in its line under the options after `n`. It is
   multi-line (`ctrl-j` adds a line); `enter` or `esc` leave it.
 - **The reject reason** on the review tab is a one-line field like the
@@ -612,13 +615,11 @@ The last tab lists every question with its answer on one line: the
 chosen options by label, own text and a text answer in quotes (line
 breaks shown as `⏎`), `(default)` after an untouched default, `-`
 for a skipped question and `+note` for a note. A line longer than the
-screen is cut with `…`. Unanswered `required` questions are marked
-"required". Below the list, the counts of answered, skipped and
-defaulted questions, then:
+screen is cut with `…`. Below the list, the counts of answered, skipped
+and defaulted questions, then:
 
-- **Submit**: `enter` submits, unless required questions are
-  unanswered; then asqr names them ("answer the required questions
-  first: ...") and moves to the first one.
+- **Submit**: `enter` submits. The review tab opens with the cursor
+  here (ADR 23).
 - **Reject**: a live field for the optional reason; `enter` rejects the
   session with it.
 
@@ -741,7 +742,10 @@ root and writes `<dir>/asqr/SKILL.md`, so `asqr skill --install
 
 The skill teaches:
 
-- when asking through asqr beats asking in the chat
+- that it is used only when the user explicitly asks the agent to use
+  asqr; the skill's description says so, and an agent never switches to
+  asqr on its own (ADR 23)
+- once asked, when asqr fits better than a question in the chat
 - `asqr paths`, `asqr new` and the format, with a short example
 - the main waiting pattern, which works under any command time limit:
   `asqr ask`, then a loop of `asqr wait <id> --timeout <secs>` until the

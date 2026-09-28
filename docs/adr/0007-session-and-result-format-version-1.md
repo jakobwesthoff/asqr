@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [23. Refine the interaction after the first real use](0023-refine-the-interaction-after-the-first-real-use.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

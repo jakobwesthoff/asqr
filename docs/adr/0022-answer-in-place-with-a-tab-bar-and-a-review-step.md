@@ -8,6 +8,8 @@ Accepted
 
 Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
+Amended by [23. Refine the interaction after the first real use](0023-refine-the-interaction-after-the-first-real-use.md)
+
 ## Context
 
 The user looked at the first screens and the key model of ADR 8 and

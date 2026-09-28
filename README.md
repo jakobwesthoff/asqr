@@ -13,8 +13,7 @@ file that the agent reads back. Scripts and builds can ask the same way.
   question.
 - Single and multiple choice, typed answers, your own answer instead of
   the given options, and a note on every question.
-- Descriptions, defaults, required questions and length hints, with a
-  little Markdown.
+- Descriptions, defaults and length hints, with a little Markdown.
 - Optional images next to a question, shown inline in terminals that
   support it.
 - A tab per question and a review tab: move freely, then submit or

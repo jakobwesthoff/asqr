@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [23. Refine the interaction after the first real use](0023-refine-the-interaction-after-the-first-real-use.md)
+
 ## Context
 
 AI coding agents are the main askers. They could use asqr through a skill
