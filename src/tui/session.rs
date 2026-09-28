@@ -22,6 +22,13 @@ use crate::format::{
     unanswered_required,
 };
 
+/// The two ends of a field's text.
+#[derive(Clone, Copy)]
+enum Edge {
+    Start,
+    End,
+}
+
 /// What the running app has to do after a key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
@@ -615,6 +622,21 @@ impl SessionState {
             KeyCode::Up => self.move_row(-1),
             KeyCode::Down => self.move_row(1),
             KeyCode::Enter => self.enter(),
+            // At the edges of the text the arrows leave the field for the
+            // question before or after, so a field never traps the person
+            // (user, 2026-09-28). Inside the text they move the cursor.
+            KeyCode::Left
+                if key.modifiers.is_empty() && self.tab > 0 && self.cursor_at(Edge::Start) =>
+            {
+                self.go_to_tab(self.tab - 1)
+            }
+            KeyCode::Right
+                if key.modifiers.is_empty()
+                    && self.tab + 1 < self.tab_count()
+                    && self.cursor_at(Edge::End) =>
+            {
+                self.go_to_tab(self.tab + 1)
+            }
             _ => {
                 // Only a text answer spans several lines; own answers and
                 // the reject reason are one line (ADR 22).
@@ -631,6 +653,20 @@ impl SessionState {
                 working.custom = text;
                 working.touched = true;
                 Effect::DraftChanged
+            }
+        }
+    }
+
+    /// Whether the cursor of the focused field sits at `edge` of its text.
+    fn cursor_at(&self, edge: Edge) -> bool {
+        let editor = self.editor.as_ref().expect("a focused field has an editor");
+        let cursor = editor.cursor();
+        let (row, column) = (cursor.0, cursor.1);
+        match edge {
+            Edge::Start => (row, column) == (0, 0),
+            Edge::End => {
+                let lines = editor.lines();
+                row + 1 == lines.len() && column == lines[row].chars().count()
             }
         }
     }
@@ -994,6 +1030,56 @@ mod tests {
             0,
             "left moved the text cursor, not the question"
         );
+    }
+
+    #[test]
+    fn arrows_at_the_edges_of_a_field_switch_questions() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+        press(&mut state, "ok");
+        assert_eq!(state.focus(), Focus::Field);
+
+        // The cursor is at the end, so → moves on to the next question.
+        state.handle(code(KeyCode::Right));
+        assert_eq!(state.tab(), 3);
+
+        // Back on the text question its field is focused with the cursor
+        // at the end; ← walks through the text and, at its start, on to
+        // the question before.
+        state.handle(code(KeyCode::Left));
+        assert_eq!((state.tab(), state.focus()), (2, Focus::Field));
+        state.handle(code(KeyCode::Left));
+        state.handle(code(KeyCode::Left));
+        assert_eq!(state.tab(), 2, "two lefts only reach the start");
+        state.handle(code(KeyCode::Left));
+        assert_eq!(state.tab(), 1);
+        assert_eq!(answer(&state, "text").custom.as_deref(), Some("ok"));
+    }
+
+    #[test]
+    fn an_empty_field_switches_both_ways_at_once() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+
+        state.handle(code(KeyCode::Left));
+        assert_eq!(state.tab(), 1);
+        go_to_tab(&mut state, 2);
+        state.handle(code(KeyCode::Right));
+        assert_eq!(state.tab(), 3);
+    }
+
+    #[test]
+    fn the_first_question_and_the_reject_field_stay_put_at_their_ends() {
+        let mut state = state();
+        press(&mut state, "jj");
+        assert_eq!(state.focus(), Focus::Field, "the own answer of question 1");
+        state.handle(code(KeyCode::Left));
+        assert_eq!((state.tab(), state.focus()), (0, Focus::Field));
+
+        go_to_tab(&mut state, 4);
+        press(&mut state, "j");
+        state.handle(code(KeyCode::Right));
+        assert_eq!((state.tab(), state.focus()), (4, Focus::Field));
     }
 
     #[test]

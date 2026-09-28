@@ -760,6 +760,7 @@ fn wrap(line: Line<'static>, width: usize, first: usize, rest: usize) -> Vec<Lin
 const HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "move between the rows"),
     ("←/→, h/l", "previous and next question"),
+    ("", "in a field: at the start or end of its text"),
     ("enter", "pick and go on; open or submit on the review"),
     ("space", "toggle an option of a multi question"),
     ("1-9", "pick or toggle an option directly"),
