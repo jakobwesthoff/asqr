@@ -2,7 +2,7 @@
   "asqr": 1,
   "id": "release-0-2-0",
   "title": "Release 0.2.0",
-  "intro": "Three decisions before the release. `required` questions block submit.",
+  "intro": "Three decisions before the release. Skip what you cannot decide `yet`.",
   "from": "release script",
   "questions": [
     {
@@ -10,7 +10,6 @@
       "header": "Go?",
       "text": "All checks passed. Publish **0.2.0** now?",
       "kind": "single",
-      "required": true,
       "options": [
         { "id": "yes", "label": "Publish now" },
         { "id": "later", "label": "Later", "description": "Keep the tag, publish after the weekend." },

@@ -4,7 +4,7 @@ expression: "screen(&app, 60, 15)"
 ---
 " asqr · queue: default · 1 session waiting                  "
 " Release 0.2.0  (release script)                            "
-" Three decisions before the release. required questions…    "
+" Three decisions before the release. Skip what you cannot…  "
 "   ☒ Go?  ☒ Channels  ☒ Highlights  ✔ Review                "
 "────────────────────────────────────────────────────────────"
 "                                                            "

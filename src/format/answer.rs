@@ -81,22 +81,6 @@ fn shaped(question: &Question, answer: &Answer) -> Answer {
     }
 }
 
-/// The ids of the `required` questions that `answers` leave unanswered.
-/// Submit is blocked while this is not empty.
-pub fn unanswered_required<'a>(session: &'a Session, answers: &[Answer]) -> Vec<&'a str> {
-    session
-        .questions
-        .iter()
-        .filter(|question| question.required)
-        .filter(|question| {
-            !answers
-                .iter()
-                .any(|answer| answer.question == question.id && is_answered(question, answer))
-        })
-        .map(|question| question.id.as_str())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,21 +273,5 @@ mod tests {
             result_answers(&session, std::slice::from_ref(&both)),
             [both]
         );
-    }
-
-    #[test]
-    fn required_questions_block_submit_until_answered() {
-        let session = session(
-            r#"{"id": "r", "text": "?", "kind": "text", "required": true},
-               {"id": "o", "text": "?", "kind": "text"}"#,
-        );
-        let noted_only = Answer {
-            note: Some("later".into()),
-            ..Answer::new("r")
-        };
-
-        assert_eq!(unanswered_required(&session, &[]), ["r"]);
-        assert_eq!(unanswered_required(&session, &[noted_only]), ["r"]);
-        assert!(unanswered_required(&session, &[custom("r", "done")]).is_empty());
     }
 }

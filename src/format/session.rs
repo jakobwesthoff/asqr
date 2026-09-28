@@ -77,9 +77,6 @@ pub struct Question {
     #[serde(default = "note_allowed_by_default")]
     pub note: bool,
 
-    #[serde(default)]
-    pub required: bool,
-
     /// Bounds on the number of selected options of a `multi` question.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<u32>,
@@ -225,9 +222,8 @@ mod tests {
         assert_eq!(session.id, None);
         let question = &session.questions[0];
         // Notes are allowed unless the asker switches them off (spec
-        // section 4), and nothing is required unless asked for.
+        // section 4).
         assert!(question.note);
-        assert!(!question.required);
         assert_eq!(question.custom, None);
         assert_eq!(question.image, None);
     }
@@ -243,7 +239,7 @@ mod tests {
         )
         .expect("unknown fields do not fail parsing");
 
-        assert!(!session.questions[0].required);
+        assert_eq!(session.questions[0].id, "q");
     }
 
     #[test]

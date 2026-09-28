@@ -218,15 +218,16 @@ mod tests {
     }
 
     #[test]
-    fn the_dropped_max_and_multiline_are_unknown_fields() {
+    fn the_dropped_max_multiline_and_required_are_unknown_fields() {
         let json = r#"{"asqr": 1, "questions": [
-            {"id": "t", "text": "?", "kind": "text", "length": {"max": 9}},
+            {"id": "t", "text": "?", "kind": "text", "length": {"max": 9}, "required": true},
             {"id": "s", "text": "?", "kind": "single", "options": [{"id": "a", "label": "A"}],
              "custom": {"multiline": true}}]}"#;
 
         assert_eq!(
             warn(json, None),
             [
+                "questions[0].required: unknown field",
                 "questions[0].length.max: unknown field",
                 "questions[1].custom.multiline: unknown field",
             ]

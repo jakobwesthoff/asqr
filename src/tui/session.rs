@@ -17,10 +17,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui_textarea::{CursorMove, TextArea};
 
 pub use crate::format::Length;
-use crate::format::{
-    Answer, Kind, Question, Session, SessionResult, is_answered, result_answers,
-    unanswered_required,
-};
+use crate::format::{Answer, Kind, Question, Session, SessionResult, is_answered, result_answers};
 
 /// The two ends of a field's text.
 #[derive(Clone, Copy)]
@@ -576,23 +573,10 @@ impl SessionState {
         Effect::DraftChanged
     }
 
+    /// Every question is optional (user, 2026-09-28), so a submit always
+    /// goes through; unanswered questions come back as skipped.
     fn submit(&mut self) -> Effect {
-        let answers = self.answers();
-        let missing = unanswered_required(&self.session, &answers);
-        if let Some(first) = missing.first() {
-            self.message = Some(format!(
-                "answer the required questions first: {}",
-                missing.join(", ")
-            ));
-            let first = self
-                .session
-                .questions
-                .iter()
-                .position(|question| question.id == *first)
-                .expect("unanswered_required returns ids of this session");
-            return self.go_to_tab(first);
-        }
-        Effect::Submit(result_answers(&self.session, &answers))
+        Effect::Submit(result_answers(&self.session, &self.answers()))
     }
 
     fn open_note(&mut self) -> Effect {
@@ -780,7 +764,7 @@ mod tests {
          "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B", "default": true}]},
         {"id": "multi", "text": "?", "kind": "multi", "max": 2, "custom": true,
          "options": [{"id": "x", "label": "X"}, {"id": "y", "label": "Y"}, {"id": "z", "label": "Z"}]},
-        {"id": "text", "text": "?", "kind": "text", "length": {"warn": 5}, "required": true},
+        {"id": "text", "text": "?", "kind": "text", "length": {"warn": 5}},
         {"id": "plain", "text": "?", "kind": "single", "note": false, "image": "/pictures/p.png",
          "options": [{"id": "only", "label": "Only"}]}
     ]}"#;
@@ -1292,18 +1276,15 @@ mod tests {
     }
 
     #[test]
-    fn submitting_with_missing_required_answers_goes_to_the_first() {
+    fn every_question_is_optional() {
         let mut state = state();
         go_to_tab(&mut state, 4);
-        assert_eq!(state.rows()[state.row()], Row::Submit);
 
-        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::DraftChanged);
+        let Effect::Submit(answers) = state.handle(code(KeyCode::Enter)) else {
+            panic!("nothing blocks a submit");
+        };
 
-        assert_eq!(state.tab(), 2);
-        assert_eq!(
-            state.message(),
-            Some("answer the required questions first: text")
-        );
+        assert_eq!(answers[2], Answer::skipped("text"));
     }
 
     #[test]

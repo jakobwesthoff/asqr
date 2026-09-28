@@ -191,10 +191,6 @@
             "null"
           ]
         },
-        "required": {
-          "default": false,
-          "type": "boolean"
-        },
         "text": {
           "type": "string"
         }

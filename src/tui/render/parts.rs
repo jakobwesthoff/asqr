@@ -116,9 +116,6 @@ pub fn kind_hint(question: &Question) -> String {
             ", and type your own if you like"
         });
     }
-    if question.required {
-        hint.push_str(" · required");
-    }
     hint
 }
 
@@ -238,10 +235,8 @@ mod tests {
             "pick one"
         );
         assert_eq!(
-            hint(
-                r#"{"id": "q", "text": "?", "kind": "single", "custom": true, "required": true, "options": []}"#
-            ),
-            "pick one, or type your own · required"
+            hint(r#"{"id": "q", "text": "?", "kind": "single", "custom": true, "options": []}"#),
+            "pick one, or type your own"
         );
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "multi", "options": []}"#),

@@ -31,7 +31,7 @@ For one quick yes or no, just ask in the chat.
 {
   "asqr": 1,
   "title": "Release 0.3.0",
-  "intro": "Three decisions before the release. **Required** questions block submit.",
+  "intro": "Three decisions before the release. Skip what you **cannot** decide yet.",
   "from": "your-agent, project name",
   "questions": [
     {
@@ -39,7 +39,6 @@ For one quick yes or no, just ask in the chat.
       "header": "Go?",
       "text": "All checks passed. Publish 0.3.0 now?",
       "kind": "single",
-      "required": true,
       "options": [
         { "id": "yes", "label": "Publish now" },
         { "id": "later", "label": "Later", "description": "Keep the tag, publish after the weekend." }
@@ -76,7 +75,10 @@ For one quick yes or no, just ask in the chat.
   guides with a counter; nothing the person types is refused.
 - `note` (default `true`) lets the person add a note to any question;
   set `"note": false` to turn it off.
-- `required: true` blocks submit until the question is answered.
+- Every question is optional: the person may skip any of them, and a
+  skipped question may still carry a note explaining why.
+- `min` and `max` count the picked options; the own answer of a `multi`
+  comes on top of them.
 - `default: true` on an option preselects it.
 - `image` takes an absolute path to an image shown next to the question.
   `asqr ask` turns relative paths into absolute ones, resolved against

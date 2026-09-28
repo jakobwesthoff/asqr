@@ -50,9 +50,6 @@ fn shorten_from_left(text: &str, room: usize) -> String {
     format!("…{tail}")
 }
 
-/// Marks a required question the review still misses.
-const REQUIRED: &str = "  required";
-
 /// What the screen shows besides the state.
 pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
@@ -621,17 +618,11 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                     "{pointer}{} {label:<label_width$}  ",
                     if skipped { "☐" } else { "☒" }
                 );
-                let required = question.required && skipped;
                 // One line per question: the summary gets what is left of
                 // the width and ends in `…` when it is longer.
-                let room = width
-                    .saturating_sub(lead.chars().count())
-                    .saturating_sub(if required { REQUIRED.len() } else { 0 });
+                let room = width.saturating_sub(lead.chars().count());
                 let summary = cut(&answer_summary(question, &answers[question_index]), room);
-                let mut spans = vec![Span::from(lead), Span::from(summary).dim()];
-                if required {
-                    spans.push(Span::from(REQUIRED).fg(Color::Red));
-                }
+                let spans = vec![Span::from(lead), Span::from(summary).dim()];
                 let line = Line::from(spans);
                 vec![if current { line.reversed() } else { line }]
             }
@@ -985,8 +976,8 @@ mod tests {
     #[test]
     fn the_intro_shows_under_the_title_as_far_as_there_is_room() {
         let long_intro = RELEASE.replace(
-            "Three decisions before the release. `required` questions block submit.",
-            "Three decisions before the release. `required` questions block submit. \
+            "Three decisions before the release. Skip what you cannot decide `yet`.",
+            "Three decisions before the release. Skip what you cannot decide `yet`. \
              The **channels** question takes several answers, and the highlights \
              line goes into the release notes as it is typed, so write it the way \
              it should read on the blog. Nothing is published before you submit.",
@@ -1207,11 +1198,9 @@ mod tests {
 
     #[test]
     fn messages_and_notices_show_in_the_status_line() {
-        let mut app = app(&[("release", RELEASE)]);
-        keys(&mut app, "ll");
-        special(&mut app, KeyCode::Esc);
-        keys(&mut app, "l");
-        special(&mut app, KeyCode::Enter);
+        // With `max` 2 and the default ticked, the third pick is refused.
+        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
+        keys(&mut app, "l23");
         insta::assert_snapshot!("message", screen(&app, 80, 24));
 
         app.notice("batch-01 collided with an unread result and was archived");

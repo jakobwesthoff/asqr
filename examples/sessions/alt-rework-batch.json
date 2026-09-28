@@ -39,8 +39,7 @@
       "text": "Anything else?",
       "kind": "text",
       "length": { "warn": 500 },
-      "note": false,
-      "required": false
+      "note": false
     }
   ]
 }
