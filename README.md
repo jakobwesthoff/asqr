@@ -27,7 +27,11 @@ file that the agent reads back. Scripts and builds can ask the same way.
 
 ## Install
 
-asqr needs Rust 1.97 or newer. From a clone of this repository:
+asqr needs Rust 1.97 or newer. Install it from crates.io:
+
+    cargo install asqr
+
+or from a clone of this repository:
 
     cargo install --path .
 
