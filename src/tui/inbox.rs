@@ -591,12 +591,11 @@ mod tests {
         );
     }
 
-    /// Picks the second option, which moves on to the review, then presses
-    /// enter on Submit or Reject.
+    /// Picks the second option, which moves on to the review and its
+    /// Submit row, then presses enter on Submit or on Reject below it.
     fn answer_and(app: &mut App, inbox: &mut Inbox, reject: bool) -> Applied {
         let effect = app.handle(key('2'));
         inbox.apply(app, effect);
-        app.handle(key('j'));
         if reject {
             app.handle(key('j'));
         }

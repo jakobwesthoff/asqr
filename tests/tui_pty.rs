@@ -210,10 +210,11 @@ fn answers_a_session_that_arrives_while_it_runs() {
         tui.output()
     );
 
-    // Pick the second option, which moves on to the review, then Submit.
+    // Pick the second option, which moves on to the review, where the
+    // cursor rests on Submit.
     tui.press("2");
     tui.wait_for("Review your answers");
-    tui.press("j\r");
+    tui.press("\r");
     tui.wait_for("Nothing to answer");
     tui.press("q");
 

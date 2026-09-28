@@ -1209,7 +1209,7 @@ mod tests {
         let mut app = app(&[("release", RELEASE)]);
         keys(&mut app, "ll");
         special(&mut app, KeyCode::Esc);
-        keys(&mut app, "ljjj");
+        keys(&mut app, "l");
         special(&mut app, KeyCode::Enter);
         insta::assert_snapshot!("message", screen(&app, 80, 24));
 
@@ -1388,7 +1388,7 @@ mod tests {
         let mut app = app(&[("release", RELEASE)]);
         keys(&mut app, "ll");
         special(&mut app, KeyCode::Esc);
-        keys(&mut app, "ljjjjout of date");
+        keys(&mut app, "ljout of date");
         insta::assert_snapshot!(screen(&app, 80, 24));
     }
 

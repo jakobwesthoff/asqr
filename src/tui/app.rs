@@ -215,14 +215,13 @@ mod tests {
     fn turns_session_effects_into_app_effects() {
         let mut app = app(&["one"]);
 
-        // Picking moves on to the review, whose rows are the question,
-        // Submit and Reject.
+        // Picking moves on to the review, which opens on Submit; Reject is
+        // the row below.
         let AppEffect::SaveDraft(draft) = app.handle(key('1')) else {
             panic!("picking saves the draft");
         };
         assert_eq!(draft.id, "one");
 
-        app.handle(key('j'));
         let AppEffect::Finish { id, outcome } = app.handle(code(KeyCode::Enter)) else {
             panic!("enter on Submit finishes the session");
         };

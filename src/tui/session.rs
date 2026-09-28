@@ -489,7 +489,13 @@ impl SessionState {
             return Effect::None;
         }
         self.tab = tab;
-        self.row = 0;
+        // The review opens on Submit, the usual next step (user,
+        // 2026-09-28); questions start on their first row.
+        self.row = if self.on_review() {
+            self.session.questions.len()
+        } else {
+            0
+        };
         self.image_full_screen = false;
         self.arrive();
         Effect::DraftChanged
@@ -818,6 +824,15 @@ mod tests {
                 Row::Reject
             ]
         );
+    }
+
+    #[test]
+    fn the_review_opens_on_submit() {
+        let mut state = state();
+
+        go_to_tab(&mut state, 4);
+
+        assert_eq!(state.rows()[state.row()], Row::Submit);
     }
 
     #[test]
@@ -1184,7 +1199,7 @@ mod tests {
         let mut state = state();
         go_to_tab(&mut state, 4);
 
-        press(&mut state, "j");
+        press(&mut state, "kkk");
         state.handle(code(KeyCode::Enter));
 
         assert_eq!((state.tab(), state.row()), (1, 0));
@@ -1194,7 +1209,6 @@ mod tests {
     fn submitting_with_missing_required_answers_goes_to_the_first() {
         let mut state = state();
         go_to_tab(&mut state, 4);
-        press(&mut state, "jjjj");
         assert_eq!(state.rows()[state.row()], Row::Submit);
 
         assert_eq!(state.handle(code(KeyCode::Enter)), Effect::DraftChanged);
@@ -1213,7 +1227,6 @@ mod tests {
         press(&mut state, "ok");
         state.handle(code(KeyCode::Enter));
         go_to_tab(&mut state, 4);
-        press(&mut state, "jjjj");
 
         let Effect::Submit(answers) = state.handle(code(KeyCode::Enter)) else {
             panic!("enter on Submit submits");
@@ -1228,7 +1241,7 @@ mod tests {
     fn the_reject_row_takes_an_optional_reason() {
         let mut state = state();
         go_to_tab(&mut state, 4);
-        press(&mut state, "jjjjj");
+        press(&mut state, "j");
         assert_eq!(state.focus(), Focus::Field);
 
         press(&mut state, "  out of date ");
@@ -1239,7 +1252,7 @@ mod tests {
 
         let mut empty = self::state();
         go_to_tab(&mut empty, 4);
-        press(&mut empty, "jjjjj");
+        press(&mut empty, "j");
         assert_eq!(empty.handle(code(KeyCode::Enter)), Effect::Reject(None));
     }
 
@@ -1247,7 +1260,7 @@ mod tests {
     fn the_reject_reason_is_saved_with_the_draft() {
         let mut state = state();
         go_to_tab(&mut state, 4);
-        press(&mut state, "jjjjj");
+        press(&mut state, "j");
 
         assert_eq!(press(&mut state, "stale"), Effect::DraftChanged);
         let draft = state.to_draft();
@@ -1469,7 +1482,7 @@ mod tests {
 
         assert_eq!(press(&mut state, "n"), Effect::None);
         assert_eq!(state.focus(), Focus::None);
-        press(&mut state, "jjjjj");
+        press(&mut state, "j");
         assert_eq!((state.focus(), state.field_length()), (Focus::Field, None));
     }
 

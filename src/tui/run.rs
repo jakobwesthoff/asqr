@@ -265,11 +265,7 @@ mod tests {
         harness.put("batch-01");
 
         harness
-            .run(vec![
-                key(KeyCode::Char('2')),
-                key(KeyCode::Char('j')),
-                key(KeyCode::Enter),
-            ])
+            .run(vec![key(KeyCode::Char('2')), key(KeyCode::Enter)])
             .expect("runs");
 
         let result = harness.result("batch-01");
