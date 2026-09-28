@@ -513,10 +513,11 @@ One column over the full width (user, 2026-09-27):
   once it is answered and `☐` while it is not, and `✔ Review` last. The
   current tab is highlighted. When the tabs do not fit, the bar scrolls
   around the current one and shows `←`/`→` where more follow.
-- Under the question text a hint says how to answer: "pick one", "pick 2
-  to 3", "type your answer", with ", or type your own" on a `single` and
-  ", and type your own if you like" on a `multi` where `custom` is
-  allowed.
+- Under the question text a hint says how to answer: "pick one", "pick
+  between 2 and 3 items", "pick at least 2 items", "pick up to 3 items",
+  "pick 2 items", "pick any" or "type your answer". A `single` with
+  `custom` adds ", or type your own"; a `multi` does not mention its own
+  answer, which people find on their own (ADR 23).
 - Options show `( )`/`(•)` in a `single` and `[ ]`/`[x]` in a `multi`.
   Option descriptions start after the widest label and wrap under
   themselves; where that leaves less than 30 columns, they go below the

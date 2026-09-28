@@ -94,29 +94,28 @@ pub fn cut(text: &str, room: usize) -> String {
 
 /// One line under the question text on how to answer it.
 pub fn kind_hint(question: &Question) -> String {
-    let mut hint = match (question.kind, question.min, question.max) {
+    let items = |count: u32| format!("{count} item{}", if count == 1 { "" } else { "s" });
+    let hint = match (question.kind, question.min, question.max) {
         (Kind::Single, _, _) => "pick one".to_owned(),
-        (Kind::Multi, Some(min), Some(max)) => format!("pick {min} to {max}"),
-        (Kind::Multi, Some(min), None) => format!("pick at least {min}"),
-        (Kind::Multi, None, Some(max)) => format!("pick up to {max}"),
+        (Kind::Multi, Some(min), Some(max)) if min == max => format!("pick {}", items(min)),
+        (Kind::Multi, Some(min), Some(max)) => format!("pick between {min} and {}", items(max)),
+        (Kind::Multi, Some(min), None) => format!("pick at least {}", items(min)),
+        (Kind::Multi, None, Some(max)) => format!("pick up to {}", items(max)),
         (Kind::Multi, None, None) => "pick any".to_owned(),
         (Kind::Text, _, _) => "type your answer".to_owned(),
     };
-    if question.kind != Kind::Text
-        && question
-            .custom
-            .as_ref()
-            .is_some_and(|custom| custom.is_enabled())
-    {
-        // A single takes the own answer instead of an option; a multi takes
-        // it on top of the options, outside `min` and `max`.
-        hint.push_str(if question.kind == Kind::Single {
-            ", or type your own"
-        } else {
-            ", and type your own if you like"
-        });
+    // A single takes the own answer instead of an option, which the hint
+    // says. A multi takes it on top of its options; people find that row
+    // on their own, so its hint leaves it out (user, 2026-09-28).
+    let own_answer = question
+        .custom
+        .as_ref()
+        .is_some_and(|custom| custom.is_enabled());
+    if question.kind == Kind::Single && own_answer {
+        format!("{hint}, or type your own")
+    } else {
+        hint
     }
-    hint
 }
 
 #[cfg(test)]
@@ -244,22 +243,27 @@ mod tests {
         );
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "multi", "min": 1, "max": 2, "options": []}"#),
-            "pick 1 to 2"
+            "pick between 1 and 2 items"
+        );
+        assert_eq!(
+            hint(r#"{"id": "q", "text": "?", "kind": "multi", "min": 2, "max": 2, "options": []}"#),
+            "pick 2 items"
         );
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "multi", "min": 2, "options": []}"#),
-            "pick at least 2"
+            "pick at least 2 items"
         );
         assert_eq!(
-            hint(r#"{"id": "q", "text": "?", "kind": "multi", "max": 3, "options": []}"#),
-            "pick up to 3"
+            hint(r#"{"id": "q", "text": "?", "kind": "multi", "max": 1, "options": []}"#),
+            "pick up to 1 item"
         );
-        // The own answer of a multi comes on top of the picked options.
+        // People find the own-answer row on their own, so a multi's hint
+        // leaves it out (user, 2026-09-28).
         assert_eq!(
             hint(
                 r#"{"id": "q", "text": "?", "kind": "multi", "min": 2, "max": 3, "custom": true, "options": []}"#
             ),
-            "pick 2 to 3, and type your own if you like"
+            "pick between 2 and 3 items"
         );
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "text"}"#),

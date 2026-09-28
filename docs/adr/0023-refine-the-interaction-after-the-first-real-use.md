@@ -44,8 +44,12 @@ explicitly ask the agent to use asqr.
   is never blocked, and skipped questions come back as `skipped: true`
   with their notes.
 - **Own answer on a multi:** `min` and `max` count the picked options
-  only, and the own answer comes on top. The hint says so ("pick 2 to 3,
-  and type your own if you like"), and so do the spec and the skill.
+  only, and the own answer comes on top; the spec and the skill say so.
+  The hint first said it too ("pick 2 to 3, and type your own if you
+  like"). In the retest the user found that too wordy: "the user will
+  find out that they can always add their own answer themselves". The
+  hint now reads "pick between 2 and 3 items" and leaves the own answer
+  out.
 - **Review:** the review tab opens with the cursor on Submit.
 - **Skill:** its description and its "When to use it" section say that
   it is used only when the user explicitly asks for asqr; an agent may
