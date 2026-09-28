@@ -108,7 +108,13 @@ pub fn kind_hint(question: &Question) -> String {
             .as_ref()
             .is_some_and(|custom| custom.is_enabled())
     {
-        hint.push_str(", or type your own");
+        // A single takes the own answer instead of an option; a multi takes
+        // it on top of the options, outside `min` and `max`.
+        hint.push_str(if question.kind == Kind::Single {
+            ", or type your own"
+        } else {
+            ", and type your own if you like"
+        });
     }
     if question.required {
         hint.push_str(" · required");
@@ -252,6 +258,13 @@ mod tests {
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "multi", "max": 3, "options": []}"#),
             "pick up to 3"
+        );
+        // The own answer of a multi comes on top of the picked options.
+        assert_eq!(
+            hint(
+                r#"{"id": "q", "text": "?", "kind": "multi", "min": 2, "max": 3, "custom": true, "options": []}"#
+            ),
+            "pick 2 to 3, and type your own if you like"
         );
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "text"}"#),
