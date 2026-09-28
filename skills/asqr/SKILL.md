@@ -84,11 +84,14 @@ Once asked, asqr fits best when:
   comes on top of them.
 - `default: true` on an option preselects it.
 - `image` takes an absolute path to an image shown next to the question.
-  `asqr ask` turns relative paths into absolute ones, resolved against
-  the session file.
+  An option can have its own `image`, shown instead while the cursor is
+  on that option, so the person can flip through variants in one
+  question and pick one. `asqr ask` turns relative paths into absolute
+  ones, resolved against the session file.
 - `intro`, question `text` and option `description` may use bold,
   italic, inline code, lists and line breaks.
-- Leave `id` out: `asqr ask` assigns one and prints it.
+- Leave the session's `id` out: `asqr ask` assigns one and prints it.
+  Questions and options always need their own `id`.
 
 `asqr new` prints a skeleton to start from, `asqr validate <file>` checks
 a file (warnings go to stderr), and `asqr schema` prints the JSON

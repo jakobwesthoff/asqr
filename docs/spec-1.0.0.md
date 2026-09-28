@@ -45,8 +45,8 @@ Design goals:
   intro, and a list of questions. It is answered and submitted as a
   whole.
 - **Question**: one thing to decide. It has a kind (section 4), text,
-  optional options, an optional image, and optional custom entry and
-  note.
+  optional options (each with an optional image), an optional image, and
+  optional custom entry and note.
 - **Result**: the answer file for one session.
 - **Draft**: the answers to a session while it is being answered.
 - **Queue**: a directory with an inbox, an outbox, drafts and an archive,
@@ -313,8 +313,9 @@ Question fields:
   kinds.
 - `options` (required for `single` and `multi`, not allowed for `text`):
   each option has an `id` (unique within the question), a `label`, an
-  optional `description` of any length shown in full and wrapped, and an
-  optional `default: true`.
+  optional `description` of any length shown in full and wrapped, an
+  optional `default: true`, and an optional `image`, shown in place of
+  the question's image while the cursor is on the option (section 7.7).
 - `custom` (optional, only on `single` and `multi`): allows a typed
   answer, always one line. `true`, or an object with `label` and
   `length`.
@@ -327,7 +328,7 @@ Question fields:
   given and drops absolute ones. `asqr validate` warns about
   relative paths, which a file dropped by hand must not use. `asqr
   validate` and `asqr ask` both warn about image files that do not
-  exist.
+  exist. All of this applies to an option's `image` too.
 - `note` (optional, default `true`): whether the person may add a note.
   One note per question.
 - Every question is optional (ADR 23): there is no way to force an
@@ -498,7 +499,7 @@ One column over the full width (user, 2026-09-27):
 
  Notes: —
 
- [image, if the question has one]
+ [image, if the question or one of its options has one]
  [notices and messages]
  ↑/↓ move  enter pick  ←/→ question  n note  ? help  q quit
 ```
@@ -562,11 +563,10 @@ On an option row (vim style plus arrows):
 - Inside a field every key that produces text types, so `n`, `q` and
   the others work again after `esc`. `ctrl-c` quits everywhere, except
   over the help, which it closes like any other key.
-- `o` opens the image with the system's opener (`open` on macOS,
-  `xdg-open` elsewhere); when the opener cannot be started, a notice
-  says why. `z` shows
-  the image over the question's area and toggles back; changing the
-  question ends it.
+- `o` opens the image shown (section 7.7) with the system's opener
+  (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
+  started, a notice says why. `z` shows the image shown over the
+  question's area and toggles back; changing the question ends it.
 - Help closes on any key.
 - The session list (`L`) lists every waiting session in queue order
   (section 3.4): `↑`/`↓` or `k`/`j` move, `enter` switches to the
@@ -654,7 +654,15 @@ supported element (a heading marker in a list item).
 
 ### 7.7 Images
 
-Images appear only when a question has one.
+Images appear only when a question or one of its options has one.
+
+- The option under the cursor shows its own image, so the person can
+  browse the options before picking; this holds for `single` and
+  `multi`. Every other row, and an option without an image, shows the
+  question's image, or nothing when the question has none.
+- The room for the image stays while the cursor moves, also when the
+  current row shows none, so the layout does not jump.
+- The review shows no images.
 
 - Terminals that support the Kitty graphics protocol (Ghostty, kitty,
   WezTerm), the iTerm2 protocol or Sixel show images inline. Terminals

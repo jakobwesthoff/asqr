@@ -79,15 +79,25 @@ fn make_images_absolute(raw: &mut Value, file: &Path) {
     let base = file.parent().unwrap_or(Path::new(""));
     let questions = raw["questions"].as_array_mut().into_iter().flatten();
     for question in questions {
-        let Some(image) = question["image"].as_str() else {
-            continue;
-        };
-        let image = Path::new(image);
-        if image.is_relative()
-            && let Ok(absolute) = std::path::absolute(base.join(image))
-        {
-            question["image"] = Value::from(absolute.to_string_lossy().into_owned());
+        make_image_absolute(question, base);
+        let options = question["options"].as_array_mut().into_iter().flatten();
+        for option in options {
+            make_image_absolute(option, base);
         }
+    }
+}
+
+/// Rewrites the `image` field of a question or an option, if it is there
+/// and relative.
+fn make_image_absolute(holder: &mut Value, base: &Path) {
+    let Some(image) = holder["image"].as_str() else {
+        return;
+    };
+    let image = Path::new(image);
+    if image.is_relative()
+        && let Ok(absolute) = std::path::absolute(base.join(image))
+    {
+        holder["image"] = Value::from(absolute.to_string_lossy().into_owned());
     }
 }
 

@@ -114,6 +114,11 @@ pub struct Choice {
     /// Preselects the option.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub default: bool,
+
+    /// An image shown in place of the question's image while the cursor
+    /// is on this option.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
 }
 
 /// The `custom` field: either a plain switch or a configured entry.
@@ -226,6 +231,24 @@ mod tests {
         assert!(question.note);
         assert_eq!(question.custom, None);
         assert_eq!(question.image, None);
+    }
+
+    #[test]
+    fn an_option_may_carry_an_image_and_writes_it_back() {
+        let json = r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "options": [{"id": "a", "label": "A", "image": "/pictures/a.png"}, {"id": "b", "label": "B"}]}]}"#;
+
+        let session: Session = serde_json::from_str(json).expect("parses");
+
+        let options = session.questions[0].options.as_ref().expect("options");
+        assert_eq!(options[0].image.as_deref(), Some("/pictures/a.png"));
+        assert_eq!(options[1].image, None);
+        let written = serde_json::to_value(&session).expect("serializes");
+        assert_eq!(
+            written["questions"][0]["options"][0]["image"],
+            "/pictures/a.png"
+        );
+        assert!(written["questions"][0]["options"][1].get("image").is_none());
     }
 
     #[test]

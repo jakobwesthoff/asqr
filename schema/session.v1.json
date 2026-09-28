@@ -17,6 +17,13 @@
         "id": {
           "type": "string"
         },
+        "image": {
+          "description": "An image shown in place of the question's image while the cursor\nis on this option.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "label": {
           "type": "string"
         }

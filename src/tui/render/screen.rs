@@ -111,10 +111,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
     frame.render_widget(Paragraph::new(header_lines), header);
     draw_tabs(frame, state, tabs);
 
-    let full_screen_image = state
-        .question()
-        .and_then(|question| question.image.as_deref())
-        .filter(|_| state.image_full_screen());
+    let full_screen_image = state.shown_image().filter(|_| state.image_full_screen());
     if let Some(path) = full_screen_image {
         images.draw_full_screen(frame, path, main);
     } else {
@@ -289,10 +286,7 @@ impl Content {
 
 fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, images: &mut Images) {
     let mut text_area = area;
-    if let Some(path) = state
-        .question()
-        .and_then(|question| question.image.as_deref())
-    {
+    if state.has_image_area() {
         let image = if area.width >= IMAGE_BESIDE_WIDTH {
             let [text, image] = Layout::horizontal([Constraint::Fill(3), Constraint::Fill(2)])
                 .spacing(1)
@@ -308,7 +302,9 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, images: &mut Im
             text_area = text;
             image
         };
-        images.draw(frame, path, image);
+        if let Some(path) = state.shown_image() {
+            images.draw(frame, path, image);
+        }
     }
 
     let width = text_area.width as usize;
@@ -1285,6 +1281,37 @@ mod tests {
         let (_, rows) = image_cells(&screen(&app, 80, 24));
 
         assert!(*rows.start() > 10, "below the question text: {rows:?}");
+    }
+
+    #[test]
+    fn the_option_under_the_cursor_shows_its_image_and_keeps_the_room() {
+        let file = png();
+        let long =
+            "a description long enough to reach the right edge of a wide terminal ".repeat(3);
+        let mut app = app(&[(
+            "browsing",
+            &format!(
+                r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "Which one?", "kind": "single",
+                    "options": [{{"id": "a", "label": "Pictured", "image": {image:?}}},
+                                {{"id": "b", "label": "Plain", "description": {long:?}}}]}}]}}"#,
+                image = file.path().to_str().expect("UTF-8 path"),
+            ),
+        )]);
+
+        let (columns, _) = image_cells(&screen(&app, 140, 20));
+        assert!(*columns.start() > 80, "beside the options: {columns:?}");
+
+        keys(&mut app, "j");
+        let backend = screen(&app, 140, 20);
+        let buffer = backend.buffer();
+        let right_side_used = (4..buffer.area.height)
+            .flat_map(|y| (85..buffer.area.width).map(move |x| (x, y)))
+            .any(|position| buffer[position].symbol() != " ");
+        assert!(
+            !right_side_used,
+            "the text keeps its width while the area stays empty:\n{}",
+            backend
+        );
     }
 
     #[test]

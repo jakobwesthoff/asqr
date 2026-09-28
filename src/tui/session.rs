@@ -244,6 +244,36 @@ impl SessionState {
         self.session.questions.get(self.tab)
     }
 
+    /// The image shown on the current tab; `o` and `z` act on it. The
+    /// option under the cursor shows its own image, so the person can
+    /// browse the options before picking; every other row shows the
+    /// question's image (spec section 7.7).
+    pub fn shown_image(&self) -> Option<&str> {
+        let question = self.question()?;
+        let option_image = match self.current_row() {
+            Some(Row::Option(index)) => question
+                .options
+                .as_ref()
+                .and_then(|options| options[index].image.as_deref()),
+            _ => None,
+        };
+        option_image.or(question.image.as_deref())
+    }
+
+    /// Whether the current tab keeps room for an image: when the question
+    /// or any of its options has one, even while the row under the cursor
+    /// shows none, so the layout does not jump while browsing.
+    pub fn has_image_area(&self) -> bool {
+        self.question().is_some_and(|question| {
+            question.image.is_some()
+                || question
+                    .options
+                    .iter()
+                    .flatten()
+                    .any(|option| option.image.is_some())
+        })
+    }
+
     /// The rows of the current tab.
     pub fn rows(&self) -> Vec<Row> {
         let Some(question) = self.question() else {
@@ -437,16 +467,12 @@ impl SessionState {
                 Effect::None
             }
             KeyCode::Char('L') => Effect::OpenSessionList,
-            KeyCode::Char('o') => match self.question().and_then(|question| question.image.clone())
-            {
-                Some(image) => Effect::OpenImage(image),
+            KeyCode::Char('o') => match self.shown_image() {
+                Some(image) => Effect::OpenImage(image.to_owned()),
                 None => Effect::None,
             },
             KeyCode::Char('z') => {
-                let has_image = self
-                    .question()
-                    .is_some_and(|question| question.image.is_some());
-                self.image_full_screen = has_image && !self.image_full_screen;
+                self.image_full_screen = self.shown_image().is_some() && !self.image_full_screen;
                 Effect::None
             }
             _ => Effect::None,
@@ -1409,6 +1435,51 @@ mod tests {
             !state.image_full_screen(),
             "another tab ends the full-screen view"
         );
+    }
+
+    #[test]
+    fn the_image_follows_the_option_under_the_cursor() {
+        let session = r#"{"asqr": 1, "questions": [
+            {"id": "pictured", "text": "?", "kind": "single", "custom": true,
+             "image": "/pictures/question.png",
+             "options": [{"id": "a", "label": "A", "image": "/pictures/a.png"}, {"id": "b", "label": "B"}]},
+            {"id": "bare", "text": "?", "kind": "multi",
+             "options": [{"id": "x", "label": "X", "image": "/pictures/x.png"}, {"id": "y", "label": "Y"}]}
+        ]}"#;
+        let mut state = SessionState::new(
+            "batch",
+            serde_json::from_str(session).expect("test session parses"),
+            None,
+        );
+
+        assert_eq!(state.shown_image(), Some("/pictures/a.png"));
+        assert_eq!(
+            press(&mut state, "o"),
+            Effect::OpenImage("/pictures/a.png".into())
+        );
+        press(&mut state, "j");
+        assert_eq!(
+            state.shown_image(),
+            Some("/pictures/question.png"),
+            "an option without an image shows the question's"
+        );
+        press(&mut state, "j");
+        assert_eq!(state.current_row(), Some(Row::Own));
+        assert_eq!(state.shown_image(), Some("/pictures/question.png"));
+
+        state.handle(code(KeyCode::Esc));
+        go_to_tab(&mut state, 1);
+        assert_eq!(state.shown_image(), Some("/pictures/x.png"));
+        assert!(state.has_image_area());
+        press(&mut state, "j");
+        assert_eq!(state.shown_image(), None);
+        assert!(
+            state.has_image_area(),
+            "the area stays, so the layout does not jump between options"
+        );
+
+        go_to_tab(&mut state, 2);
+        assert_eq!((state.shown_image(), state.has_image_area()), (None, false));
     }
 
     #[test]

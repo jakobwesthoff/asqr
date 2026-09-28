@@ -1,0 +1,19 @@
+{
+  "asqr": 1,
+  "title": "Pick a logo",
+  "intro": "Move through the options: each shows its own image.",
+  "from": "design review",
+  "questions": [
+    {
+      "id": "logo",
+      "header": "Logo",
+      "text": "Which variant goes into the README?",
+      "kind": "single",
+      "options": [
+        { "id": "large", "label": "Full deck", "description": "Five cards, from questions to the answered one.", "image": "../../assets/logo-2048.png" },
+        { "id": "small", "label": "Two cards", "description": "The icon: one question, one answer.", "image": "../../assets/icon-384.png" }
+      ],
+      "custom": { "label": "Neither, because" }
+    }
+  ]
+}

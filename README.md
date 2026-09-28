@@ -18,8 +18,8 @@ file that the agent reads back. Scripts and builds can ask the same way.
 - Single and multiple choice, typed answers, your own answer instead of
   the given options, and a note on every question.
 - Descriptions, defaults and length hints, with a little Markdown.
-- Optional images next to a question, shown inline in terminals that
-  support it.
+- Optional images next to a question, or one per option to flip
+  through variants, shown inline in terminals that support it.
 - A tab per question and a review tab: move freely, then submit or
   reject the whole session.
 - A versioned JSON format with a JSON Schema, so any tool can ask.

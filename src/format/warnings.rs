@@ -137,29 +137,40 @@ fn unknown_fields(raw: &Value, found: &mut Vec<Warning>) {
 
 fn images(session: &Session, base_dir: Option<&Path>, found: &mut Vec<Warning>) {
     for (index, question) in session.questions.iter().enumerate() {
-        let Some(image) = &question.image else {
-            continue;
-        };
-        let path = FieldPath::root("questions").index(index).field("image");
-        let image = Path::new(image);
-
-        let resolved = if image.is_absolute() {
-            Some(image.to_path_buf())
-        } else {
-            found.push(Warning {
-                path: path.clone(),
-                kind: WarningKind::RelativeImagePath,
-            });
-            base_dir.map(|base| base.join(image))
-        };
-        if let Some(resolved) = resolved
-            && !resolved.is_file()
-        {
-            found.push(Warning {
-                path,
-                kind: WarningKind::ImageNotFound(resolved),
-            });
+        let question_path = FieldPath::root("questions").index(index);
+        if let Some(image) = &question.image {
+            check_image(image, question_path.field("image"), base_dir, found);
         }
+        for (option_index, option) in question.options.iter().flatten().enumerate() {
+            if let Some(image) = &option.image {
+                let path = question_path
+                    .field("options")
+                    .index(option_index)
+                    .field("image");
+                check_image(image, path, base_dir, found);
+            }
+        }
+    }
+}
+
+fn check_image(image: &str, path: FieldPath, base_dir: Option<&Path>, found: &mut Vec<Warning>) {
+    let image = Path::new(image);
+    let resolved = if image.is_absolute() {
+        Some(image.to_path_buf())
+    } else {
+        found.push(Warning {
+            path: path.clone(),
+            kind: WarningKind::RelativeImagePath,
+        });
+        base_dir.map(|base| base.join(image))
+    };
+    if let Some(resolved) = resolved
+        && !resolved.is_file()
+    {
+        found.push(Warning {
+            path,
+            kind: WarningKind::ImageNotFound(resolved),
+        });
     }
 }
 
@@ -260,6 +271,24 @@ mod tests {
                 "questions[0].image: relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
                 &format!(
                     "questions[0].image: file not found: {}",
+                    repo().join("missing.png").display()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn checks_option_images_like_question_images() {
+        let json = r#"{"asqr": 1, "questions": [
+            {"id": "q", "text": "?", "kind": "single",
+             "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B", "image": "missing.png"}]}]}"#;
+
+        assert_eq!(
+            warn(json, Some(repo())),
+            [
+                "questions[0].options[1].image: relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
+                &format!(
+                    "questions[0].options[1].image: file not found: {}",
                     repo().join("missing.png").display()
                 ),
             ]

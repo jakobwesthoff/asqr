@@ -8,6 +8,8 @@ Accepted
 
 Amended by [23. Refine the interaction after the first real use](0023-refine-the-interaction-after-the-first-real-use.md)
 
+Amended by [25. Show an image per option](0025-show-an-image-per-option.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

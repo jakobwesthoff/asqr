@@ -10,6 +10,8 @@ Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
 Amended by [23. Refine the interaction after the first real use](0023-refine-the-interaction-after-the-first-real-use.md)
 
+Amended by [25. Show an image per option](0025-show-an-image-per-option.md)
+
 ## Context
 
 The user looked at the first screens and the key model of ADR 8 and

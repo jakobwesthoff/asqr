@@ -111,10 +111,13 @@ fn assigns_a_ulid_when_the_session_has_no_id() {
 fn makes_image_paths_absolute_and_keeps_unknown_fields() {
     let sandbox = Sandbox::new();
     sandbox.file("session/images/q.png", "png");
+    sandbox.file("session/images/a.png", "png");
     let file = sandbox.file(
         "session/session.json",
         r#"{"asqr": 1, "id": "img", "later": 1,
-            "questions": [{"id": "q", "text": "?", "kind": "text", "image": "images/q.png"}]}"#,
+            "questions": [{"id": "q", "text": "?", "kind": "text", "image": "images/q.png"},
+                          {"id": "s", "text": "?", "kind": "single",
+                           "options": [{"id": "a", "label": "A", "image": "images/a.png"}]}]}"#,
     );
 
     let output = sandbox
@@ -125,9 +128,14 @@ fn makes_image_paths_absolute_and_keeps_unknown_fields() {
 
     assert_eq!(output.status.code(), Some(0));
     let dropped = inbox_file(&sandbox, "img");
-    let image = dropped["questions"][0]["image"].as_str().expect("image");
-    assert!(Path::new(image).is_absolute(), "{image}");
-    assert!(Path::new(image).is_file(), "{image}");
+    for image in [
+        &dropped["questions"][0]["image"],
+        &dropped["questions"][1]["options"][0]["image"],
+    ] {
+        let image = image.as_str().expect("image");
+        assert!(Path::new(image).is_absolute(), "{image}");
+        assert!(Path::new(image).is_file(), "{image}");
+    }
     assert_eq!(dropped["later"], 1);
     assert!(
         stderr(&output).contains("warning: later: unknown field"),
