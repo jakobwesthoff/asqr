@@ -119,3 +119,16 @@ fn the_skill_explains_every_exit_code() {
         );
     }
 }
+
+#[test]
+fn the_skill_applies_only_when_the_user_asks_for_asqr() {
+    let description = SKILL
+        .lines()
+        .find_map(|line| line.strip_prefix("description: "))
+        .expect("the frontmatter has a description");
+
+    assert!(
+        description.contains("Only use it when the user explicitly asks"),
+        "{description}"
+    );
+}

@@ -1,6 +1,6 @@
 ---
 name: asqr
-description: Ask the person you work with many questions at once through asqr, a terminal inbox for questions. Use it when you have prepared several decisions for the person and want their answers back as JSON.
+description: Ask the person you work with many questions at once through asqr, a terminal inbox for questions, and get their answers back as JSON. Only use it when the user explicitly asks you to use asqr for something; never switch to it on your own.
 ---
 
 # asqr
@@ -13,17 +13,20 @@ result file that you read back.
 
 ## When to use it
 
-Use asqr instead of asking in the chat when:
+Only when the user explicitly asks you to use asqr, for example "ask me
+through asqr" or "put the questions into asqr". Without such a request,
+ask the way you normally do, even when you have many questions; you may
+mention that asqr exists, but do not switch to it on your own.
 
-- you have more than a handful of questions, or more options per
+Once asked, asqr fits best when:
+
+- there are more than a handful of questions, or more options per
   question than a chat question offers
 - each question needs context to decide: a longer description per
   option, an image, a suggested default
 - the person should be able to skip, add a note, or type their own
   answer
 - the answers feed straight into your next step as data
-
-For one quick yes or no, just ask in the chat.
 
 ## The session file
 
