@@ -18,7 +18,7 @@
           "type": "string"
         },
         "image": {
-          "description": "An image shown in place of the question's image while the cursor\nis on this option.",
+          "description": "An image shown in place of the question's image while the cursor\nis on this option. The formats are those of the question's image.",
           "type": [
             "string",
             "null"
@@ -146,7 +146,7 @@
           "type": "string"
         },
         "image": {
-          "description": "An image shown next to the question. Most questions have none.",
+          "description": "An image shown next to the question. Most questions have none.\nPNG, JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM,\nQOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and AVIF are\nnot.",
           "type": [
             "string",
             "null"

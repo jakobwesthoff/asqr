@@ -328,7 +328,10 @@ Question fields:
   given and drops absolute ones. `asqr validate` warns about
   relative paths, which a file dropped by hand must not use. `asqr
   validate` and `asqr ask` both warn about image files that do not
-  exist. All of this applies to an option's `image` too.
+  exist, and about files the terminal UI cannot decode (section 7.7).
+  That check reads only the file's header. For an unsupported format the
+  warning lists the formats that work. All of this applies to an option's
+  `image` too.
 - `note` (optional, default `true`): whether the person may add a note.
   One note per question.
 - Every question is optional (ADR 23): there is no way to force an
@@ -667,6 +670,11 @@ Images appear only when a question or one of its options has one.
 - Terminals that support the Kitty graphics protocol (Ghostty, kitty,
   WezTerm), the iTerm2 protocol or Sixel show images inline. Terminals
   without any of these get a coarse block rendering.
+- asqr decodes PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO,
+  TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld. It detects the format
+  from the file's content, and from the extension when the content does
+  not match a known signature. SVG and AVIF are not decoded. The set follows
+  the features of the `image` crate, and a test fails when it changes.
 - The protocol is detected once at start, by querying the terminal.
 - Placement adapts: beside the question, taking two fifths of the
   width, from 100 columns of content on; below the options otherwise,

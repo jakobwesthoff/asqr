@@ -87,7 +87,11 @@ Once asked, asqr fits best when:
   An option can have its own `image`, shown instead while the cursor is
   on that option, so the person can flip through variants in one
   question and pick one. `asqr ask` turns relative paths into absolute
-  ones, resolved against the session file.
+  ones, resolved against the session file. asqr shows PNG, JPEG, GIF
+  (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM, QOI, DDS, OpenEXR,
+  HDR and farbfeld. It cannot show SVG or AVIF, so convert those to PNG
+  first. The person only sees a placeholder for an image asqr cannot
+  show, and `validate` and `ask` warn about it.
 - `intro`, question `text` and option `description` may use bold,
   italic, inline code, lists and line breaks.
 - Leave the session's `id` out: `asqr ask` assigns one and prints it.

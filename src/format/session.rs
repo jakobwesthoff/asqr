@@ -70,6 +70,9 @@ pub struct Question {
     pub length: Option<Length>,
 
     /// An image shown next to the question. Most questions have none.
+    /// PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM,
+    /// QOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and AVIF are
+    /// not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
 
@@ -116,7 +119,7 @@ pub struct Choice {
     pub default: bool,
 
     /// An image shown in place of the question's image while the cursor
-    /// is on this option.
+    /// is on this option. The formats are those of the question's image.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
 }

@@ -26,6 +26,9 @@ pub enum WarningKind {
     UnknownField,
     RelativeImagePath,
     ImageNotFound(PathBuf),
+    /// The file exists but asqr has no decoder for it, or its header is
+    /// broken. Carries the reason.
+    ImageNotDecodable(String),
 }
 
 impl fmt::Display for Warning {
@@ -37,6 +40,7 @@ impl fmt::Display for Warning {
                 "relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
             ),
             WarningKind::ImageNotFound(path) => write!(formatter, "file not found: {}", path.display()),
+            WarningKind::ImageNotDecodable(reason) => write!(formatter, "cannot be shown: {reason}"),
         }
     }
 }
@@ -164,15 +168,46 @@ fn check_image(image: &str, path: FieldPath, base_dir: Option<&Path>, found: &mu
         });
         base_dir.map(|base| base.join(image))
     };
-    if let Some(resolved) = resolved
-        && !resolved.is_file()
-    {
+    let Some(resolved) = resolved else {
+        return;
+    };
+    if !resolved.is_file() {
         found.push(Warning {
             path,
             kind: WarningKind::ImageNotFound(resolved),
         });
+        return;
     }
+
+    // The terminal UI would show a placeholder for this file, and a broken
+    // image never becomes an error result (spec section 7.7), so the asker
+    // only learns about it here. The file is
+    // opened the way `tui/render/images.rs` opens it, but only its header
+    // is read: that is enough to find a missing decoder, as for SVG or
+    // AVIF, without decoding every pixel of a large image.
+    let header = image::ImageReader::open(&resolved)
+        .and_then(|reader| reader.with_guessed_format())
+        .map_err(image::ImageError::from)
+        .and_then(|reader| reader.into_dimensions());
+    let reason = match header {
+        Ok(_) => return,
+        // The crate's own wording names only what failed. An asker that
+        // picked the wrong format needs to know which ones work.
+        Err(image::ImageError::Unsupported(_)) => {
+            format!("unsupported image format, use one of {DECODABLE_FORMATS}")
+        }
+        Err(error) => error.to_string(),
+    };
+    found.push(Warning {
+        path,
+        kind: WarningKind::ImageNotDecodable(reason),
+    });
 }
+
+/// The formats the terminal UI can show, as the `image` crate's features
+/// decide. GIF shows its first frame only.
+const DECODABLE_FORMATS: &str =
+    "PNG, JPEG, GIF, WebP, BMP, TIFF, ICO, TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld";
 
 #[cfg(test)]
 mod tests {
@@ -245,15 +280,32 @@ mod tests {
         );
     }
 
+    /// A directory holding a one-pixel `picture.png`.
+    fn directory_with_png() -> tempfile::TempDir {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        image::RgbImage::new(1, 1)
+            .save(directory.path().join("picture.png"))
+            .expect("png is writable");
+        directory
+    }
+
+    fn text_question_with_image(image: &Path) -> String {
+        format!(
+            r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "?", "kind": "text", "image": {image:?}}}]}}"#,
+            image = image.display().to_string()
+        )
+    }
+
     #[test]
     fn warns_about_relative_image_paths() {
+        let directory = directory_with_png();
         let json = r#"{"asqr": 1, "questions": [
-            {"id": "q", "text": "?", "kind": "text", "image": "Cargo.toml"}]}"#;
+            {"id": "q", "text": "?", "kind": "text", "image": "picture.png"}]}"#;
 
         // Relative to the file's directory the image exists, but a relative
         // path means nothing once the file sits in an inbox.
         assert_eq!(
-            warn(json, Some(repo())),
+            warn(json, Some(directory.path())),
             [
                 "questions[0].image: relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path"
             ]
@@ -323,12 +375,99 @@ mod tests {
 
     #[test]
     fn an_existing_absolute_image_is_fine() {
-        let image = repo().join("Cargo.toml");
-        let json = format!(
-            r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "?", "kind": "text", "image": {image:?}}}]}}"#,
-            image = image.display().to_string()
-        );
+        let directory = directory_with_png();
+        let json = text_question_with_image(&directory.path().join("picture.png"));
 
         assert_eq!(warn(&json, None), Vec::<String>::new());
+    }
+
+    #[test]
+    fn warns_about_an_image_without_a_decoder() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let svg = directory.path().join("diagram.svg");
+        std::fs::write(&svg, r#"<svg xmlns="http://www.w3.org/2000/svg"/>"#)
+            .expect("svg is writable");
+        let json = text_question_with_image(&svg);
+
+        assert_eq!(
+            warn(&json, None),
+            [format!(
+                "questions[0].image: cannot be shown: unsupported image format, use one of {DECODABLE_FORMATS}"
+            )]
+        );
+    }
+
+    #[test]
+    fn warns_about_avif_although_the_format_is_recognised() {
+        // The `image` crate recognises AVIF by its `ftyp` box but only
+        // decodes it with the `avif-native` feature, which asqr leaves off.
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let avif = directory.path().join("photo.avif");
+        std::fs::write(&avif, b"\0\0\0\x20ftypavif\0\0\0\0").expect("avif is writable");
+        let json = text_question_with_image(&avif);
+
+        assert_eq!(
+            warn(&json, None),
+            [format!(
+                "questions[0].image: cannot be shown: unsupported image format, use one of {DECODABLE_FORMATS}"
+            )]
+        );
+    }
+
+    #[test]
+    fn warns_about_a_file_whose_content_is_no_image() {
+        // The extension names a supported format, but the header does not
+        // parse, so the decoder refuses the file.
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let fake = directory.path().join("notes.png");
+        std::fs::write(&fake, "just some text").expect("file is writable");
+        let json = text_question_with_image(&fake);
+
+        let warnings = warn(&json, None);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with("questions[0].image: cannot be shown: "),
+            "{warnings:?}"
+        );
+    }
+
+    /// `DECODABLE_FORMATS`, SKILL.md, the `image` field's description and
+    /// spec section 7.7 name these formats. The set follows the `image`
+    /// crate's features, so this test fails when they change until those
+    /// texts follow.
+    #[test]
+    fn the_decodable_formats_are_the_documented_ones() {
+        use image::{ImageError, ImageFormat, ImageReader};
+
+        // `ImageFormat::reading_enabled` claims AVIF without its decoder and
+        // denies DDS although it decodes, so the decoders are asked
+        // directly. Empty input fails every decoder that is built in, but
+        // never with `Unsupported`.
+        let decodable: Vec<ImageFormat> = ImageFormat::all()
+            .filter(|format| {
+                let reader = ImageReader::with_format(std::io::Cursor::new(&[][..]), *format);
+                !matches!(reader.into_dimensions(), Err(ImageError::Unsupported(_)))
+            })
+            .collect();
+
+        assert_eq!(
+            decodable,
+            [
+                ImageFormat::Gif,
+                ImageFormat::Ico,
+                ImageFormat::Jpeg,
+                ImageFormat::Png,
+                ImageFormat::Bmp,
+                ImageFormat::Tiff,
+                ImageFormat::Tga,
+                ImageFormat::Pnm,
+                ImageFormat::Farbfeld,
+                ImageFormat::WebP,
+                ImageFormat::OpenExr,
+                ImageFormat::Qoi,
+                ImageFormat::Dds,
+                ImageFormat::Hdr,
+            ]
+        );
     }
 }
