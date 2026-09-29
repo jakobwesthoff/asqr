@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-09-29
+
+### Added
+
+- `asqr validate` and `asqr ask` warn about an image asqr cannot show,
+  such as SVG or AVIF, and list the formats that work. Before, the
+  person saw a placeholder and the asker never heard about it.
+- The agent skill and the `image` field of the session schema name the
+  supported image formats: PNG, JPEG, GIF (first frame only), WebP,
+  BMP, TIFF, ICO, TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld.
+
 ## [0.9.0] - 2026-09-28
 
 The first release.
