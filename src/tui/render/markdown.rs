@@ -133,7 +133,8 @@ pub fn render(source: &str) -> Vec<Line<'static>> {
             Event::Start(tag) => {
                 // Outside the subset: the whole element as written, once,
                 // and none of its inner events.
-                if !is_inline(&tag) {
+                let block = !is_inline(&tag);
+                if block {
                     if renderer.lists.is_empty() {
                         renderer.begin_block();
                     } else if renderer.current.len() > 1 {
@@ -151,6 +152,11 @@ pub fn render(source: &str) -> Vec<Line<'static>> {
                     if depth == 0 {
                         break;
                     }
+                }
+                // A paragraph only starts a block on an empty line, so the
+                // raw block's last line must not stay open for it.
+                if block {
+                    renderer.flush();
                 }
             }
             Event::End(TagEnd::Emphasis | TagEnd::Strong) => {
@@ -179,6 +185,12 @@ pub fn render(source: &str) -> Vec<Line<'static>> {
                 renderer.push(&code, style);
             }
             Event::SoftBreak | Event::HardBreak => renderer.flush(),
+            // A thematic break is a block without a start and an end tag.
+            Event::Rule => {
+                renderer.begin_block();
+                renderer.raw(range);
+                renderer.flush();
+            }
             _ => renderer.raw(range),
         }
     }
@@ -271,6 +283,15 @@ mod tests {
             text("[link](https://example.com)"),
             ["[link](https://example.com)"]
         );
+    }
+
+    #[test]
+    fn a_block_outside_the_subset_is_separated_like_a_paragraph() {
+        assert_eq!(text("> a\n\nb"), ["> a", "", "b"]);
+        assert_eq!(text("# a\n\nb"), ["# a", "", "b"]);
+        assert_eq!(text("```\ncode\n```\n\nb"), ["```", "code", "```", "", "b"]);
+        assert_eq!(text("<div>a</div>\n\nb"), ["<div>a</div>", "", "b"]);
+        assert_eq!(text("a\n\n---\n\nb"), ["a", "", "---", "", "b"]);
     }
 
     #[test]

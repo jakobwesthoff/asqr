@@ -93,7 +93,10 @@ Once asked, asqr fits best when:
   first. The person only sees a placeholder for an image asqr cannot
   show, and `validate` and `ask` warn about it.
 - `intro`, question `text` and option `description` may use bold,
-  italic, inline code, lists and line breaks.
+  italic, inline code, lists and line breaks. Any other Markdown, such
+  as quotes, headings, links and code blocks, shows as its literal
+  source, `> ` and `#` included. To set a line apart, put a bold label
+  on a line of its own or make it a list item.
 - Leave the session's `id` out: `asqr ask` assigns one and prints it.
   Questions and options always need their own `id`.
 
