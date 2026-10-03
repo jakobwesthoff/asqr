@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-10-03
+
+### Fixed
+
+- An option whose `description` is empty or only spaces shows again.
+  Before, its whole row disappeared in wide terminals, and the person
+  could not pick it.
+- A paragraph after a quote, heading, code block, HTML block or
+  horizontal rule starts on its own line after a blank line. Before, it
+  was glued onto the last line of that element.
+- Images in terminals with the Kitty protocol are no longer cropped or
+  drawn too small when the cell size differs from the one at start:
+  after a font size change, or in tmux with clients of different cell
+  sizes attached.
+
+### Changed
+
+- The agent skill says that Markdown outside the supported subset, such
+  as quotes, headings, links and code blocks, shows as literal source,
+  and how to set a line apart instead.
+- The log records the detected graphics protocol and cell size at start,
+  and the terminal's size on every resize.
+
 ## [0.9.1] - 2026-09-29
 
 ### Added
