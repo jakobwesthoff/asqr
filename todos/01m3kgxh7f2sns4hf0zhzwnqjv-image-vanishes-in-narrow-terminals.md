@@ -40,3 +40,19 @@ worked; the missing-file placeholder showed.
 - A pseudo-terminal test cannot see Kitty images; this needs a real
   terminal or a terminal emulator library that understands the Kitty
   graphics protocol.
+
+## Checked on 2026-10-03
+
+A temporary test drew a question image with a Kitty picker on a
+`TestBackend` at 140×24, 80×24, 140×24 and 80×24 again, and inspected
+the buffer after every frame. Every size change put the transmit
+sequence (`ESC _G … a=T,U=1`) into the top-left cell of the new image
+area and filled the area with placeholder cells (`U+10EEEE`). Frames
+without a size change carried no transmit sequence and the same
+placeholders. asqr and `ratatui-image` produce the right buffer; the
+loss happens between the buffer and the screen (terminal or tmux), so
+a unit test cannot reproduce it. The next step is a manual
+reproduction in Ghostty, with and without tmux, as listed above.
+Related: `01m3wnerhdwhr4t4q4njnv59br-images-cropped-after-cell-size-change.md`,
+where a wrong cell size makes the terminal draw the image over more or
+fewer cells than the placeholders cover.

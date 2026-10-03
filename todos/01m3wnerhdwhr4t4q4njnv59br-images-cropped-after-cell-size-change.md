@@ -90,3 +90,38 @@ the picker is never asked again.
 - Related: `01m3kgxh7f2sns4hf0zhzwnqjv-image-vanishes-in-narrow-terminals.md`
   covers images lost after a resize; both may share the "terminal
   state learned once" cause.
+
+## Triage on 2026-10-03 (from the code, not reproduced)
+
+Why a wrong cell size gives a crop: `transmit_virtual` in
+`ratatui-image` 11.1.0 (`src/protocol/kitty.rs:262`) creates the
+virtual placement with `a=T,U=1,s=…,v=…` and no `c=`/`r=`. Without
+them the terminal derives the placement's cells from the image's pixels
+and its own cell size, while `ratatui-image` draws placeholders only
+over the area it computed with the picker's cell size. Smaller real
+cells: the image needs more cells than there are placeholders, and only
+its top-left part shows. Larger real cells: the image is smaller than
+its area. The upstream `main` branch also sends no `c=`/`r=`.
+
+Corrections to the hypothesis: tmux forwards the passthrough query to
+every attached client, and the parser reads until the first `CSI 5 n`
+reply (`picker.rs:515`), so the last cell-size reply before that wins,
+not the first.
+
+Fix options:
+
+- Send `c=`/`r=` with the virtual placement, so the terminal scales the
+  image into the placeholder cells. This covers font changes and tmux
+  clients with different cell sizes, at a few percent of aspect error.
+  It needs a change in `ratatui-image` (upstream PR, or a `[patch]`
+  fork until it lands). Whether Ghostty honours `c`/`r` on virtual
+  placements is known from the spec only.
+- Re-read the cell size on resize (`TIOCGWINSZ`), rebuild the picker
+  and call `Images::forget`. Covers a font change outside tmux, not two
+  tmux clients. `Picker` has no setter; only the deprecated
+  `Picker::from_fontsize` plus `set_protocol_type` can rebuild it, and
+  that loses the detected `KittyCompression` capability.
+
+A one-minute manual check outside tmux: open an image question in
+Ghostty, then Cmd-minus (expect a crop) and Cmd-plus (expect an image
+smaller than its area).
