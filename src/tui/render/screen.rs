@@ -456,10 +456,13 @@ fn option_lines(
     } else {
         head
     };
-    let Some(description) = description else {
+    // An empty or blank description renders to no lines at all. The head
+    // then stands alone, or the beside layout below would drop it with
+    // the missing first line.
+    let description = description.map(markdown::render).unwrap_or_default();
+    if description.is_empty() {
         return vec![Line::from(head)];
-    };
-    let description = markdown::render(description);
+    }
     let mut lines = Vec::new();
     if width.saturating_sub(label_column + 2) >= MIN_DESCRIPTION_WIDTH {
         let indent = label_column + 2;
@@ -1067,6 +1070,27 @@ mod tests {
 
         insta::assert_snapshot!("descriptions_below_60x15", screen(&app, 60, 15));
         insta::assert_snapshot!("descriptions_beside_120x15", screen(&app, 120, 15));
+    }
+
+    #[test]
+    fn an_option_with_an_empty_description_still_shows() {
+        let json = r#"{"asqr": 1, "questions": [{"id": "q", "text": "Which one?", "kind": "single",
+            "options": [
+                {"id": "a", "label": "Alpha option", "description": ""},
+                {"id": "b", "label": "Beta option", "description": "   "},
+                {"id": "c", "label": "Gamma option", "description": "Has a description."}]}]}"#;
+        let app = app(&[("probe", json)]);
+
+        let text = format!("{:?}", screen(&app, 120, 20));
+        assert!(text.contains("Gamma option"), "control option shows");
+        assert!(
+            text.contains("Alpha option"),
+            "option with empty description shows"
+        );
+        assert!(
+            text.contains("Beta option"),
+            "option with blank description shows"
+        );
     }
 
     #[test]
