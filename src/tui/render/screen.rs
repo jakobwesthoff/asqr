@@ -917,6 +917,8 @@ fn center(area: Rect, width: u16, height: u16) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -1295,6 +1297,49 @@ mod tests {
             "right of the question text: {columns:?}"
         );
         assert_eq!(*rows.start(), 4, "from the top of the tab: {rows:?}");
+    }
+
+    /// With the Kitty protocol the terminal draws the image into the cells
+    /// its placement names. They must be the cells asqr fills with
+    /// placeholders: left to the terminal, it derives them from its own cell
+    /// size, which differs from the one asqr resized the image with after a
+    /// font size change or in a second tmux client, and crops the image.
+    #[test]
+    fn a_kitty_image_is_placed_over_exactly_its_placeholder_cells() {
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+        let mut picker = ratatui_image::picker::Picker::halfblocks();
+        picker.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
+        let mut images = Images::new(picker);
+        let mut terminal = Terminal::new(TestBackend::new(140, 24)).expect("test terminal");
+        terminal
+            .draw(|frame| draw(frame, &app, &View { queue: "q" }, &mut images))
+            .expect("draws");
+
+        let buffer = terminal.backend().buffer();
+        let placeholders: Vec<(u16, u16)> = (0..buffer.area.height)
+            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
+            .filter(|&position| buffer[position].symbol().contains('\u{10EEEE}'))
+            .collect();
+        let columns = placeholders
+            .iter()
+            .map(|&(x, _)| x)
+            .collect::<BTreeSet<_>>();
+        let rows = placeholders
+            .iter()
+            .map(|&(_, y)| y)
+            .collect::<BTreeSet<_>>();
+        let transmission = placeholders
+            .iter()
+            .map(|&position| buffer[position].symbol())
+            .find(|symbol| symbol.contains("\x1b_G"))
+            .expect("the first draw sends the image");
+
+        let placement = format!("c={},r={}", columns.len(), rows.len());
+        assert!(
+            transmission.contains(&placement),
+            "the placement names {placement}"
+        );
     }
 
     #[test]
