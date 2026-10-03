@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
@@ -82,11 +83,16 @@ impl Images {
 
     fn draw_resized(&mut self, frame: &mut Frame, path: &str, area: Rect, resize: Resize) {
         match self.slot(path) {
-            Slot::Ready(protocol) => frame.render_stateful_widget(
-                StatefulImage::default().resize(resize),
-                area,
-                protocol.as_mut(),
-            ),
+            Slot::Ready(protocol) => {
+                frame.render_stateful_widget(
+                    StatefulImage::default().resize(resize),
+                    area,
+                    protocol.as_mut(),
+                );
+                // Works around images cropped by a changed cell size; see
+                // the function for when it can go.
+                size_kitty_placement(frame.buffer_mut(), area);
+            }
             Slot::Unavailable(reason) => {
                 let text = vec![
                     Line::from("image not shown").dim(),
@@ -97,6 +103,113 @@ impl Images {
             }
         }
     }
+}
+
+/// The character the Kitty protocol reserves for image placeholders.
+const KITTY_PLACEHOLDER: char = '\u{10EEEE}';
+
+/// The start of the Kitty command that transmits an image and creates its
+/// virtual placement, as `ratatui-image` 11.1.0 writes it.
+const KITTY_PLACEMENT: &str = "a=T,U=1,";
+
+/// Makes the Kitty placement drawn into `area` span exactly the cells its
+/// placeholders cover, by adding `c=` and `r=` to its command. This is a
+/// workaround for a gap in `ratatui-image` 11.1.0 and is meant to go away:
+/// the fix is submitted upstream as pull request
+/// <https://github.com/ratatui/ratatui-image/pull/219>.
+///
+/// # The problem
+///
+/// With the Kitty protocol, `ratatui-image` sends the image once, with a
+/// command that also creates a "virtual placement" (`a=T,U=1`), and then
+/// fills the image's area with placeholder characters (`U+10EEEE`) that
+/// tell the terminal which part of the image goes into which cell. The
+/// image is resized beforehand to the area's cells times the cell size in
+/// pixels that asqr asked the terminal for once, at start.
+///
+/// The placement command names the image's pixel size but not its size in
+/// cells. The terminal then works the cells out itself, from the pixels
+/// and the cell size it has right now. As long as both cell sizes agree,
+/// that gives exactly the placeholder cells. When they differ, it does
+/// not:
+///
+/// - after a font size change while asqr runs, as asqr never asks again;
+/// - in tmux with several clients attached whose cell sizes differ, as
+///   only one of them can match the cell size asqr got.
+///
+/// Smaller cells than expected crop the image to its top-left part, larger
+/// ones leave it short of its area. Both were seen in Ghostty, with and
+/// without tmux, on 2026-10-03.
+///
+/// # The workaround
+///
+/// `c=` and `r=` name the placement's size in cells, and the terminal then
+/// scales the image into exactly those cells, whatever its own cell size.
+/// `ratatui-image` writes the command into the symbol of the first
+/// placeholder cell of the frame that sends the image. So after the widget
+/// has drawn, this looks for that cell inside `area`, counts the
+/// placeholder columns and rows around it, and inserts `c=` and `r=` right
+/// after `a=T,U=1,`. Inside tmux the command is wrapped for passthrough,
+/// which doubles the escape characters but leaves this plain-text part
+/// alone. Frames that send nothing, and every other protocol, have no such
+/// cell, and the buffer stays as it is.
+///
+/// This depends on the exact text `ratatui-image` writes, which is why
+/// `Cargo.toml` pins it to `=11.1.0`. A version bump has to check this
+/// function, and the test
+/// `a_kitty_image_is_placed_over_exactly_its_placeholder_cells` in
+/// `screen.rs` fails when the command changes shape.
+///
+/// # Why not patch `ratatui-image`
+///
+/// The proper fix belongs in `ratatui-image` itself, which is what pull
+/// request 219 does. A git dependency or
+/// a `[patch.crates-io]` entry would pull it in for local builds, but
+/// `cargo publish` drops patches, and crates on crates.io cannot depend on
+/// git sources. Releases on crates.io would have kept the bug.
+///
+/// # Removing it
+///
+/// TODO: Remove this once a `ratatui-image` release contains PR 219 (see
+/// the todo `01m4169zbj9p5qfr20761ye0th-drop-the-kitty-placement-workaround.md`):
+///
+/// 1. Bump `ratatui-image` to that release and drop the `=` pin in
+///    `Cargo.toml`.
+/// 2. Delete this function, its two constants and the call in
+///    [`Images::draw_resized`].
+/// 3. Run the test named above. It must stay green without this
+///    function, as the crate then writes `c=` and `r=` itself.
+fn size_kitty_placement(buffer: &mut Buffer, area: Rect) {
+    let area = area.intersection(buffer.area);
+    let mut command = None;
+    let (mut columns, mut rows) = (0, 0);
+    for y in area.top()..area.bottom() {
+        let mut in_row = 0;
+        for x in area.left()..area.right() {
+            let symbol = buffer[(x, y)].symbol();
+            if !symbol.contains(KITTY_PLACEHOLDER) {
+                continue;
+            }
+            in_row += 1;
+            if symbol.contains(KITTY_PLACEMENT) {
+                command = Some((x, y));
+            }
+        }
+        if in_row > 0 {
+            columns = columns.max(in_row);
+            rows += 1;
+        }
+    }
+    let Some(position) = command else {
+        return;
+    };
+    let cell = &mut buffer[position];
+    let symbol = cell.symbol().replacen(
+        KITTY_PLACEMENT,
+        &format!("{KITTY_PLACEMENT}c={columns},r={rows},"),
+        1,
+    );
+    cell.set_symbol(&symbol);
 }
 
 /// Whether the terminal may be asked for its graphics protocol. `tmux` is

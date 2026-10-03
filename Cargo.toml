@@ -22,7 +22,9 @@ jiff = "0.2.37"
 notify-debouncer-full = "0.7.0"
 pulldown-cmark = "0.13.4"
 ratatui = "0.30.2"
-ratatui-image = { version = "11.1.0", default-features = false, features = ["crossterm", "image-defaults"] }
+# Pinned exactly: `size_kitty_placement` in src/tui/render/images.rs edits
+# the Kitty command this version writes. Unpin when that workaround goes.
+ratatui-image = { version = "=11.1.0", default-features = false, features = ["crossterm", "image-defaults"] }
 ratatui-textarea = "0.9.2"
 schemars = "1.2.2"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -39,11 +41,3 @@ assert_cmd = "2.2.2"
 insta = "1.48.0"
 portable-pty = "0.9.0"
 vt100 = "0.16.2"
-
-# The Kitty placement names the cells its placeholders cover, so images are
-# not cropped when the terminal's cell size differs from the one at start
-# (a font size change, or tmux clients with different cell sizes). Drop this
-# once a ratatui-image release carries the change. `cargo publish` ignores
-# patches, so a release built from crates.io does not get the fix.
-[patch.crates-io]
-ratatui-image = { git = "https://github.com/jakobwesthoff/ratatui-image", rev = "69e02fc2e8e68d9e82ee950624b41de70bc89a68" }
