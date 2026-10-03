@@ -1,7 +1,7 @@
 # Drop the Kitty placement workaround once ratatui-image has the fix
 
-Status: waiting on upstream since 2026-10-03; the user asked for this
-todo.
+Status: waiting for a `ratatui-image` release since 2026-10-03; the user
+asked for this todo.
 
 ## Why the workaround exists
 
@@ -12,15 +12,16 @@ Kitty virtual placement without `c=`/`r=`, so the terminal sizes it from
 its own cells instead of the placeholder cells. Confirmed in Ghostty on
 2026-10-03, with and without tmux.
 
-The proper fix is upstream PR
-<https://github.com/ratatui/ratatui-image/pull/219> (branch
-`kitty-placement-size` on `jakobwesthoff/ratatui-image`, based on
-`master`, 12.0.0-rc.0 at the time). A `[patch.crates-io]` with a
-backport onto v11.1.0 (branch `kitty-placement-size-v11`) fixed local
-builds, but `cargo publish` drops patches (checked with
-`cargo package`), so a crates.io release would have kept the bug.
+Upstream fixed it in PR
+<https://github.com/ratatui/ratatui-image/pull/215> (commit `2d7d7f6`,
+merged 2026-10-03 15:41 UTC). No release contained it on that day; the
+newest was 12.0.0-rc.0, which predates the merge. Our own PR #219 with
+the same fix was closed as a duplicate, as #215 had been open since
+2026-10-01 and we had not searched for it.
 
-asqr therefore carries the workaround `size_kitty_placement` in
+A `[patch.crates-io]` pointing at a fork would fix local builds only, as
+`cargo publish` drops patches (checked with `cargo package`). So asqr
+0.9.2 carries the workaround `size_kitty_placement` in
 `src/tui/render/images.rs`: after the image widget has drawn, it adds
 `c=`/`r=` to the placement command in the buffer. It relies on the exact
 text `ratatui-image` writes, so `Cargo.toml` pins the crate to
@@ -28,7 +29,8 @@ text `ratatui-image` writes, so `Cargo.toml` pins the crate to
 
 ## What to do
 
-- Check whether PR 219 is merged and in a `ratatui-image` release.
+- Check whether a `ratatui-image` release contains commit `2d7d7f6`
+  (likely 12.0.0 or a later 12.x).
 - If so, follow the removal steps in the doc comment of
   `size_kitty_placement`: bump the crate with `cargo add` and drop the
   `=` pin, delete the function, its constants and its call, and run the
@@ -36,7 +38,8 @@ text `ratatui-image` writes, so `Cargo.toml` pins the crate to
   in `src/tui/render/screen.rs` must stay green without the workaround.
   A 12.x release may also change the `Picker` API that `src/terminal.rs`
   and `src/tui/render/images.rs` use.
-- If the PR stalls or is rejected, the workaround can stay; a bump of
-  `ratatui-image` then has to check the command text it edits.
-- Delete the `kitty-placement-size-v11` branch from the fork, as nothing
-  uses it any more.
+- Until then, a bump of `ratatui-image` has to check the command text
+  the workaround edits.
+- The fork `jakobwesthoff/ratatui-image` and its branches
+  `kitty-placement-size` and `kitty-placement-size-v11` are no longer
+  used and can be deleted.

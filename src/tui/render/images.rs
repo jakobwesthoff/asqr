@@ -115,8 +115,10 @@ const KITTY_PLACEMENT: &str = "a=T,U=1,";
 /// Makes the Kitty placement drawn into `area` span exactly the cells its
 /// placeholders cover, by adding `c=` and `r=` to its command. This is a
 /// workaround for a gap in `ratatui-image` 11.1.0 and is meant to go away:
-/// the fix is submitted upstream as pull request
-/// <https://github.com/ratatui/ratatui-image/pull/219>.
+/// upstream fixed it in pull request
+/// <https://github.com/ratatui/ratatui-image/pull/215> (commit `2d7d7f6`,
+/// merged on 2026-10-03), which no release contains yet. The newest one
+/// then was 12.0.0-rc.0, which predates the merge.
 ///
 /// # The problem
 ///
@@ -163,18 +165,20 @@ const KITTY_PLACEMENT: &str = "a=T,U=1,";
 /// # Why not patch `ratatui-image`
 ///
 /// The proper fix belongs in `ratatui-image` itself, which is what pull
-/// request 219 does. A git dependency or
-/// a `[patch.crates-io]` entry would pull it in for local builds, but
-/// `cargo publish` drops patches, and crates on crates.io cannot depend on
-/// git sources. Releases on crates.io would have kept the bug.
+/// request 215 does. Until a release carries it, only a git dependency or
+/// a `[patch.crates-io]` entry would pull it in, and that works for local
+/// builds only: `cargo publish` drops patches, and crates on crates.io
+/// cannot depend on git sources. Releases on crates.io would have kept the
+/// bug.
 ///
 /// # Removing it
 ///
-/// TODO: Remove this once a `ratatui-image` release contains PR 219 (see
+/// TODO: Remove this once a `ratatui-image` release contains PR 215 (see
 /// the todo `01m4169zbj9p5qfr20761ye0th-drop-the-kitty-placement-workaround.md`):
 ///
 /// 1. Bump `ratatui-image` to that release and drop the `=` pin in
-///    `Cargo.toml`.
+///    `Cargo.toml`. The release is likely a 12.x, which may change the
+///    `Picker` API that `src/terminal.rs` and this module use.
 /// 2. Delete this function, its two constants and the call in
 ///    [`Images::draw_resized`].
 /// 3. Run the test named above. It must stay green without this
