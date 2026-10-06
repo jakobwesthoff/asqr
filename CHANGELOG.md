@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `asqr status --since <age>` lists only sessions answered within that
+  age, such as `2h`. `--limit <count>` sets how many answered sessions
+  show, and `--all` lists every one.
+- `asqr status --json` reports `answered_total`, the number of answered
+  sessions before the limit cuts the list.
+
+### Changed
+
+- `asqr status` lists the 10 most recently answered sessions, newest
+  first, instead of every result in the outbox in id order. The outbox
+  keeps results until they are pruned, so the full list kept growing
+  and cost an agent tokens on every call. Waiting sessions are still
+  all listed.
+- The agent skill explains the limit, `answered_total` and how to find
+  a lost session with `--since`.
+
 ## [0.9.2] - 2026-10-03
 
 ### Fixed

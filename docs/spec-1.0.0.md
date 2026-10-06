@@ -709,7 +709,7 @@ inside tmux go out in tmux's passthrough wrapper.
 | `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes image paths absolute, drops the file (section 3.5), prints the id |
 | `asqr wait <id> [--timeout <secs>]` | waits for the result and prints it; blocks without `--timeout` |
 | `asqr result <id>` | prints the result if it is there, like `wait --timeout 0` |
-| `asqr status [--json]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
+| `asqr status [--json] [--limit <count> \| --all] [--since <age>]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
 | `asqr paths [--json]` | section 3.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | section 4 |
 | `asqr prune --older-than <duration> [--results]` | section 3.9 |
@@ -735,10 +735,26 @@ without a result, or when only its archive entry is left, since its
 result was removed and none will come ("the result of <id> is gone").
 
 `status --json` prints an object with `queue`, `watched_by` (the lock
-holder, or `null`), `waiting` (a list of `{id, draft_has_answers}`) and
+holder, or `null`), `waiting` (a list of `{id, draft_has_answers}`),
 `answered` (a list of `{id, status}`, with `status` `null` for a result
-that cannot be read). The text form shows the same, with "watched by:
-nobody" when no asqr watches.
+that cannot be read) and `answered_total`. The text form shows the same,
+with "watched by: nobody" when no asqr watches.
+
+Results stay in the outbox until they are pruned, so `status` lists
+only part of them:
+
+- `answered` is ordered by the time each session was finished, the
+  newest first. That time is `submitted_at`; a result without a readable
+  `submitted_at` goes by its file's modification time. Results finished
+  at the same time are ordered by id.
+- `--since <age>` keeps the results finished within that age. The age
+  has the form of `prune --older-than` (section 3.9).
+- `--limit <count>` lists at most that many, 10 when it is not given.
+  `--all` lists every result and cannot be combined with `--limit`.
+- `answered_total` counts the results `--since` keeps, before the limit
+  cuts the list. The text form writes "answered (10 of 57):" when the
+  list is cut and "answered (3):" when it is not.
+- `waiting` always lists every waiting session.
 
 Exit codes, the same for every command:
 

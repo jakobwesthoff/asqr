@@ -8,7 +8,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use asqr::format::{Answer, SessionResult, now_rfc3339};
+use asqr::format::{Answer, SessionResult, now_rfc3339, rfc3339};
 use asqr::queue::{QueueLocation, finish, lock_queue, save_draft, session_sha256};
 use common::{Sandbox, stderr, stdout};
 
@@ -335,6 +335,204 @@ fn status_shows_every_result_status_and_skips_other_files() {
         text.contains("answered (2):\n  invalid  error\n  rejected  cancelled\n"),
         "{text}"
     );
+}
+
+/// Writes a result for `id` straight into the outbox, as if the session was
+/// finished at `submitted_at`. `None` leaves the field out.
+fn result_finished_at(sandbox: &Sandbox, id: &str, submitted_at: Option<&str>) {
+    location(sandbox).create_layout().expect("layout");
+    let result = SessionResult {
+        submitted_at: submitted_at.map(str::to_owned),
+        ..SessionResult::submitted(id, "sha", "", Vec::new())
+    };
+    std::fs::write(
+        sandbox
+            .queue_dir()
+            .join("outbox")
+            .join(format!("{id}.json")),
+        serde_json::to_vec(&result).expect("serializes"),
+    )
+    .expect("written");
+}
+
+/// Sets the modification time of the outbox file `name`.
+fn modified_at(sandbox: &Sandbox, name: &str, time: &str) {
+    let time: jiff::Timestamp = time.parse().expect("valid time");
+    std::fs::File::options()
+        .write(true)
+        .open(sandbox.queue_dir().join("outbox").join(name))
+        .expect("opens")
+        .set_modified(time.into())
+        .expect("mtime set");
+}
+
+/// The current time minus `minutes`, in the form results use.
+fn minutes_ago(minutes: i64) -> String {
+    let then = jiff::Zoned::now()
+        .checked_sub(jiff::SignedDuration::from_mins(minutes))
+        .expect("in range");
+    rfc3339(&then)
+}
+
+fn status_json(sandbox: &Sandbox, args: &[&str]) -> serde_json::Value {
+    let output = sandbox
+        .asqr_in_queue(&[&["status", "--json"], args].concat())
+        .output()
+        .expect("runs");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    serde_json::from_str(&stdout(&output)).expect("status JSON")
+}
+
+fn status_text(sandbox: &Sandbox, args: &[&str]) -> String {
+    stdout(
+        &sandbox
+            .asqr_in_queue(&[&["status"], args].concat())
+            .output()
+            .expect("runs"),
+    )
+}
+
+fn answered_ids(status: &serde_json::Value) -> Vec<String> {
+    status["answered"]
+        .as_array()
+        .expect("answered list")
+        .iter()
+        .map(|entry| entry["id"].as_str().expect("id").to_owned())
+        .collect()
+}
+
+/// Twelve results, one per hour. The ids are shuffled against the hours, so
+/// neither order of the ids matches the order of finishing.
+fn twelve_results(sandbox: &Sandbox) -> Vec<String> {
+    let mut newest_first = Vec::new();
+    for hour in 0..12 {
+        let id = format!("r{:02}", (hour * 5) % 12);
+        let at = format!("2026-10-01T{hour:02}:00:00+02:00");
+        result_finished_at(sandbox, &id, Some(&at));
+        newest_first.insert(0, id);
+    }
+    newest_first
+}
+
+#[test]
+fn status_lists_the_ten_newest_results_first() {
+    let sandbox = Sandbox::new();
+    let newest_first = twelve_results(&sandbox);
+
+    let status = status_json(&sandbox, &[]);
+    let text = status_text(&sandbox, &[]);
+
+    assert_eq!(answered_ids(&status), newest_first[..10]);
+    assert_eq!(status["answered_total"], 12, "{status}");
+    let listed: String = newest_first[..10]
+        .iter()
+        .map(|id| format!("  {id}  submitted\n"))
+        .collect();
+    assert!(
+        text.ends_with(&format!("answered (10 of 12):\n{listed}")),
+        "{text}"
+    );
+}
+
+#[test]
+fn status_limit_and_all_choose_how_many_results_show() {
+    let sandbox = Sandbox::new();
+    let newest_first = twelve_results(&sandbox);
+
+    let three = status_json(&sandbox, &["--limit", "3"]);
+    assert_eq!(answered_ids(&three), newest_first[..3]);
+    assert_eq!(three["answered_total"], 12);
+
+    let all = status_json(&sandbox, &["--all"]);
+    assert_eq!(answered_ids(&all), newest_first);
+    assert!(
+        status_text(&sandbox, &["--all"]).contains("answered (12):\n"),
+        "an uncut list shows no total"
+    );
+
+    let more_than_there_are = status_json(&sandbox, &["--limit", "50"]);
+    assert_eq!(answered_ids(&more_than_there_are), newest_first);
+
+    // A limit of 0 leaves only the count.
+    let none = status_json(&sandbox, &["--limit", "0"]);
+    assert_eq!(answered_ids(&none), Vec::<String>::new());
+    assert_eq!(none["answered_total"], 12);
+    assert!(
+        status_text(&sandbox, &["--limit", "0"]).ends_with("answered (0 of 12):\n"),
+        "the text form shows the count too"
+    );
+}
+
+#[test]
+fn status_since_keeps_results_finished_within_the_age() {
+    let sandbox = Sandbox::new();
+    result_finished_at(&sandbox, "recent", Some(&minutes_ago(30)));
+    result_finished_at(&sandbox, "older", Some(&minutes_ago(180)));
+    ask(&sandbox, "pending");
+
+    let hour = status_json(&sandbox, &["--since", "1h"]);
+    assert_eq!(answered_ids(&hour), ["recent"]);
+    assert_eq!(hour["answered_total"], 1, "the total counts what matches");
+    assert!(
+        status_text(&sandbox, &["--since", "1h"]).ends_with("answered (1):\n  recent  submitted\n")
+    );
+
+    let day = status_json(&sandbox, &["--since", "1d", "--limit", "1"]);
+    assert_eq!(answered_ids(&day), ["recent"]);
+    assert_eq!(day["answered_total"], 2);
+
+    // Waiting sessions are still open, so no age filters them.
+    let now = status_json(&sandbox, &["--since", "0s"]);
+    assert_eq!(answered_ids(&now), Vec::<String>::new());
+    assert_eq!(now["waiting"][0]["id"], "pending", "{now}");
+}
+
+#[test]
+fn status_orders_by_the_finish_time_and_falls_back_to_the_file_time() {
+    let sandbox = Sandbox::new();
+    // Instants, not strings, are compared: 10:00 in +02:00 is 08:00 UTC, an
+    // hour before 09:00 UTC.
+    result_finished_at(&sandbox, "berlin", Some("2026-10-01T10:00:00+02:00"));
+    result_finished_at(&sandbox, "utc", Some("2026-10-01T09:00:00+00:00"));
+    result_finished_at(&sandbox, "same", Some("2026-10-01T09:00:00Z"));
+    // Without a usable finish time, the file's modification time places a
+    // result.
+    result_finished_at(&sandbox, "undated", None);
+    modified_at(&sandbox, "undated.json", "2026-10-01T08:45:00Z");
+    result_finished_at(&sandbox, "garbled", Some("yesterday"));
+    modified_at(&sandbox, "garbled.json", "2026-10-01T07:00:00Z");
+    std::fs::write(sandbox.queue_dir().join("outbox/odd.json"), "[]").expect("written");
+    modified_at(&sandbox, "odd.json", "2026-10-01T08:30:00Z");
+
+    let status = status_json(&sandbox, &["--all"]);
+
+    // Equal times fall back to the id, so the order is stable.
+    assert_eq!(
+        answered_ids(&status),
+        ["same", "utc", "undated", "odd", "berlin", "garbled"]
+    );
+    assert!(status["answered"][3]["status"].is_null(), "{status}");
+}
+
+#[test]
+fn status_refuses_all_with_a_limit_and_a_malformed_age() {
+    let sandbox = Sandbox::new();
+
+    for (args, message) in [
+        (
+            &["status", "--all", "--limit", "3"][..],
+            "cannot be used with",
+        ),
+        (
+            &["status", "--since", "soon"],
+            "expected a number and a unit",
+        ),
+        (&["status", "--limit", "-1"], "unexpected argument '-1'"),
+    ] {
+        let output = sandbox.asqr_in_queue(args).output().expect("runs");
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(stderr(&output).contains(message), "{}", stderr(&output));
+    }
 }
 
 /// Replaces a queue directory with a plain file, so reading it fails.

@@ -187,13 +187,29 @@ refuses while an unread result with the same id is in the outbox.
   "queue": "default",
   "watched_by": "pid 4242 on laptop",
   "waiting": [{ "id": "01K...", "draft_has_answers": true }],
-  "answered": [{ "id": "01J...", "status": "submitted" }]
+  "answered": [{ "id": "01J...", "status": "submitted" }],
+  "answered_total": 57
 }
 ```
 
 `queue` is the queue's name, or its directory for a queue given with
-`--dir`. `watched_by` is `null` when no asqr runs. `asqr paths --json` shows where
-the queue's files are.
+`--dir`. `watched_by` is `null` when no asqr runs. `waiting` lists every
+waiting session.
+
+`answered` lists the 10 most recently answered sessions, newest first.
+The outbox keeps results from every agent and every earlier session, so
+`answered_total` is usually larger than the list:
+
+- `--since <age>` keeps only sessions answered within that age, such as
+  `30m`, `2h` or `1d` (units `s`, `m`, `h`, `d`, `w`). `answered_total`
+  then counts only those.
+- `--limit <count>` changes the 10. `--all` lists everything; avoid it,
+  the list can be long.
+
+To find a session you lost track of, use `--since` with an age a little
+longer than the time since you asked, then read it with
+`asqr result <id>`. When you know the id, `asqr result <id>` alone is
+enough. `asqr paths --json` shows where the queue's files are.
 
 ## Longer work
 

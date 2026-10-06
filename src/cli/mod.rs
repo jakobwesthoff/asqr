@@ -119,6 +119,18 @@ enum Command {
         /// Print the status as JSON.
         #[arg(long)]
         json: bool,
+
+        /// List at most this many answered sessions, the newest first.
+        #[arg(long, value_name = "COUNT", default_value_t = status::DEFAULT_LIMIT)]
+        limit: usize,
+
+        /// List every answered session.
+        #[arg(long, conflicts_with = "limit")]
+        all: bool,
+
+        /// List only sessions answered within this age, such as 2h or 1d.
+        #[arg(long, value_name = "AGE", value_parser = prune::parse_age)]
+        since: Option<Duration>,
     },
 
     /// Remove archived sessions, and with --results old results too.
@@ -216,7 +228,19 @@ fn dispatch(cli: Cli, environment: Selection, terminal_ui: impl FnOnce(Watch) ->
             wait::run_wait(&location, &id, timeout.map(Duration::from_secs))
         }
         Command::Result { id } => wait::run_result(&location, &id),
-        Command::Status { json } => status::run(&location, json),
+        Command::Status {
+            json,
+            limit,
+            all,
+            since,
+        } => status::run(
+            &location,
+            status::StatusOptions {
+                json,
+                limit: (!all).then_some(limit),
+                since,
+            },
+        ),
         Command::Prune {
             older_than,
             results,
