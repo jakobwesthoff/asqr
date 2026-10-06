@@ -13,7 +13,7 @@ re-recording by hand.
 
 ## What was considered
 
-Offered in the planning round (plan Q12) next to an asciinema cast and a
+Offered in the version 1 planning round next to an asciinema cast and a
 static Ghostty screenshot. An asciinema cast cannot show the inline
 images; a screenshot shows no interaction.
 
@@ -24,4 +24,3 @@ images; a screenshot shows no interaction.
 - VHS runs its own terminal; check whether it renders the Kitty graphics
   protocol for images, otherwise the demo shows the block fallback.
 - A CI job could re-render the GIF and fail on differences; not decided.
-- Only after the TUI works (plan phase 8).

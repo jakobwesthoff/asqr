@@ -14,7 +14,7 @@ specification file of its own.
 Status: reviewed with the user and in an adversarial review on
 2026-09-27, with the findings F1 to F12 worked in, and revised with the
 decisions made while building it. The decisions behind it are recorded
-as ADRs 2 to 23 in `docs/adr/`.
+as ADRs 2 to 26 in `docs/adr/`.
 
 ## 1. Purpose
 
@@ -867,8 +867,9 @@ newest version.
   covered.
 - GitHub Actions runs `just check` and `just coverage` on Ubuntu and
   macOS.
-- One commit per finished feature, with its tests. Push at the end of
-  each plan phase.
+- A pushed tag `vX.Y.Z` or `vX.Y.Z-rcN` creates the GitHub release and
+  attaches binaries for macOS and Linux (ADR 26).
+- One commit per finished feature, with its tests.
 - The TUI is tested through its state and a test backend with `insta`
   snapshots, and end to end in a pseudo-terminal, not by hand.
 - The spec describes behaviour. It names no source files, functions or
