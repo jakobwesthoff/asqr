@@ -1,0 +1,87 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+# Creates a GitHub release for every version tag and attaches prebuilt
+# binaries for the platforms asqr supports (spec section 1). Publishing to
+# crates.io stays a manual `cargo publish`.
+#
+# `workflow_dispatch` releases a tag that already exists, for a tag pushed
+# before this workflow or a run that failed.
+#
+# Actions are pinned to full commit SHAs like in check.yml (ADR 19).
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g., v1.0.0)"
+        required: true
+        type: string
+
+# Both jobs write to the release: one creates it, the other uploads to it.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # A tag push carries the tag in `github.ref`; a manual run names it.
+  RELEASE_REF: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          persist-credentials: false
+      - uses: taiki-e/create-gh-release-action@eba8ea96c86cca8a37f1b56e94b4d13301fba651 # v1.11.0
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+
+          # Statically linked, so they run on any distribution.
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+
+          # No Windows build: Windows support is out of scope (spec
+          # section 11) and CI does not test it.
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          persist-credentials: false
+      # The runner images may lag behind the Rust 1.97 that asqr requires
+      # (ADR 17). Same pin as in check.yml, bumped by hand.
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1.30.2
+        with:
+          bin: asqr
+          target: ${{ matrix.target }}
+          archive: asqr-$tag-$target
+          # Builds the dependency versions the tagged commit was tested with.
+          locked: true
+          ref: ${{ env.RELEASE_REF }}
+          token: ${{ secrets.GITHUB_TOKEN }}

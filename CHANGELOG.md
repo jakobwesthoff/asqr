@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Every GitHub release carries prebuilt binaries for macOS (Apple
+  silicon and Intel) and Linux (x86_64 and aarch64, statically linked).
+
 ## [0.10.0] - 2026-10-06
 
 ### Added
