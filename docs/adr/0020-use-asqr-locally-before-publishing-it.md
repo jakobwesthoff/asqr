@@ -4,7 +4,7 @@ Date: 2026-09-27
 
 ## Status
 
-Accepted
+Superseded by [26. Release through a tag-triggered workflow](0026-release-through-a-tag-triggered-workflow.md)
 
 ## Context
 

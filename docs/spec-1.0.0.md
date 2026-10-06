@@ -823,7 +823,6 @@ not count or match carried-over questions.
 - Windows support (it may work, but it is not tested).
 - Formats other than JSON.
 - A config file: flags and environment variables only.
-- Publishing: asqr is used locally first and goes to crates.io later.
 
 ## 12. Technology
 

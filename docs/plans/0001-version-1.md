@@ -206,8 +206,8 @@ answering in place, review tab; spec sections 7.1 to 7.4).
 1. README rewritten from "planned" to what works, with the known
    limitations (tmux, network filesystems). A VHS demo GIF is deferred
    (`todos/01m3hnjjxavrc9tjwrtpptfnc0-vhs-demo-gif-for-readme.md`).
-2. No publishing: asqr is used locally, installed from the repo. The
-   user decides when it goes public and onto crates.io (ADR 20).
+2. Published on crates.io since 0.9.0. GitHub releases with binaries
+   since 0.10.0 (ADR 26).
 3. First real use: the torchsnap alt rework 3, with its findings fed
    back as issues.
 4. Last step, once version 1 is complete: remove this plan and

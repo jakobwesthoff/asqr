@@ -6,9 +6,12 @@ Date: 2026-10-06
 
 Accepted
 
+Supersedes [20. Use asqr locally before publishing it](0020-use-asqr-locally-before-publishing-it.md)
+
 ## Context
 
-ADR 20 considered prebuilt binaries next to crates.io. Versions 0.9.0
+ADR 20 left the decision to publish to the user and considered prebuilt
+binaries next to crates.io. The user decided to publish: versions 0.9.0
 to 0.10.0 are on crates.io. The GitHub releases for v0.9.0 to v0.9.2
 were created from the user's account without a workflow, with the
 version as title, release notes as body and no binaries.
