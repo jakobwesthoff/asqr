@@ -1,6 +1,14 @@
+---
+title: "Hint in the TUI when tmux blocks passthrough"
+kind: feature
+component: terminal
+horizon: someday
+origin: review
+tags: [ux]
+---
 # Hint in the TUI when tmux blocks passthrough
 
-Status: deferred to after version 1 (adversarial review F9, 2026-09-27).
+Deferred to after version 1 by adversarial review F9 on 2026-09-27.
 
 ## Problem
 
@@ -31,3 +39,7 @@ at start (`tmux_state` in `src/terminal.rs`, decided by
 query nobody answers. A hint could reuse that answer: passthrough `off`
 is known for sure then, while a detached session (`0` clients) is a
 different case that needs no hint.
+
+## Revisit when
+
+Version 1 is released.

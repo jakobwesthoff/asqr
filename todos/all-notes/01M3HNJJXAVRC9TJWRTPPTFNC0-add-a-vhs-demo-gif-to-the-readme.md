@@ -1,7 +1,14 @@
-# VHS demo GIF for the README
+---
+title: "Add a VHS demo GIF to the README"
+kind: docs
+component: project
+status: needs-discussion
+horizon: someday
+origin: idea
+---
+# Add a VHS demo GIF to the README
 
-Status: idea, deferred by the user on 2026-09-27 ("create a todos file
-about the vhs idea but do not do that now").
+The user deferred this idea on 2026-09-27 ("create a todos file about the vhs idea but do not do that now").
 
 ## Idea
 
@@ -24,3 +31,7 @@ images; a screenshot shows no interaction.
 - VHS runs its own terminal; check whether it renders the Kitty graphics
   protocol for images, otherwise the demo shows the block fallback.
 - A CI job could re-render the GIF and fail on differences; not decided.
+
+## Revisit when
+
+No trigger known; reconsider at the next sweep.

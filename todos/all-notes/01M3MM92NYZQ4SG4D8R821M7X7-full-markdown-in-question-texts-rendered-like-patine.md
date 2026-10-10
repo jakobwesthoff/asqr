@@ -1,6 +1,14 @@
+---
+title: "Full Markdown in question texts, rendered like patine"
+kind: feature
+component: tui
+status: needs-discussion
+origin: request
+tags: [ux]
+---
 # Full Markdown in question texts, rendered like patine
 
-Status: requested by the user on 2026-09-28; not designed yet.
+The user requested this on 2026-09-28. It is not designed yet.
 
 ## The request
 

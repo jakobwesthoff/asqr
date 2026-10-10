@@ -1,7 +1,13 @@
+---
+title: "Drop the Kitty placement workaround once ratatui-image has the fix"
+kind: chore
+component: tui
+status: blocked
+origin: upstream
+---
 # Drop the Kitty placement workaround once ratatui-image has the fix
 
-Status: waiting for a `ratatui-image` release since 2026-10-03; the user
-asked for this todo.
+The user asked for this todo while waiting for a `ratatui-image` release since 2026-10-03. Checked 2026-10-10: the newest stable release is 11.1.0, the pinned version. 12.0.0-rc builds exist since 2026-09-17 and were not checked for the commit.
 
 ## Why the workaround exists
 
@@ -43,3 +49,7 @@ text `ratatui-image` writes, so `Cargo.toml` pins the crate to
 - The fork `jakobwesthoff/ratatui-image` and its branches
   `kitty-placement-size` and `kitty-placement-size-v11` are no longer
   used and can be deleted.
+
+## Relations
+
+- Blocked by: a ratatui-image release that contains commit 2d7d7f6 (ratatui/ratatui-image PR #215)

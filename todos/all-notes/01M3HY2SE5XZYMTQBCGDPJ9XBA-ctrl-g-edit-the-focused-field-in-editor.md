@@ -1,7 +1,14 @@
+---
+title: "ctrl-g: edit the focused field in $EDITOR"
+kind: feature
+component: tui
+status: needs-discussion
+origin: request
+tags: [ux]
+---
 # ctrl-g: edit the focused field in $EDITOR
 
-Status: requested by the user on 2026-09-27 during phase 6, not
-scheduled yet.
+The user requested this on 2026-09-27 during phase 6. It is not scheduled yet.
 
 ## Wish
 

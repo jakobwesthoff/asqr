@@ -174,7 +174,7 @@ const KITTY_PLACEMENT: &str = "a=T,U=1,";
 /// # Removing it
 ///
 /// TODO: Remove this once a `ratatui-image` release contains PR 215 (see
-/// the todo `01m4169zbj9p5qfr20761ye0th-drop-the-kitty-placement-workaround.md`):
+/// the todo `01M4169ZBJ9P5QFR20761YE0TH-drop-the-kitty-placement-workaround-once-ratatui-image-has-the-fix.md`):
 ///
 /// 1. Bump `ratatui-image` to that release and drop the `=` pin in
 ///    `Cargo.toml`. The release is likely a 12.x, which may change the

@@ -1,15 +1,21 @@
+---
+title: "Withdraw a queued session"
+kind: feature
+component: queue
+status: needs-discussion
+origin: request
+---
 # Withdraw a queued session
 
-Status: feature request from the user, 2026-09-28 ("create a todos file
+The user requested this on 2026-09-28 ("create a todos file
 in asqr that we want a feature to withdraw a submitted session again").
-Not designed yet.
+It is not designed yet.
 
 ## The case that prompted it
 
 An agent (the torchsnap mascot logbook) had asked a session whose texts
-rendered badly (see todo
-`01m3mkzkmnr4fq8qkw6pa5qeaw-paragraph-after-raw-block-joins-its-line.md`).
-It rebuilt the same questions in a readable layout and asked them again
+rendered badly (a paragraph after a raw block joined its line, fixed in
+`5473101`). It rebuilt the same questions in a readable layout and asked them again
 as a second session. The first one could not be taken back: asqr has no
 command for it (`asqr --help` lists watch, paths, new, validate, ask,
 wait, result, status, prune, skill, schema). The agent could only tell
