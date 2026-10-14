@@ -104,9 +104,10 @@ pub fn choose(
 
 /// The question's area and the context's in `area`, for `arrangement`,
 /// or for a question without context when it is `None`. `question_rows`
-/// is how many rows the question's content takes at the width it gets
-/// below a context area, `min(area.width, READING_WIDTH)`; only the below
-/// arrangement uses it.
+/// is how many rows the question asks for above a context area below it:
+/// the most any question with context in the session takes at the width it
+/// gets there, `min(area.width, READING_WIDTH)`, so moving between
+/// questions keeps the split. Only the below arrangement uses it.
 pub fn areas(
     area: Rect,
     arrangement: Option<Arrangement>,

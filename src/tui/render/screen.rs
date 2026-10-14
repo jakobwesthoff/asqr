@@ -9,6 +9,8 @@
 //! widget, so the number of lines is known and the row under the cursor
 //! can always be scrolled into view, whatever the size of the terminal.
 
+use std::collections::HashMap;
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
@@ -23,8 +25,8 @@ use super::parts::{Level, answer_summary, counter, cut, kind_hint};
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::viewer::Viewers;
-use crate::format::{Kind, Question};
-use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState};
+use crate::format::Kind;
+use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState, has_context};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -91,6 +93,86 @@ pub struct View<'a> {
     viewers: Viewers,
     /// What the context pane showed in the last draw.
     pane_page: Option<Page>,
+    question_height: QuestionHeight,
+}
+
+/// What a question's rows are kept by: the session, the revision of its
+/// file, the question's index and the width it was counted at.
+type RowsKey = (String, u64, usize, u16);
+
+/// How many rows the question takes above a context pane below it (spec
+/// section 7.1, ADR 30). It is the most any question with context in the
+/// session needs, so moving between questions never moves the pane, and it
+/// follows what the person types only line by line.
+#[derive(Default)]
+struct QuestionHeight {
+    /// The rows each question takes, counted without a cursor. The current
+    /// question is counted on every draw, as typing changes it, and the
+    /// others once per width and revision.
+    rows: HashMap<RowsKey, usize>,
+    /// The tab area's size and the session with its revision that `mark`
+    /// was taken for.
+    measured: Option<(u16, u16, String, u64)>,
+    /// The highest need since a field or note last gave up the keys.
+    mark: usize,
+}
+
+impl QuestionHeight {
+    /// The rows the question asks for above a context pane in `area`. It
+    /// grows as soon as the tallest question with context grows, and
+    /// shrinks only on a draw where no field or note has the keys, so
+    /// deleting a line while typing leaves the pane where it is. A resize,
+    /// another session or a replaced file start afresh.
+    fn need(&mut self, state: &SessionState, area: Rect) -> usize {
+        let width = area.width.min(READING_WIDTH);
+        let measured = (
+            area.width,
+            area.height,
+            state.id().to_owned(),
+            state.revision(),
+        );
+        if self.measured.as_ref() != Some(&measured) {
+            let resized = self
+                .measured
+                .as_ref()
+                .is_none_or(|(width, height, ..)| (*width, *height) != (area.width, area.height));
+            if resized {
+                self.rows.clear();
+            }
+            self.measured = Some(measured);
+            self.mark = 0;
+        }
+
+        let mut most = 0;
+        for (index, question) in state.session().questions.iter().enumerate() {
+            if !has_context(question) {
+                continue;
+            }
+            let key = (state.id().to_owned(), state.revision(), index, width);
+            let count = || question_content(state, index, usize::from(width), Drawn::Counted);
+            let rows = if index == state.tab() {
+                let rows = count().lines.len();
+                self.rows.insert(key, rows);
+                rows
+            } else {
+                *self.rows.entry(key).or_insert_with(|| count().lines.len())
+            };
+            most = most.max(rows);
+        }
+
+        let typing = state.focus() != Focus::None && !state.pane_focused();
+        self.mark = if typing { self.mark.max(most) } else { most };
+        self.mark
+    }
+
+    /// Forgets the rows of sessions that are gone and of replaced files.
+    fn retain(&mut self, sessions: &[SessionState]) {
+        self.rows.retain(|(id, revision, ..), _| {
+            sessions
+                .iter()
+                .any(|state| state.id() == id && state.revision() == *revision)
+        });
+    }
 }
 
 impl<'a> View<'a> {
@@ -104,6 +186,7 @@ impl<'a> View<'a> {
             intro_page: Extent::default(),
             viewers: Viewers::new(picker),
             pane_page: None,
+            question_height: QuestionHeight::default(),
         }
     }
 
@@ -186,6 +269,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
 
     view.viewers
         .retain_sessions(|id| app.sessions().iter().any(|waiting| waiting.id() == id));
+    view.question_height.retain(app.sessions());
     let main = main.inner(ratatui::layout::Margin::new(1, 0));
     view.pane_page = if state.full_screen() && state.shown_context().is_some() {
         draw_pane(frame, state, main, &mut view.viewers)
@@ -469,20 +553,15 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
     });
 
     let content_at = |width: u16| match state.question() {
-        Some(question) => question_content(state, question, usize::from(width)),
+        Some(_) => question_content(state, state.tab(), usize::from(width), Drawn::Live),
         None => review_content(state, usize::from(width)),
     };
-    // Without a context area, above one and above a hint, the question
-    // has the capped width, at which `panes::areas` counts its rows;
-    // beside a context area it is narrower.
-    let capped_width = area.width.min(READING_WIDTH);
-    let capped = content_at(capped_width);
-    let (text_area, context_area) = panes::areas(area, arrangement, capped.lines.len());
-    let content = if text_area.width == capped_width {
-        capped
-    } else {
-        content_at(text_area.width)
+    let question_rows = match arrangement {
+        Some(Arrangement::Below) => view.question_height.need(state, area),
+        _ => 0,
     };
+    let (text_area, context_area) = panes::areas(area, arrangement, question_rows);
+    let content = content_at(text_area.width);
 
     let pane = match context_area {
         Some(area) if arrangement == Some(Arrangement::Hint) => {
@@ -515,7 +594,26 @@ fn mark(kind: Kind, chosen: bool) -> &'static str {
     }
 }
 
-fn question_content(state: &SessionState, question: &Question, width: usize) -> Content {
+/// How [`question_content`] draws a question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Drawn {
+    /// As the person sees the current tab: the row under the cursor
+    /// highlighted, and the field or note that has the keys with its text
+    /// cursor and counter.
+    Live,
+    /// Without a cursor, to count the rows any question takes (spec section
+    /// 7.1): no row is current and every field shows unfocused, with the
+    /// text typed so far. A field with a length keeps a row for its
+    /// counter, so focusing it adds none, and the cursor's blank after a
+    /// full line is left out.
+    Counted,
+}
+
+/// The lines of question `index`, wrapped to `width`. Counting and drawing
+/// share this function, so the rows counted are the rows drawn.
+fn question_content(state: &SessionState, index: usize, width: usize, drawn: Drawn) -> Content {
+    let question = &state.session().questions[index];
+    let live = drawn == Drawn::Live;
     let mut content = Content {
         lines: field_lines(&question.text, width),
         cursor: (0, 0),
@@ -525,7 +623,7 @@ fn question_content(state: &SessionState, question: &Question, width: usize) -> 
         .extend(wrap(Line::from(kind_hint(question)).dim(), width, 0, 0));
     content.lines.push(Line::default());
 
-    let answer = &state.answers()[state.tab()];
+    let answer = &state.answers()[index];
     // Descriptions line up in one column after the widest label.
     let label_column = question
         .options
@@ -535,8 +633,8 @@ fn question_content(state: &SessionState, question: &Question, width: usize) -> 
         .map(|(index, option)| option_head_width(index, &option.label))
         .max()
         .unwrap_or(0);
-    for (index, row) in state.rows().iter().enumerate() {
-        let current = index == state.row();
+    for (row_index, row) in state.rows_of(index).iter().enumerate() {
+        let current = live && row_index == state.row();
         let pointer = if current { "❯ " } else { "  " };
         let lines = match *row {
             Row::Option(option_index) => {
@@ -574,14 +672,21 @@ fn question_content(state: &SessionState, question: &Question, width: usize) -> 
                     && (question.kind == Kind::Multi || answer.selected.is_empty());
                 let head = format!("{pointer}{} ✎ {label}: ", mark(question.kind, chosen));
                 let text = answer.custom.as_deref().unwrap_or_default();
-                one_line_field(state, head, text, width, current)
+                let mut lines = one_line_field(state, head, text, width, current);
+                let length = question.custom.as_ref().and_then(|custom| custom.length());
+                if !live && length.is_some() {
+                    lines.push(Line::default());
+                }
+                lines
             }
-            Row::Answer => text_field(
-                state,
-                pointer,
-                answer.custom.as_deref().unwrap_or_default(),
-                width,
-            ),
+            Row::Answer => {
+                let text = answer.custom.as_deref().unwrap_or_default();
+                let mut lines = text_field(state, pointer, text, width, live);
+                if !live && question.length.is_some() {
+                    lines.push(Line::default());
+                }
+                lines
+            }
             Row::Question(_) | Row::Submit | Row::Note | Row::Reject => {
                 unreachable!("review rows only appear on the review")
             }
@@ -591,8 +696,9 @@ fn question_content(state: &SessionState, question: &Question, width: usize) -> 
 
     if question.note {
         content.lines.push(Line::default());
-        let editing = state.focus() == Focus::Note;
-        let note = match state.note_text() {
+        let editing = live && state.focus() == Focus::Note;
+        let typed = state.note_text().filter(|_| live);
+        let note = match typed {
             Some(text) => with_cursor(&text, text_cursor(state)),
             None => answer
                 .note
@@ -718,9 +824,16 @@ fn one_line_field(
 }
 
 /// The answer field of a text question: every line of the answer, wrapped,
-/// with the counter after the last one.
-fn text_field(state: &SessionState, pointer: &str, text: &str, width: usize) -> Vec<Line<'static>> {
-    let lines = match state.field_text() {
+/// with the counter after the last one while it has the keys. `live` is
+/// false while counting rows, which draws the field unfocused.
+fn text_field(
+    state: &SessionState,
+    pointer: &str,
+    text: &str,
+    width: usize,
+    live: bool,
+) -> Vec<Line<'static>> {
+    let lines = match state.field_text().filter(|_| live) {
         Some(typed) => with_cursor(&typed, text_cursor(state)),
         None if text.is_empty() => vec![Line::from("—").dim()],
         None => plain_lines(text),
@@ -736,7 +849,7 @@ fn text_field(state: &SessionState, pointer: &str, text: &str, width: usize) -> 
         spans.extend(line.spans);
         out.extend(wrap(Line::from(spans), width, 0, 4));
     }
-    if let Some((length, limits)) = state.field_length() {
+    if let Some((length, limits)) = state.field_length().filter(|_| live) {
         let (text, level) = counter(length, &limits);
         out.push(Line::from(Span::from(text).fg(level_colour(level))).right_aligned());
     }
@@ -2833,6 +2946,282 @@ mod tests {
             (96, 5),
             "after beside, it stays beside"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // The question's height above its context
+    // -----------------------------------------------------------------
+
+    /// The entry of every question with context in these tests.
+    fn code_entry() -> serde_json::Value {
+        serde_json::json!([{"type": "code", "title": "ctx.rs", "content": "fn main() {}\n"}])
+    }
+
+    /// A single question with `options` options without descriptions.
+    /// Its text, hint and blank line, the options, and the blank line and
+    /// `Notes` take `options + 5` rows.
+    fn choice(id: &str, options: usize, context: bool) -> serde_json::Value {
+        let options: Vec<_> = (1..=options)
+            .map(|index| serde_json::json!({"id": format!("o{index}"), "label": format!("Option {index}")}))
+            .collect();
+        let mut question =
+            serde_json::json!({"id": id, "text": "?", "kind": "single", "options": options});
+        if context {
+            question["context"] = code_entry();
+        }
+        question
+    }
+
+    /// A text question with context and a length. Its text, hint and blank
+    /// line, the answer and the row for its counter, and the blank line
+    /// and `Notes` take 7 rows while the answer fits one line.
+    fn typed(id: &str) -> serde_json::Value {
+        serde_json::json!({"id": id, "text": "?", "kind": "text",
+                           "length": {"warn": 500}, "context": code_entry()})
+    }
+
+    fn shaped(questions: &[serde_json::Value]) -> String {
+        serde_json::json!({"asqr": 2, "questions": questions}).to_string()
+    }
+
+    /// The rows the question asks for above its context, measured in the
+    /// tab area of a 60×30 terminal, or `width` columns of it.
+    fn need(app: &App, view: &mut View, width: u16) -> usize {
+        let state = app.active().expect("a session is waiting");
+        view.question_height.need(state, Rect::new(1, 5, width, 24))
+    }
+
+    fn ctrl_j(app: &mut App) {
+        app.handle(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
+    }
+
+    #[test]
+    fn below_the_question_takes_what_the_tallest_question_with_context_needs() {
+        // name, questions, rows on every tab
+        let cases = [
+            (
+                "equal questions",
+                vec![
+                    choice("a", 3, true),
+                    choice("b", 3, true),
+                    choice("c", 3, true),
+                ],
+                8,
+            ),
+            (
+                "one tall question",
+                vec![
+                    choice("a", 2, true),
+                    choice("b", 9, true),
+                    choice("c", 2, true),
+                ],
+                14,
+            ),
+            ("a text question", vec![typed("t"), choice("a", 1, true)], 7),
+            (
+                "a taller question without context",
+                vec![choice("a", 2, true), choice("b", 12, false)],
+                7,
+            ),
+        ];
+        for (name, questions, rows) in cases {
+            let mut app = app(&[("shape", &shaped(&questions))]);
+            let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+            for tab in 0..questions.len() {
+                assert_eq!(need(&app, &mut view, 58), rows, "{name}, tab {tab}");
+                special(&mut app, KeyCode::Right);
+            }
+        }
+    }
+
+    #[test]
+    fn typing_grows_the_need_at_once_and_it_shrinks_only_after_leaving_the_field() {
+        let mut app = app(&[("shape", &shaped(&[typed("t"), choice("a", 1, true)]))]);
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+        assert_eq!(need(&app, &mut view, 58), 7);
+
+        keys(&mut app, "abc");
+        assert_eq!(need(&app, &mut view, 58), 7, "the line is not full yet");
+        ctrl_j(&mut app);
+        assert_eq!(need(&app, &mut view, 58), 8, "a new line grows it at once");
+        keys(&mut app, "d");
+        ctrl_j(&mut app);
+        assert_eq!(need(&app, &mut view, 58), 9);
+
+        special(&mut app, KeyCode::Backspace);
+        special(&mut app, KeyCode::Backspace);
+        assert_eq!(
+            need(&app, &mut view, 58),
+            9,
+            "deleting lines keeps the height while the field has the keys"
+        );
+        special(&mut app, KeyCode::Esc);
+        assert_eq!(need(&app, &mut view, 58), 8, "leaving the field lowers it");
+    }
+
+    #[test]
+    fn the_cursor_after_a_full_line_does_not_count() {
+        let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+
+        // `❯ ✎ ` and 54 characters fill the 58 columns, so the cursor's
+        // blank starts a line of its own on the screen.
+        keys(&mut app, &"x".repeat(54));
+        let backend = screen_in(&app, &mut view, 60, 30);
+        let rows = visible_rows(&backend);
+        let answer = rows
+            .iter()
+            .position(|row| row.contains('✎'))
+            .expect("the answer is on screen");
+        assert_eq!(rows[answer + 1].trim(), "", "{backend}");
+        assert_eq!(need(&app, &mut view, 58), 7);
+    }
+
+    #[test]
+    fn moving_the_focus_into_the_pane_counts_as_leaving_the_field() {
+        let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+        ctrl_j(&mut app);
+        ctrl_j(&mut app);
+        assert_eq!(need(&app, &mut view, 58), 9);
+        special(&mut app, KeyCode::Backspace);
+        assert_eq!(need(&app, &mut view, 58), 9);
+
+        screen_in(&app, &mut view, 60, 30);
+        app.set_pane_page(view.pane_page());
+        special(&mut app, KeyCode::Tab);
+        assert!(app.active().is_some_and(SessionState::pane_focused));
+        assert_eq!(need(&app, &mut view, 58), 8);
+    }
+
+    /// A text question typed into until it took 9 rows, then cut back to
+    /// 8 while its field keeps the keys.
+    fn typed_and_cut_back(id: &str) -> App {
+        let mut app = app(&[(id, &shaped(&[typed("t")]))]);
+        ctrl_j(&mut app);
+        ctrl_j(&mut app);
+        special(&mut app, KeyCode::Backspace);
+        app
+    }
+
+    #[test]
+    fn a_resize_a_replaced_file_or_another_session_measure_afresh() {
+        let mut app = typed_and_cut_back("shape");
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+        ctrl_j(&mut app);
+        assert_eq!(need(&app, &mut view, 58), 9);
+        special(&mut app, KeyCode::Backspace);
+        assert_eq!(need(&app, &mut view, 58), 9, "kept while typing");
+        assert_eq!(need(&app, &mut view, 78), 8, "after a resize");
+
+        ctrl_j(&mut app);
+        assert_eq!(need(&app, &mut view, 78), 9);
+        special(&mut app, KeyCode::Backspace);
+        app.add(SessionState::new(
+            "shape",
+            serde_json::from_str(&shaped(&[typed("t")])).expect("parses"),
+            None,
+        ));
+        assert_eq!(
+            app.active().map(SessionState::focus),
+            Some(Focus::Field),
+            "the replacement keeps the typed answer, and its field has the keys"
+        );
+        assert_eq!(need(&app, &mut view, 78), 8, "after the file was replaced");
+
+        let mut other = typed_and_cut_back("other");
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+        ctrl_j(&mut other);
+        assert_eq!(need(&other, &mut view, 58), 9);
+        other.add(SessionState::new(
+            "next",
+            serde_json::from_str(&shaped(&[typed("t")])).expect("parses"),
+            None,
+        ));
+        other.remove("other");
+        assert_eq!(
+            other.active().map(SessionState::focus),
+            Some(Focus::Field),
+            "the next session's field has the keys"
+        );
+        assert_eq!(need(&other, &mut view, 58), 7, "in another session");
+    }
+
+    #[test]
+    fn the_rows_of_the_other_questions_are_kept_per_width_and_revision() {
+        let questions = [
+            choice("a", 2, true),
+            choice("b", 2, true),
+            choice("c", 9, false),
+        ];
+        let mut app = app(&[("shape", &shaped(&questions))]);
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+
+        assert_eq!(need(&app, &mut view, 58), 7);
+        assert_eq!(
+            view.question_height.rows.len(),
+            2,
+            "only questions with context"
+        );
+        assert_eq!(need(&app, &mut view, 78), 7);
+        assert_eq!(
+            view.question_height.rows.len(),
+            2,
+            "a resize forgets the old width"
+        );
+
+        // The second question grows in the file while the first is shown.
+        let taller = [
+            choice("a", 2, true),
+            choice("b", 6, true),
+            choice("c", 9, false),
+        ];
+        app.add(SessionState::new(
+            "shape",
+            serde_json::from_str(&shaped(&taller)).expect("parses"),
+            None,
+        ));
+        assert_eq!(need(&app, &mut view, 78), 11);
+        screen_in(&app, &mut view, 80, 30);
+        assert_eq!(
+            view.question_height.rows.len(),
+            2,
+            "a draw forgets the replaced revision"
+        );
+    }
+
+    /// The screen row of the context pane's header, which names `ctx.rs`.
+    fn pane_row(backend: &TestBackend) -> usize {
+        visible_rows(backend)
+            .iter()
+            .position(|row| row.contains("ctx.rs"))
+            .unwrap_or_else(|| panic!("the pane shows:\n{backend}"))
+    }
+
+    #[test]
+    fn moving_between_questions_keeps_the_split_and_typing_moves_it_by_lines() {
+        let questions = [choice("a", 2, true), choice("b", 6, true), typed("t")];
+        let mut app = app(&[("shape", &shaped(&questions))]);
+        let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks());
+
+        // A 60×40 terminal is portrait, so the context goes below. The
+        // tallest question takes 11 rows under the tab bar's 4.
+        let top = pane_row(&screen_in(&app, &mut view, 60, 40));
+        assert_eq!(top, 4 + 11);
+        for tab in 1..=2 {
+            special(&mut app, KeyCode::Right);
+            let backend = screen_in(&app, &mut view, 60, 40);
+            assert_eq!(pane_row(&backend), top, "tab {tab}:\n{backend}");
+        }
+
+        // The text question needs 7 rows; at 5 lines it needs 11, and
+        // only its sixth line moves the split.
+        for _ in 0..4 {
+            ctrl_j(&mut app);
+        }
+        assert_eq!(pane_row(&screen_in(&app, &mut view, 60, 40)), top);
+        ctrl_j(&mut app);
+        assert_eq!(pane_row(&screen_in(&app, &mut view, 60, 40)), top + 1);
     }
 
     #[test]

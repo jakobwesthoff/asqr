@@ -651,9 +651,17 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   - Beside: the question takes half of W after the blank separator
     column, at least 60 and at most 100 columns, and the context pane
     takes the rest. Beside fits from W = 101, a terminal of 103 columns.
-  - Below: the question keeps its width and takes the rows its content
-    needs, at most half of H, and the context pane takes the rest over
-    the whole of W. Below fits when the context pane gets at least 8
+  - Below: the question keeps its width and takes the rows the tallest
+    question with context in the session needs, at most half of H, and
+    the context pane takes the rest over the whole of W. So the pane
+    keeps its place while the person moves between questions (user,
+    2026-10-14). A question's rows are counted at that width without a
+    cursor: every field unfocused with the text typed so far, a row for
+    the counter of a field with a length, and no row for the cursor
+    after a full line. Typing moves the pane only when the tallest
+    question gains a row, and it moves back up only once no field or
+    note has the keys. A resize, another session or a replaced session
+    file count afresh. Below fits when the context pane gets at least 8
     rows with the question at half of H, that is from H = 15.
   - `--layout auto`, the default: when both fit, the context goes
     beside on a landscape area, where W ÷ 2H is at least 1 (cells are

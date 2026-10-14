@@ -168,6 +168,18 @@ pub struct SessionState {
     /// entries have nothing to do with each other, so each entry keeps its
     /// own, and one shown for the first time starts at its top.
     offsets: HashMap<EntryKey, Offset>,
+    /// See [`Self::revision`].
+    revision: u64,
+}
+
+/// Whether `question` or any of its options has context.
+pub fn has_context(question: &Question) -> bool {
+    !question.context.is_empty()
+        || question
+            .options
+            .iter()
+            .flatten()
+            .any(|option| !option.context.is_empty())
 }
 
 impl SessionState {
@@ -226,6 +238,7 @@ impl SessionState {
             pane_focus: false,
             pane_page: None,
             offsets: HashMap::new(),
+            revision: 0,
         };
         state.arrive();
         state
@@ -235,7 +248,15 @@ impl SessionState {
     /// keeping the answers that still fit (review F1).
     pub fn replace_session(&mut self, session: Session) {
         let draft = self.to_draft();
+        let revision = self.revision + 1;
         *self = SessionState::new(self.id.clone(), session, Some(&draft));
+        self.revision = revision;
+    }
+
+    /// How often the session file was replaced while open, so what was
+    /// measured of the old file can be told from the new one.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub fn id(&self) -> &str {
@@ -355,24 +376,23 @@ impl SessionState {
     /// or any of its options has some, even while the row under the cursor
     /// shows none, so the layout does not jump while browsing.
     pub fn has_context_area(&self) -> bool {
-        self.question().is_some_and(|question| {
-            !question.context.is_empty()
-                || question
-                    .options
-                    .iter()
-                    .flatten()
-                    .any(|option| !option.context.is_empty())
-        })
+        self.question().is_some_and(has_context)
     }
 
     /// The rows of the current tab.
     pub fn rows(&self) -> Vec<Row> {
-        let Some(question) = self.question() else {
+        if self.on_review() {
             let questions = (0..self.session.questions.len()).map(Row::Question);
             return questions
                 .chain([Row::Submit, Row::Note, Row::Reject])
                 .collect();
-        };
+        }
+        self.rows_of(self.tab)
+    }
+
+    /// The rows of question `index`, whichever tab is current.
+    pub fn rows_of(&self, index: usize) -> Vec<Row> {
+        let question = &self.session.questions[index];
         if question.kind == Kind::Text {
             return vec![Row::Answer];
         }
@@ -1036,6 +1056,31 @@ mod tests {
                 Row::Note,
                 Row::Reject
             ]
+        );
+    }
+
+    #[test]
+    fn every_questions_rows_are_known_from_any_tab() {
+        let mut state = state();
+        go_to_tab(&mut state, 4);
+
+        assert_eq!(
+            (0..4).map(|index| state.rows_of(index)).collect::<Vec<_>>(),
+            [
+                vec![Row::Option(0), Row::Option(1), Row::Own],
+                vec![Row::Option(0), Row::Option(1), Row::Option(2), Row::Own],
+                vec![Row::Answer],
+                vec![Row::Option(0)],
+            ]
+        );
+        assert_eq!(
+            state
+                .session()
+                .questions
+                .iter()
+                .map(has_context)
+                .collect::<Vec<_>>(),
+            [false, false, false, true]
         );
     }
 
@@ -1761,6 +1806,16 @@ mod tests {
             (state.shown_context(), state.has_context_area()),
             (None, false)
         );
+        assert_eq!(
+            state
+                .session()
+                .questions
+                .iter()
+                .map(has_context)
+                .collect::<Vec<_>>(),
+            [true, true],
+            "from any tab, by the question's or an option's context"
+        );
     }
 
     #[test]
@@ -2176,6 +2231,17 @@ mod tests {
             state.session().questions[0].options.as_ref().map(Vec::len),
             Some(1)
         );
+    }
+
+    #[test]
+    fn each_replacement_counts_as_a_new_revision() {
+        let mut state = state();
+        assert_eq!(state.revision(), 0);
+
+        state.replace_session(serde_json::from_str(SESSION).expect("parses"));
+        assert_eq!(state.revision(), 1, "even an unchanged file counts");
+        state.replace_session(serde_json::from_str(SESSION).expect("parses"));
+        assert_eq!(state.revision(), 2);
     }
 
     #[test]

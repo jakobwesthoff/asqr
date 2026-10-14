@@ -112,3 +112,39 @@ Agent's choices within that design:
 - Below, a question taller than half the tab area scrolls inside it.
   On a 60×24 terminal the example session `alt-rework-batch.json` shows
   its own answer and its note only when the cursor reaches them.
+
+## Amendment (2026-10-14, adversarial review U1)
+
+Below, the question took the rows its own content needed, so the context
+pane jumped up and down while the person moved between questions of
+different heights, and moved with every line typed. Beside, it stays
+put. The user settled the rule:
+
+- **Per session:** below, the question takes the rows the tallest
+  question with context in the session needs, still at most half the
+  height. Beside the question, a narrower pane only reflows its text,
+  so a fixed width costs nothing. Below, a fixed height would hide rows
+  and force the person to scroll, so the height follows what the
+  questions need, but per session, so the pane does not jump between
+  questions.
+- **Per line while typing:** what the person has typed counts. The
+  split grows as soon as the tallest question gains a row and shrinks
+  only once no field or note has the keys, so it moves at most once per
+  new line and never while a line is deleted.
+
+Agent's choices within that rule:
+
+- A question's rows are counted by the function that draws it, drawn
+  without a cursor: every field unfocused with the text typed so far, a
+  row kept for the counter of a field with a length, and the cursor's
+  blank after a full line left out. A second way to count would drift
+  from the drawing.
+- Questions without context do not count, as they show no pane.
+- The screen's `View` keeps the rows of every question by session,
+  revision of the session file, question and width, and counts the
+  current question on every draw. The high mark of the split starts
+  afresh on a resize, in another session and after the file was
+  replaced. Moving the focus into the context pane counts as leaving
+  the field.
+- A text question gives its field the keys as soon as it shows, so on
+  one the split moves back up only after `esc` or `tab`.

@@ -109,7 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The question and the review keep to a reading width of 100 columns
   on wide terminals. Beside the question, context takes the rest of the
   width from a terminal of 103 columns on; below it, context takes at
-  least 8 rows and the question at most half the height. Where neither
+  least 8 rows and the question at most half the height. Below, the
+  question takes the rows the tallest question with context in the
+  session needs, so the context stays in place between questions, and
+  typing moves it only when that question gains a line. Where neither
   fits, context shrinks to a line that names it, and `z` still shows an
   image full screen.
 - Context shows in a pane whose first line names the entry by its
