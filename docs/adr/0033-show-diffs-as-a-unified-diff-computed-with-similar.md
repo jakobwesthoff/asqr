@@ -108,3 +108,12 @@ viewer that shows lines of source:
   become direct dependencies at the versions ratatui already uses.
 - A diff of two large files may take a second before the pane shows it.
 - Text entries still show their placeholder until the text viewer lands.
+
+## Amendment (2026-10-14, measuring in terminal columns)
+
+`unicode-width` is no longer a direct dependency. `columns` and
+`fitting` in `src/tui/render/source_line.rs` measure a text grapheme by
+grapheme through ratatui's cell width, and every width the screen lays
+out goes through them, so what the layout counts is what ratatui draws.
+A halfwidth sound mark such as `ﾞ` therefore takes a column of its own,
+as ratatui and terminals draw it.
