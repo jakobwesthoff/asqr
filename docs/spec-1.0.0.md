@@ -498,7 +498,8 @@ One column over the full width (user, 2026-09-27):
    ( ) 2. New 1   Snappy in holly -- the first new line.
    ( ) 3. New 2   Snappy in holly -- the second new line.
    ( ) 4. More    None of these; new variations next batch.
-   (•) ✎ Own line: Snappy in holly -- my own…
+   (•) ✎ Own line: Snappy in holly -- my own line, which
+                   wraps under its start.
 
  Notes: —
 
@@ -587,9 +588,13 @@ a frame (user, 2026-09-27):
   to the previous question, `→` at its end to the next one (ADR 23). After `esc`, `↑`/`↓` move on as usual; where the move
   cannot leave the row (the single row of a `text` question, `↓` on the
   last row), they focus the field again. `enter` picks the own answer
-  and moves on, like an option. It is one line and scrolls sideways when
-  the text is longer than the line. On a `multi` question the own answer
-  counts once it has text.
+  and moves on, like an option. It is one line: `ctrl-j` adds no line
+  break. A text longer than the line wraps onto further lines under its
+  start, after the row's head, focused or not, and is never cut with `…`.
+  When the head leaves the text less than 20 columns, the further lines
+  start 4 columns in. `↑`/`↓` leave the row from any of its lines
+  (ADR 27). On a `multi` question the own answer counts once it has
+  text.
 - **A `text` question's answer** is a field that is active when the
   question is shown. It grows with its lines; `ctrl-j` adds a line, and
   `enter` moves on. `←`/`→` at the start or end of its text switch
@@ -597,12 +602,13 @@ a frame (user, 2026-09-27):
 - **The note** is edited in its line under the options after `n`. It is
   multi-line (`ctrl-j` adds a line); `enter` or `esc` leave it.
 - **The reject reason** on the review tab is a one-line field like the
-  own answer.
+  own answer and wraps the same way.
 - Every edit is saved to the draft continuously, the reject reason
   included; there is no discard.
 
-Where the question sets `length`, a counter at the end of the focused
-field shows the length as text, and colour is only added on top:
+Where the question sets `length`, a counter on a line of its own after
+the focused field's text, at the right edge, shows the length as text,
+and colour is only added on top:
 
 - `112/125` within the target
 - `140/125 !` above the target, up to `warn`

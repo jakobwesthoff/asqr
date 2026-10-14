@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&app, width, height)"
+---
+" asqr · queue: default · 1 session waiting                  "
+" Release 0.2.0  (release script)                            "
+" Three decisions before the release. Skip what you cannot…  "
+"   ☐ Go?  ☒ Channels  ☐ Highlights  ✔ Review                "
+"────────────────────────────────────────────────────────────"
+" Where should the release be announced?                     "
+" pick up to 3 items                                         "
+"                                                            "
+"   [x] 1. Changelog                                         "
+"   [ ] 2. Blog post                                         "
+" ❯ [ ] 3. Social media                                      "
+"   [x] ✎ Somewhere else: a mailing list, the release        "
+"                         channel, the team chat and a short "
+"                                                            "
+" ↑/↓  move   space  toggle   enter  next   ←/→  question   n"

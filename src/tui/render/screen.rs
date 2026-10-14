@@ -33,6 +33,17 @@ const IMAGE_BESIDE_WIDTH: u16 = 100;
 /// least this much room; otherwise they move to their own lines.
 const MIN_DESCRIPTION_WIDTH: usize = 30;
 
+/// The text of a one-line field wraps under its own start only while that
+/// leaves it at least this much room; otherwise its further lines start
+/// at `NARROW_FIELD_INDENT`. Lower than `MIN_DESCRIPTION_WIDTH`, so the
+/// reject reason, whose head leaves 27 columns in a 60-column terminal,
+/// still wraps under its start there.
+const MIN_FIELD_WIDTH: usize = 20;
+
+/// The indent of a one-line field's further lines when its head leaves
+/// less than `MIN_FIELD_WIDTH` columns.
+const NARROW_FIELD_INDENT: usize = 4;
+
 /// `text` in at most `room` characters: whole as long as it fits,
 /// otherwise its end behind `…`, cut at a `/` where one is in reach, since
 /// the end of a queue's path is what tells queues apart.
@@ -396,7 +407,7 @@ fn question_content(state: &SessionState, question: &Question, width: usize) -> 
                     && (question.kind == Kind::Multi || answer.selected.is_empty());
                 let head = format!("{pointer}{} ✎ {label}: ", mark(question.kind, chosen));
                 let text = answer.custom.as_deref().unwrap_or_default();
-                vec![one_line_field(state, head, text, width, current)]
+                one_line_field(state, head, text, width, current)
             }
             Row::Answer => text_field(
                 state,
@@ -489,63 +500,48 @@ fn option_lines(
     lines
 }
 
-/// A one-line field after `head`: the text scrolls sideways so the text
-/// cursor stays visible, and the counter sits at the end of the line.
+/// A one-line field after `head`. The text wraps like a note: under its
+/// own start while that leaves `MIN_FIELD_WIDTH` columns, otherwise from
+/// `NARROW_FIELD_INDENT` on. The value itself stays one line (ADR 27);
+/// only its display spans several. The counter of a focused field follows
+/// on a line of its own, as in `text_field`.
 fn one_line_field(
     state: &SessionState,
     head: String,
     text: &str,
     width: usize,
     current: bool,
-) -> Line<'static> {
+) -> Vec<Line<'static>> {
     let focused = current && state.focus() == Focus::Field;
-    let counter = focused
-        .then(|| state.field_length())
-        .flatten()
-        .map(|(length, limits)| counter(length, &limits));
-    let counter_width = counter
-        .as_ref()
-        .map_or(0, |(text, _)| text.chars().count() + 1);
-    let room = width
-        .saturating_sub(head.chars().count() + counter_width)
-        .max(2);
+    let head_width = head.chars().count();
+    let indent = if width.saturating_sub(head_width) >= MIN_FIELD_WIDTH {
+        head_width
+    } else {
+        NARROW_FIELD_INDENT
+    };
 
     let mut spans = vec![if current && !focused {
         Span::from(head).reversed()
     } else {
         Span::from(head)
     }];
-    let chars: Vec<char> = text.chars().collect();
     if focused {
         let cursor = state
             .field_cursor()
-            .map_or(chars.len(), |(_, column)| column);
-        // The window of `room` columns ending just after the cursor; `…`
-        // marks text scrolled out on the left.
-        let start = (cursor + 1).saturating_sub(room);
-        let visible: String = chars[start..chars.len().min(start + room)].iter().collect();
-        let mut line = with_cursor(&visible, Some((0, cursor - start))).remove(0);
-        if start > 0 {
-            line.spans.insert(0, Span::from("…").dim());
-        }
-        spans.extend(line.spans);
-    } else if chars.is_empty() {
+            .map_or(text.chars().count(), |(_, column)| column);
+        spans.extend(with_cursor(text, Some((0, cursor))).remove(0).spans);
+    } else if text.is_empty() {
         spans.push(Span::from("—").dim());
-    } else if chars.len() > room {
-        let shown: String = chars[..room - 1].iter().collect();
-        spans.push(Span::from(format!("{shown}…")));
     } else {
         spans.push(Span::from(text.to_owned()));
     }
+    let mut lines = wrap(Line::from(spans), width, 0, indent);
 
-    if let Some((text, level)) = counter {
-        let used: usize = spans.iter().map(|span| span.content.chars().count()).sum();
-        spans.push(Span::from(
-            " ".repeat(width.saturating_sub(used + text.chars().count())),
-        ));
-        spans.push(Span::from(text).fg(level_colour(level)));
+    if let Some((length, limits)) = focused.then(|| state.field_length()).flatten() {
+        let (text, level) = counter(length, &limits);
+        lines.push(Line::from(Span::from(text).fg(level_colour(level))).right_aligned());
     }
-    Line::from(spans)
+    lines
 }
 
 /// The answer field of a text question: every line of the answer, wrapped,
@@ -638,13 +634,13 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                     if current { button.reversed() } else { button },
                 ]
             }
-            Row::Reject => vec![one_line_field(
+            Row::Reject => one_line_field(
                 state,
                 format!("{pointer}✗ Reject, reason (optional): "),
                 state.reject_reason(),
                 width,
                 current,
-            )],
+            ),
             Row::Option(_) | Row::Own | Row::Answer => {
                 unreachable!("question rows never appear on the review")
             }
@@ -753,12 +749,12 @@ fn wrap(line: Line<'static>, width: usize, first: usize, rest: usize) -> Vec<Lin
             body = tail;
         }
         // Blanks may hang past the end of a line, so the next line does not
-        // start with them. The text cursor's cell is the exception: it is a
-        // reversed blank (`with_cursor`) and has to stay on screen, so it
-        // starts the next line when this one is full.
+        // start with them. A reversed blank is the exception, since it is
+        // visible: the text cursor's cell (`with_cursor`) or part of a
+        // highlighted head. It starts the next line when this one is full.
         for blank in blanks {
-            let cursor = blank.1.add_modifier.contains(Modifier::REVERSED);
-            if cursor && wrapped.used >= width {
+            let visible = blank.1.add_modifier.contains(Modifier::REVERSED);
+            if visible && wrapped.used >= width {
                 wrapped.break_line();
             }
             wrapped.push(std::slice::from_ref(blank));
@@ -1115,6 +1111,12 @@ mod tests {
             special(&mut app, KeyCode::Down);
         }
         insta::assert_snapshot!(screen(&app, 60, 15));
+
+        // A wrapped own answer counts with all its lines.
+        keys(&mut app, LONG_OWN_ANSWER);
+        insta::assert_snapshot!("cursor_row_wrapped_typed", screen(&app, 60, 15));
+        special(&mut app, KeyCode::Esc);
+        insta::assert_snapshot!("cursor_row_wrapped_left", screen(&app, 60, 15));
     }
 
     #[test]
@@ -1211,15 +1213,142 @@ mod tests {
     // Fields
     // -----------------------------------------------------------------
 
-    #[test]
-    fn the_own_answer_is_typed_in_its_line_and_scrolls_sideways() {
+    /// An own answer for the release session's channels question that
+    /// needs several lines in every supported width.
+    const LONG_OWN_ANSWER: &str = "a mailing list, the release channel, the team chat \
+        and a short post on the project page, written by whoever has the time on the day";
+
+    /// The release session with `LONG_OWN_ANSWER` typed into the own answer
+    /// of its channels question, the field still focused.
+    fn typed_own_answer() -> App {
         let mut app = app(&[("release", RELEASE)]);
         keys(&mut app, "ljjj");
+        keys(&mut app, LONG_OWN_ANSWER);
+        app
+    }
+
+    #[test]
+    fn the_own_answer_wraps_under_its_start_while_typed() {
+        let app = typed_own_answer();
+        for (width, height) in [(60, 15), (80, 24), (120, 24)] {
+            insta::assert_snapshot!(
+                format!("own_answer_typed_{width}x{height}"),
+                screen(&app, width, height)
+            );
+        }
+    }
+
+    #[test]
+    fn a_left_own_answer_shows_completely_on_wrapped_lines() {
+        let mut app = typed_own_answer();
+        special(&mut app, KeyCode::Up);
+        for (width, height) in [(60, 15), (80, 24), (120, 24)] {
+            insta::assert_snapshot!(
+                format!("own_answer_left_{width}x{height}"),
+                screen(&app, width, height)
+            );
+        }
+    }
+
+    /// The reversed cells in the tab's area, which lies between the tab bar
+    /// and the status line: the text cursor, or a highlighted row.
+    fn reversed_cells_in_tab(backend: &TestBackend) -> Vec<(u16, u16, String)> {
+        let buffer = backend.buffer();
+        (5..buffer.area.height - 2)
+            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
+            .filter(|&position| buffer[position].modifier.contains(Modifier::REVERSED))
+            .map(|(x, y)| (x, y, buffer[(x, y)].symbol().to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn the_text_cursor_shows_on_its_wrapped_line() {
+        let mut app = typed_own_answer();
+        // Back to the `c` of "channel", the first word that does not fit
+        // on the first line at 60 columns.
+        let channel = LONG_OWN_ANSWER.find("channel").expect("the word is there");
+        for _ in channel..LONG_OWN_ANSWER.chars().count() {
+            special(&mut app, KeyCode::Left);
+        }
+        let backend = screen(&app, 60, 24);
+        let buffer = backend.buffer();
+
+        let cursor = reversed_cells_in_tab(&backend);
+        assert_eq!(cursor.len(), 1, "only the cursor is reversed:\n{backend}");
+        let (x, y, symbol) = &cursor[0];
+        assert_eq!(symbol, "c", "{backend}");
+        // The text starts after the margin and the 24 columns of
+        // "❯ [x] ✎ Somewhere else: ", and the second line under it.
+        assert_eq!(*x, 25, "{backend}");
+        assert_eq!(buffer[(*x, y - 1)].symbol(), "a", "{backend}");
+    }
+
+    /// A single question whose own answer has `label` and holds the
+    /// typed `LONG_OWN_ANSWER`, the field still focused.
+    fn own_answer_labelled(label: &str) -> App {
+        let json = format!(
+            r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "Name it", "kind": "single",
+                "custom": {{"label": {label:?}}}, "options": [{{"id": "a", "label": "asqr"}}]}}]}}"#
+        );
+        let mut app = app(&[("name", &json)]);
+        keys(&mut app, "j");
+        keys(&mut app, LONG_OWN_ANSWER);
+        app
+    }
+
+    fn screen_lines(backend: &TestBackend) -> Vec<String> {
+        let buffer = backend.buffer();
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_head_leaving_less_than_20_columns_wraps_the_text_under_the_pointer() {
+        // The head is the pointer, the mark and `✎ ` (8 columns), the
+        // label and `: `; the text area of a 60-column screen is 58 wide.
+        for (label_length, indent) in [(28, 38), (29, 4)] {
+            let backend = screen(&own_answer_labelled(&"x".repeat(label_length)), 60, 24);
+            let lines = screen_lines(&backend);
+
+            let head = lines
+                .iter()
+                .position(|line| line.contains('✎'))
+                .expect("the own answer is on screen");
+            let wrapped = &lines[head + 1];
+            let leading = wrapped.chars().take_while(|c| *c == ' ').count();
+            assert_eq!(
+                leading,
+                1 + indent,
+                "a label of {label_length} wraps after {indent}:\n{backend}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_own_answer_label_keeps_the_text_readable() {
+        let app = own_answer_labelled("Your own suggestion for the name of it");
+        insta::assert_snapshot!(screen(&app, 60, 15));
+    }
+
+    #[test]
+    fn a_long_reject_reason_wraps_under_its_start() {
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "ll");
+        special(&mut app, KeyCode::Esc);
+        keys(&mut app, "lj");
         keys(
             &mut app,
-            "a mailing list, the release channel and the team chat",
+            "the release waits for the security fix, which lands next week at the earliest",
         );
-        insta::assert_snapshot!(screen(&app, 60, 15));
+        insta::assert_snapshot!("reject_reason_typed_60x15", screen(&app, 60, 15));
+
+        special(&mut app, KeyCode::Up);
+        insta::assert_snapshot!("reject_reason_left_60x24", screen(&app, 60, 24));
     }
 
     #[test]

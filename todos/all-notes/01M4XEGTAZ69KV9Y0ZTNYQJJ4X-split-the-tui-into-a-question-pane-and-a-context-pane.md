@@ -36,8 +36,9 @@ highlighting" and "Show diff entries in the context pane as a unified
 diff" build on the pane; the text viewer also waits for patine 1.5.0
 with the shared line renderer.
 
-Full Markdown in question texts, the wrapped own answer and the session
-note on the review tab ship in the same release as their own todos. The
+Full Markdown in question texts and the session note on the review tab
+ship in the same release as their own todos; the wrapped own answer has
+landed already (ADR 27). The
 Markdown todo and the text viewer share the adapter from patine's lines
 to ratatui styles; whichever lands first builds it.
 

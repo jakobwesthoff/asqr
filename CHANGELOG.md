@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A long own answer and a long reject reason wrap onto further lines
+  under their start, like a note, instead of scrolling sideways while
+  typed and being cut with `…` otherwise. The counter of a focused own
+  answer moves to a line of its own after the text. The answer itself
+  stays one line.
 - The agent skill explains that the intro shows in at most three lines
   and only identifies the session, and that everything needed to answer
   belongs in the question text.

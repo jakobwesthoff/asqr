@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&app, 60, 15)"
+---
+" asqr · queue: default · 1 session waiting                  "
+" many                                                       "
+"   ☒ q  ✔ Review                                            "
+"────────────────────────────────────────────────────────────"
+"   ( ) 8. Option 8    What option 8 means.                  "
+"   ( ) 9. Option 9    What option 9 means.                  "
+"   ( ) 10. Option 10  What option 10 means.                 "
+"   ( ) 11. Option 11  What option 11 means.                 "
+"   ( ) 12. Option 12  What option 12 means.                 "
+" ❯ (•) ✎ Own answer: a mailing list, the release channel,   "
+"                     the team chat and a short post on the  "
+"                     project page, written by whoever has   "
+"                     the time on the day                    "
+"                                                            "
+" ↑/↓  move   enter  pick   ←/→  question   n  note   ?  help"

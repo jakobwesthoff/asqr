@@ -30,8 +30,8 @@ questions.
   the reject row's reason field: the person types into it when the
   cursor is on the row, and `enter` submits (user, 2026-10-14, asqr
   session `01M4XJX6BJADVKKXNXXFNVVC8Q`). It wraps like the reject reason
-  once the own-answer wrapping todo has landed. No `n` key on the review
-  tab.
+  (ADR 27, `one_line_field` in `src/tui/render/screen.rs`). No `n` key
+  on the review tab.
 - The result carries it as a top-level `note` on a submitted session
   only. A rejected result carries `reason` as today and no `note`
   (user, 2026-10-14).
