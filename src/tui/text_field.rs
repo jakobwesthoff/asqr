@@ -311,8 +311,7 @@ pub fn counted_lines(
 /// What a glyph of a field's layout shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Source {
-    /// The head, the indent of a further line, or the `—` of an empty
-    /// field: no text.
+    /// The head or the `—` of an empty field: no text.
     Lead,
     /// The grapheme at character `start` of its line, `chars` characters
     /// long.
@@ -443,13 +442,19 @@ fn layout<'a>(
     };
     let mut rows = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        let lead: Vec<Glyph> = if index == 0 {
-            head.content
+        // The first line follows the head. A later one starts `indent`
+        // columns in as a row's indent rather than as blanks in front of
+        // its text: blanks would make a word of their own, and a first word
+        // wider than the row would leave them alone on a row above it.
+        let (lead, first): (Vec<Glyph>, usize) = if index == 0 {
+            let head = head
+                .content
                 .graphemes(true)
                 .map(|grapheme| Glyph::new(grapheme, head.style))
-                .collect()
+                .collect();
+            (head, 0)
         } else {
-            vec![Glyph::new(" ", Style::new()); indent]
+            (Vec::new(), indent)
         };
         let cursor = cursor
             .filter(|(row, _)| *row == index)
@@ -461,14 +466,15 @@ fn layout<'a>(
             cursor,
             placeholder,
             width,
-            indent,
+            (first, indent),
         ));
     }
     rows
 }
 
-/// The rows of line `index` of a field's text after `lead`, the head or
-/// the indent, the further rows behind `indent` blanks.
+/// The rows of line `index` of a field's text after `lead`, the head on
+/// the first line, the first row `indents.0` and the further rows
+/// `indents.1` columns in.
 ///
 /// The text cursor's column is a character index, as ratatui-textarea
 /// counts it, and can lie inside a grapheme, such as on the skin tone of
@@ -482,7 +488,7 @@ fn line_rows<'a>(
     cursor: Option<usize>,
     placeholder: bool,
     width: usize,
-    indent: usize,
+    (first, rest): (usize, usize),
 ) -> Vec<VisualRow<'a>> {
     let mut sources = vec![Source::Lead; lead.len()];
     let mut glyphs = lead;
@@ -510,7 +516,7 @@ fn line_rows<'a>(
         sources.push(Source::End);
     }
 
-    let breaks = wrap_rows(&glyphs, width, 0, indent);
+    let breaks = wrap_rows(&glyphs, width, first, rest);
     let count = breaks.len();
     // Each row's characters run from where the row before ended to the
     // end of its last grapheme.
@@ -818,6 +824,57 @@ mod tests {
         );
     }
 
+    /// A word of 25 letters, wider than the 20 columns a row leaves after
+    /// `> ` in 22 columns.
+    const WIDE_WORD: &str = "abcdefghijklmnopqrstuvwxy";
+
+    #[test]
+    fn a_later_line_starting_with_a_word_wider_than_the_row_gets_no_empty_row() {
+        let text = format!("ab\n{WIDE_WORD}");
+        let field = shaped(&text, 22, (1, 0));
+
+        let lines = field.lines(&shape_of(22), true, None);
+
+        assert_eq!(
+            cursor_columns(&lines),
+            [
+                ("> ab".to_owned(), None),
+                ("  abcdefghijklmnopqrst".to_owned(), Some(2)),
+                ("  uvwxy".to_owned(), None),
+            ],
+            "the cursor on the word's first letter"
+        );
+        assert_eq!(
+            counted_lines(Span::from("> "), &text, 22, false).len(),
+            3,
+            "counting agrees"
+        );
+    }
+
+    #[test]
+    fn up_and_down_reach_a_later_line_starting_with_a_wide_word() {
+        let text = format!("ab\n{WIDE_WORD}");
+        let mut field = shaped(&text, 22, (0, 2));
+
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 2)), "its first row");
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 22)));
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((1, 2)));
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((0, 2)));
+
+        // 40 letters fill two rows, so the end of the line shows on a row
+        // of its own, reached from the last full row as on the first line.
+        let text = format!("ab\n{}", "x".repeat(40));
+        let mut field = shaped(&text, 22, (1, 40));
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((1, 20)));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 40)), "back");
+        let mut field = shaped(&text, 22, (1, 25));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 40)));
+        assert_eq!(
+            step(&mut field, KeyCode::Down),
+            Err(FieldKey::Leave(Leave::Down))
+        );
+    }
+
     #[test]
     fn before_the_first_draw_up_and_down_go_by_the_texts_lines() {
         let mut field = TextField::new("one\n\nthree");
@@ -1086,7 +1143,7 @@ mod tests {
             Some(column),
             false,
             width,
-            rest,
+            (0, rest),
         ))
     }
 
