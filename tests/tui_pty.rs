@@ -25,7 +25,7 @@ use common::Sandbox;
 use portable_pty::{Child, CommandBuilder, PtySize, native_pty_system};
 
 const SESSION: &str = r#"{"asqr": 2, "id": "pty-test", "questions": [{"id": "q",
-    "text": "Pick a fruit", "kind": "single",
+    "text": "Pick a fruit", "kind": "single", "custom": true,
     "options": [{"id": "a", "label": "Apples"}, {"id": "b", "label": "Bananas"}]}]}"#;
 
 const PATIENCE: Duration = Duration::from_secs(20);
@@ -168,6 +168,17 @@ impl Tui {
         }
     }
 
+    /// Writes `sequence` in one write, as a terminal sends what it
+    /// reports. Written a key at a time, its escape would arrive alone and
+    /// read as the `esc` key.
+    fn send(&mut self, sequence: &str) {
+        self.writer
+            .write_all(sequence.as_bytes())
+            .expect("sequence written");
+        self.writer.flush().expect("flushed");
+        std::thread::sleep(Duration::from_millis(30));
+    }
+
     fn wait_for_exit(&mut self) -> u32 {
         let start = Instant::now();
         loop {
@@ -211,16 +222,21 @@ fn answers_a_session_that_arrives_while_it_runs() {
     );
 
     // asqr asks for focus reports, so it can send its images again when
-    // it comes back into view (spec section 7.7); a report is no key.
+    // it comes back into view (spec section 7.7). A report is no key: in
+    // the middle of typing an own answer, its escape would leave the
+    // field and the y would go nowhere.
     assert!(
         tui.output().contains("\x1b[?1004h"),
         "focus reporting is on"
     );
-    tui.press("\x1b[I");
+    tui.press("jjx");
+    tui.send("\x1b[I");
+    tui.press("y");
+    tui.wait_for("Own answer: xy");
 
-    // Pick the second option, which moves on to the review, where the
-    // cursor rests on Submit.
-    tui.press("2");
+    // Pick the own answer, which moves on to the review, where the cursor
+    // rests on Submit.
+    tui.press("\r");
     tui.wait_for("Review your answers");
     tui.press("\r");
     tui.wait_for("Nothing to answer");
@@ -240,7 +256,7 @@ fn answers_a_session_that_arrives_while_it_runs() {
     )
     .expect("parses");
     assert_eq!(result.status, Status::Submitted);
-    assert_eq!(result.answers[0].selected, ["b"]);
+    assert_eq!(result.answers[0].custom.as_deref(), Some("xy"));
 }
 
 #[test]
