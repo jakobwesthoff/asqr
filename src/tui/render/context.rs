@@ -58,7 +58,7 @@ pub fn draw_pane(
         left: offset.left.min(page.columns.last_start()),
     };
     viewer.draw(body, frame.buffer_mut(), offset);
-    let line = header_line(entry, page, offset, header.width);
+    let line = header_line(entry, page, offset, header.width, !state.pane_focused());
     // The focused pane's header stands out the way the current tab does,
     // so the person sees where the keys go.
     let line = if state.pane_focused() {
@@ -72,21 +72,48 @@ pub fn draw_pane(
 
 /// The pane's header: the entry's name in bold, and on the right, where
 /// the content is taller than the body, which of its lines show.
-fn header_line(entry: &ContextEntry, page: Page, offset: Offset, width: u16) -> Line<'static> {
+///
+/// Where the content is taller or wider than the body and `offer_tab`
+/// holds, as it does while the pane lacks the focus, the right end also
+/// names `tab`, the key that moves into the pane to scroll it. The key bar
+/// is the first to drop its `tab` hint on a narrow terminal, which leaves
+/// the header the only place that names it. The hint goes before the name
+/// would have to be cut.
+fn header_line(
+    entry: &ContextEntry,
+    page: Page,
+    offset: Offset,
+    width: u16,
+    offer_tab: bool,
+) -> Line<'static> {
     let width = usize::from(width);
-    let position = (page.rows.total > page.rows.shown).then(|| {
+    let taller = page.rows.total > page.rows.shown;
+    let wider = page.columns.total > page.columns.shown;
+    let position = taller.then(|| {
         format!(
-            " {}–{} of {}",
+            "{}–{} of {}",
             offset.top + 1,
             offset.top + page.rows.shown,
             page.rows.total
         )
     });
-    let position_width = position.as_deref().map_or(0, columns);
-    let name = cut(&entry_name(entry), width.saturating_sub(position_width));
-    let gap = width.saturating_sub(columns(&name) + position_width);
+    let name = entry_name(entry);
+    let with_tab = match &position {
+        Some(position) => format!(" {position} · tab"),
+        None => " tab".to_owned(),
+    };
+    let right = match position {
+        _ if offer_tab && (taller || wider) && columns(&name) + columns(&with_tab) <= width => {
+            Some(with_tab)
+        }
+        Some(position) => Some(format!(" {position}")),
+        None => None,
+    };
+    let right_width = right.as_deref().map_or(0, columns);
+    let name = cut(&name, width.saturating_sub(right_width));
+    let gap = width.saturating_sub(columns(&name) + right_width);
     let mut spans = vec![Span::from(name).bold(), Span::from(" ".repeat(gap))];
-    spans.extend(position.map(|text| Span::from(text).dim()));
+    spans.extend(right.map(|text| Span::from(text).dim()));
     Line::from(spans)
 }
 
@@ -131,14 +158,14 @@ fn kind_and_name(entry: &ContextEntry) -> (&'static str, Option<String>) {
 
 /// The one line that stands in for the pane when the terminal has room
 /// for it neither beside nor below the question: what the entry is, and
-/// that `z` shows it.
-pub fn context_hint(entry: Option<&ContextEntry>, width: u16) -> Line<'static> {
+/// that `z`, as `key` names it, shows it.
+pub fn context_hint(entry: Option<&ContextEntry>, key: &str, width: u16) -> Line<'static> {
     let Some(entry) = entry else {
         return Line::default();
     };
     let text = match kind_and_name(entry) {
-        (kind, Some(name)) => format!("▸ {kind}: {name} · z: full screen"),
-        (kind, None) => format!("▸ {kind} · z: full screen"),
+        (kind, Some(name)) => format!("▸ {kind}: {name} · {key}: full screen"),
+        (kind, None) => format!("▸ {kind} · {key}: full screen"),
     };
     Line::from(cut(&text, usize::from(width))).dim()
 }
@@ -160,7 +187,8 @@ mod tests {
 
     #[test]
     fn the_hint_names_the_entry_shown() {
-        let hint = |entry: Option<&ContextEntry>, width: u16| text(&context_hint(entry, width));
+        let hint =
+            |entry: Option<&ContextEntry>, width: u16| text(&context_hint(entry, "z", width));
 
         let cases = [
             (
@@ -215,6 +243,16 @@ mod tests {
     }
 
     #[test]
+    fn the_hint_names_the_key_as_given() {
+        let image = entry(r#"{"type": "image", "path": "/pictures/cat.png"}"#);
+
+        assert_eq!(
+            text(&context_hint(Some(&image), "esc, z", 78)),
+            "▸ image: cat.png · esc, z: full screen"
+        );
+    }
+
+    #[test]
     fn the_header_names_the_entry_by_title_file_name_or_kind() {
         let fits = Page {
             rows: Extent {
@@ -223,7 +261,15 @@ mod tests {
             },
             columns: Extent::default(),
         };
-        let header = |json: &str| text(&header_line(&entry(json), fits, Offset::default(), 30));
+        let header = |json: &str| {
+            text(&header_line(
+                &entry(json),
+                fits,
+                Offset::default(),
+                30,
+                true,
+            ))
+        };
 
         let cases = [
             (
@@ -262,9 +308,53 @@ mod tests {
             r#"{"type": "code", "title": "A very long title for a short line", "content": "x"}"#,
         );
 
-        let line = text(&header_line(&titled, page, Offset { top: 3, left: 0 }, 30));
+        let line = text(&header_line(
+            &titled,
+            page,
+            Offset { top: 3, left: 0 },
+            30,
+            true,
+        ));
 
-        assert_eq!(line, "A very long title… 4–15 of 120");
+        assert_eq!(
+            line, "A very long title… 4–15 of 120",
+            "the tab hint goes before the name is cut"
+        );
+    }
+
+    #[test]
+    fn the_unfocused_header_offers_tab_where_the_entry_scrolls() {
+        let page = |rows: usize, columns: usize| Page {
+            rows: Extent {
+                shown: 10,
+                total: rows,
+            },
+            columns: Extent {
+                shown: 20,
+                total: columns,
+            },
+        };
+        let log = entry(r#"{"type": "code", "title": "Log", "content": "x"}"#);
+        let header = |page: Page, offer_tab: bool| {
+            text(&header_line(&log, page, Offset::default(), 30, offer_tab))
+        };
+
+        assert_eq!(header(page(31, 20), true), "Log           1–10 of 31 · tab");
+        assert_eq!(
+            header(page(10, 50), true),
+            "Log                        tab",
+            "wider"
+        );
+        assert_eq!(
+            header(page(31, 20), false),
+            "Log                 1–10 of 31",
+            "focused"
+        );
+        assert_eq!(
+            header(page(10, 20), true).trim_end(),
+            "Log",
+            "nothing to scroll"
+        );
     }
 
     #[test]
@@ -277,7 +367,7 @@ mod tests {
             columns: Extent::default(),
         };
         let short = entry(r#"{"type": "code", "title": "日本語の🎉", "content": "x"}"#);
-        let line = text(&header_line(&short, fits, Offset::default(), 30));
+        let line = text(&header_line(&short, fits, Offset::default(), 30, true));
         assert_eq!(columns(&line), 30, "fills the line: {line:?}");
 
         let page = Page {
@@ -292,7 +382,13 @@ mod tests {
         // The position takes 12 columns, which leaves the name 18: 16 for
         // 日本語のとても長, as い would cross into the `…`, then the `…`
         // and one blank.
-        let line = text(&header_line(&long, page, Offset { top: 3, left: 0 }, 30));
+        let line = text(&header_line(
+            &long,
+            page,
+            Offset { top: 3, left: 0 },
+            30,
+            true,
+        ));
         assert_eq!(line, "日本語のとても長…  4–15 of 120");
         assert_eq!(columns(&line), 30);
     }

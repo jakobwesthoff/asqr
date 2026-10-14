@@ -117,13 +117,20 @@ Agent's choices within that design:
   named by its kind (`text`, `diff`) in the header.
 - When the content is taller than the pane, the header's right end says
   which lines show, such as `4–15 of 120`, as the intro overlay does
-  (ADR 30).
+  (ADR 30). While the pane does not have the focus and its content is
+  taller or wider than the pane, the right end also names `tab`, such
+  as `1–10 of 31 · tab`. On 80 columns the key bar of a `multi`
+  question drops its `tab context` hint, and `pgup`/`pgdn` never show
+  there, so no other place would name a key that reaches the pane. The
+  `tab` goes before the name would have to be cut.
 - A row without context leaves the pane empty, header included, so the
   layout does not jump.
 - The full-screen view is the pane over the whole tab area, header
   included, inside the same one-column margins as the tab.
 - The hint that stands in for the pane on a small terminal offers `z`
-  for every entry.
+  for every entry. While a field or a note has the keys, where `z` is
+  typed, it reads `esc, z: full screen`, and the cut intro in the header
+  reads `… esc, i: more` for the same reason; one function decides both.
 - **Scroll position per entry:** every entry keeps its own position
   while its session waits. Moving to another entry shows it where the
   person left it, or at its top the first time; coming back restores
@@ -159,9 +166,9 @@ Agent's choices within that design:
   replaced session file can change the entry under it, and the view
   ends when that happens.
 - `o` on a code, Markdown or diff entry says that it opens images only
-  and that `z` shows the entry full screen, and where no entry shows it
-  says there is nothing to open, so the key never does nothing without
-  a word.
+  and, outside the full-screen view, that `z` shows the entry full
+  screen. Where no entry shows, it says there is nothing to open. The
+  key never does nothing without a word.
 - The key bar names `tab` before `?` wherever a pane shows. The general
   help keeps its 13 lines, which fill the smallest screen: `space` and
   `1`-`9` share a line, as do `n` and `ctrl-j`, to make room for `tab`

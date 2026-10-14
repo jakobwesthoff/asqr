@@ -616,7 +616,9 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   then the intro, both wrapped at the reading width. The title takes at
   most two lines and the intro three, one each on terminals below 24
   rows. A cut title ends in `…`, a cut intro in `… i: more`, and `i`
-  shows the whole intro (section 7.2). The tab bar keeps the full
+  shows the whole intro (section 7.2). While a field, a note or the
+  context pane has the keys, where `i` would be typed or taken by the
+  pane, the intro ends in `… esc, i: more`. The tab bar keeps the full
   width.
 - The tab bar lists every question by its `header` (or id) with `☒`
   once it is answered and `☐` while it is not, and `✔ Review` last. The
@@ -674,7 +676,8 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
     is used when it fits, and the other one when only that fits.
   - When neither fits, the context pane shrinks to one line at the
     bottom of the tab that names the entry shown and adds
-    `z: full screen`.
+    `z: full screen`, or `esc, z: full screen` while a field or a note
+    has the keys.
   - A question without context takes the width it can get up to the
     reading width, so its text reflows when moving to a question with
     context beside.
@@ -724,9 +727,8 @@ On an option row (vim style plus arrows):
   (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
   started, a notice says why. On a code, Markdown or diff entry it
   opens nothing and says "o opens images only; z shows this entry full
-  screen", and where no entry shows it says "nothing to open here".
-  Both hold from the question, the focused pane and the full-screen
-  view.
+  screen", in the full-screen view only "o opens images only", and
+  where no entry shows it says "nothing to open here".
 - `tab` moves the focus into the context pane (section 7.7) wherever one
   shows, also from a field, and does nothing otherwise, such as next to
   the one-line hint. The focused pane takes every key: `↑`/`↓` and
@@ -903,8 +905,12 @@ Context appears only when a question or one of its options has some.
   or the file name of its `path` (a diff's `name`), or its kind, `code`,
   `markdown` or `diff`, when it has neither. When the entry is taller than the
   pane, the header's right end says which lines show, such as
-  `4–15 of 120`. A row without context leaves the pane empty, header
-  included (ADR 31).
+  `4–15 of 120`. When the entry is taller or wider than the pane and the
+  pane does not have the focus, the right end also names `tab`, as in
+  `1–10 of 31 · tab`, or `tab` alone for an entry that is only wider:
+  on a narrow terminal the key bar leaves out its `tab` hint first.
+  Where the name would have to be cut for it, the `tab` goes first. A
+  row without context leaves the pane empty, header included (ADR 31).
 - Below the header, a viewer shows the entry. An image is scaled to
   fill the pane as far as its proportions allow, a small one included,
   and so is the `z` view. An image entry with `enlarge: false` keeps its

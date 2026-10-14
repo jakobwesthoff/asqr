@@ -127,11 +127,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the question and the review says that rows are cut off there.
 - Context shows in a pane whose first line names the entry by its
   title or file name and, when the entry is taller than the pane, says
-  which of its lines show. Beside or below the question, an image gets
+  which of its lines show. While the pane does not have the focus and
+  its entry is taller or wider than the pane, the header also names
+  `tab`, as in `1–10 of 31 · tab`. Beside or below the question, an image gets
   one row less for that line, and an image smaller than the pane grows
   to fill it.
 - `z` shows any context entry full screen, not only an image, and the
-  one-line hint on small terminals offers it for every entry. The
+  one-line hint on small terminals offers it for every entry, as
+  `esc, z: full screen` while a field or a note has the keys. The
   full-screen view takes every key, as the focused pane does: it
   scrolls with the pane's keys, the question's keys no longer act
   behind it, and `z`, `esc`, `tab` or `q` go back to where the focus
@@ -150,7 +153,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there rather than in the question text.
 - The session title and intro wrap at the reading width instead of
   running to the edge. The title takes at most two lines, one on
-  terminals under 24 rows. A cut intro ends in `… i: more`.
+  terminals under 24 rows. A cut intro ends in `… i: more`, or in
+  `… esc, i: more` while a field, a note or the context pane has the
+  keys.
 - The agent skill says that a cut intro can be read with `i`.
 - The agent skill explains that the intro shows in at most three lines
   and only identifies the session, and that everything needed to answer

@@ -626,14 +626,19 @@ impl SessionState {
         Effect::None
     }
 
-    /// `o`: opens the image shown, or says why it cannot.
+    /// `o`: opens the image shown, or says why it cannot. Outside the
+    /// full-screen view it points to `z`, which shows any entry whole.
     fn open(&mut self) -> Effect {
         match self.shown_context() {
             Some(entry) => match entry.image_path() {
                 Some(image) => Effect::OpenImage(image.to_owned()),
                 None => {
-                    self.message =
-                        Some("o opens images only; z shows this entry full screen".to_owned());
+                    let message = if self.full_screen.is_some() {
+                        "o opens images only"
+                    } else {
+                        "o opens images only; z shows this entry full screen"
+                    };
+                    self.message = Some(message.to_owned());
                     Effect::None
                 }
             },
@@ -1825,7 +1830,11 @@ mod tests {
         assert_eq!(state.message(), Some(code_entry), "from the focused pane");
         press(&mut state, "z");
         assert_eq!(press(&mut state, "o"), Effect::None);
-        assert_eq!(state.message(), Some(code_entry), "from the full screen");
+        assert_eq!(
+            state.message(),
+            Some("o opens images only"),
+            "the full-screen view already shows the entry whole"
+        );
     }
 
     #[test]

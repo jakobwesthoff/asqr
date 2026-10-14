@@ -21,7 +21,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::context::{context_hint, draw_pane};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
-use super::parts::{Level, answer_summary, counter, cut, kind_hint};
+use super::parts::{Level, answer_summary, counter, cut, kind_hint, question_key};
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::viewer::Viewers;
@@ -394,7 +394,8 @@ fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> Exte
 /// both wrapped. The title takes at most two lines and the intro three,
 /// one each on short terminals, so the question keeps its room. A cut
 /// title ends in `…`; a cut intro ends in `… i: more`, as `i` shows all
-/// of it.
+/// of it, or in `… esc, i: more` where `i` would be typed or taken by the
+/// pane.
 fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'static>> {
     let short = height < 24;
     let session = state.session();
@@ -426,7 +427,8 @@ fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'st
         .into_iter()
         .map(|line| indented(line, 1).dim())
         .collect();
-    lines.extend(at_most(intro, if short { 1 } else { 3 }, "… i: more", room));
+    let more = format!("… {}: more", question_key(state, "i"));
+    lines.extend(at_most(intro, if short { 1 } else { 3 }, &more, room));
     lines
 }
 
@@ -601,7 +603,8 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
 
     let pane = match context_area {
         Some(area) if arrangement == Some(Arrangement::Hint) => {
-            frame.render_widget(context_hint(state.shown_context(), area.width), area);
+            let z = question_key(state, "z");
+            frame.render_widget(context_hint(state.shown_context(), &z, area.width), area);
             None
         }
         Some(area) => draw_pane(frame, state, area, &mut view.viewers),
@@ -3007,6 +3010,71 @@ mod tests {
     }
 
     #[test]
+    fn the_context_hint_and_the_cut_intro_put_esc_first_while_a_field_has_the_keys() {
+        let mut app = app(&[(
+            "pictured",
+            r#"{"asqr": 2, "intro": "First line of the intro\nsecond line\nthird line\nfourth line",
+                "questions": [{"id": "q", "text": "Which one?", "kind": "single", "custom": true,
+                "context": [{"type": "image", "path": "/pictures/x.png"}], "options": [{"id": "a", "label": "This one"}]}]}"#,
+        )]);
+        let rows = |app: &App| screen_lines(&screen(app, 80, 20));
+        let unfocused = rows(&app);
+        assert!(
+            unfocused.iter().any(|row| row.contains("… i: more")),
+            "{unfocused:#?}"
+        );
+        assert!(
+            unfocused.iter().any(|row| row.contains("· z: full screen")),
+            "{unfocused:#?}"
+        );
+
+        keys(&mut app, "j");
+
+        let backend = screen(&app, 80, 20);
+        let typing = screen_lines(&backend);
+        assert!(
+            typing.iter().any(|row| row.contains("… esc, i: more")),
+            "{typing:#?}"
+        );
+        assert!(
+            typing
+                .iter()
+                .any(|row| row.contains("· esc, z: full screen")),
+            "{typing:#?}"
+        );
+        insta::assert_snapshot!("context_hint_in_a_field_80x20", backend);
+    }
+
+    #[test]
+    fn the_cut_intro_puts_esc_first_in_a_text_answer() {
+        let mut app = long_header();
+        keys(&mut app, "ll");
+
+        insta::assert_snapshot!("intro_cut_in_a_field_80x24", screen(&app, 80, 24));
+    }
+
+    #[test]
+    fn at_80_columns_the_pane_header_offers_tab_where_the_key_bar_has_no_room() {
+        let lines: String = (1..=30).map(|line| format!("line {line}\\n")).collect();
+        let app = app(&[(
+            "long",
+            &format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Merge which?", "kind": "multi", "custom": true,
+                    "context": [{{"type": "diff", "title": "Thirty lines", "new": {{"content": "{lines}"}}}}],
+                    "options": [{{"id": "a", "label": "This"}}, {{"id": "b", "label": "That"}}]}}]}}"#
+            ),
+        )]);
+
+        let backend = screen(&app, 80, 24);
+        let rows = screen_lines(&backend);
+
+        let key_bar = rows.last().expect("a key bar");
+        assert!(!key_bar.contains("tab"), "no room for tab: {key_bar}");
+        let header = &rows[usize::from(row_starting_with(&backend, "Thirty lines"))];
+        assert!(header.trim_end().ends_with(" · tab"), "{backend}");
+    }
+
+    #[test]
     fn a_layout_asked_for_wins_while_it_fits() {
         let file = png();
         let app = with_image(file.path().to_str().expect("UTF-8 path"));
@@ -3819,7 +3887,7 @@ mod tests {
         insta::assert_snapshot!("wide_own_answer_60x24", backend);
         let rows = visible_rows(&backend);
         assert!(
-            rows[4].trim_end().ends_with("… i: more"),
+            rows[4].trim_end().ends_with("… esc, i: more"),
             "the cut intro keeps its marker:\n{backend}"
         );
         // Without blanks, the text is one word longer than the room after

@@ -1,0 +1,24 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr · queue: default · 1 session waiting                                      "
+" pictured                                                                       "
+" First line of the intro… esc, i: more                                          "
+"   ☐ q  ✔ Review                                                                "
+"────────────────────────────────────────────────────────────────────────────────"
+" Which one?                                                                     "
+" pick one, or type your own                                                     "
+"                                                                                "
+"   ( ) 1. This one                                                              "
+" ❯ ( ) ✎ Own answer:                                                            "
+"                                                                                "
+" Notes: —                                                                       "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ▸ image: x.png · esc, z: full screen                                           "
+"                                                                                "
+" enter  pick   ↑/↓  leave   esc  stop typing                                    "

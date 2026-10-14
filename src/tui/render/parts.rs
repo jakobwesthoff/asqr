@@ -7,6 +7,7 @@
 
 use super::source_line::{columns, fitting};
 use crate::format::{Answer, Kind, Length, Question, is_answered};
+use crate::tui::{Focus, SessionState};
 
 /// How a length counter is coloured (spec section 7.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,6 +115,17 @@ pub fn kind_hint(question: &Question) -> String {
         format!("{hint}, or type your own")
     } else {
         hint
+    }
+}
+
+/// How the header and the context hint name a key of the question, such
+/// as `i` or `z`. While a field, a note or the context pane has the keys,
+/// the key would be typed or taken by the pane, so `esc` comes first.
+pub fn question_key(state: &SessionState, key: &str) -> String {
+    if state.focus() != Focus::None || state.pane_focused() {
+        format!("esc, {key}")
+    } else {
+        key.to_owned()
     }
 }
 
@@ -284,5 +296,32 @@ mod tests {
             hint(r#"{"id": "q", "text": "?", "kind": "text"}"#),
             "type your answer"
         );
+    }
+
+    #[test]
+    fn a_question_key_needs_esc_first_wherever_something_else_has_the_keys() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        use crate::tui::{Extent, Page, SessionState};
+
+        let session = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single", "custom": true,
+            "context": [{"type": "code", "content": "x"}], "options": [{"id": "a", "label": "A"}]}]}"#;
+        let mut state =
+            SessionState::new("keys", serde_json::from_str(session).expect("parses"), None);
+        state.set_pane_page(Some(Page {
+            rows: Extent { shown: 5, total: 5 },
+            columns: Extent::default(),
+        }));
+        assert_eq!(question_key(&state, "i"), "i");
+        let mut press = |code: KeyCode| {
+            state.handle(KeyEvent::new(code, KeyModifiers::NONE));
+            question_key(&state, "i")
+        };
+
+        assert_eq!(press(KeyCode::Char('n')), "esc, i", "in a note");
+        assert_eq!(press(KeyCode::Esc), "i");
+        assert_eq!(press(KeyCode::Tab), "esc, i", "in the focused pane");
+        assert_eq!(press(KeyCode::Esc), "i");
+        assert_eq!(press(KeyCode::Down), "esc, i", "in the own answer");
     }
 }
