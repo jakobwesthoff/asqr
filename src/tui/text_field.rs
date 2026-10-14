@@ -84,6 +84,10 @@ pub struct TextField {
     /// The column `↑`/`↓` aim for while they follow each other, so the
     /// cursor comes back to it after passing a shorter row.
     wanted: Option<usize>,
+    /// The field was entered from the row above and has not been drawn
+    /// since: its first row is known only once it is, and the text cursor
+    /// goes to that row's end then, unless a key came first.
+    from_above: bool,
 }
 
 impl TextField {
@@ -98,7 +102,32 @@ impl TextField {
             editor,
             shape: None,
             wanted: None,
+            from_above: false,
         }
+    }
+
+    /// A field holding `text` that the cursor entered from the row above:
+    /// the text cursor goes to the end of its first row, where `↓` would
+    /// have taken it from inside the field, rather than to the end of the
+    /// text several rows further down (ADR 36). In a field of one row
+    /// that is the end of the text. Until the field is drawn, its rows
+    /// are the text's lines.
+    pub fn entered_from_above(text: &str) -> Self {
+        let mut field = TextField::new(text);
+        field.move_to_first_row_end();
+        field.from_above = true;
+        field
+    }
+
+    /// A field holding `text` with the text cursor at `cursor`, or as near
+    /// to it as the text reaches.
+    pub fn with_cursor(text: &str, (line, column): (usize, usize)) -> Self {
+        let mut field = TextField::new(text);
+        let lines = field.editor.lines();
+        let line = line.min(lines.len() - 1);
+        let column = column.min(lines[line].chars().count());
+        field.jump((line, column));
+        field
     }
 
     pub fn text(&self) -> String {
@@ -117,9 +146,42 @@ impl TextField {
         lines.iter().map(|line| line.chars().count()).sum::<usize>() + lines.len().saturating_sub(1)
     }
 
-    /// Takes where the field was drawn, for `↑`/`↓`.
-    pub fn set_shape(&mut self, shape: FieldShape) {
+    /// Takes where the field was drawn, for `↑`/`↓`, and says whether
+    /// that moved the text cursor, which then needs drawing again: a field
+    /// entered from above and drawn for the first time puts it at the end
+    /// of its first row as drawn.
+    pub fn set_shape(&mut self, shape: FieldShape) -> bool {
         self.shape = Some(shape);
+        if !std::mem::take(&mut self.from_above) {
+            return false;
+        }
+        let before = self.cursor();
+        self.move_to_first_row_end();
+        self.cursor() != before
+    }
+
+    /// Puts the text cursor at the end of the first row that can hold it,
+    /// when the field shows more than one.
+    fn move_to_first_row_end(&mut self) {
+        let shape = self.shape_or_lines();
+        let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
+        let rows = layout(&shape.head, &lines, None, false, shape.width);
+        let mut reachable = rows.iter().filter(|row| row.reachable());
+        let (Some(first), Some(_)) = (reachable.next(), reachable.next()) else {
+            return;
+        };
+        let position = closest_on(first, usize::MAX, &shape, &lines);
+        let line = first.line;
+        self.jump((line, position));
+    }
+
+    /// Where the field was last drawn, or before its first draw, a shape
+    /// whose rows are the text's lines.
+    fn shape_or_lines(&self) -> FieldShape {
+        self.shape.clone().unwrap_or(FieldShape {
+            head: Span::default(),
+            width: usize::MAX,
+        })
     }
 
     /// Applies `key`. `enter`, `esc` and the arrows that would leave the
@@ -139,6 +201,7 @@ impl TextField {
     /// to the start of the text. `tab` never types a tab, which would show
     /// as nothing.
     pub fn key(&mut self, key: KeyEvent) -> FieldKey {
+        self.from_above = false;
         let plain = key.modifiers.is_empty();
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
@@ -185,6 +248,7 @@ impl TextField {
     /// that follow start from where the paste left the text cursor.
     pub fn paste(&mut self, text: &str) -> bool {
         self.wanted = None;
+        self.from_above = false;
         let (line, column) = self.cursor();
         let before: String = self.editor.lines()[line].chars().take(column).collect();
         self.editor.insert_str(cleaned_from(text, columns(&before)))
@@ -194,16 +258,10 @@ impl TextField {
     /// last drawn, or says that the field is left from its first or last
     /// row. Before the first draw the rows are the text's lines.
     ///
-    /// The row comes from the layout with the cursor where it is. A
-    /// position whose cursor would show on another row, such as the end of
-    /// a row that fills the width, which would start a row of its own,
-    /// gives way to the closest one before it that stays on the row.
+    /// The row comes from the layout with the cursor where it is, and the
+    /// position on it from [`closest_on`].
     fn vertical(&mut self, to: Leave, wanted: Option<usize>) -> FieldKey {
-        let unshaped = FieldShape {
-            head: Span::default(),
-            width: usize::MAX,
-        };
-        let shape = self.shape.as_ref().unwrap_or(&unshaped);
+        let shape = &self.shape_or_lines();
         let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
         let cursor = self.cursor();
         let rows = layout(&shape.head, &lines, Some(cursor), false, shape.width);
@@ -238,29 +296,7 @@ impl TextField {
         let Some(target) = target else {
             return FieldKey::Leave(to);
         };
-        let shows_on_target = |position: usize| {
-            layout(
-                &shape.head,
-                &lines,
-                Some((target.line, position)),
-                false,
-                shape.width,
-            )
-            .iter()
-            .find(|row| row.holds((target.line, position)))
-            .is_some_and(|row| row.line == target.line && row.chars.start == target.chars.start)
-        };
-        let aimed = target.position_at(column);
-        let position = if shows_on_target(aimed) {
-            aimed
-        } else {
-            target
-                .positions()
-                .filter(|position| *position < aimed)
-                .rev()
-                .find(|position| shows_on_target(*position))
-                .unwrap_or(aimed)
-        };
+        let position = closest_on(target, column, shape, &lines);
         let line = target.line;
         self.jump((line, position));
         FieldKey::Unchanged
@@ -641,6 +677,36 @@ fn line_rows<'a>(
         .collect()
 }
 
+/// The position on `target`, a row of `lines` laid out as `shape` says,
+/// closest to display column `column`. A position whose cursor would show
+/// on another row, such as the end of a row that fills the width, which
+/// would start a row of its own, gives way to the closest one before it
+/// that stays on the row.
+fn closest_on(target: &VisualRow, column: usize, shape: &FieldShape, lines: &[&str]) -> usize {
+    let shows_on_target = |position: usize| {
+        layout(
+            &shape.head,
+            lines,
+            Some((target.line, position)),
+            false,
+            shape.width,
+        )
+        .iter()
+        .find(|row| row.holds((target.line, position)))
+        .is_some_and(|row| row.line == target.line && row.chars.start == target.chars.start)
+    };
+    let aimed = target.position_at(column);
+    if shows_on_target(aimed) {
+        return aimed;
+    }
+    target
+        .positions()
+        .filter(|position| *position < aimed)
+        .rev()
+        .find(|position| shows_on_target(*position))
+        .unwrap_or(aimed)
+}
+
 /// `rows` as lines to draw.
 fn drawn(rows: &[VisualRow]) -> Vec<Line<'static>> {
     rows.iter()
@@ -735,6 +801,44 @@ mod tests {
         assert_eq!(field.cursor(), (1, 3));
         assert_eq!(field.length(), 7, "a line break counts as one");
         assert_eq!(TextField::new("").length(), 0);
+    }
+
+    #[test]
+    fn a_field_entered_from_above_starts_at_the_end_of_its_first_row() {
+        let field = TextField::entered_from_above("one\ntwo");
+        assert_eq!(field.cursor(), (0, 3), "before a draw, the first line");
+        let field = TextField::entered_from_above("ab");
+        assert_eq!(field.cursor(), (0, 2), "a field of one row");
+        let field = TextField::entered_from_above("");
+        assert_eq!(field.cursor(), (0, 0));
+
+        // Drawn, the first row ends with the blank after `ccccc`.
+        let mut field = TextField::entered_from_above(THREE_ROWS);
+        assert_eq!(field.cursor(), (0, 47), "one line before the draw");
+        assert!(field.set_shape(shape_of(22)), "the cursor moved");
+        assert_eq!(field.cursor(), (0, 17));
+        assert!(!field.set_shape(shape_of(22)), "only after the first draw");
+        assert_eq!(field.cursor(), (0, 17));
+    }
+
+    #[test]
+    fn a_key_before_the_first_draw_keeps_the_text_cursor_where_it_went() {
+        let mut field = TextField::entered_from_above(THREE_ROWS);
+        field.key(code(KeyCode::Left));
+        assert!(!field.set_shape(shape_of(22)));
+        assert_eq!(field.cursor(), (0, 46));
+
+        let mut field = TextField::entered_from_above(THREE_ROWS);
+        field.paste("x");
+        assert!(!field.set_shape(shape_of(22)));
+        assert_eq!(field.cursor(), (0, 48));
+    }
+
+    #[test]
+    fn a_field_with_a_cursor_keeps_it_within_its_text() {
+        assert_eq!(TextField::with_cursor("ab\nc", (0, 1)).cursor(), (0, 1));
+        assert_eq!(TextField::with_cursor("ab\nc", (0, 7)).cursor(), (0, 2));
+        assert_eq!(TextField::with_cursor("ab\nc", (5, 9)).cursor(), (1, 1));
     }
 
     #[test]

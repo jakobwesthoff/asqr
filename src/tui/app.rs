@@ -142,11 +142,13 @@ impl App {
     }
 
     /// Hands the active session where its field or note that has the keys
-    /// was drawn, which `↑`/`↓` move through. A draw without one, as under
-    /// an overlay, leaves the last one.
-    pub fn set_field_shape(&mut self, shape: Option<FieldShape>) {
-        if let (Some(state), Some(shape)) = (self.sessions.get_mut(self.active), shape) {
-            state.set_field_shape(shape);
+    /// was drawn, which `↑`/`↓` move through, and says whether that moved
+    /// the text cursor, so the screen shows it where it went. A draw
+    /// without one, as under an overlay, leaves the last one.
+    pub fn set_field_shape(&mut self, shape: Option<FieldShape>) -> bool {
+        match (self.sessions.get_mut(self.active), shape) {
+            (Some(state), Some(shape)) => state.set_field_shape(shape),
+            _ => false,
         }
     }
 

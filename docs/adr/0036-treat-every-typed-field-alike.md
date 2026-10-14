@@ -152,3 +152,21 @@ field (spec section 7.3):
 - **A paste where no field has the keys** goes into the field of the
   row, giving it the keys again, and elsewhere a message says where a
   paste goes, where it vanished before.
+- **Entering a field by direction** (user, 2026-10-14): a field was
+  always entered with the text cursor at the end of its text, so `↓`
+  into a field of several rows landed on its last row, past the rows
+  in between. The cursor that moves down onto a field's row now puts
+  the text cursor at the end of the field's first row; moving up onto
+  it, the end of its last row, which is the end of the text, as before.
+  A field of one row is entered at the end of its text either way.
+  Agent's choices: the rows are the rows as drawn. A field entered from
+  above is drawn once with the text cursor at the end of its first
+  line, as its rows are known only then; the cursor then moves to its
+  first row's end and the screen is drawn again at once, unless a key
+  came first. `esc` followed by `↑` or `↓` on the same row, a switch
+  between questions and a paste keep the end of the text.
+- **A replaced session file** keeps the focus on the row found again: a
+  field left with `esc` stays without the keys, a field typed in keeps
+  its text cursor, and an open note stays open while the question still
+  takes notes. Before, the row's field got the keys again with the text
+  cursor at its end, and an open note closed.

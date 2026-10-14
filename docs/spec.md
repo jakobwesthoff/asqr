@@ -829,6 +829,12 @@ a frame (user, 2026-09-27):
   at the start and end of its text; the note stays where it is (ADR 36).
   `↓` from the last row of a line whose end shows on a row of its own,
   as after a text that fills its row, goes to that end first.
+- **Entering a field:** the cursor that moves down onto a field's row
+  puts the text cursor at the end of the field's first row, as drawn;
+  everywhere else, as moving up onto it, switching questions or after
+  `esc`, the text cursor goes to the end of the text, which is the end
+  of its last row (user, 2026-10-14). In a field of one row the two are
+  the same.
 - Every edit is saved to the draft continuously, the session note and
   the reject reason included; there is no discard.
 - Pasted text goes in at the text cursor of the focused field or note
@@ -926,10 +932,15 @@ is left.
   Sessions waiting when asqr starts, and replaced files, trigger nothing.
 - A replaced session file keeps the answers that still fit and where
   the person was: the question shown, found again by its id, or the
-  review; the row, or the last one when fewer are left, with its field
-  taking the keys again; the context pane's focus and the full-screen
-  view while the same entry shows; and the scroll position of every
-  entry that reads as before. The message "<title> changed on disk and
+  review; the row with its focus, so a field left with `esc` stays
+  without the keys, a field typed in keeps its text cursor, and an open
+  note stays open while the question still takes notes (otherwise the
+  row takes the keys as after the note); the context pane's focus and
+  the full-screen view while the same entry shows; and the scroll
+  position of every entry that reads as before. A row that is gone,
+  such as an own answer turned off, gives way to the row in its place,
+  or the last one when fewer are left, which is entered as if the
+  cursor moved there. The message "<title> changed on disk and
   was reloaded" says so, with the id for a session without a title. An
   open intro overlay closes when the new file has no intro. A session
   list open while a session leaves keeps its cursor on a waiting

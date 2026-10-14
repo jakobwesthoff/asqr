@@ -254,9 +254,14 @@ impl SessionState {
     /// was, so the reload does not throw them back to the start.
     ///
     /// The question shown is found again by its id, as a draft finds it,
-    /// and the review stays the review. The row stays where it was, or on
-    /// the last row when the tab has fewer, and its field takes the keys
-    /// again. The pane's focus and the full-screen view stay while the
+    /// and the review stays the review. Where the row is found again, the
+    /// focus stays as it was: a field left with `esc` stays without the
+    /// keys, a field typed in keeps its text cursor, and an open note stays
+    /// open while the question still takes notes, else the row takes the
+    /// keys as after the note. A row that is gone, such as an own answer
+    /// turned off, gives way to the row in its place, or the last row when
+    /// the tab has fewer, which is entered as if moved to. The pane's
+    /// focus and the full-screen view stay while the
     /// same entry shows; another entry under them ends both, as the
     /// person did not choose to look at it. Each entry keeps its scroll
     /// position while it reads as before.
@@ -271,14 +276,25 @@ impl SessionState {
         // On the review neither has a question, which counts as the same.
         let same_tab = self.question().map(|question| &question.id)
             == replaced.question().map(|question| &question.id);
-        if same_tab {
-            let rows = replaced.rows();
-            replaced.row = self
-                .current_row()
-                .and_then(|row| rows.iter().position(|&new| new == row))
-                .unwrap_or_else(|| self.row.min(rows.len().saturating_sub(1)));
+        let found = same_tab
+            .then(|| {
+                let rows = replaced.rows();
+                self.current_row()
+                    .and_then(|row| rows.iter().position(|&new| new == row))
+            })
+            .flatten();
+        match found {
+            Some(row) => {
+                replaced.row = row;
+                replaced.keep_focus(self);
+            }
+            None => {
+                if same_tab {
+                    replaced.row = self.row.min(replaced.rows().len().saturating_sub(1));
+                }
+                replaced.arrive();
+            }
         }
-        replaced.arrive();
 
         replaced.pane_page = self.pane_page;
         let shown = |state: &SessionState| state.shown_entry().map(|(key, _)| key);
@@ -299,6 +315,32 @@ impl SessionState {
         let name = replaced.session.title.as_deref().unwrap_or(&replaced.id);
         replaced.message = Some(format!("{name} changed on disk and was reloaded"));
         *self = replaced;
+    }
+
+    /// Takes over the focus of `old`, the state this one replaces, on the
+    /// same row (see [`Self::replace_session`]). The text cursor keeps its
+    /// place as far as the text still reaches; where the field was drawn
+    /// is learned again from the next draw.
+    fn keep_focus(&mut self, old: &SessionState) {
+        let cursor = old.field_cursor().unwrap_or_default();
+        let takes_notes = self.question().is_some_and(|question| question.note);
+        match old.focus {
+            Focus::None => {
+                self.focus = Focus::None;
+                self.field = None;
+            }
+            Focus::Field => {
+                let text = self.row_text().unwrap_or_default();
+                self.field = Some(TextField::with_cursor(text, cursor));
+                self.focus = Focus::Field;
+            }
+            Focus::Note if takes_notes => {
+                let note = &self.working[self.tab].note;
+                self.field = Some(TextField::with_cursor(note, cursor));
+                self.focus = Focus::Note;
+            }
+            Focus::Note => self.arrive(),
+        }
     }
 
     /// How often the session file was replaced while open, so what was
@@ -524,11 +566,13 @@ impl SessionState {
             .collect()
     }
 
-    /// Takes where the focused field or note was drawn, for `↑`/`↓`.
-    pub fn set_field_shape(&mut self, shape: FieldShape) {
-        if let Some(field) = self.field.as_mut() {
-            field.set_shape(shape);
-        }
+    /// Takes where the focused field or note was drawn, for `↑`/`↓`, and
+    /// says whether that moved its text cursor, which then needs drawing
+    /// again (see [`TextField::set_shape`]).
+    pub fn set_field_shape(&mut self, shape: FieldShape) -> bool {
+        self.field
+            .as_mut()
+            .is_some_and(|field| field.set_shape(shape))
     }
 
     /// The focused field or note.
@@ -790,10 +834,12 @@ impl SessionState {
         let row = self.row.saturating_add_signed(delta).min(last);
         // Landing on a row focuses its field; a field left with esc is
         // landed on again when the move stays on it, as on a text question
-        // with its single row.
+        // with its single row. A field below the row left is entered at
+        // its first row (user, 2026-10-14).
         if row != self.row || self.focus == Focus::None {
+            let from_above = row > self.row;
             self.row = row;
-            self.arrive();
+            self.arrive_from(from_above);
         }
         Effect::None
     }
@@ -814,24 +860,42 @@ impl SessionState {
         Effect::DraftChanged
     }
 
-    /// Focuses the field of the current row, if it is one. Called whenever
-    /// the cursor lands on a row.
+    /// Focuses the field of the current row, if it is one, the text
+    /// cursor at the end of its text. Called whenever the cursor lands on
+    /// a row.
     fn arrive(&mut self) {
-        match self.current_row() {
-            Some(row) if row.is_field() => {
-                let text = match row {
-                    Row::Note => &self.session_note,
-                    Row::Reject => &self.reject_reason,
-                    _ => &self.working[self.tab].custom,
-                };
-                self.field = Some(TextField::new(text));
+        self.arrive_from(false);
+    }
+
+    /// [`Self::arrive`], for a row the cursor moved down to when
+    /// `from_above` holds: its field starts at the end of its first row
+    /// (ADR 36).
+    fn arrive_from(&mut self, from_above: bool) {
+        match self.row_text() {
+            Some(text) => {
+                self.field = Some(if from_above {
+                    TextField::entered_from_above(text)
+                } else {
+                    TextField::new(text)
+                });
                 self.focus = Focus::Field;
             }
-            _ => {
+            None => {
                 self.field = None;
                 self.focus = Focus::None;
             }
         }
+    }
+
+    /// The text kept for the field of the current row, if it is one.
+    fn row_text(&self) -> Option<&str> {
+        let text = match self.current_row()? {
+            Row::Note => &self.session_note,
+            Row::Reject => &self.reject_reason,
+            Row::Own | Row::Answer => &self.working[self.tab].custom,
+            Row::Option(_) | Row::Question(_) | Row::Submit => return None,
+        };
+        Some(text)
     }
 
     /// Picks option `index` of a single question and moves on.
@@ -1436,6 +1500,67 @@ mod tests {
             (1, Focus::None),
             "the first row leaves the field"
         );
+    }
+
+    #[test]
+    fn a_field_entered_from_above_starts_at_the_end_of_its_first_row() {
+        let mut state = state();
+        press(&mut state, "jjone");
+        state.handle(ctrl('j'));
+        press(&mut state, "two");
+        state.handle(code(KeyCode::Up));
+        state.handle(code(KeyCode::Up));
+        assert_eq!(state.current_row(), Some(Row::Option(1)), "left upwards");
+
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.field_cursor(), Some((0, 3)), "from above");
+
+        // The session note from Submit above it and from Reject below it.
+        review_row(&mut state, Row::Note);
+        press(&mut state, "one");
+        state.handle(ctrl('j'));
+        press(&mut state, "two");
+        state.handle(code(KeyCode::Down));
+        state.handle(code(KeyCode::Up));
+        assert_eq!(state.field_cursor(), Some((1, 3)), "from below");
+        state.handle(code(KeyCode::Up));
+        state.handle(code(KeyCode::Up));
+        assert_eq!(state.current_row(), Some(Row::Submit));
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.field_cursor(), Some((0, 3)), "from above");
+    }
+
+    #[test]
+    fn a_field_of_one_row_is_entered_at_the_end_of_its_text() {
+        let mut state = state();
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Up));
+
+        state.handle(code(KeyCode::Down));
+
+        assert_eq!(state.field_cursor(), Some((0, 2)));
+    }
+
+    #[test]
+    fn the_first_draw_of_a_field_entered_from_above_moves_its_cursor() {
+        let mut state = state();
+        press(&mut state, "jj");
+        press(&mut state, "aaaaa bbbbb ccccc ddddd");
+        state.handle(code(KeyCode::Up));
+        state.handle(code(KeyCode::Down));
+        assert_eq!(
+            state.field_cursor(),
+            Some((0, 23)),
+            "one line before a draw"
+        );
+
+        let shape = FieldShape {
+            head: ratatui::text::Span::from("> "),
+            width: 22,
+        };
+        assert!(state.set_field_shape(shape.clone()));
+        assert_eq!(state.field_cursor(), Some((0, 17)));
+        assert!(!state.set_field_shape(shape));
     }
 
     #[test]
@@ -2890,6 +3015,81 @@ mod tests {
         assert_eq!(state.tab(), 1);
         assert_eq!(state.current_row(), Some(Row::Own), "the last row left");
         assert_eq!(state.focus(), Focus::Field, "a field row focuses its field");
+    }
+
+    #[test]
+    fn a_replaced_session_keeps_a_field_left_with_esc_without_the_keys() {
+        let mut state = state();
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Esc));
+
+        state.replace_session(serde_json::from_str(SESSION).expect("parses"));
+
+        assert_eq!(state.current_row(), Some(Row::Own));
+        assert_eq!(state.focus(), Focus::None);
+        assert_eq!(press(&mut state, "q"), Effect::Quit, "keys are commands");
+    }
+
+    #[test]
+    fn a_replaced_session_keeps_the_text_cursor_of_the_field_typed_in() {
+        let mut state = state();
+        press(&mut state, "jjabcd");
+        state.handle(code(KeyCode::Left));
+        state.handle(code(KeyCode::Left));
+
+        state.replace_session(serde_json::from_str(SESSION).expect("parses"));
+
+        assert_eq!(state.focus(), Focus::Field);
+        assert_eq!(state.field_cursor(), Some((0, 2)));
+        press(&mut state, "x");
+        assert_eq!(state.field_text().as_deref(), Some("abxcd"));
+    }
+
+    #[test]
+    fn a_replaced_session_keeps_an_open_note_while_the_question_takes_notes() {
+        let mut state = state();
+        press(&mut state, "nwhy");
+        state.handle(code(KeyCode::Left));
+
+        state.replace_session(serde_json::from_str(SESSION).expect("parses"));
+        assert_eq!(state.focus(), Focus::Note);
+        assert_eq!(state.field_cursor(), Some((0, 2)));
+        assert_eq!(state.note_text().as_deref(), Some("why"));
+
+        let without_notes = SESSION.replacen(
+            r#""kind": "single", "custom": true,"#,
+            r#""kind": "single", "custom": true, "note": false,"#,
+            1,
+        );
+        state.replace_session(serde_json::from_str(&without_notes).expect("parses"));
+        assert_eq!(state.focus(), Focus::None, "back on the option row");
+        assert_eq!(state.current_row(), Some(Row::Option(0)));
+    }
+
+    #[test]
+    fn a_replaced_session_enters_the_row_afresh_when_the_field_is_gone() {
+        // The own answer turned off: the cursor lands on the last option.
+        let mut turned_off = state();
+        press(&mut turned_off, "jjab");
+        let no_custom = SESSION.replacen(r#""custom": true,"#, "", 1);
+        turned_off.replace_session(serde_json::from_str(&no_custom).expect("parses"));
+        assert_eq!(turned_off.current_row(), Some(Row::Option(1)));
+        assert_eq!(turned_off.focus(), Focus::None);
+
+        // The question turned into a text question: its answer field gets
+        // the keys, the text cursor at the end.
+        let mut state = state();
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Left));
+        let text = SESSION.replacen(
+            r#""kind": "single", "custom": true"#,
+            r#""kind": "text""#,
+            1,
+        );
+        state.replace_session(serde_json::from_str(&text).expect("parses"));
+        assert_eq!(state.current_row(), Some(Row::Answer));
+        assert_eq!(state.focus(), Focus::Field);
+        assert_eq!(state.field_cursor(), Some((0, 2)));
     }
 
     #[test]

@@ -83,7 +83,12 @@ where
         if let Some(page) = view.pane_page() {
             app.set_pane_page(page);
         }
-        app.set_field_shape(view.field_shape());
+        // A field entered from above finds its first row only in its first
+        // draw, and its text cursor goes there; that draw showed it
+        // elsewhere.
+        if app.set_field_shape(view.field_shape()) {
+            continue;
+        }
         let Ok(event) = events.recv() else {
             return Ok(());
         };
@@ -134,7 +139,7 @@ mod tests {
 
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
-    use ratatui::style::Color;
+    use ratatui::style::{Color, Modifier};
     use ratatui_image::picker::Picker;
 
     use super::*;
@@ -361,6 +366,38 @@ mod tests {
             .expect("readable")
             .expect("a draft");
         assert_eq!(draft.note.as_deref(), Some("a\nb"));
+    }
+
+    #[test]
+    fn a_field_entered_from_above_shows_its_cursor_on_its_first_row_at_once() {
+        let harness = &mut Harness::new();
+        let session = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Name it", "kind": "single",
+            "custom": true, "options": [{"id": "a", "label": "Apples"}]}]}"#;
+        fs::write(harness.location.inbox().join("own.json"), session).expect("written");
+        // Thirty words of four columns wrap onto three rows after the head
+        // `❯ ( ) ✎ Own answer: `, the first ending with the blank after
+        // `w14`.
+        let words: String = (1..=30).map(|n| format!("w{n:02} ")).collect();
+        let mut events = vec![key(KeyCode::Char('j'))];
+        events.extend(words.trim_end().chars().map(|c| key(KeyCode::Char(c))));
+        events.extend([key(KeyCode::Up), key(KeyCode::Up), key(KeyCode::Up)]);
+        events.push(key(KeyCode::Down));
+
+        harness.run(events).expect("runs");
+
+        let buffer = harness.terminal.backend().buffer();
+        let cursor: Vec<(u16, u16)> = (4..buffer.area.height - 2)
+            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
+            .filter(|&position| buffer[position].modifier.contains(Modifier::REVERSED))
+            .collect();
+        let screen = harness.screen();
+        let first = screen
+            .lines()
+            .position(|row| row.contains("w01"))
+            .expect("the answer shows");
+        let first = u16::try_from(first).expect("a row");
+        assert_eq!(cursor, [(76, first)], "{screen}");
+        assert_eq!(buffer[(75, first)].symbol(), "4", "{screen}");
     }
 
     #[test]
