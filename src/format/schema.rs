@@ -7,9 +7,10 @@
 //! asqr accepts. The repo ships it as `schema/session.v2.json` and
 //! `schema/result.v2.json`, and `asqr schema` prints it.
 //!
-//! The schema describes the shape. The rules that span fields (ids,
-//! option counts, length bounds) are checked by validation and noted in the
-//! spec.
+//! The schema describes the shape, plus the rules a schema states
+//! directly: the format version, one context entry, and exactly one of
+//! `path` and `content`. The other rules that span fields (ids, option
+//! counts, length bounds) are checked by validation and noted in the spec.
 
 use super::{Session, SessionResult};
 
@@ -76,5 +77,86 @@ mod tests {
         assert!(schema["$defs"]["Choice"]["properties"]["default"].is_object());
         assert!(schema["$defs"]["Choice"]["properties"]["context"].is_object());
         assert!(schema["$defs"]["ContextEntry"]["oneOf"].is_array());
+    }
+
+    #[test]
+    fn both_schemas_pin_the_format_version() {
+        for schema in [session_schema(), result_schema()] {
+            assert_eq!(
+                schema["properties"]["asqr"]["const"], FORMAT_VERSION,
+                "{}",
+                schema["title"]
+            );
+        }
+    }
+
+    #[test]
+    fn context_holds_at_most_one_entry_and_may_be_empty() {
+        let schema = session_schema();
+
+        for holder in ["Question", "Choice"] {
+            let context = &schema["$defs"][holder]["properties"]["context"];
+            assert_eq!(context["maxItems"], 1, "{holder}");
+            assert!(context.get("minItems").is_none(), "{holder}");
+        }
+    }
+
+    /// How many branches of `definition`'s `oneOf` an object with `keys`
+    /// matches, as a schema validator counts them: a branch matches when
+    /// every key it requires is present.
+    fn matching_branches(definition: &serde_json::Value, keys: &[&str]) -> usize {
+        definition["oneOf"]
+            .as_array()
+            .expect("the definition has a oneOf")
+            .iter()
+            .filter(|branch| {
+                branch["required"]
+                    .as_array()
+                    .expect("each branch requires keys")
+                    .iter()
+                    .all(|key| keys.contains(&key.as_str().expect("a key name")))
+            })
+            .count()
+    }
+
+    #[test]
+    fn code_markdown_and_diff_sides_take_exactly_one_of_path_and_content() {
+        let schema = session_schema();
+
+        for name in ["CodeEntry", "MarkdownEntry", "DiffSide"] {
+            let definition = &schema["$defs"][name];
+            // A key counts by being there, so an empty `content` names
+            // an empty text, as validation sees it.
+            assert_eq!(matching_branches(definition, &["path"]), 1, "{name}");
+            assert_eq!(matching_branches(definition, &["content"]), 1, "{name}");
+            assert_eq!(matching_branches(definition, &[]), 0, "{name}");
+            assert_eq!(
+                matching_branches(definition, &["path", "content"]),
+                2,
+                "{name}: both match, so oneOf fails"
+            );
+        }
+    }
+
+    #[test]
+    fn the_text_fields_say_that_they_are_markdown() {
+        let schema = session_schema();
+
+        for description in [
+            &schema["properties"]["intro"]["description"],
+            &schema["$defs"]["Question"]["properties"]["text"]["description"],
+            &schema["$defs"]["Choice"]["properties"]["description"]["description"],
+        ] {
+            // The doc comment's line breaks carry over into the schema.
+            let description = description
+                .as_str()
+                .expect("the field has a description")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(description.contains("Markdown"), "{description}");
+            assert!(description.contains("single newline"), "{description}");
+            assert!(description.contains("HTML"), "{description}");
+        }
     }
 }

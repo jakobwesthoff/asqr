@@ -9,6 +9,9 @@
 //! As with the rest of the session, the types only describe the shape.
 //! Rules that span fields, such as a code entry naming either a file or
 //! inline content, live in validation, which can name the offending field.
+//! The schema states that rule too, as a `oneOf` of a branch that requires
+//! `path` and one that requires `content`: a key counts by being there, so
+//! an empty `content` is an empty text.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -59,6 +62,7 @@ fn is_true(value: &bool) -> bool {
 /// the source of a Markdown file. Exactly one of `path` and `content` is
 /// given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("oneOf" = [{"required": ["path"]}, {"required": ["content"]}]))]
 pub struct CodeEntry {
     /// A name for the entry, such as a file name. Its extension picks the
     /// language when neither `language` nor `path` does.
@@ -83,6 +87,7 @@ pub struct CodeEntry {
 /// Markdown, rendered and wrapped to the space it gets. Exactly one of
 /// `path` and `content` is given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("oneOf" = [{"required": ["path"]}, {"required": ["content"]}]))]
 pub struct MarkdownEntry {
     /// A name for the entry, such as a file name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -141,6 +146,7 @@ impl DiffEntry {
 /// One side of a diff: a file or inline content. Exactly one of the two
 /// is given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("oneOf" = [{"required": ["path"]}, {"required": ["content"]}]))]
 pub struct DiffSide {
     /// An absolute path; `asqr ask` makes a relative one absolute.
     #[serde(default, skip_serializing_if = "Option::is_none")]

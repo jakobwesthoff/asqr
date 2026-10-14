@@ -73,6 +73,8 @@
       "type": "array"
     },
     "asqr": {
+      "const": 2,
+      "description": "The format version, `2`.",
       "format": "uint32",
       "minimum": 0,
       "type": "integer"

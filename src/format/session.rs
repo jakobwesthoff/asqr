@@ -14,7 +14,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use super::{ContextEntry, FieldPath, Problem, ValidationError, version_problem};
+use super::{
+    ContextEntry, FORMAT_VERSION, FieldPath, MAX_CONTEXT_ENTRIES, Problem, ValidationError,
+    version_problem,
+};
 
 /// Why a file could not be read as a session.
 #[derive(Debug, Error)]
@@ -93,6 +96,7 @@ fn text_entries(raw: &Value) -> Vec<ValidationError> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Session {
     /// The format version. Only `2` is supported.
+    #[schemars(extend("const" = FORMAT_VERSION))]
     // Any `u32` parses; validation rejects the others, so the error names
     // the field instead of failing in the parser. `parse_session` refuses
     // the values that are no `u32` before the parser sees them.
@@ -106,6 +110,8 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 
+    /// Markdown, shown dimmed under the title in at most three lines. A
+    /// single newline breaks the line, and raw HTML shows as written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intro: Option<String>,
 
@@ -129,6 +135,8 @@ pub struct Question {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header: Option<String>,
 
+    /// The question itself. Markdown: a single newline breaks the line,
+    /// and raw HTML shows as written.
     pub text: String,
 
     pub kind: Kind,
@@ -150,6 +158,7 @@ pub struct Question {
     /// Material shown next to the question that helps to answer it. Most
     /// questions have none. A list, of which this asqr shows one entry.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = MAX_CONTEXT_ENTRIES))]
     pub context: Vec<ContextEntry>,
 
     /// Whether the person may add a note to this question.
@@ -186,7 +195,8 @@ pub struct Choice {
 
     pub label: String,
 
-    /// Shown in full and wrapped, however long it is.
+    /// Shown in full and wrapped, however long it is. Markdown: a single
+    /// newline breaks the line, and raw HTML shows as written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
@@ -197,6 +207,7 @@ pub struct Choice {
     /// Shown in place of the question's context while the cursor is on
     /// this option, so the person can compare options before picking.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = MAX_CONTEXT_ENTRIES))]
     pub context: Vec<ContextEntry>,
 }
 

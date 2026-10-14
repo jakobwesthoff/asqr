@@ -169,3 +169,13 @@ user, the version stays 2:
 - **Not a file:** a path that exists but names no regular file, such as
   a directory, gets the warning "not a file" instead of "file not
   found".
+- **Schema rules:** the schemas state what a schema can: `asqr` is the
+  constant 2 in the session and the result schema, `context` has
+  `maxItems: 1`, and a code or Markdown entry or a diff side takes
+  exactly one of `path` and `content` (a `oneOf` of two branches that
+  each require one key, so an empty `content` counts as given and
+  `context: []` stays valid). The descriptions of `intro`, question
+  `text` and option `description` say that they are Markdown, that a
+  single newline breaks the line and that raw HTML shows as written. An
+  agent that checks its file against the schema learns these rules
+  without reading the spec.

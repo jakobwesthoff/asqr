@@ -8,6 +8,7 @@
           "items": {
             "$ref": "#/$defs/ContextEntry"
           },
+          "maxItems": 1,
           "type": "array"
         },
         "default": {
@@ -15,7 +16,7 @@
           "type": "boolean"
         },
         "description": {
-          "description": "Shown in full and wrapped, however long it is.",
+          "description": "Shown in full and wrapped, however long it is. Markdown: a single\nnewline breaks the line, and raw HTML shows as written.",
           "type": [
             "string",
             "null"
@@ -36,6 +37,18 @@
     },
     "CodeEntry": {
       "description": "Text shown exactly as written and highlighted, like a fenced code\nblock: source code, a log, terminal output, a configuration file, or\nthe source of a Markdown file. Exactly one of `path` and `content` is\ngiven.",
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "content"
+          ]
+        }
+      ],
       "properties": {
         "content": {
           "description": "The text itself, in place of a file.",
@@ -199,6 +212,18 @@
     },
     "DiffSide": {
       "description": "One side of a diff: a file or inline content. Exactly one of the two\nis given.",
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "content"
+          ]
+        }
+      ],
       "properties": {
         "content": {
           "description": "The text itself, in place of a file.",
@@ -299,6 +324,18 @@
     },
     "MarkdownEntry": {
       "description": "Markdown, rendered and wrapped to the space it gets. Exactly one of\n`path` and `content` is given.",
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "content"
+          ]
+        }
+      ],
       "properties": {
         "content": {
           "description": "The Markdown itself, in place of a file.",
@@ -332,6 +369,7 @@
           "items": {
             "$ref": "#/$defs/ContextEntry"
           },
+          "maxItems": 1,
           "type": "array"
         },
         "custom": {
@@ -402,6 +440,7 @@
           ]
         },
         "text": {
+          "description": "The question itself. Markdown: a single newline breaks the line,\nand raw HTML shows as written.",
           "type": "string"
         }
       },
@@ -417,6 +456,7 @@
   "description": "One session: a list of questions answered and submitted as a whole.",
   "properties": {
     "asqr": {
+      "const": 2,
       "description": "The format version. Only `2` is supported.",
       "format": "uint32",
       "minimum": 0,
@@ -444,6 +484,7 @@
       ]
     },
     "intro": {
+      "description": "Markdown, shown dimmed under the title in at most three lines. A\nsingle newline breaks the line, and raw HTML shows as written.",
       "type": [
         "string",
         "null"

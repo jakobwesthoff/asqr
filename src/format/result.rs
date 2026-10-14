@@ -15,6 +15,8 @@ use super::FORMAT_VERSION;
 /// `drafts/` while it is being answered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SessionResult {
+    /// The format version, `2`.
+    #[schemars(extend("const" = FORMAT_VERSION))]
     pub asqr: u32,
 
     pub id: String,
