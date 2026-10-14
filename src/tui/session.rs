@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
+use super::text_field::cleaned;
 use super::{FieldKey, FieldShape, Leave, Offset, Page, TextField};
 
 pub use crate::format::Length;
@@ -226,12 +227,16 @@ impl SessionState {
             row: 0,
             focus: Focus::None,
             field: None,
-            session_note: draft
-                .and_then(|draft| draft.note.clone())
-                .unwrap_or_default(),
-            reject_reason: draft
-                .and_then(|draft| draft.reason.clone())
-                .unwrap_or_default(),
+            session_note: cleaned(
+                draft
+                    .and_then(|draft| draft.note.as_deref())
+                    .unwrap_or_default(),
+            ),
+            reject_reason: cleaned(
+                draft
+                    .and_then(|draft| draft.reason.as_deref())
+                    .unwrap_or_default(),
+            ),
             help: false,
             message: None,
             full_screen: None,
@@ -949,13 +954,39 @@ impl SessionState {
     /// field or note (spec section 7.3). The terminal sends a paste as one
     /// event, so a line break in it never reaches `enter`, which would
     /// pick, submit or reject; every field keeps the line breaks (ADR 36).
-    /// Without a focused field or note, and while the pane has the keys,
-    /// the paste goes nowhere. The help shows only over the question's keys
-    /// or the pane's, so it never has a field under it.
+    ///
+    /// A field left with `esc` takes the paste as it would take typing
+    /// again: it gets the keys back, with the text cursor at the end of
+    /// its text. Where no field can take a paste, a message says where
+    /// one goes, as a paste that vanishes reads like a lost one. Over the
+    /// help, a paste only closes it, as any key does.
     pub fn paste(&mut self, text: &str) -> Effect {
         self.message = None;
-        if self.focus == Focus::None || self.pane_focus {
+        if self.help {
+            self.help = false;
             return Effect::None;
+        }
+        if self.pane_focus {
+            let leave = if self.full_screen.is_some() {
+                "z/esc leave the full screen"
+            } else {
+                "esc leaves the pane"
+            };
+            self.message = Some(format!("a paste goes into a field; {leave}"));
+            return Effect::None;
+        }
+        if self.focus == Focus::None {
+            if !self.current_row().is_some_and(Row::is_field) {
+                let notes = self.question().is_some_and(|question| question.note);
+                let message = if notes {
+                    "a paste goes into a field; press n for a note"
+                } else {
+                    "a paste goes into a field"
+                };
+                self.message = Some(message.to_owned());
+                return Effect::None;
+            }
+            self.arrive();
         }
         let field = self
             .field
@@ -1022,10 +1053,12 @@ fn restored(question: &Question, answer: &Answer) -> Working {
     if question.kind == Kind::Single {
         selected.truncate(1);
     }
+    // Text in a draft reaches a field without being typed, like a paste,
+    // and is cleaned the same way, so the field draws what it counts.
     Working {
         selected,
-        custom: answer.custom.clone().unwrap_or_default(),
-        note: answer.note.clone().unwrap_or_default(),
+        custom: cleaned(answer.custom.as_deref().unwrap_or_default()),
+        note: cleaned(answer.note.as_deref().unwrap_or_default()),
         touched: !answer.defaulted,
     }
 }
@@ -2538,22 +2571,144 @@ mod tests {
     }
 
     #[test]
-    fn a_paste_goes_nowhere_without_a_field_and_while_the_pane_or_help_has_the_keys() {
-        let mut state = with_pane();
-        assert_eq!(state.paste("1"), Effect::None, "no field has the keys");
-        assert_eq!(state.answers()[0].selected, Vec::<String>::new());
+    fn a_paste_on_a_field_left_with_esc_gives_it_the_keys_again() {
+        // The own answer, a text answer, the session note and the reject
+        // reason, each left with `esc` after typing `ab` and moving left.
+        type Reach = fn(&mut SessionState);
+        let rows: [(&str, Reach); 4] = [
+            ("own answer", |state| {
+                press(state, "jj");
+            }),
+            ("text answer", |state| go_to_tab(state, 2)),
+            ("session note", |state| review_row(state, Row::Note)),
+            ("reject reason", |state| review_row(state, Row::Reject)),
+        ];
+        for (name, reach) in rows {
+            let mut state = state();
+            reach(&mut state);
+            press(&mut state, "ab");
+            state.handle(code(KeyCode::Left));
+            state.handle(code(KeyCode::Esc));
+            assert_eq!(state.focus(), Focus::None, "{name}");
 
+            assert_eq!(state.paste("c"), Effect::DraftChanged, "{name}");
+
+            assert_eq!(state.focus(), Focus::Field, "{name}");
+            assert_eq!(
+                state.field_text().as_deref(),
+                Some("abc"),
+                "{name}: at the end of the text"
+            );
+            assert_eq!(state.message(), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_paste_where_no_field_can_take_it_says_where_it_goes() {
+        let mut state = state();
+        assert_eq!(state.paste("1"), Effect::None);
+        assert_eq!(
+            state.message(),
+            Some("a paste goes into a field; press n for a note")
+        );
+        assert_eq!(state.answers()[0].selected, ["b"], "nothing picked");
+        press(&mut state, "j");
+        assert_eq!(
+            state.message(),
+            None,
+            "the message lasts until the next key"
+        );
+
+        go_to_tab(&mut state, 3);
+        state.paste("1");
+        assert_eq!(
+            state.message(),
+            Some("a paste goes into a field"),
+            "a question without notes"
+        );
+        review_row(&mut state, Row::Submit);
+        state.paste("1");
+        assert_eq!(state.message(), Some("a paste goes into a field"));
+    }
+
+    #[test]
+    fn a_paste_into_the_pane_says_how_to_leave_it() {
+        let mut state = with_pane();
         press(&mut state, "jjab");
         state.handle(code(KeyCode::Tab));
-        assert_eq!(state.paste("c"), Effect::None, "the pane has the keys");
-        press(&mut state, "?");
-        assert_eq!(state.paste("c"), Effect::None, "the help over the pane");
-        assert!(state.help(), "a paste does not close the help");
-        state.handle(code(KeyCode::Esc));
-        state.handle(code(KeyCode::Tab));
 
-        assert_eq!(state.paste(""), Effect::None, "an empty paste");
+        assert_eq!(state.paste("c"), Effect::None);
+        assert_eq!(
+            state.message(),
+            Some("a paste goes into a field; esc leaves the pane")
+        );
+        press(&mut state, "z");
+        state.paste("c");
+        assert_eq!(
+            state.message(),
+            Some("a paste goes into a field; z/esc leave the full screen")
+        );
+
+        state.handle(code(KeyCode::Esc));
+        state.handle(code(KeyCode::Esc));
+        assert_eq!(state.field_text().as_deref(), Some("ab"), "nothing went in");
+    }
+
+    #[test]
+    fn a_paste_over_the_help_only_closes_it() {
+        for mut state in [state(), with_pane()] {
+            press(&mut state, "jjab");
+            state.handle(code(KeyCode::Esc));
+            press(&mut state, "?");
+
+            assert_eq!(state.paste("c"), Effect::None);
+
+            assert!(!state.help());
+            assert_eq!(state.message(), None);
+            assert_eq!(state.focus(), Focus::None, "the field keeps no keys");
+            assert_eq!(
+                answer(&state, state.question().expect("a question").id.as_str())
+                    .custom
+                    .as_deref(),
+                Some("ab")
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_paste_changes_nothing() {
+        let mut state = state();
+        press(&mut state, "jjab");
+
+        assert_eq!(state.paste(""), Effect::None);
         assert_eq!(state.field_text().as_deref(), Some("ab"));
+    }
+
+    #[test]
+    fn a_draft_is_cleaned_like_a_paste() {
+        let mut draft = SessionResult::draft(
+            "batch",
+            "single",
+            vec![Answer {
+                custom: Some("a\tb".into()),
+                note: Some("c\u{7}d".into()),
+                ..Answer::new("single")
+            }],
+        );
+        draft.note = Some("\tnote".into());
+        draft.reason = Some("re\u{1b}ason".into());
+
+        let state = SessionState::new(
+            "batch",
+            serde_json::from_str(SESSION).expect("parses"),
+            Some(&draft),
+        );
+
+        let single = answer(&state, "single");
+        assert_eq!(single.custom.as_deref(), Some("a   b"));
+        assert_eq!(single.note.as_deref(), Some("cd"));
+        assert_eq!(state.session_note(), "    note");
+        assert_eq!(state.reject_reason(), "reason");
     }
 
     #[test]

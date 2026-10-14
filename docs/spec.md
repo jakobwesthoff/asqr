@@ -837,9 +837,20 @@ a frame (user, 2026-09-27):
   It turns bracketed paste and focus reports off again when it ends, a
   crash included. A terminal that refuses either runs asqr without it.
   Every field keeps the pasted line breaks; `\r` and `\r\n` become
-  `\n` (ADR 36). Where no field or note has the keys, and
-  while the context pane, the intro, the help or the session list has
-  them, a paste does nothing.
+  `\n` (ADR 36). A tab becomes blanks up to the next multiple of 4
+  columns, counted from the start of its line, and other control
+  characters are dropped, as a field shows neither. Text restored from
+  a draft is cleaned the same way.
+- On a row with a field left with `esc` (the own answer, a `text`
+  answer, the session note, the reject reason), a paste gives the field
+  the keys again, with the text cursor at the end of its text, and goes
+  in there. On any other row it puts nothing in and says "a paste goes
+  into a field; press n for a note" on a question that takes notes, and
+  "a paste goes into a field" otherwise. In the focused context pane
+  the message is "a paste goes into a field; esc leaves the pane", in
+  the full-screen view "a paste goes into a field; z/esc leave the full
+  screen". Over the help, a paste closes it and does nothing else; over
+  the intro and the session list it does nothing.
 - `tab` and `shift-tab` never type into a field: they move the focus
   into the context pane where one shows, and do nothing otherwise. Where
   a pane shows, `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll it from

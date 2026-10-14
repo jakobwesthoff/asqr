@@ -96,7 +96,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the terminal's bracketed paste. A line break in it no longer acts as
   `enter`, which picked an option, submitted the session from its note
   or rejected it. The pasted line breaks stay in the text, and `\r\n`
-  or a lone `\r` arrive as `\n`.
+  or a lone `\r` arrive as `\n`. A tab becomes blanks up to the next
+  multiple of 4 columns and other control characters are dropped, in a
+  paste and in text restored from a draft, as a field shows neither. A
+  paste on a field left with `esc` gives it the keys again and goes in;
+  elsewhere a message says that a paste goes into a field.
 - `--layout auto|beside|below` and `ASQR_LAYOUT` choose where a
   question's context goes. `auto`, the default, puts it beside the
   question when the terminal's area looks landscape and below it when

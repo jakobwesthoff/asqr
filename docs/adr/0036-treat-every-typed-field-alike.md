@@ -143,3 +143,12 @@ field (spec section 7.3):
   field did not show, and the next typed key replaced the selected text.
   The selection ends after every key, so `shift` only moves and `ctrl-x`
   cuts nothing.
+- **Pasted control characters:** a field draws no tab and no other
+  control character, so a pasted one was text the person could not see,
+  and a position where the text cursor had no cell. A paste turns a tab
+  into blanks up to the next multiple of 4 columns and drops the other
+  control characters. Text from a draft is cleaned the same way when it
+  is restored, so a field never counts rows it does not draw.
+- **A paste where no field has the keys** goes into the field of the
+  row, giving it the keys again, and elsewhere a message says where a
+  paste goes, where it vanished before.

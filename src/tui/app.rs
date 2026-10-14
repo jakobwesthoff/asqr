@@ -220,9 +220,9 @@ impl App {
         self.apply(effect)
     }
 
-    /// Text the person pasted. It goes into the active session's focused
-    /// field or note, and nowhere while the intro or the session list
-    /// shows, as they take every key.
+    /// Text the person pasted, which the active session places (see
+    /// [`SessionState::paste`]). While the intro or the session list shows
+    /// it goes nowhere, as they take every key.
     pub fn paste(&mut self, text: &str) -> AppEffect {
         self.notice = None;
         if self.intro.is_some() || self.list.is_some() {
@@ -679,10 +679,17 @@ mod tests {
         app.handle(key('i'));
         assert_eq!(app.paste("c"), AppEffect::None, "the intro has the keys");
         assert_eq!(app.intro_scroll(), Some(0), "and stays open");
+        let message = |app: &App| {
+            app.active()
+                .and_then(SessionState::message)
+                .map(str::to_owned)
+        };
+        assert_eq!(message(&app), None, "silently");
         app.handle(code(KeyCode::Esc));
         app.handle(key('L'));
         assert_eq!(app.paste("c"), AppEffect::None, "the list has the keys");
         assert_eq!(app.list_cursor(), Some(0), "and stays open");
+        assert_eq!(message(&app), None, "silently");
         app.handle(code(KeyCode::Esc));
 
         app.handle(code(KeyCode::Down));

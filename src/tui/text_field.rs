@@ -32,6 +32,10 @@ const MIN_TEXT_WIDTH: usize = 20;
 /// `MIN_TEXT_WIDTH` columns.
 const NARROW_INDENT: usize = 4;
 
+/// A tab that reaches a field becomes blanks up to the next multiple of
+/// this many columns.
+const TAB_STOP: usize = 4;
+
 // ---------------------------------------------------------------------
 // Editing
 // ---------------------------------------------------------------------
@@ -176,12 +180,14 @@ impl TextField {
         self.editor.lines() != before.as_slice()
     }
 
-    /// Inserts pasted `text` at the text cursor and says whether the text
-    /// changed. Terminals send a line break as `\r`, some as `\r\n`; both
-    /// become `\n`, so a pasted text keeps its lines.
+    /// Inserts pasted `text` at the text cursor, [`cleaned`] for the
+    /// column it lands in, and says whether the text changed. The `↑`/`↓`
+    /// that follow start from where the paste left the text cursor.
     pub fn paste(&mut self, text: &str) -> bool {
-        let text = text.replace("\r\n", "\n").replace('\r', "\n");
-        self.editor.insert_str(text)
+        self.wanted = None;
+        let (line, column) = self.cursor();
+        let before: String = self.editor.lines()[line].chars().take(column).collect();
+        self.editor.insert_str(cleaned_from(text, columns(&before)))
     }
 
     /// Moves the text cursor one row up or down, `to`, as the field was
@@ -328,6 +334,47 @@ impl TextField {
             .width;
         (line, column..column + width)
     }
+}
+
+/// `text` as a field keeps it (spec section 7.3), for text that reaches
+/// a field without being typed: a paste, or a draft. Terminals send a line
+/// break as `\r`, some as `\r\n`; both become `\n`, so the text keeps
+/// its lines. A tab becomes blanks up to the next multiple of 4 columns,
+/// and other control characters go: a field draws neither, so they would
+/// be text the person cannot see, and a position for the text cursor
+/// without a cell to show it in.
+pub fn cleaned(text: &str) -> String {
+    cleaned_from(text, 0)
+}
+
+/// [`cleaned`] for text that goes in `column` columns into its first
+/// line, which is where that line's tab stops count from.
+fn cleaned_from(text: &str, column: usize) -> String {
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut kept = String::with_capacity(text.len());
+    let mut line_start = column;
+    let mut line = String::new();
+    for character in text.chars() {
+        match character {
+            '\n' => {
+                kept.push('\n');
+                line_start = 0;
+                line.clear();
+            }
+            '\t' => {
+                let at = line_start + columns(&line);
+                let blanks = " ".repeat(TAB_STOP - at % TAB_STOP);
+                kept.push_str(&blanks);
+                line.push_str(&blanks);
+            }
+            control if control.is_control() => {}
+            other => {
+                kept.push(other);
+                line.push(other);
+            }
+        }
+    }
+    kept
 }
 
 /// The lines of a field without the keys that holds `text`: the text
@@ -1119,6 +1166,56 @@ mod tests {
 
         assert_eq!(field.text(), "ax\nyb");
         assert!(!field.paste(""), "an empty paste changes nothing");
+    }
+
+    #[test]
+    fn a_pasted_tab_becomes_blanks_up_to_the_next_stop_of_four() {
+        for (pasted, kept, case) in [
+            ("\tx", "    x", "at the start of a line"),
+            ("a\tx", "a   x", "after one column"),
+            ("abc\tx", "abc x", "after three columns"),
+            ("abcd\tx", "abcd    x", "on a stop"),
+            ("日\tx", "日  x", "after a wide character"),
+            ("ab\n\tx", "ab\n    x", "after a pasted line break"),
+            ("\t\t", "        ", "two in a row"),
+        ] {
+            let mut field = TextField::new("");
+            field.paste(pasted);
+            assert_eq!(field.text(), kept, "{case}");
+        }
+
+        let mut field = TextField::new("one\nab");
+        field.paste("\tx");
+        assert_eq!(field.text(), "one\nab  x", "counted from the line's start");
+    }
+
+    #[test]
+    fn a_paste_drops_control_characters_but_line_breaks() {
+        let mut field = TextField::new("");
+
+        field.paste("a\u{7}b\u{1b}[31mc\u{7f}d\u{85}e\r\nf");
+
+        assert_eq!(field.text(), "ab[31mcde\nf");
+        assert!(!field.paste("\u{7}\u{1b}"), "nothing left to insert");
+    }
+
+    #[test]
+    fn text_for_a_field_is_cleaned_like_a_paste() {
+        assert_eq!(cleaned("a\tb\u{7}\r\nc"), "a   b\nc");
+    }
+
+    #[test]
+    fn after_a_paste_down_starts_from_the_cursors_column() {
+        let mut field = shaped("abcdefgh\nab\nabcdefgh", 40, (0, 8));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 2)));
+
+        field.paste("xyz");
+        assert_eq!(field.cursor(), (1, 5));
+        assert_eq!(
+            step(&mut field, KeyCode::Down),
+            Ok((2, 5)),
+            "from the column after the paste, not the one kept before"
+        );
     }
 
     // ---------------------------------------------------------------
