@@ -27,7 +27,7 @@ use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::viewer::Viewers;
 use crate::format::{ContextEntry, Kind};
-use crate::tui::text_field::{FieldShape, counted_lines, resting_lines};
+use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
 use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState, has_context};
 
 /// Below this size the layout does not fit; a message says so instead.
@@ -142,24 +142,39 @@ impl QuestionHeight {
             self.mark = 0;
         }
 
+        let typing = state.focus() != Focus::None && !state.pane_focused();
         let mut most = 0;
         for (index, question) in state.session().questions.iter().enumerate() {
             if !has_context(question) {
                 continue;
             }
             let key = (state.id().to_owned(), state.revision(), index, width);
-            let count = || question_content(state, index, usize::from(width), Drawn::Counted);
+            let count = |drawn| {
+                question_content(state, index, usize::from(width), drawn)
+                    .lines
+                    .len()
+            };
             let rows = if index == state.tab() {
-                let rows = count().lines.len();
+                let rows = count(Drawn::Counted);
                 self.rows.insert(key, rows);
-                rows
+                // While a field or the note has the keys, the question
+                // counts as drawn, its text cursor included: the cursor's
+                // blank after a full line takes a row then, and counted
+                // without it, that row would push the last one out of view.
+                if typing {
+                    rows.max(count(Drawn::Live))
+                } else {
+                    rows
+                }
             } else {
-                *self.rows.entry(key).or_insert_with(|| count().lines.len())
+                *self
+                    .rows
+                    .entry(key)
+                    .or_insert_with(|| count(Drawn::Counted))
             };
             most = most.max(rows);
         }
 
-        let typing = state.focus() != Focus::None && !state.pane_focused();
         self.mark = if typing { self.mark.max(most) } else { most };
         self.mark
     }
@@ -573,15 +588,40 @@ struct Content {
     cursor: (usize, usize),
     /// Where the field or note that has the keys was drawn.
     shape: Option<FieldShape>,
+    /// The text cursor of the field or note that has the keys.
+    text_cursor: Option<TextCursor>,
+}
+
+/// Where the text cursor of a field shows among the lines of its tab, or
+/// of its row while the row is built.
+#[derive(Debug, Clone, PartialEq)]
+struct TextCursor {
+    line: usize,
+    /// The columns its cell takes.
+    columns: Range<usize>,
+    /// Whether it is drawn; it hides while the context pane has the keys.
+    shown: bool,
 }
 
 impl Content {
-    fn push_row(&mut self, lines: Vec<Line<'static>>, current: bool) {
+    /// Adds a row's `lines`, `text_cursor` counted from its first line.
+    fn push_row(
+        &mut self,
+        lines: Vec<Line<'static>>,
+        current: bool,
+        text_cursor: Option<TextCursor>,
+    ) {
         if current {
             self.cursor = (
                 self.lines.len(),
                 self.lines.len() + lines.len().saturating_sub(1),
             );
+        }
+        if let Some(cursor) = text_cursor {
+            self.text_cursor = Some(TextCursor {
+                line: self.lines.len() + cursor.line,
+                ..cursor
+            });
         }
         self.lines.extend(lines);
     }
@@ -621,11 +661,19 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
         None => None,
     };
 
-    // Scroll so the whole current row is visible, its start winning when
-    // it is taller than the area.
+    // Scroll so the whole current row is visible. A row taller than the
+    // area shows its start, unless it holds the text cursor: then the
+    // cursor's line stays in view, on the area's last row while the start
+    // of the row is further up, so `↑` scrolls back to it row by row.
     let height = text_area.height as usize;
     let (start, end) = content.cursor;
-    let scroll = end.saturating_sub(height.saturating_sub(1)).min(start);
+    let scroll = match &content.text_cursor {
+        Some(cursor) if end - start >= height => cursor
+            .line
+            .saturating_sub(height.saturating_sub(1))
+            .max(start),
+        _ => end.saturating_sub(height.saturating_sub(1)).min(start),
+    };
     let total = content.lines.len();
     frame.render_widget(
         Paragraph::new(content.lines).scroll((scroll as u16, 0)),
@@ -634,12 +682,32 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
 
     // Rows cut off above or below the area are marked on its first and
     // last row, so the person knows to move on to see them.
+    let cursor_on = |row: usize| {
+        content
+            .text_cursor
+            .as_ref()
+            .filter(|cursor| cursor.shown && cursor.line == scroll + row)
+            .map(|cursor| {
+                let x = |column: usize| {
+                    text_area
+                        .x
+                        .saturating_add(u16::try_from(column).unwrap_or(u16::MAX))
+                };
+                x(cursor.columns.start)..x(cursor.columns.end)
+            })
+    };
     if height > 0 {
         if scroll > 0 {
-            mark_cut(frame, text_area, 0, "↑ more");
+            mark_cut(frame, text_area, 0, "↑ more", cursor_on(0));
         }
         if scroll + height < total {
-            mark_cut(frame, text_area, height - 1, "↓ more");
+            mark_cut(
+                frame,
+                text_area,
+                height - 1,
+                "↓ more",
+                cursor_on(height - 1),
+            );
         }
     }
     pane
@@ -651,7 +719,11 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
 /// anyway: the start of a row holds the pointer and the option's number,
 /// which matter more than the end of a line of text. A blank keeps it
 /// apart from the text beside it.
-fn mark_cut(frame: &mut Frame, area: Rect, row: usize, marker: &str) {
+///
+/// The text cursor's cell on the row, the columns `cursor`, is never
+/// covered: where the end chosen holds it, the marker goes to the other
+/// end, and where both do, the row shows none.
+fn mark_cut(frame: &mut Frame, area: Rect, row: usize, marker: &str, cursor: Option<Range<u16>>) {
     let width = u16::try_from(columns(marker) + 1)
         .expect("a short marker")
         .min(area.width);
@@ -670,10 +742,24 @@ fn mark_cut(frame: &mut Frame, area: Rect, row: usize, marker: &str) {
             cell.symbol() == " " && !cell.modifier.contains(Modifier::REVERSED)
         })
     };
-    let (marked, text) = if blank(frame, right) || !blank(frame, left) {
-        (right, format!(" {marker}"))
+    let right_end = (right, format!(" {marker}"));
+    let left_end = (left, format!("{marker} "));
+    let (chosen, other) = if blank(frame, right) || !blank(frame, left) {
+        (right_end, left_end)
     } else {
-        (left, format!("{marker} "))
+        (left_end, right_end)
+    };
+    let covers = |cells: Rect| {
+        cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.start < cells.right() && cells.x < cursor.end)
+    };
+    let (marked, text) = if !covers(chosen.0) {
+        chosen
+    } else if !covers(other.0) {
+        other
+    } else {
+        return;
     };
     // The cells lose the styles of the text under them first, so a marker
     // over a highlighted row never shows reversed.
@@ -715,6 +801,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
         lines: field_lines(&question.text, width),
         cursor: (0, 0),
         shape: None,
+        text_cursor: None,
     };
     content
         .lines
@@ -734,7 +821,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
     for (row_index, row) in state.rows_of(index).iter().enumerate() {
         let current = live && row_index == state.row();
         let pointer = if current { "❯ " } else { "  " };
-        let lines = match *row {
+        let (lines, text_cursor) = match *row {
             Row::Option(option_index) => {
                 let option = &question
                     .options
@@ -749,13 +836,14 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
                     )),
                     Span::from(option.label.clone()).bold(),
                 ];
-                option_lines(
+                let lines = option_lines(
                     head,
                     label_column,
                     option.description.as_deref(),
                     width,
                     current,
-                )
+                );
+                (lines, None)
             }
             Row::Own => {
                 let label = question
@@ -774,7 +862,8 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
                     live_field(state, head, text, width, current, true, &mut content.shape)
                 } else {
                     let length = question.custom.as_ref().and_then(|custom| custom.length());
-                    counted_lines(Span::from(head), text, width, length.is_some())
+                    let lines = counted_lines(Span::from(head), text, width, length.is_some());
+                    (lines, None)
                 }
             }
             Row::Answer => {
@@ -783,30 +872,37 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
                 if live {
                     live_field(state, head, text, width, current, false, &mut content.shape)
                 } else {
-                    counted_lines(Span::from(head), text, width, question.length.is_some())
+                    let lines =
+                        counted_lines(Span::from(head), text, width, question.length.is_some());
+                    (lines, None)
                 }
             }
             Row::Question(_) | Row::Submit | Row::Note | Row::Reject => {
                 unreachable!("review rows only appear on the review")
             }
         };
-        content.push_row(lines, current);
+        content.push_row(lines, current, text_cursor);
     }
 
     if question.note {
         content.lines.push(Line::default());
         let editing = live && state.focus() == Focus::Note;
         let head = Span::from("Notes: ").bold();
-        let note_lines = match state.field().filter(|_| editing) {
+        let (note_lines, text_cursor) = match state.field().filter(|_| editing) {
             Some(field) => {
                 let shape = FieldShape { head, width };
-                let lines = field.lines(&shape, !state.pane_focused(), None);
+                let shown = !state.pane_focused();
+                let lines = field.lines(&shape, shown, None);
+                let cursor = field_cursor(field, &shape, shown);
                 content.shape = Some(shape);
-                lines
+                (lines, Some(cursor))
             }
-            None => resting_lines(head, answer.note.as_deref().unwrap_or_default(), width),
+            None => {
+                let text = answer.note.as_deref().unwrap_or_default();
+                (resting_lines(head, text, width), None)
+            }
         };
-        content.push_row(note_lines, editing);
+        content.push_row(note_lines, editing, text_cursor);
     }
     content
 }
@@ -878,7 +974,8 @@ fn indented(line: Line<'static>, columns: usize) -> Line<'static> {
 /// The field of a row after `head` as the person sees it: with its text
 /// cursor and counter while it has the keys, where it is drawn then going
 /// to `shape`, otherwise with `text` as kept, its head highlighted when
-/// `highlight` holds and the cursor is on the row.
+/// `highlight` holds and the cursor is on the row. Says where its text
+/// cursor shows, if it has the keys.
 fn live_field(
     state: &SessionState,
     head: String,
@@ -887,7 +984,7 @@ fn live_field(
     current: bool,
     highlight: bool,
     shape: &mut Option<FieldShape>,
-) -> Vec<Line<'static>> {
+) -> (Vec<Line<'static>>, Option<TextCursor>) {
     match state
         .field()
         .filter(|_| current && state.focus() == Focus::Field)
@@ -899,12 +996,27 @@ fn live_field(
                 head: Span::from(head),
                 width,
             };
-            let lines = field.lines(&drawn, !state.pane_focused(), state.field_limits().as_ref());
+            let shown = !state.pane_focused();
+            let lines = field.lines(&drawn, shown, state.field_limits().as_ref());
+            let cursor = field_cursor(field, &drawn, shown);
             *shape = Some(drawn);
-            lines
+            (lines, Some(cursor))
         }
-        None if current && highlight => resting_lines(Span::from(head).reversed(), text, width),
-        None => resting_lines(Span::from(head), text, width),
+        None if current && highlight => {
+            let lines = resting_lines(Span::from(head).reversed(), text, width);
+            (lines, None)
+        }
+        None => (resting_lines(Span::from(head), text, width), None),
+    }
+}
+
+/// Where `field`'s text cursor shows among its lines drawn as `shape`.
+fn field_cursor(field: &TextField, shape: &FieldShape, shown: bool) -> TextCursor {
+    let (line, columns) = field.cursor_cell(shape);
+    TextCursor {
+        line,
+        columns,
+        shown,
     }
 }
 
@@ -916,6 +1028,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
         ],
         cursor: (0, 0),
         shape: None,
+        text_cursor: None,
     };
     let answers = state.answers();
     let states = state.question_states();
@@ -930,7 +1043,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
     for (index, row) in state.rows().iter().enumerate() {
         let current = index == state.row();
         let pointer = if current { "❯ " } else { "  " };
-        let lines = match *row {
+        let (lines, text_cursor) = match *row {
             Row::Question(question_index) => {
                 let question = &questions[question_index];
                 let skipped = states[question_index].answer == AnswerState::Skipped;
@@ -951,12 +1064,12 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 let summary = cut(&answer_summary(question, &answers[question_index]), room);
                 let spans = vec![Span::from(lead), Span::from(summary).dim()];
                 let line = Line::from(spans);
-                vec![if current { line.reversed() } else { line }]
+                (vec![if current { line.reversed() } else { line }], None)
             }
             Row::Submit => {
                 let counts = state.counts();
                 let button = Line::from(format!("{pointer}[ Submit ]")).bold();
-                vec![
+                let lines = vec![
                     Line::default(),
                     Line::from(format!(
                         "answered {} · skipped {} · defaulted {}",
@@ -964,7 +1077,8 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                     )),
                     Line::default(),
                     if current { button.reversed() } else { button },
-                ]
+                ];
+                (lines, None)
             }
             Row::Note => live_field(
                 state,
@@ -988,7 +1102,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 unreachable!("question rows never appear on the review")
             }
         };
-        content.push_row(lines, current);
+        content.push_row(lines, current, text_cursor);
     }
     content
 }
@@ -3316,7 +3430,7 @@ mod tests {
     }
 
     #[test]
-    fn the_cursor_after_a_full_line_does_not_count() {
+    fn the_cursor_after_a_full_line_counts_only_while_typing() {
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
         let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
 
@@ -3330,7 +3444,9 @@ mod tests {
             .position(|row| row.contains('✎'))
             .expect("the answer is on screen");
         assert_eq!(rows[answer + 1].trim(), "", "{backend}");
-        assert_eq!(need(&app, &mut view, 58), 7);
+        assert_eq!(need(&app, &mut view, 58), 8);
+        special(&mut app, KeyCode::Esc);
+        assert_eq!(need(&app, &mut view, 58), 7, "without the cursor");
     }
 
     #[test]
@@ -3348,6 +3464,35 @@ mod tests {
         special(&mut app, KeyCode::Tab);
         assert!(app.active().is_some_and(SessionState::pane_focused));
         assert_eq!(need(&app, &mut view, 58), 8);
+    }
+
+    #[test]
+    fn typing_to_an_exact_fill_keeps_the_last_row_in_view() {
+        let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+        let notes = |backend: &TestBackend| {
+            visible_rows(backend)
+                .iter()
+                .any(|row| row.starts_with(" Notes: —"))
+        };
+        let top = pane_row(&screen_in(&app, &mut view, 80, 24));
+
+        // `❯ ✎ ` and 74 letters fill the 78 columns, so the cursor's blank
+        // takes a row of its own, which counts while the field has the
+        // keys.
+        keys(&mut app, &"x".repeat(74));
+        let backend = screen_in(&app, &mut view, 80, 24);
+        assert!(notes(&backend), "{backend}");
+        assert!(!backend.to_string().contains("↓ more"), "{backend}");
+        assert_eq!(pane_row(&backend), top + 1, "{backend}");
+
+        special(&mut app, KeyCode::Backspace);
+        let backend = screen_in(&app, &mut view, 80, 24);
+        assert_eq!(pane_row(&backend), top + 1, "kept while typing:\n{backend}");
+        special(&mut app, KeyCode::Esc);
+        let backend = screen_in(&app, &mut view, 80, 24);
+        assert_eq!(pane_row(&backend), top, "{backend}");
+        assert!(notes(&backend), "{backend}");
     }
 
     /// A text question typed into until it took 9 rows, then cut back to
@@ -3603,6 +3748,192 @@ mod tests {
             !text.contains("↑ more") && !text.contains("↓ more"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn a_marker_that_would_cover_the_cursor_at_both_ends_is_left_out() {
+        // In 8 columns both ends of the row hold the cell at column 3.
+        let mut terminal = Terminal::new(TestBackend::new(8, 1)).expect("test terminal");
+        terminal
+            .draw(|frame| mark_cut(frame, frame.area(), 0, "↓ more", Some(3..4)))
+            .expect("draws");
+        assert_eq!(visible_rows(terminal.backend())[0], " ".repeat(8));
+
+        terminal
+            .draw(|frame| mark_cut(frame, frame.area(), 0, "↓ more", Some(7..8)))
+            .expect("draws");
+        assert_eq!(
+            visible_rows(terminal.backend())[0],
+            "↓ more  ",
+            "the other end"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // A field taller than the question's area
+    // -----------------------------------------------------------------
+
+    /// Types `count` lines, `line 1` to `line N`, drawing after each key
+    /// so `↑`/`↓` go by the rows on screen.
+    fn type_lines(app: &mut App, view: &mut View, width: u16, height: u16, count: usize) {
+        for line in 1..=count {
+            if line > 1 {
+                ctrl_j(app);
+            }
+            keys(app, &format!("line {line}"));
+            drawn(app, view, width, height);
+        }
+    }
+
+    /// The reversed cells under the tab bar of a screen whose header takes
+    /// one row, above the status line: the text cursor while a field has
+    /// the keys.
+    fn cursor_cells(backend: &TestBackend) -> Vec<(u16, u16, String)> {
+        let buffer = backend.buffer();
+        (4..buffer.area.height - 2)
+            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
+            .filter(|&position| buffer[position].modifier.contains(Modifier::REVERSED))
+            .map(|(x, y)| (x, y, buffer[(x, y)].symbol().to_owned()))
+            .collect()
+    }
+
+    /// A single question with context, an own answer and a note.
+    fn own_and_note(id: &str) -> serde_json::Value {
+        let mut question = choice(id, 2, true);
+        question["custom"] = serde_json::json!(true);
+        question
+    }
+
+    #[test]
+    fn a_field_taller_than_the_area_keeps_its_text_cursor_in_view() {
+        // At 80×24 the question gets 9 rows above its context, 4 to 12.
+        let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+        type_lines(&mut app, &mut view, 80, 24, 30);
+
+        let backend = drawn(&mut app, &mut view, 80, 24);
+        let rows = visible_rows(&backend);
+        assert_eq!(
+            cursor_cells(&backend),
+            [(12, 12, " ".to_owned())],
+            "{backend}"
+        );
+        assert!(rows[12].starts_with("     line 30"), "{backend}");
+        assert!(rows[4].contains("↑ more"), "{backend}");
+
+        // `↑` keeps the cursor on the last row while the view scrolls up,
+        // until the start of the field shows.
+        for line in (1..30).rev() {
+            special(&mut app, KeyCode::Up);
+            let backend = drawn(&mut app, &mut view, 80, 24);
+            let y = if line <= 9 { 3 + line } else { 12 };
+            let y16 = u16::try_from(y).expect("a row");
+            assert_eq!(
+                cursor_cells(&backend).first().map(|cell| cell.1),
+                Some(y16),
+                "line {line}:\n{backend}"
+            );
+            let rows = visible_rows(&backend);
+            assert!(
+                rows[y].contains(&format!("line {line}")),
+                "line {line}:\n{backend}"
+            );
+        }
+        let backend = drawn(&mut app, &mut view, 80, 24);
+        let rows = visible_rows(&backend);
+        assert!(rows[4].starts_with(" ❯ ✎ line 1 "), "{backend}");
+        assert!(
+            rows[4].contains("↑ more"),
+            "the question is above:\n{backend}"
+        );
+    }
+
+    #[test]
+    fn a_tall_note_or_own_answer_keeps_its_text_cursor_in_view() {
+        for (name, start) in [("note", "n"), ("own answer", "jj")] {
+            let mut app = app(&[("shape", &shaped(&[own_and_note("q")]))]);
+            let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+            keys(&mut app, start);
+            type_lines(&mut app, &mut view, 80, 24, 30);
+
+            let backend = drawn(&mut app, &mut view, 80, 24);
+            let cursor = cursor_cells(&backend);
+            assert_eq!(cursor.len(), 1, "{name}:\n{backend}");
+            let (_, y, symbol) = &cursor[0];
+            assert_eq!(symbol, " ", "{name}");
+            let rows = visible_rows(&backend);
+            assert!(
+                rows[usize::from(*y)].contains("line 30"),
+                "{name}:\n{backend}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_text_answer_of_twelve_lines_keeps_the_cursor_on_a_small_screen() {
+        let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
+        let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks());
+        type_lines(&mut app, &mut view, 60, 24, 12);
+
+        let backend = drawn(&mut app, &mut view, 60, 24);
+        let cursor = cursor_cells(&backend);
+        assert_eq!(
+            cursor.len(),
+            1,
+            "the reversed blank is on screen:\n{backend}"
+        );
+        assert_eq!(cursor[0].2, " ");
+    }
+
+    #[test]
+    fn a_marker_never_covers_the_text_cursor() {
+        // 74 letters fill the 78 columns after `❯ ✎ `; every line after
+        // the first starts 4 columns in.
+        let full = "x".repeat(74);
+        let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
+        let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+        keys(&mut app, &full);
+        ctrl_j(&mut app);
+        type_lines(&mut app, &mut view, 80, 24, 29);
+        ctrl_j(&mut app);
+        keys(&mut app, &full);
+
+        // The cursor's blank after the last line shows on a row of its own
+        // at the bottom, where `↓ more` takes the blank right end.
+        let backend = drawn(&mut app, &mut view, 80, 24);
+        assert_eq!(
+            cursor_cells(&backend),
+            [(5, 12, " ".to_owned())],
+            "{backend}"
+        );
+        assert_eq!(find(&backend, "↓ more"), (73, 12), "{backend}");
+
+        // On the last letter, the right end holds the cursor, so the marker
+        // goes over the start of the row.
+        special(&mut app, KeyCode::Left);
+        let backend = drawn(&mut app, &mut view, 80, 24);
+        assert_eq!(
+            cursor_cells(&backend),
+            [(78, 12, "x".to_owned())],
+            "{backend}"
+        );
+        assert_eq!(find(&backend, "↓ more"), (1, 12), "{backend}");
+
+        // The same for `↑ more` on the first row, on the first line's last
+        // letter.
+        for _ in 0..40 {
+            special(&mut app, KeyCode::Up);
+            drawn(&mut app, &mut view, 80, 24);
+        }
+        special(&mut app, KeyCode::End);
+        special(&mut app, KeyCode::Left);
+        let backend = drawn(&mut app, &mut view, 80, 24);
+        assert_eq!(
+            cursor_cells(&backend),
+            [(78, 4, "x".to_owned())],
+            "{backend}"
+        );
+        assert_eq!(find(&backend, "↑ more"), (1, 4), "{backend}");
     }
 
     #[test]

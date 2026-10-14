@@ -277,6 +277,35 @@ impl TextField {
         }
         lines
     }
+
+    /// Where the text cursor shows among the lines [`Self::lines`] draws
+    /// as `shape` says: the line, and the columns its cell takes, two for a
+    /// wide character. The screen keeps that cell in view and clear of its
+    /// markers (spec section 7.1).
+    pub fn cursor_cell(&self, shape: &FieldShape) -> (usize, Range<usize>) {
+        let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
+        let cursor = self.cursor();
+        let rows = layout(&shape.head, &lines, Some(cursor), false, shape.width);
+        let (line, row) = rows
+            .iter()
+            .enumerate()
+            .find(|(_, row)| row.holds(cursor))
+            .expect("the text cursor shows on a row");
+        let column = row.column_of(cursor.1);
+        let width = row
+            .glyphs
+            .iter()
+            .zip(&row.sources)
+            .find(|(_, source)| match **source {
+                Source::Text { start, chars } => (start..start + chars).contains(&cursor.1),
+                Source::End => true,
+                Source::Lead => false,
+            })
+            .expect("the row holds the text cursor")
+            .0
+            .width;
+        (line, column..column + width)
+    }
 }
 
 /// The lines of a field without the keys that holds `text`: the text

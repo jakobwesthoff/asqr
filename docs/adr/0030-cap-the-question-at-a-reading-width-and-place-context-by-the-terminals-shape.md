@@ -139,6 +139,12 @@ Agent's choices within that rule:
   row kept for the counter of a field with a length, and the cursor's
   blank after a full line left out. A second way to count would drift
   from the drawing.
+- While a field or a question's note has the keys, the current question
+  counts as drawn with its text cursor (adversarial review O5,
+  2026-10-14). Counted without it, a text that filled its line exactly
+  hid the question's last row behind `↓ more` until the next key, as
+  the cursor's blank took a row the split did not count. The other
+  questions are still counted without a cursor.
 - Questions without context do not count, as they show no pane.
 - The screen's `View` keeps the rows of every question by session,
   revision of the session file, question and width, and counts the

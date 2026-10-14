@@ -670,9 +670,12 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
     2026-10-14). A question's rows are counted at that width without a
     cursor: every field unfocused with the text typed so far, a row for
     the counter of a field with a length, and no row for the cursor
-    after a full line. Typing moves the pane only when the tallest
-    question gains a row, and it moves back up only once no field or
-    note has the keys. A resize, another session or a replaced session
+    after a full line. While a field or a question's note has the keys,
+    the current question counts as drawn, its text cursor included, so
+    a text that fills its line exactly gives the cursor's blank its own
+    row at once. Typing moves the pane only when the tallest question
+    gains a row, and it moves back up only once no field or note has the
+    keys. A resize, another session or a replaced session
     file count afresh. Below fits when the context pane gets at least 8
     rows with the question at half of H, that is from H = 15.
   - `--layout auto`, the default: when both fit, the context goes
@@ -702,7 +705,13 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   takes no row of its own: it goes over the right end of that row where
   it is blank, else over the start where that is blank, else over the
   right end anyway, so the pointer and the option's number stay
-  visible.
+  visible. A marker never covers the text cursor: where the end chosen
+  holds it, the marker goes over the other end, and where both do, that
+  row shows no marker.
+- A field or a note taller than the question's area keeps its text
+  cursor in view instead of showing its start: the cursor's line stays
+  on the area's last row while the field's start lies further up, so
+  `↑` scrolls back to the start row by row.
 - With nothing waiting, the screen says "Nothing to answer. New sessions
   show up here as soon as they arrive." Notices still show.
 

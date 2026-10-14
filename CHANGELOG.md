@@ -132,7 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   typing moves it only when that question gains a line. Where neither
   fits, context shrinks to a line that names it, and `z` still shows an
   image full screen. A dim `↑ more` or `↓ more` on the first or last row
-  of the question and the review says that rows are cut off there.
+  of the question and the review says that rows are cut off there; it
+  never covers the text cursor.
 - Context shows in a pane whose first line names the entry by its
   title or file name and, when the entry is taller than the pane, says
   which of its lines show. While the pane does not have the focus and
@@ -282,6 +283,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sends a status request through tmux's passthrough and asks for the
   graphics protocol only when the answer comes within 300 ms, so tmux
   with passthrough on still shows images inline.
+- A field or a note taller than the question's area keeps its text
+  cursor in view. Before, the question showed the field's start, and
+  the cursor of a long `text` answer could stay below the screen while
+  the person typed.
 
 ## [0.10.1] - 2026-10-14
 
