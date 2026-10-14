@@ -83,7 +83,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
                 Picker::halfblocks()
             })
         } else {
-            tracing::info!("tmux or screen cannot forward the graphics query; using half blocks");
+            tracing::info!("tmux cannot forward the graphics query; using half blocks");
             Picker::halfblocks()
         }
     };
@@ -277,8 +277,8 @@ impl<R: FnMut(&[&str]) -> Option<String>> Drop for PassthroughRestore<R> {
 const PROBE_PATIENCE: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// Whether a sequence sent through tmux's passthrough gets an answer, for
-/// [`may_query_protocol`] in a tmux or screen it cannot ask. Raw mode is
-/// on, as `ratatui::try_init` turned it on.
+/// [`may_query_protocol`] in a tmux it cannot ask. Raw mode is on, as
+/// `ratatui::try_init` turned it on.
 #[cfg(unix)]
 fn probe_passthrough() -> bool {
     passthrough_answers(&mut io::stdout(), io::stdin(), PROBE_PATIENCE).unwrap_or_else(|error| {

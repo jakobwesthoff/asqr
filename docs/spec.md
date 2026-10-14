@@ -1133,9 +1133,8 @@ tmux, asqr asks tmux whether passthrough
 is on for its pane and whether a client is attached, and queries the
 terminal only when both hold: otherwise the query gets no answer, and
 its reader would go on taking the keys typed afterwards. Without
-`TMUX`, when `TERM` starts with `tmux` or `screen` or `TERM_PROGRAM` is
-`tmux`, as in GNU screen or after ssh from a tmux pane, asqr cannot ask
-that tmux. It sends a device status request through tmux's passthrough
+`TMUX`, when `TERM` starts with `tmux` or `TERM_PROGRAM` is `tmux`, as
+after ssh from a tmux pane, asqr cannot ask that tmux. It sends a device status request through tmux's passthrough
 instead and waits up to 300 ms for the answer: with one, it queries the
 terminal; without one, images show as blocks. Keys typed during that
 wait are lost, and an answer slower than 300 ms, as over a slow ssh

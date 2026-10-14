@@ -26,8 +26,8 @@ comes.
 asqr avoids the known cases in `may_query_protocol`
 (`src/tui/render/images.rs`): inside tmux it asks tmux for passthrough
 and an attached client first. Without `TMUX`, when `TERM` starts with
-`tmux` or `screen` or `TERM_PROGRAM` is `tmux`, as after ssh from a tmux
-pane, it sends a passthrough-wrapped device status request and waits up
+`tmux` or `TERM_PROGRAM` is `tmux`, as after ssh from a tmux pane, it
+sends a passthrough-wrapped device status request and waits up
 to 300 ms with `poll` for the answer (`passthrough_answers`), and
 queries only when it came. Any other terminal that leaves the query
 unanswered still hits the bug. The probe loses keys typed during its

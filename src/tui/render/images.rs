@@ -202,8 +202,7 @@ fn size_kitty_placement(buffer: &mut Buffer, area: Rect) {
     cell.set_symbol(&symbol);
 }
 
-/// The environment variables that tell whether asqr runs inside tmux or
-/// GNU screen.
+/// The environment variables that tell whether asqr runs inside tmux.
 pub struct TerminalNames<'a> {
     /// `TMUX`, which tmux sets in its panes; empty counts as unset.
     pub tmux: Option<&'a str>,
@@ -223,23 +222,22 @@ pub struct TerminalNames<'a> {
 /// goes on taking the keys the person types, so the query is skipped and
 /// images fall back to half blocks (spec section 7.7).
 ///
-/// A `TERM` that starts with `tmux` or `screen`, or a `TERM_PROGRAM` of
-/// `tmux`, without `TMUX` means a tmux or screen that asqr cannot ask, as
-/// after ssh from a tmux pane, which carries `TERM` along but not `TMUX`.
-/// There `probe` finds out whether a sequence sent through tmux's
-/// passthrough is answered, as [`passthrough_answers`] does, and the
-/// terminal is queried only when it is.
+/// A `TERM` that starts with `tmux`, or a `TERM_PROGRAM` of `tmux`,
+/// without `TMUX` means a tmux that asqr cannot ask, as after ssh from a
+/// tmux pane, which carries `TERM` along but not `TMUX`. ratatui-image
+/// wraps its query for tmux on exactly this test. There `probe` finds out
+/// whether a sequence sent through tmux's passthrough is answered, as
+/// [`passthrough_answers`] does, and the terminal is queried only when it
+/// is. A `screen` `TERM` gets the query unwrapped and without a probe.
 pub fn may_query_protocol(
     names: &TerminalNames<'_>,
     tmux_state: impl FnOnce() -> Option<String>,
     probe: impl FnOnce() -> bool,
 ) -> bool {
     if names.tmux.is_none_or(str::is_empty) {
-        let multiplexed = names
-            .term
-            .is_some_and(|term| term.starts_with("tmux") || term.starts_with("screen"))
+        let tmux_like = names.term.is_some_and(|term| term.starts_with("tmux"))
             || names.term_program == Some("tmux");
-        return !multiplexed || probe();
+        return !tmux_like || probe();
     }
     let Some(state) = tmux_state() else {
         return false;
@@ -397,7 +395,7 @@ mod tests {
         assert_eq!(refused(path.to_str().expect("a UTF-8 path")), None);
     }
 
-    /// `TERM` and `TERM_PROGRAM` of a terminal that is not tmux or screen.
+    /// `TERM` and `TERM_PROGRAM` of a terminal that is not tmux.
     const PLAIN: (Option<&str>, Option<&str>) = (Some("xterm-ghostty"), Some("ghostty"));
 
     /// The decision where asqr asks tmux and never probes.
@@ -452,18 +450,31 @@ mod tests {
         )));
     }
 
-    /// `TERM` and `TERM_PROGRAM` of a tmux or screen that asqr cannot ask
-    /// without `TMUX`: ssh from a tmux pane carries `TERM` along but not
-    /// `TMUX`, and GNU screen sets `STY` instead.
-    const MULTIPLEXED: [(Option<&str>, Option<&str>); 4] = [
+    /// `TERM` and `TERM_PROGRAM` of a tmux that asqr cannot ask without
+    /// `TMUX`, as after ssh from a tmux pane, which carries `TERM` along but
+    /// not `TMUX`.
+    const MULTIPLEXED: [(Option<&str>, Option<&str>); 2] = [
         (Some("tmux-256color"), None),
         (Some("xterm-256color"), Some("tmux")),
-        (Some("screen.xterm-256color"), None),
-        (Some("screen"), Some("")),
     ];
 
+    /// ratatui-image sends the query unwrapped there, and GNU screen, or a
+    /// tmux reached over ssh with such a `TERM`, answers it, so a probe
+    /// would only cost time and keys.
     #[test]
-    fn a_tmux_or_screen_without_its_variable_is_asked_once_the_probe_is_answered() {
+    fn a_screen_term_without_tmux_is_asked_without_a_probe() {
+        for term in ["screen.xterm-256color", "screen-256color", "screen"] {
+            assert!(
+                may_query(None, (Some(term), None), || unreachable!(
+                    "not asked without TMUX"
+                )),
+                "{term}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tmux_without_its_variable_is_asked_once_the_probe_is_answered() {
         for names in MULTIPLEXED {
             assert!(probed(names, true), "{names:?}");
         }
@@ -474,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tmux_or_screen_without_its_variable_is_not_asked_without_an_answer() {
+    fn a_tmux_without_its_variable_is_not_asked_without_an_answer() {
         for names in MULTIPLEXED {
             assert!(!probed(names, false), "{names:?}");
         }

@@ -285,11 +285,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blocks. The question got no answer there, and the thread waiting for
   it took the first input that came. A first paste then lost its start
   marker, and its line breaks arrived as `enter`, which could pick an
-  option or submit the session. Where `TERM` starts with `tmux` or
-  `screen`, or `TERM_PROGRAM` is `tmux`, without `TMUX`, asqr first
-  sends a status request through tmux's passthrough and asks for the
-  graphics protocol only when the answer comes within 300 ms, so tmux
-  with passthrough on still shows images inline.
+  option or submit the session. Where `TERM` starts with `tmux`, or
+  `TERM_PROGRAM` is `tmux`, without `TMUX`, asqr first sends a status
+  request through tmux's passthrough and asks for the graphics protocol
+  only when the answer comes within 300 ms, so tmux with passthrough on
+  still shows images inline.
 - Inside tmux, asqr gives its pane's `allow-passthrough` setting back
   once it has detected the graphics protocol, and unsets it when the
   pane had no setting of its own. Before, ratatui-image set it to `on`
