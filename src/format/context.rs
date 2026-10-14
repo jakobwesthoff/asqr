@@ -10,8 +10,10 @@
 //! Rules that span fields, such as a code entry naming either a file or
 //! inline content, live in validation, which can name the offending field.
 //! The schema states that rule too, as a `oneOf` of a branch that requires
-//! `path` and one that requires `content`: a key counts by being there, so
-//! an empty `content` is an empty text.
+//! `path` as a string and one that requires `content` as a string. A key
+//! counts by being there, so an empty `content` is an empty text, while a
+//! `null` counts as missing, as it does for serde. A diff's `anyOf`
+//! requires `old` or `new` as an object the same way.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -62,7 +64,10 @@ fn is_true(value: &bool) -> bool {
 /// the source of a Markdown file. Exactly one of `path` and `content` is
 /// given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(extend("oneOf" = [{"required": ["path"]}, {"required": ["content"]}]))]
+#[schemars(extend("oneOf" = [
+    {"required": ["path"], "properties": {"path": {"type": "string"}}},
+    {"required": ["content"], "properties": {"content": {"type": "string"}}},
+]))]
 pub struct CodeEntry {
     /// A name for the entry, such as a file name. Its extension picks the
     /// language when neither `language` nor `path` does.
@@ -87,7 +92,10 @@ pub struct CodeEntry {
 /// Markdown, rendered and wrapped to the space it gets. Exactly one of
 /// `path` and `content` is given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(extend("oneOf" = [{"required": ["path"]}, {"required": ["content"]}]))]
+#[schemars(extend("oneOf" = [
+    {"required": ["path"], "properties": {"path": {"type": "string"}}},
+    {"required": ["content"], "properties": {"content": {"type": "string"}}},
+]))]
 pub struct MarkdownEntry {
     /// A name for the entry, such as a file name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,6 +114,10 @@ pub struct MarkdownEntry {
 /// A change between two versions of a text, which asqr diffs itself. A
 /// missing `old` is a new file, a missing `new` a deleted one.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("anyOf" = [
+    {"required": ["old"], "properties": {"old": {"type": "object"}}},
+    {"required": ["new"], "properties": {"new": {"type": "object"}}},
+]))]
 pub struct DiffEntry {
     /// A name for the entry, such as a file name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,7 +158,10 @@ impl DiffEntry {
 /// One side of a diff: a file or inline content. Exactly one of the two
 /// is given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[schemars(extend("oneOf" = [{"required": ["path"]}, {"required": ["content"]}]))]
+#[schemars(extend("oneOf" = [
+    {"required": ["path"], "properties": {"path": {"type": "string"}}},
+    {"required": ["content"], "properties": {"content": {"type": "string"}}},
+]))]
 pub struct DiffSide {
     /// An absolute path; `asqr ask` makes a relative one absolute.
     #[serde(default, skip_serializing_if = "Option::is_none")]

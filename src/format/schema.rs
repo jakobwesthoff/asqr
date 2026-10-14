@@ -28,6 +28,8 @@ pub fn result_schema() -> serde_json::Value {
 mod tests {
     use std::path::Path;
 
+    use serde_json::json;
+
     use super::*;
     use crate::format::FORMAT_VERSION;
 
@@ -101,20 +103,34 @@ mod tests {
         }
     }
 
-    /// How many branches of `definition`'s `oneOf` an object with `keys`
-    /// matches, as a schema validator counts them: a branch matches when
-    /// every key it requires is present.
-    fn matching_branches(definition: &serde_json::Value, keys: &[&str]) -> usize {
-        definition["oneOf"]
+    /// How many branches of `definition`'s `oneOf` or `anyOf` (`keyword`)
+    /// `object` matches, as a schema validator counts them. The branches
+    /// only use `required` and the `type` of a property, so those two are
+    /// all this checks; the repository has no schema validator to ask.
+    fn matching_branches(
+        definition: &serde_json::Value,
+        keyword: &str,
+        object: &serde_json::Value,
+    ) -> usize {
+        let has_type = |value: &serde_json::Value, wanted: &str| match wanted {
+            "string" => value.is_string(),
+            "object" => value.is_object(),
+            other => panic!("no branch checks for type {other}"),
+        };
+        definition[keyword]
             .as_array()
-            .expect("the definition has a oneOf")
+            .unwrap_or_else(|| panic!("the definition has {keyword}"))
             .iter()
             .filter(|branch| {
-                branch["required"]
-                    .as_array()
-                    .expect("each branch requires keys")
-                    .iter()
-                    .all(|key| keys.contains(&key.as_str().expect("a key name")))
+                let required = branch["required"].as_array().into_iter().flatten();
+                let typed = branch["properties"].as_object().into_iter().flatten();
+                required
+                    .map(|key| key.as_str().expect("a key name"))
+                    .all(|key| object.get(key).is_some())
+                    && typed.into_iter().all(|(key, property)| {
+                        let wanted = property["type"].as_str().expect("a property type");
+                        object.get(key).is_none_or(|value| has_type(value, wanted))
+                    })
             })
             .count()
     }
@@ -125,17 +141,42 @@ mod tests {
 
         for name in ["CodeEntry", "MarkdownEntry", "DiffSide"] {
             let definition = &schema["$defs"][name];
+            let matches = |object| matching_branches(definition, "oneOf", &object);
+            assert_eq!(matches(json!({"path": "/a.rs"})), 1, "{name}");
             // A key counts by being there, so an empty `content` names
             // an empty text, as validation sees it.
-            assert_eq!(matching_branches(definition, &["path"]), 1, "{name}");
-            assert_eq!(matching_branches(definition, &["content"]), 1, "{name}");
-            assert_eq!(matching_branches(definition, &[]), 0, "{name}");
+            assert_eq!(matches(json!({"content": ""})), 1, "{name}");
+            // `null` is how serde reads a missing value, so validation
+            // accepts it next to the other key, and so must the schema.
+            assert_eq!(matches(json!({"path": null, "content": "x"})), 1, "{name}");
             assert_eq!(
-                matching_branches(definition, &["path", "content"]),
+                matches(json!({"path": "/a.rs", "content": null})),
+                1,
+                "{name}"
+            );
+            assert_eq!(matches(json!({})), 0, "{name}");
+            assert_eq!(matches(json!({"path": null, "content": null})), 0, "{name}");
+            assert_eq!(
+                matches(json!({"path": "/a.rs", "content": "x"})),
                 2,
                 "{name}: both match, so oneOf fails"
             );
         }
+    }
+
+    #[test]
+    fn a_diff_has_old_new_or_both() {
+        let schema = session_schema();
+        let definition = &schema["$defs"]["DiffEntry"];
+        let matches = |object| matching_branches(definition, "anyOf", &object);
+        let side = json!({"content": "x"});
+
+        assert!(matches(json!({"old": side})) > 0);
+        assert!(matches(json!({"new": side})) > 0);
+        assert!(matches(json!({"old": side, "new": side})) > 0);
+        assert!(matches(json!({"old": null, "new": side})) > 0);
+        assert_eq!(matches(json!({"name": "a.rs"})), 0);
+        assert_eq!(matches(json!({"old": null, "new": null})), 0);
     }
 
     #[test]

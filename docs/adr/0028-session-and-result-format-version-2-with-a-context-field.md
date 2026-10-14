@@ -175,8 +175,10 @@ user, the version stays 2:
   constant 2 in the session and the result schema, `context` has
   `maxItems: 1`, and a code or Markdown entry or a diff side takes
   exactly one of `path` and `content` (a `oneOf` of two branches that
-  each require one key, so an empty `content` counts as given and
-  `context: []` stays valid). The descriptions of `intro`, question
+  each require one key as a string, so an empty `content` counts as
+  given, a `null` counts as missing as it does for asqr, and
+  `context: []` stays valid). A diff takes `old`, `new` or both (an
+  `anyOf` of two branches that each require one side as an object). The descriptions of `intro`, question
   `text` and option `description` say that they are Markdown, that a
   single newline breaks the line and that raw HTML shows as written. An
   agent that checks its file against the schema learns these rules

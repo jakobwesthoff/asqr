@@ -54,9 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asqr validate` and `asqr ask` warn "not a file" about a context path
   that names a directory or another file that is not a regular file.
 - The JSON Schemas state the format version as the constant `2`, allow
-  one context entry per question or option, and require exactly one of
+  one context entry per question or option, require exactly one of
   `path` and `content` in a code or Markdown entry and in each side of a
-  diff. They describe `intro`, question `text` and option `description`
+  diff, and require `old`, `new` or both in a diff. They describe `intro`, question `text` and option `description`
   as Markdown in which a single newline breaks the line and raw HTML
   shows as written.
 - A note to the whole session: the review tab has a field for it below

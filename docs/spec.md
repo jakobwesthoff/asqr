@@ -455,8 +455,11 @@ state the rules a schema can state directly: `asqr` is the constant `2`
 in both, `context` holds at most one entry (an empty list is valid), and
 a `code` or `markdown` entry or a side of a `diff` takes exactly one of
 `path` and `content`, written as a `oneOf` of a branch that requires
-`path` and one that requires `content`; an empty `content` counts as
-given. The descriptions of `intro`, question `text` and option
+`path` as a string and one that requires `content` as a string; an
+empty `content` counts as given, and a `null` counts as missing, as it
+does for asqr. A `diff` takes `old`, `new` or both, written as an
+`anyOf` of a branch that requires `old` as an object and one that
+requires `new` as an object. The descriptions of `intro`, question `text` and option
 `description` say that they are Markdown, that a single newline breaks
 the line and that raw HTML shows as written. The other rules are
 validation's alone.
