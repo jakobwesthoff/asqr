@@ -8,7 +8,6 @@ mod code;
 mod context;
 mod diff;
 mod images;
-pub mod markdown;
 mod markdown_viewer;
 mod panes;
 mod parts;
@@ -16,6 +15,7 @@ mod patine_adapter;
 mod screen;
 mod source_file;
 mod source_line;
+mod text;
 mod viewer;
 
 pub use images::may_query_protocol;

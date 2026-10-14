@@ -426,9 +426,8 @@ every error and exits with 11. Warnings go to stderr and never fail it.
 A file that is not JSON, or not shaped like a session, exits with 11 as
 well; a file that cannot be read exits with 1.
 
-Text fields (`intro`, question `text`, option `description`) may use a
-small Markdown subset: bold, italic, inline code, lists and line breaks.
-Everything else is shown exactly as written in the source (section 7.6).
+Text fields (`intro`, question `text`, option `description`) are
+Markdown, rendered in full (section 7.6).
 
 The repo ships the JSON Schema (`schema/session.v2.json`,
 `schema/result.v2.json`). `asqr schema` prints the session schema and
@@ -699,7 +698,8 @@ On an option row (vim style plus arrows):
   are the intro overlay's keys and conventions.
 - Help closes on any key.
 - `i` shows the session's whole intro in a frame over the question,
-  styled as in the header (section 7.6), with the key bar left free. An
+  rendered as in the header but not dimmed (section 7.6), with the key
+  bar left free. An
   intro longer than the frame scrolls: `↑`/`↓` and `k`/`j` by line,
   `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` by page, `g`/`G` and `home`/`end`
   to the ends. The frame's bottom edge then shows which lines are
@@ -800,9 +800,35 @@ is left.
 
 ### 7.6 Markdown
 
-Elements in the subset (section 4) are styled. Every other element is
-shown once as written in the source, also when it is nested inside a
-supported element (a heading marker in a list item).
+The intro, question texts and option descriptions render in patine's
+style, as a Markdown entry does (section 7.7, ADR 35): headings bold
+(level one also italic and underlined, level two underlined), emphasis,
+inline code in yellow, lists with bullets, quotes behind a dim bar,
+links underlined with their URL dimmed, tables, rules, and code blocks
+highlighted when the fence names a language.
+
+- Each text renders at the width it gets: a question text at the
+  question's width, which stops at the reading width; the intro at the
+  header's width; an option description in the columns from where it
+  starts to the end of the line, beside its label or below it (section
+  7.1).
+- A line patine leaves wider than that, such as a line of a code
+  block, a long URL or a table that cannot shrink, wraps as in a
+  Markdown entry: each further row repeats the blanks and quote bars
+  the line starts with, then a dim `↪`, then the rest. Nothing is cut,
+  and nothing scrolls sideways.
+- A single newline breaks the line, and a blank line starts a new
+  paragraph. Inside a list item the next line starts under the item's
+  text, inside a quote behind its bar. Code blocks keep their lines, and
+  inline code shows a newline as a blank.
+- Raw HTML shows as written, in the style of the text around it, so
+  `Vec<String>` stays as it is. An HTML block keeps its lines as they
+  are, comments included. An autolink such as `<https://example.com>`
+  is a link.
+- Markdown entries (section 7.7) are documents and keep CommonMark's
+  rules: a single newline joins the lines, and raw HTML is left out.
+- The intro under the title is dim on top of these styles. The `i`
+  frame shows it without the dim.
 
 ### 7.7 Context
 
@@ -1089,7 +1115,7 @@ MPL-2.0.
 | Locking | the standard library's file locks (no crate) |
 | Timestamps | `jiff` (RFC 3339 with the offset) |
 | Logging | `tracing` and `tracing-subscriber`, into a file in the platform cache directory |
-| Markdown subset | `pulldown-cmark` |
+| Markdown and highlighting | `patine` without default features, for the text fields and for code and Markdown entries (ADR 34, ADR 35) |
 | Diffs | `similar` with its `inline` and `unicode` features |
 | Columns of source lines | `unicode-segmentation` and `unicode-width` |
 | Session ids | `ulid` |

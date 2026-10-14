@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [35. Render the text fields as full Markdown through patine](0035-render-the-text-fields-as-full-markdown-through-patine.md)
+
 ## Context
 
 The user asked for clap, anyhow and/or thiserror, and other
@@ -43,3 +45,8 @@ needs ratatui 0.30. `ratatui-textarea` is the continuation of the same
 widget under the ratatui organisation and supports ratatui 0.30. It uses
 the crossterm version ratatui re-exports, so the whole tree has one
 crossterm.
+
+## Amendment (2026-10-14, ADR 35)
+
+The text fields render full Markdown through patine (ADR 34, ADR 35),
+and `pulldown-cmark` goes.

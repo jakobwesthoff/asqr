@@ -17,9 +17,9 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui_image::picker::Picker;
 
 use super::context::{context_hint, draw_pane};
-use super::markdown;
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
+use super::text::MarkdownCache;
 use super::viewer::Viewers;
 use crate::format::{Kind, Question};
 use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState};
@@ -31,6 +31,9 @@ pub const MIN_HEIGHT: u16 = 15;
 /// Descriptions start on the label's line only while that leaves them at
 /// least this much room; otherwise they move to their own lines.
 const MIN_DESCRIPTION_WIDTH: usize = 30;
+
+/// Where descriptions start that go on the lines below their label.
+const DESCRIPTION_INDENT: usize = 6;
 
 /// The text of a one-line field wraps under its own start only while that
 /// leaves it at least this much room; otherwise its further lines start
@@ -76,6 +79,9 @@ pub struct View<'a> {
     viewers: Viewers,
     /// What the context pane showed in the last draw.
     pane_page: Option<Page>,
+    /// The intro, question texts and option descriptions as rendered for
+    /// the last frames.
+    markdown: MarkdownCache,
 }
 
 impl<'a> View<'a> {
@@ -89,6 +95,7 @@ impl<'a> View<'a> {
             intro_page: Extent::default(),
             viewers: Viewers::new(picker),
             pane_page: None,
+            markdown: MarkdownCache::default(),
         }
     }
 
@@ -113,6 +120,7 @@ impl<'a> View<'a> {
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     // Whatever returns early draws no pane.
     view.pane_page = None;
+    view.markdown.begin_frame();
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let text = format!(
@@ -128,7 +136,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     let header_width = usize::from(area.width.min(READING_WIDTH + 2));
     let header_lines = app
         .active()
-        .map(|state| header_lines(state, header_width, area.height))
+        .map(|state| header_lines(state, header_width, area.height, &mut view.markdown))
         .unwrap_or_default();
     let header_height = u16::try_from(header_lines.len()).expect("at most five header lines");
 
@@ -191,7 +199,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
                 height: area.height - 1,
                 ..area
             };
-            draw_intro(frame, intro, scroll, above_keys)
+            draw_intro(frame, intro, scroll, above_keys, &mut view.markdown)
         }
         _ => Extent::default(),
     };
@@ -222,15 +230,23 @@ fn session_intro(state: &SessionState) -> Option<&str> {
 
 /// The whole intro in a frame over the screen, from line `scroll` on, and
 /// what of it fits. An intro longer than the frame scrolls, and the frame's
-/// bottom edge says which lines show.
-fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> Extent {
+/// bottom edge says which lines show. The intro shows in patine's styles
+/// without the header's dim.
+fn draw_intro(
+    frame: &mut Frame,
+    intro: &str,
+    scroll: usize,
+    area: Rect,
+    markdown: &mut MarkdownCache,
+) -> Extent {
     // The text keeps to the reading width, with a blank column inside each
     // border.
     let width = area.width.saturating_sub(4).min(READING_WIDTH + 4);
     let inner = usize::from(width.saturating_sub(2));
-    let lines: Vec<Line<'static>> = markdown::render(intro)
+    let lines: Vec<Line<'static>> = markdown
+        .lines(intro, inner.saturating_sub(2))
         .into_iter()
-        .flat_map(|line| wrap(line, inner.saturating_sub(1), 1, 1))
+        .map(|line| indented(line, 1))
         .collect();
     let wanted = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
     let area = center(area, width, wanted);
@@ -260,7 +276,12 @@ fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> Exte
 /// one each on short terminals, so the question keeps its room. A cut
 /// title ends in `…`; a cut intro ends in `… i: more`, as `i` shows all
 /// of it.
-fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'static>> {
+fn header_lines(
+    state: &SessionState,
+    width: usize,
+    height: u16,
+    markdown: &mut MarkdownCache,
+) -> Vec<Line<'static>> {
     let short = height < 24;
     let session = state.session();
     let title = session
@@ -286,10 +307,11 @@ fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'st
     let Some(intro) = session.intro.as_deref() else {
         return lines;
     };
-    let intro: Vec<Line<'static>> = markdown::render(intro)
+    // Dim comes on top of patine's styles, which still show underneath.
+    let intro: Vec<Line<'static>> = markdown
+        .lines(intro, room.saturating_sub(1))
         .into_iter()
-        .flat_map(|line| wrap(line, room, 1, 1))
-        .map(|line| line.dim())
+        .map(|line| indented(line, 1).dim())
         .collect();
     lines.extend(at_most(intro, if short { 1 } else { 3 }, "… i: more", room));
     lines
@@ -451,8 +473,8 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
         arrangement
     });
 
-    let content_at = |width: u16| match state.question() {
-        Some(question) => question_content(state, question, usize::from(width)),
+    let mut content_at = |width: u16| match state.question() {
+        Some(question) => question_content(state, question, usize::from(width), &mut view.markdown),
         None => review_content(state, usize::from(width)),
     };
     // Without a context area, above one and above a hint, the question
@@ -498,14 +520,16 @@ fn mark(kind: Kind, chosen: bool) -> &'static str {
     }
 }
 
-fn question_content(state: &SessionState, question: &Question, width: usize) -> Content {
+fn question_content(
+    state: &SessionState,
+    question: &Question,
+    width: usize,
+    markdown: &mut MarkdownCache,
+) -> Content {
     let mut content = Content {
-        lines: Vec::new(),
+        lines: markdown.lines(&question.text, width),
         cursor: (0, 0),
     };
-    for line in markdown::render(&question.text) {
-        content.lines.extend(wrap(line, width, 0, 0));
-    }
     content
         .lines
         .extend(wrap(Line::from(kind_hint(question)).dim(), width, 0, 0));
@@ -545,6 +569,7 @@ fn question_content(state: &SessionState, question: &Question, width: usize) -> 
                     option.description.as_deref(),
                     width,
                     current,
+                    markdown,
                 )
             }
             Row::Own => {
@@ -603,14 +628,17 @@ fn option_head_width(index: usize, label: &str) -> usize {
 }
 
 /// An option: pointer, mark, number and label, then the description from
-/// `label_column` on, wrapped under its own start. When that leaves too
-/// little room, the descriptions go on the lines below instead.
+/// `label_column` on, rendered for the columns from there to the end and
+/// so wrapped under its own start. When that leaves too little room, the
+/// descriptions go on the lines below instead, from `DESCRIPTION_INDENT`
+/// on.
 fn option_lines(
     head: Vec<Span<'static>>,
     label_column: usize,
     description: Option<&str>,
     width: usize,
     current: bool,
+    markdown: &mut MarkdownCache,
 ) -> Vec<Line<'static>> {
     let head_width: usize = head.iter().map(|span| span.content.chars().count()).sum();
     let head = if current {
@@ -620,37 +648,43 @@ fn option_lines(
     } else {
         head
     };
-    // An empty or blank description renders to no lines at all. The head
-    // then stands alone, or the beside layout below would drop it with
-    // the missing first line.
-    let description = description.map(markdown::render).unwrap_or_default();
-    if description.is_empty() {
-        return vec![Line::from(head)];
-    }
-    let mut lines = Vec::new();
-    if width.saturating_sub(label_column + 2) >= MIN_DESCRIPTION_WIDTH {
-        let indent = label_column + 2;
-        for (index, line) in description.into_iter().enumerate() {
-            for (part, wrapped) in wrap(line, width, indent, indent).into_iter().enumerate() {
-                if index == 0 && part == 0 {
-                    // The first line starts after the label, padded to
-                    // the description column.
-                    let mut spans = head.clone();
-                    spans.push(Span::from(" ".repeat(indent - head_width)));
-                    spans.extend(wrapped.spans.into_iter().skip(1));
-                    lines.push(Line::from(spans));
-                } else {
-                    lines.push(wrapped);
-                }
-            }
-        }
+    let beside = width.saturating_sub(label_column + 2) >= MIN_DESCRIPTION_WIDTH;
+    let indent = if beside {
+        label_column + 2
     } else {
-        lines.push(Line::from(head));
-        for line in description {
-            lines.extend(wrap(line, width, 6, 6));
+        DESCRIPTION_INDENT
+    };
+    let mut rows = description
+        .map(|description| markdown.lines(description, width.saturating_sub(indent)))
+        .unwrap_or_default()
+        .into_iter();
+    let mut lines = Vec::new();
+    match rows.next() {
+        // An empty or blank description renders to no lines at all, and
+        // the head stands alone.
+        None => lines.push(Line::from(head)),
+        // The first row starts after the label, padded to the description
+        // column.
+        Some(first) if beside => {
+            let mut spans = head;
+            spans.push(Span::from(" ".repeat(indent - head_width)));
+            spans.extend(first.spans);
+            lines.push(Line::from(spans));
+        }
+        Some(first) => {
+            lines.push(Line::from(head));
+            lines.push(indented(first, indent));
         }
     }
+    lines.extend(rows.map(|row| indented(row, indent)));
     lines
+}
+
+/// `line` behind `columns` blanks.
+fn indented(line: Line<'static>, columns: usize) -> Line<'static> {
+    let mut spans = vec![Span::from(" ".repeat(columns))];
+    spans.extend(line.spans);
+    Line::from(spans).style(line.style)
 }
 
 /// A one-line field after `head`. The text wraps like a note: under its
@@ -861,8 +895,7 @@ fn with_cursor(text: &str, cursor: Option<(usize, usize)>) -> Vec<Line<'static>>
 /// Word-wraps `line` to `width`: the first line is indented by `first`,
 /// the following ones by `rest`. A word is a run of non-blanks with the
 /// blanks after it, whatever styles its characters carry, so a style
-/// change inside a word, such as the text cursor or Markdown emphasis,
-/// never splits it. Every character keeps its style, and a word longer
+/// change inside a word, such as the text cursor, never splits it. Every character keeps its style, and a word longer
 /// than a line is broken where the line ends.
 pub(super) fn wrap(
     line: Line<'static>,
@@ -954,7 +987,7 @@ impl Wrapped {
     }
 
     /// The lines as spans: the indent first, as a span of its own that
-    /// `option_lines` replaces, then one span per run of a style.
+    /// `ending_in` keeps, then one span per run of a style.
     fn into_lines(self) -> Vec<Line<'static>> {
         self.lines
             .into_iter()
@@ -1576,6 +1609,245 @@ mod tests {
             text.contains("Beta option"),
             "option with blank description shows"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Markdown in the intro, question texts and option descriptions
+    // -----------------------------------------------------------------
+
+    /// A session with `intro` and one question of `text`, whose first
+    /// option is labelled `label` and described by `description`.
+    fn markdown_session(intro: &str, text: &str, label: &str, description: &str) -> App {
+        let json = serde_json::json!({
+            "asqr": 2,
+            "title": "Markdown",
+            "intro": intro,
+            "questions": [{"id": "q", "text": text, "kind": "single", "options": [
+                {"id": "a", "label": label, "description": description},
+                {"id": "b", "label": "Beta"}
+            ]}]
+        });
+        app(&[("markdown", &json.to_string())])
+    }
+
+    /// The column and row of the first cell where `text` starts, searching
+    /// the rows from `from` on. Every cell in these tests holds one
+    /// character, so a character's index in a row is its column.
+    fn find_from(backend: &TestBackend, from: u16, text: &str) -> (u16, u16) {
+        let lines = screen_lines(backend);
+        for (y, line) in lines.iter().enumerate().skip(usize::from(from)) {
+            if let Some(start) = line.find(text) {
+                let x = line[..start].chars().count();
+                return (
+                    u16::try_from(x).expect("a column on the screen"),
+                    u16::try_from(y).expect("a row on the screen"),
+                );
+            }
+        }
+        panic!("{text:?} is not on the screen:\n{backend}");
+    }
+
+    fn find(backend: &TestBackend, text: &str) -> (u16, u16) {
+        find_from(backend, 0, text)
+    }
+
+    const PLAN: &str = "## Plan\n\nRun `cargo test` **now**, see [docs](https://example.com).\n\n> Quoted\n\n```rust\nlet x = 1;\n```";
+
+    #[test]
+    fn a_question_text_renders_full_markdown_in_patines_styles() {
+        let backend = screen(&markdown_session("Intro", PLAN, "Alpha", ""), 100, 30);
+        let buffer = backend.buffer();
+        let text = backend.to_string();
+
+        for source in ["##", "**", "```", "[docs]", "> Quoted"] {
+            assert!(!text.contains(source), "{source} shows:\n{backend}");
+        }
+        let heading = find(&backend, "Plan");
+        assert!(
+            buffer[heading]
+                .modifier
+                .contains(Modifier::BOLD | Modifier::UNDERLINED),
+            "a level-two heading"
+        );
+        let code = find(&backend, "cargo test");
+        assert_eq!(buffer[code].fg, Color::Indexed(3), "inline code in yellow");
+        assert!(
+            !buffer[code].modifier.contains(Modifier::REVERSED),
+            "inline code is not reversed"
+        );
+        assert!(
+            buffer[find(&backend, "now")]
+                .modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            buffer[find(&backend, "docs")]
+                .modifier
+                .contains(Modifier::UNDERLINED)
+        );
+        assert!(
+            buffer[find(&backend, "(https://example.com)")]
+                .modifier
+                .contains(Modifier::DIM)
+        );
+        let (x, y) = find(&backend, "│ Quoted");
+        assert!(buffer[(x, y)].modifier.contains(Modifier::DIM), "the bar");
+        assert!(buffer[(x + 2, y)].modifier.contains(Modifier::ITALIC));
+        let (x, y) = find(&backend, "let x = 1;");
+        assert_eq!(x, 3, "the block is indented by two after the margin");
+        assert_eq!(
+            buffer[(x, y)].fg,
+            Color::Indexed(5),
+            "a highlighted keyword"
+        );
+    }
+
+    #[test]
+    fn a_wide_code_line_in_a_question_wraps_behind_a_marker() {
+        let code = "let total = first + second + third + fourth + fifth + sixth + seventh;";
+        let backend = screen(
+            &markdown_session("Intro", &format!("```\n{code}\n```"), "Alpha", ""),
+            60,
+            24,
+        );
+        let buffer = backend.buffer();
+
+        let (x, y) = find(&backend, "let total");
+        assert_eq!(x, 3);
+        let first = &screen_lines(&backend)[usize::from(y)];
+        let second = &screen_lines(&backend)[usize::from(y) + 1];
+        assert!(second.starts_with("   ↪ "), "{backend}");
+        assert!(
+            buffer[(3, y + 1)].modifier.contains(Modifier::DIM),
+            "the marker"
+        );
+        let shown = format!(
+            "{}{}",
+            first[3..].trim_end(),
+            second["   ↪ ".len()..].trim_end()
+        );
+        assert_eq!(shown, code, "nothing is cut:\n{backend}");
+        assert!(!backend.to_string().contains('›'), "{backend}");
+    }
+
+    #[test]
+    fn the_intro_is_dim_over_its_markdown_styles() {
+        let app = markdown_session("Round **two** of `layout`.", "Which?", "Alpha", "");
+        let backend = screen(&app, 80, 24);
+        let buffer = backend.buffer();
+
+        let two = find(&backend, "two");
+        assert!(
+            buffer[two]
+                .modifier
+                .contains(Modifier::BOLD | Modifier::DIM),
+            "{backend}"
+        );
+        let layout = find(&backend, "layout");
+        assert_eq!(buffer[layout].fg, Color::Indexed(3));
+        assert!(buffer[layout].modifier.contains(Modifier::DIM));
+        assert!(!backend.to_string().contains('`'), "{backend}");
+    }
+
+    #[test]
+    fn the_intro_overlay_shows_the_markdown_styles_without_dim() {
+        let mut app = markdown_session("Round **two** of `layout`.", "Which?", "Alpha", "");
+        keys(&mut app, "i");
+        let backend = screen(&app, 80, 24);
+        let buffer = backend.buffer();
+
+        let (_, y) = find(&backend, "│ Round two");
+        let two = find_from(&backend, y, "two");
+        assert!(buffer[two].modifier.contains(Modifier::BOLD), "{backend}");
+        assert!(!buffer[two].modifier.contains(Modifier::DIM), "{backend}");
+        let (layout, _) = find_from(&backend, y, "layout");
+        assert_eq!(buffer[(layout, y)].fg, Color::Indexed(3));
+    }
+
+    const STEPS: &str = "Keeps **all** of it:\n\n- `first` step\n- second step";
+
+    #[test]
+    fn a_description_beside_its_label_renders_markdown_under_its_own_start() {
+        let backend = screen(
+            &markdown_session("Intro", "Which?", "Alpha", STEPS),
+            120,
+            20,
+        );
+        let buffer = backend.buffer();
+        let lines = screen_lines(&backend);
+
+        // The margin, then "❯ ( ) 1. Alpha" and two blanks.
+        let (x, y) = find(&backend, "Keeps all of it:");
+        assert_eq!(x, 17, "{backend}");
+        assert!(
+            lines[usize::from(y)].contains("Alpha"),
+            "on the label's row"
+        );
+        assert!(
+            buffer[find(&backend, "all")]
+                .modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(find(&backend, "• first step"), (17, y + 2), "{backend}");
+        assert_eq!(find(&backend, "• second step"), (17, y + 3), "{backend}");
+        assert_eq!(buffer[(19, y + 2)].fg, Color::Indexed(3), "inline code");
+        assert!(lines[usize::from(y) + 4].contains("Beta"), "{backend}");
+    }
+
+    #[test]
+    fn a_description_below_its_label_renders_markdown_from_column_six() {
+        let label = "Rewrite the parser from scratch, every part of it";
+        let backend = screen(&markdown_session("Intro", "Which?", label, STEPS), 60, 24);
+
+        let (_, label_row) = find(&backend, label);
+        assert_eq!(
+            find(&backend, "Keeps all of it:"),
+            (7, label_row + 1),
+            "{backend}"
+        );
+        assert_eq!(
+            find(&backend, "• first step"),
+            (7, label_row + 3),
+            "{backend}"
+        );
+    }
+
+    #[test]
+    fn a_wide_code_line_in_a_description_wraps_inside_the_description_column() {
+        let description = format!("```\n{}\n```", "word ".repeat(30));
+        let backend = screen(
+            &markdown_session("Intro", "Which?", "Alpha", &description),
+            120,
+            20,
+        );
+
+        let (x, y) = find(&backend, "word word");
+        assert_eq!(x, 19, "the block's indent inside the description column");
+        assert_eq!(find_from(&backend, y + 1, "↪"), (19, y + 1), "{backend}");
+        assert!(!backend.to_string().contains('›'), "{backend}");
+    }
+
+    #[test]
+    fn single_newlines_break_and_raw_html_shows_as_written() {
+        let text = "First line\nsecond line, which returns a Vec<String>\n\n<details>\nmore\n</details>\n\n- an item\n  that goes on";
+        let description = "Short.\nKeeps <b>tags</b>.";
+        let app = markdown_session("One\ntwo", text, "Alpha", description);
+
+        insta::assert_snapshot!("newlines_and_html_80x24", screen(&app, 80, 24));
+    }
+
+    #[test]
+    fn a_redraw_renders_no_markdown_again_until_the_width_changes() {
+        let app = markdown_session("Round **two**.", PLAN, "Alpha", STEPS);
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+
+        screen_in(&app, &mut view, 120, 30);
+        let first = view.markdown.renders();
+        assert!(first > 0);
+        screen_in(&app, &mut view, 120, 30);
+        assert_eq!(view.markdown.renders(), first, "the same frame again");
+        screen_in(&app, &mut view, 90, 30);
+        assert!(view.markdown.renders() > first, "a new width");
     }
 
     #[test]

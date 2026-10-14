@@ -157,11 +157,16 @@ Once asked, asqr fits best when:
     shows it, so leave it in place until the person has answered.
   - Questions and options have no `image` field. A file that still uses
     one gets a warning, and the image does not show.
-- `intro`, question `text` and option `description` may use bold,
-  italic, inline code, lists and line breaks. Any other Markdown, such
-  as quotes, headings, links and code blocks, shows as its literal
-  source, `> ` and `#` included. To set a line apart, put a bold label
-  on a line of its own or make it a list item.
+- `intro`, question `text` and option `description` are Markdown and
+  show rendered: headings, emphasis, inline code, lists, quotes, links,
+  tables, rules and code blocks. Name the language of a code block's
+  fence so it is highlighted. A line wider than the space, such as a
+  long line of code, wraps behind a `↪` marker. A single newline
+  breaks the line, and a blank line starts a new paragraph. `<` shows as
+  written, so `Vec<String>` needs no backticks, and HTML tags show as
+  their source instead of formatting the text. Keep option descriptions
+  short. Long code belongs in a `code` entry of the `context`, which
+  shows it with line numbers, not in a question text.
 - `intro` shows dimmed under the title in at most three lines of at
   most 100 columns, one line on terminals under 24 rows. Anything longer
   is cut off with `… i: more`, and the person reads the rest only by

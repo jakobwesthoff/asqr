@@ -118,6 +118,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The agent skill explains that the intro shows in at most three lines
   and only identifies the session, and that everything needed to answer
   belongs in the question text.
+- The intro, question texts and option descriptions render full
+  Markdown in patine's style, as a Markdown entry does: headings,
+  emphasis, inline code in yellow instead of reversed, lists, quotes,
+  links, tables, rules and highlighted code blocks. Before, everything
+  but bold, italic, inline code, lists and line breaks showed as its
+  source. A line wider than its space, such as a long line of code,
+  wraps, and each further row starts with a dim `↪`. A single newline
+  still breaks the line, and raw HTML, such as `Vec<String>`, still
+  shows as written.
+- The agent skill says that the intro, question texts and option
+  descriptions take full Markdown, that a single newline breaks the line
+  and HTML shows as written there, that option descriptions should stay
+  short, and that long code belongs in a `code` entry.
 
 ### Removed
 

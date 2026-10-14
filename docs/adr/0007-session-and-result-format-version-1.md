@@ -10,6 +10,8 @@ Amended by [23. Refine the interaction after the first real use](0023-refine-the
 
 Amended by [25. Show an image per option](0025-show-an-image-per-option.md)
 
+Markdown subset superseded by [35. Render the text fields as full Markdown through patine](0035-render-the-text-fields-as-full-markdown-through-patine.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,
