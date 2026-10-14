@@ -15,9 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration file), Markdown (rendered) or a diff, which asqr
   computes from the old and the new text. Code and Markdown come from a
   file or inline in `content`. A question or option holds one entry.
-- A code entry shows highlighted in its language, through the user's
-  Markdown renderer patine and the 8 colours of the terminal's palette,
-  with line numbers in a dim gutter. The language comes from `language`,
+- A code entry shows highlighted in its language, through the Markdown
+  renderer patine and the 8 colours of the terminal's palette, with line
+  numbers in a dim gutter. The language comes from `language`,
   else from the extension or file name of `path` or `title`. Long lines
   do not wrap; the pane scrolls sideways and a `›` marks a cut line.
 - A Markdown entry shows rendered in patine's style and wrapped to the
