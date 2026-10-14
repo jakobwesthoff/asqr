@@ -6,9 +6,10 @@
 //! detected once, in the binary, by querying the terminal; the image
 //! viewers receive the resulting [`Picker`], so tests draw with the
 //! halfblock protocol and never talk to a terminal. A path that is
-//! relative, missing or unreadable shows a placeholder and never becomes an
-//! error.
+//! relative, missing, unreadable or not a regular file shows a placeholder
+//! and never becomes an error.
 
+use std::fs;
 use std::path::Path;
 
 use ratatui::buffer::Buffer;
@@ -34,6 +35,15 @@ impl Image {
         // never resolved (spec section 7.7).
         if Path::new(path).is_relative() {
             return Image::Unavailable("relative path".to_owned());
+        }
+        // Opening a FIFO waits for a writer, so only a regular file is
+        // opened at all, as for the text viewers.
+        match fs::metadata(path) {
+            Err(error) => return Image::Unavailable(error.to_string()),
+            Ok(metadata) if !metadata.is_file() => {
+                return Image::Unavailable("not a regular file".to_owned());
+            }
+            Ok(_) => {}
         }
         match image::ImageReader::open(path).and_then(|reader| reader.with_guessed_format()) {
             Err(error) => Image::Unavailable(error.to_string()),
@@ -219,6 +229,87 @@ mod tests {
     use super::*;
 
     const TMUX: Option<&str> = Some("/tmp/tmux-501/default,1234,0");
+
+    /// The reason `path` is not shown, or `None` when it loads.
+    fn refused(path: &str) -> Option<String> {
+        match Image::load(&Picker::halfblocks(), path) {
+            Image::Ready(_) => None,
+            Image::Unavailable(reason) => Some(reason),
+        }
+    }
+
+    #[test]
+    fn a_directory_is_not_an_image() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+
+        assert_eq!(
+            refused(directory.path().to_str().expect("a UTF-8 path")).as_deref(),
+            Some("not a regular file")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_is_refused_without_waiting_for_a_writer() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let fifo = directory.path().join("pipe.png");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+        let path = fifo.to_str().expect("a UTF-8 path").to_owned();
+
+        // Opening a FIFO for reading blocks until a writer comes, so the
+        // load runs apart and a hang fails the test instead of stalling it.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            sender
+                .send(refused(&path))
+                .expect("the test waits for the result");
+        });
+        let reason = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("loading a FIFO must not block");
+
+        assert_eq!(reason.as_deref(), Some("not a regular file"));
+    }
+
+    #[test]
+    fn a_missing_and_a_relative_file_say_why() {
+        assert!(refused("/nowhere/cat.png").is_some_and(|reason| !reason.is_empty()));
+        assert_eq!(refused("cat.png").as_deref(), Some("relative path"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_regular_file_that_may_not_be_read_says_why() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("secret.png");
+        fs::write(&path, b"").expect("file is writable");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000))
+            .expect("permissions are settable");
+
+        let reason = refused(path.to_str().expect("a UTF-8 path")).expect("refused");
+
+        assert!(
+            reason.to_lowercase().contains("permission denied"),
+            "{reason}"
+        );
+    }
+
+    #[test]
+    fn a_regular_image_file_loads() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("dot.png");
+        image::RgbImage::from_pixel(2, 2, image::Rgb([255, 0, 0]))
+            .save(&path)
+            .expect("image written");
+
+        assert_eq!(refused(path.to_str().expect("a UTF-8 path")), None);
+    }
 
     #[test]
     fn outside_tmux_the_terminal_is_asked() {

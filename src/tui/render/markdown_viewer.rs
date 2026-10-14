@@ -9,9 +9,10 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 
 use super::patine_adapter::markdown_rows;
-use super::source_file::read_source;
+use super::source_file::{CUT_NOTE, Source, Unreadable, read_source};
 use super::source_line::SourceLine;
 use super::viewer::{ContentSize, Placeholder, Viewer};
 use crate::format::MarkdownEntry;
@@ -30,6 +31,8 @@ pub struct MarkdownViewer {
 enum Content {
     Markdown {
         source: String,
+        /// `source` is only the start of a longer file.
+        cut: bool,
         rows: Vec<SourceLine>,
         /// The width `rows` were rendered for and the size they take.
         laid_out: Option<(u16, ContentSize)>,
@@ -55,20 +58,28 @@ impl MarkdownViewer {
     }
 }
 
+/// What the viewer shows of `source`, as read for its entry.
+fn content_of(source: Result<Source, Unreadable>) -> Content {
+    match source {
+        Err(unreadable) => Content::Note(unreadable.placeholder("markdown not shown")),
+        Ok(Source { text, .. }) if text.trim().is_empty() => {
+            Content::Note(Placeholder::note("empty"))
+        }
+        Ok(Source { text, cut }) => Content::Markdown {
+            source: text,
+            cut,
+            rows: Vec::new(),
+            laid_out: None,
+        },
+    }
+}
+
 impl Viewer for MarkdownViewer {
     /// Reads the text. Rendering depends on the width, so it waits for
     /// `lay_out`.
     fn load(&mut self) {
         let source = read_source(self.entry.path.as_deref(), self.entry.content.as_deref());
-        self.content = Some(match source {
-            Err(unreadable) => Content::Note(unreadable.placeholder("markdown not shown")),
-            Ok(source) if source.trim().is_empty() => Content::Note(Placeholder::note("empty")),
-            Ok(source) => Content::Markdown {
-                source,
-                rows: Vec::new(),
-                laid_out: None,
-            },
-        });
+        self.content = Some(content_of(source));
     }
 
     /// Renders the Markdown for `width` columns. Every row fits the width,
@@ -88,6 +99,7 @@ impl Viewer for MarkdownViewer {
             } if *rendered_for == width => *size,
             Content::Markdown {
                 source,
+                cut,
                 rows,
                 laid_out,
             } => {
@@ -96,7 +108,17 @@ impl Viewer for MarkdownViewer {
                     self.renders += 1;
                 }
                 let columns = usize::from(width);
-                *rows = markdown_rows(&patine::render_lines(source, columns), columns);
+                // The note of a cut file comes first, so it shows before
+                // the person scrolls to where the text stops.
+                *rows = if *cut {
+                    SourceLine::new([(CUT_NOTE, Style::new().dim())]).wrap(columns, columns)
+                } else {
+                    Vec::new()
+                };
+                rows.extend(markdown_rows(
+                    &patine::render_lines(source, columns),
+                    columns,
+                ));
                 // Only a character wider than the whole body is wider than
                 // a row, and it shows cut.
                 let widest = rows.iter().map(SourceLine::width).max().unwrap_or(0);
@@ -299,6 +321,26 @@ mod tests {
         let buf = drawn(&mut viewer, 20, 1, Offset::default());
         assert_eq!(row(&buf, 0), "Plan");
         assert!(buf[(0, 0)].modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn the_start_of_a_file_too_long_to_read_whole_says_so_first() {
+        let mut viewer = inline("unused");
+        viewer.content = Some(content_of(Ok(Source {
+            text: "**Plan**\n".into(),
+            cut: true,
+        })));
+
+        let buf = drawn(&mut viewer, 20, 2, Offset::default());
+        assert_eq!(row(&buf, 0), "first 8 MiB shown");
+        assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
+        assert_eq!(row(&buf, 1), "Plan");
+
+        assert_eq!(
+            shown(&mut viewer, 10),
+            "\"first 8 Mi\"\n\"B shown   \"\n\"Plan      \"",
+            "the note breaks like a wide line, without a marker"
+        );
     }
 
     #[test]

@@ -942,10 +942,13 @@ Diffs (ADR 33):
 - Diffs have no syntax highlighting, and the pane shows the hunks only,
   never the whole file.
 - Both sides are read when the entry is first shown. A relative path, a
-  missing or unreadable file, or a binary file (one with a NUL byte)
-  shows a placeholder saying "diff not shown" with the path and the
-  reason, for the first side that fails. Bytes that are not UTF-8 show
-  as `�`.
+  missing or unreadable file, a path that is not a regular file, such as
+  a directory or a FIFO, or a binary file (one with a NUL byte) shows a
+  placeholder saying "diff not shown" with the path and the reason, for
+  the first side that fails. Bytes that are not UTF-8 show as `�`.
+- Of a file longer than 8 MiB, only the first 8 MiB are read, and a dim
+  "first 8 MiB shown" heads the content. In a diff, the rest of the
+  other side then shows as removed or added.
 - Computing a diff may take up to a second. Past that, asqr shows a
   diff that is still correct but may mark more lines as changed than
   needed.
@@ -975,10 +978,12 @@ Code and Markdown (ADR 34):
   starts the next one. This holds wherever asqr renders Markdown with
   patine. Tabs in code blocks expand to stops of 4 columns.
 - Both are read when the entry is first shown. A relative path, a
-  missing or unreadable file, or a binary file shows a placeholder
-  saying "code not shown" or "markdown not shown" with the path and the
-  reason. Bytes that are not UTF-8 show as `�`, and an entry without any
-  text shows a dim "empty".
+  missing or unreadable file, a path that is not a regular file or a
+  binary file shows a placeholder saying "code not shown" or "markdown
+  not shown" with the path and the reason. Bytes that are not UTF-8 show
+  as `�`, and an entry without any text shows a dim "empty". A file
+  longer than 8 MiB shows its first 8 MiB under a dim "first 8 MiB
+  shown", as in a diff.
 
 Images:
 
@@ -996,9 +1001,9 @@ Images:
   the terminal for focus reports; on regaining the focus it reads and
   sends every image again as it is next shown. Code, Markdown and diff
   entries keep what asqr derived from them (ADR 31).
-- A relative path, a missing file or a file that cannot be read or
-  decoded shows a placeholder saying "image not shown" with the path and
-  the reason. A path is never resolved against the working directory,
+- A relative path, a missing file, a path that is not a regular file or
+  a file that cannot be read or decoded shows a placeholder saying
+  "image not shown" with the path and the reason. A path is never resolved against the working directory,
   and a broken image never becomes an error result.
 
 Known limitation: inside tmux, inline images and OSC notifications need

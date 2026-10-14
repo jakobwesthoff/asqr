@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration file), Markdown (rendered) or a diff, which asqr
   computes from the old and the new text. Code and Markdown come from a
   file or inline in `content`. A question or option holds one entry.
+  asqr reads only regular files, so a directory or a FIFO shows a
+  placeholder instead of stalling the screen, and of a text file at
+  most its first 8 MiB, under a dim "first 8 MiB shown".
 - A code entry shows highlighted in its language, through the Markdown
   renderer patine and the 8 colours of the terminal's palette, with line
   numbers in a dim gutter. The language comes from `language`,

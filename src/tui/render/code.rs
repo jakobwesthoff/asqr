@@ -13,8 +13,8 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 
 use super::patine_adapter::source_line;
-use super::source_file::read_source;
-use super::source_line::SourceLine;
+use super::source_file::{CUT_NOTE, Source, Unreadable, read_source};
+use super::source_line::{SourceLine, columns};
 use super::viewer::{ContentSize, Placeholder, Viewer};
 use crate::format::CodeEntry;
 use crate::tui::Offset;
@@ -44,16 +44,12 @@ impl CodeViewer {
             .as_mut()
             .expect("the pane loads a viewer before laying it out")
     }
-}
 
-impl Viewer for CodeViewer {
-    /// Reads and highlights the whole text once, as nothing of it depends
-    /// on the body's size.
-    fn load(&mut self) {
-        let text = read_source(self.entry.path.as_deref(), self.entry.content.as_deref());
-        self.content = Some(match text {
+    /// What the viewer shows of `source`, as read for its entry.
+    fn content_of(&self, source: Result<Source, Unreadable>) -> Content {
+        match source {
             Err(unreadable) => Content::Note(unreadable.placeholder("code not shown")),
-            Ok(text) => {
+            Ok(Source { text, cut }) => {
                 let lines: Vec<SourceLine> =
                     patine::highlight(&text, language(&self.entry).as_deref())
                         .iter()
@@ -62,16 +58,25 @@ impl Viewer for CodeViewer {
                 if lines.is_empty() {
                     Content::Note(Placeholder::note("empty"))
                 } else {
-                    Content::Lines(Lines::new(lines))
+                    Content::Lines(Lines::new(lines, cut))
                 }
             }
-        });
+        }
+    }
+}
+
+impl Viewer for CodeViewer {
+    /// Reads and highlights the whole text once, as nothing of it depends
+    /// on the body's size.
+    fn load(&mut self) {
+        let source = read_source(self.entry.path.as_deref(), self.entry.content.as_deref());
+        self.content = Some(self.content_of(source));
     }
 
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
         match self.content() {
             Content::Note(note) => note.lay_out(width, height),
-            Content::Lines(lines) => lines.size(),
+            Content::Lines(lines) => lines.size(usize::from(width)),
         }
     }
 
@@ -104,16 +109,18 @@ fn kind_of_file(name: &str) -> Option<String> {
         .map(|kind| kind.to_string_lossy().into_owned())
 }
 
-/// The highlighted lines and how many digits their numbers take.
+/// The highlighted lines, how many digits their numbers take, and whether
+/// they are only the start of a longer file.
 struct Lines {
     lines: Vec<SourceLine>,
     digits: usize,
+    cut: bool,
 }
 
 impl Lines {
-    fn new(lines: Vec<SourceLine>) -> Self {
+    fn new(lines: Vec<SourceLine>, cut: bool) -> Self {
         let digits = lines.len().to_string().len();
-        Lines { lines, digits }
+        Lines { lines, digits, cut }
     }
 
     /// The columns before a line's text: its number and a blank.
@@ -121,23 +128,41 @@ impl Lines {
         self.digits + 1
     }
 
-    fn size(&self) -> ContentSize {
+    /// The rows above the lines: the note of a cut file, which says so
+    /// before the person scrolls to where the text stops.
+    fn notes(&self) -> usize {
+        usize::from(self.cut)
+    }
+
+    fn size(&self, width: usize) -> ContentSize {
         let widest = self.lines.iter().map(SourceLine::width).max().unwrap_or(0);
+        // The note never scrolls, so it counts no wider than the body.
+        let note = if self.cut {
+            columns(CUT_NOTE).min(width)
+        } else {
+            0
+        };
         ContentSize {
-            lines: self.lines.len(),
-            columns: self.gutter_width() + widest,
+            lines: self.notes() + self.lines.len(),
+            columns: (self.gutter_width() + widest).max(note),
         }
     }
 
-    /// Draws the lines from `offset.top` on. The gutter stays in place
+    /// Draws the rows from `offset.top` on. The gutter stays in place
     /// while the text scrolls sideways under `offset.left`, so every line
     /// keeps its number in sight.
     fn draw(&self, area: Rect, buf: &mut Buffer, offset: Offset) {
         let dim = Style::new().dim();
         let digits = self.digits;
         let fixed = u16::try_from(self.gutter_width()).unwrap_or(u16::MAX);
-        let numbered = self.lines.iter().enumerate().skip(offset.top);
-        for (y, (index, line)) in (area.top()..area.bottom()).zip(numbered) {
+        for (y, row) in (area.top()..area.bottom()).zip(offset.top..) {
+            let Some(index) = row.checked_sub(self.notes()) else {
+                buf.set_stringn(area.x, y, CUT_NOTE, usize::from(area.width), dim);
+                continue;
+            };
+            let Some(line) = self.lines.get(index) else {
+                break;
+            };
             let number = format!("{:>digits$} ", index + 1);
             buf.set_stringn(area.x, y, number, usize::from(area.width), dim);
             let text_area = Rect {
@@ -406,6 +431,33 @@ mod tests {
         let buf = drawn(&mut viewer, 20, 1, Offset::default());
         assert_eq!(row(&buf, 0), "1 fn main() {}");
         assert_eq!(colour_of(&buf, 0, "fn"), Some(Color::Indexed(5)));
+    }
+
+    #[test]
+    fn the_start_of_a_file_too_long_to_read_whole_says_so_above_its_lines() {
+        let mut viewer = CodeViewer::new(&entry(r#"{"type": "code", "path": "/var/log/big.log"}"#));
+        viewer.content = Some(viewer.content_of(Ok(Source {
+            text: "one\ntwo\n".into(),
+            cut: true,
+        })));
+
+        assert_eq!(
+            viewer.lay_out(12, 3),
+            ContentSize {
+                lines: 3,
+                columns: 12
+            },
+            "the note counts no wider than the body"
+        );
+        let buf = drawn(&mut viewer, 20, 3, Offset::default());
+        assert_eq!(row(&buf, 0), "first 8 MiB shown");
+        assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
+        assert_eq!(row(&buf, 1), "1 one");
+        assert_eq!(row(&buf, 2), "2 two");
+
+        let buf = drawn(&mut viewer, 20, 3, Offset { top: 1, left: 0 });
+        assert_eq!(row(&buf, 0), "1 one", "the note scrolls away with the rows");
+        assert_eq!(row(&buf, 2), "", "nothing after the last line");
     }
 
     #[test]

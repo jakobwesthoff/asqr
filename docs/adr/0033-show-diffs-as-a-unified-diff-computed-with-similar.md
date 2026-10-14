@@ -86,6 +86,14 @@ Agent's choices within that design:
   another encoding leaves the rest readable. A side that cannot be read
   shows as the viewer's content: "diff not shown", its path and the
   reason, for the first side that fails.
+- **Only regular files, and at most 8 MiB of each:** `load` runs while
+  the person waits for the screen. Opening a FIFO would wait for a
+  writer, and a device such as `/dev/zero` would never end, so a path
+  that is not a regular file is refused before it is opened, with "not
+  a regular file". A file is read up to 8 MiB, and a longer one shows
+  its start under a dim "first 8 MiB shown". Reading off the drawing
+  thread would keep a large file from stalling the screen at all; it is
+  not part of this decision.
 
 Agent's choices, confirmed in the review of this step's plan, for every
 viewer that shows lines of source:

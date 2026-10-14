@@ -96,8 +96,10 @@ Agent's choices within that design:
 - **Empty text** shows a dim "empty" in place of lines.
 - **Reading files** follows the diff viewer's rules (ADR 33), now in
   `src/tui/render/source_file.rs` for all three viewers: a relative path
-  is never resolved, a file with a NUL byte is binary and not shown, and
-  bytes that are not UTF-8 show as `�`.
+  is never resolved, only a regular file is read and only its first
+  8 MiB, a file with a NUL byte is binary and not shown, and bytes that
+  are not UTF-8 show as `�`. Image entries refuse a path that is not a
+  regular file the same way.
 - **Rendering again for each new width:** the pane's keeper calls
   `lay_out` only when the size changes, which happens on a resize or on
   `z`. The Markdown viewer keeps the width it rendered for and returns

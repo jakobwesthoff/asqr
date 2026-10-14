@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use similar::{Algorithm, ChangeTag, InlineChange, InlineChangeOptions, TextDiff};
 
-use super::source_file::{Unreadable, read_source};
+use super::source_file::{CUT_NOTE, Source, Unreadable, read_source};
 use super::source_line::{SourceLine, columns};
 use super::viewer::{ContentSize, Placeholder, Viewer};
 use crate::format::{DiffEntry, DiffSide};
@@ -67,7 +67,10 @@ impl Viewer for DiffViewer {
     fn load(&mut self) {
         let sides = read(self.old.as_ref()).and_then(|old| Ok((old, read(self.new.as_ref())?)));
         self.content = Some(match sides {
-            Ok((old, new)) => Content::Rows(Rows::of(old.as_deref(), new.as_deref())),
+            Ok((old, new)) => {
+                let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
+                Content::Rows(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
+            }
             Err(unreadable) => Content::Unreadable(unreadable.placeholder("diff not shown")),
         });
     }
@@ -94,9 +97,13 @@ impl Viewer for DiffViewer {
 // ---------------------------------------------------------------------
 
 /// The text of a side, or `None` for a side the entry leaves out.
-fn read(side: Option<&DiffSide>) -> Result<Option<String>, Unreadable> {
+fn read(side: Option<&DiffSide>) -> Result<Option<Source>, Unreadable> {
     side.map(|side| read_source(side.path.as_deref(), side.content.as_deref()))
         .transpose()
+}
+
+fn text_of(side: Option<&Source>) -> Option<&str> {
+    side.map(|side| side.text.as_str())
 }
 
 // ---------------------------------------------------------------------
@@ -125,8 +132,10 @@ enum Row {
 
 impl Rows {
     /// The rows that show the change from `old` to `new`; a side left out
-    /// is a file that did not exist before or no longer does.
-    fn of(old: Option<&str>, new: Option<&str>) -> Rows {
+    /// is a file that did not exist before or no longer does. `cut` says
+    /// that a side is only the start of a longer file, so the diff shows
+    /// the rest of the other side as removed or added.
+    fn of(old: Option<&str>, new: Option<&str>, cut: bool) -> Rows {
         let mut rows = Vec::new();
         let created_or_deleted = match (old, new) {
             (None, Some(_)) => Some("new file"),
@@ -134,6 +143,9 @@ impl Rows {
             _ => None,
         };
         rows.extend(created_or_deleted.map(Row::Note));
+        if cut {
+            rows.push(Row::Note(CUT_NOTE));
+        }
         // Lines compare without their line ends, so a file saved on
         // Windows does not show every line as removed and added again with
         // the same text. One note says the ends differ, as nothing else
@@ -833,6 +845,30 @@ impl Fetcher {
         let buf = drawn(&mut viewer, 30, 4, Offset::default());
         assert_eq!(row(&buf, 0), "diff not shown");
         assert_eq!(row(&buf, 1), "/nowhere/old.rs", "the first side that fails");
+    }
+
+    #[test]
+    fn a_side_too_long_to_read_whole_says_so_above_the_hunks() {
+        let mut viewer = inline(None, None);
+        viewer.content = Some(Content::Rows(Rows::of(Some("a\n"), Some("b\n"), true)));
+
+        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+
+        assert_eq!(row(&buf, 0), "first 8 MiB shown");
+        assert_eq!(with_modifier(&buf, 0, Modifier::DIM), "first 8 MiB shown");
+        assert_eq!(row(&buf, 1), "1   - a");
+    }
+
+    #[test]
+    fn a_directory_is_not_read_as_a_side() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().to_str().expect("a UTF-8 path");
+
+        let mut viewer = from_files(None, file(path));
+
+        let buf = drawn(&mut viewer, 60, 3, Offset::default());
+        assert_eq!(row(&buf, 0), "diff not shown");
+        assert_eq!(row(&buf, 2), "not a regular file");
     }
 
     #[test]
