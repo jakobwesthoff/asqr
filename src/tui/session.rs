@@ -16,22 +16,14 @@
 use std::collections::HashMap;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui_textarea::{CursorMove, TextArea};
 
 use super::scroll::scroll;
-use super::{Offset, Page};
+use super::{FieldKey, Leave, Offset, Page, TextField};
 
 pub use crate::format::Length;
 use crate::format::{
     Answer, ContextEntry, Kind, Question, Session, SessionResult, is_answered, result_answers,
 };
-
-/// The two ends of a field's text.
-#[derive(Clone, Copy)]
-enum Edge {
-    Start,
-    End,
-}
 
 /// What the running app has to do after a key.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,8 +148,8 @@ pub struct SessionState {
     tab: usize,
     row: usize,
     focus: Focus,
-    /// The editor of the focused field or note.
-    editor: Option<TextArea<'static>>,
+    /// The focused field or note.
+    field: Option<TextField>,
     session_note: String,
     reject_reason: String,
     help: bool,
@@ -233,7 +225,7 @@ impl SessionState {
             tab,
             row: 0,
             focus: Focus::None,
-            editor: None,
+            field: None,
             session_note: draft
                 .and_then(|draft| draft.note.clone())
                 .unwrap_or_default(),
@@ -527,40 +519,43 @@ impl SessionState {
             .collect()
     }
 
+    /// The focused field or note.
+    pub fn field(&self) -> Option<&TextField> {
+        self.field.as_ref()
+    }
+
     /// The text of the focused field.
     pub fn field_text(&self) -> Option<String> {
         (self.focus == Focus::Field)
-            .then(|| self.editor_text())
+            .then(|| self.field.as_ref().map(TextField::text))
             .flatten()
     }
 
     /// The text of the note being edited.
     pub fn note_text(&self) -> Option<String> {
         (self.focus == Focus::Note)
-            .then(|| self.editor_text())
+            .then(|| self.field.as_ref().map(TextField::text))
             .flatten()
-    }
-
-    fn editor_text(&self) -> Option<String> {
-        self.editor.as_ref().map(|editor| editor.lines().join("\n"))
     }
 
     /// The text cursor (line, column) of the focused field or note.
     pub fn field_cursor(&self) -> Option<(usize, usize)> {
-        self.editor.as_ref().map(|editor| {
-            let cursor = editor.cursor();
-            (cursor.0, cursor.1)
-        })
+        self.field.as_ref().map(TextField::cursor)
+    }
+
+    /// The limits the focused field is counted against, when it has any.
+    pub fn field_limits(&self) -> Option<Length> {
+        if self.focus != Focus::Field {
+            return None;
+        }
+        self.limits(self.current_row()?)
     }
 
     /// The length of the focused field and the limits it is counted
     /// against, when the field has limits.
     pub fn field_length(&self) -> Option<(usize, Length)> {
-        if self.focus != Focus::Field {
-            return None;
-        }
-        let limits = self.limits(self.current_row()?)?;
-        Some((text_length(self.editor.as_ref()?), limits))
+        let limits = self.field_limits()?;
+        Some((self.field.as_ref()?.length(), limits))
     }
 
     fn limits(&self, row: Row) -> Option<Length> {
@@ -594,8 +589,7 @@ impl SessionState {
         }
         match self.focus {
             Focus::None => self.command(key),
-            Focus::Field => self.field_key(key),
-            Focus::Note => self.note_key(key),
+            Focus::Field | Focus::Note => self.typing(key),
         }
     }
 
@@ -811,15 +805,17 @@ impl SessionState {
         match self.current_row() {
             Some(row) if row.is_field() => {
                 let text = match row {
-                    Row::Note => self.session_note.clone(),
-                    Row::Reject => self.reject_reason.clone(),
-                    _ => self.working[self.tab].custom.clone(),
+                    Row::Note => &self.session_note,
+                    Row::Reject => &self.reject_reason,
+                    _ => &self.working[self.tab].custom,
                 };
-                self.editor = Some(editor_with(&text));
+                // Only a text answer spans several lines; own answers, the
+                // session note and the reject reason are one line (ADR 22).
+                self.field = Some(TextField::new(text, row == Row::Answer));
                 self.focus = Focus::Field;
             }
             _ => {
-                self.editor = None;
+                self.field = None;
                 self.focus = Focus::None;
             }
         }
@@ -893,7 +889,7 @@ impl SessionState {
             self.message = Some("this question takes no note".to_owned());
             return Effect::None;
         }
-        self.editor = Some(editor_with(&self.working[self.tab].note));
+        self.field = Some(TextField::new(&self.working[self.tab].note, true));
         self.focus = Focus::Note;
         Effect::None
     }
@@ -902,70 +898,48 @@ impl SessionState {
     // Keys inside fields
     // -----------------------------------------------------------------
 
-    fn field_key(&mut self, key: KeyEvent) -> Effect {
-        match key.code {
-            KeyCode::Esc => {
-                self.focus = Focus::None;
-                self.editor = None;
-                Effect::None
-            }
-            KeyCode::Up => self.move_row(-1),
-            KeyCode::Down => self.move_row(1),
-            KeyCode::Enter => self.enter(),
-            // At the edges of the text the arrows leave the field for the
-            // question before or after, so a field never traps the person
-            // (user, 2026-09-28). Inside the text they move the cursor.
-            KeyCode::Left
-                if key.modifiers.is_empty() && self.tab > 0 && self.cursor_at(Edge::Start) =>
-            {
-                self.go_to_tab(self.tab - 1)
-            }
-            KeyCode::Right
-                if key.modifiers.is_empty()
-                    && self.tab + 1 < self.tab_count()
-                    && self.cursor_at(Edge::End) =>
-            {
-                self.go_to_tab(self.tab + 1)
-            }
-            _ => {
-                // Only a text answer spans several lines; own answers, the
-                // session note and the reject reason are one line (ADR 22).
-                if !self.edit(key, self.current_row() == Some(Row::Answer)) {
-                    return Effect::None;
-                }
-                self.store_edit();
-                Effect::DraftChanged
-            }
-        }
-    }
-
-    /// Whether the cursor of the focused field sits at `edge` of its text.
-    fn cursor_at(&self, edge: Edge) -> bool {
-        let editor = self.editor.as_ref().expect("a focused field has an editor");
-        let cursor = editor.cursor();
-        let (row, column) = (cursor.0, cursor.1);
-        match edge {
-            Edge::Start => (row, column) == (0, 0),
-            Edge::End => {
-                let lines = editor.lines();
-                row + 1 == lines.len() && column == lines[row].chars().count()
-            }
-        }
-    }
-
-    fn note_key(&mut self, key: KeyEvent) -> Effect {
-        match key.code {
-            KeyCode::Esc | KeyCode::Enter => {
+    /// A key for the focused field or note. The field edits its text and
+    /// says which keys it leaves to its context; what they mean depends on
+    /// where the field is.
+    fn typing(&mut self, key: KeyEvent) -> Effect {
+        let note = self.focus == Focus::Note;
+        let field = self
+            .field
+            .as_mut()
+            .expect("a focused field or note always has its editor");
+        match field.key(key) {
+            FieldKey::Changed => self.store_edit(),
+            FieldKey::Unchanged => Effect::None,
+            // A question's note is opened with `n` from a row and belongs
+            // to no row of its own: `enter` and `esc` both return to the
+            // row, and `↑`/`↓`, with no row to leave, move the text cursor
+            // between the note's lines.
+            FieldKey::Enter | FieldKey::Escape if note => {
                 self.arrive();
                 Effect::None
             }
-            _ => {
-                if !self.edit(key, true) {
-                    return Effect::None;
-                }
-                self.store_edit();
-                Effect::DraftChanged
+            // Moving the text cursor leaves the text as it is, so there is
+            // nothing to save.
+            FieldKey::Leave(Leave::Up | Leave::Down) if note => {
+                field.input(key);
+                Effect::None
             }
+            FieldKey::Enter => self.enter(),
+            FieldKey::Escape => {
+                self.focus = Focus::None;
+                self.field = None;
+                Effect::None
+            }
+            FieldKey::Leave(Leave::Up) => self.move_row(-1),
+            FieldKey::Leave(Leave::Down) => self.move_row(1),
+            // At the edges of the text the arrows leave a row's field for
+            // the question before or after, so a field never traps the
+            // person (user, 2026-09-28). The note stays where it is.
+            FieldKey::Leave(Leave::Left) if !note && self.tab > 0 => self.go_to_tab(self.tab - 1),
+            FieldKey::Leave(Leave::Right) if !note && self.tab + 1 < self.tab_count() => {
+                self.go_to_tab(self.tab + 1)
+            }
+            FieldKey::Leave(Leave::Left | Leave::Right) => Effect::None,
         }
     }
 
@@ -982,28 +956,19 @@ impl SessionState {
         if self.focus == Focus::None || self.pane_focus {
             return Effect::None;
         }
-        // Terminals send a line break as `\r`, some as `\r\n`.
-        let text = text.replace("\r\n", "\n").replace('\r', "\n");
-        let multiline = self.focus == Focus::Note || self.current_row() == Some(Row::Answer);
-        let text = if multiline {
-            text
-        } else {
-            text.replace('\n', " ")
-        };
-        let editor = self
-            .editor
+        let field = self
+            .field
             .as_mut()
             .expect("a focused field or note always has its editor");
-        if !editor.insert_str(text) {
+        if !field.paste(text) {
             return Effect::None;
         }
-        self.store_edit();
-        Effect::DraftChanged
+        self.store_edit()
     }
 
-    /// Keeps the editor's text where the focused field or note belongs.
-    fn store_edit(&mut self) {
-        let text = self.editor_text().unwrap_or_default();
+    /// Keeps the field's text where the focused field or note belongs.
+    fn store_edit(&mut self) -> Effect {
+        let text = self.field.as_ref().map(TextField::text).unwrap_or_default();
         match (self.focus, self.current_row()) {
             (Focus::Field, Some(Row::Note)) => self.session_note = text,
             (Focus::Field, Some(Row::Reject)) => self.reject_reason = text,
@@ -1018,29 +983,7 @@ impl SessionState {
                 working.touched = true;
             }
         }
-    }
-
-    /// Applies `key` to the editor and says whether the text changed.
-    /// `ctrl-j` adds a line where `multiline` allows one; any other way to
-    /// a second line in a one-line field is undone.
-    fn edit(&mut self, key: KeyEvent, multiline: bool) -> bool {
-        let editor = self
-            .editor
-            .as_mut()
-            .expect("a focused field or note always has its editor");
-        let before = editor.lines().to_vec();
-        if key.code == KeyCode::Char('j') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            if multiline {
-                editor.insert_newline();
-            }
-        } else {
-            let previous = editor.clone();
-            editor.input(key);
-            if !multiline && editor.lines().len() > 1 {
-                *editor = previous;
-            }
-        }
-        editor.lines() != before.as_slice()
+        Effect::DraftChanged
     }
 }
 
@@ -1084,24 +1027,6 @@ fn restored(question: &Question, answer: &Answer) -> Working {
         note: answer.note.clone().unwrap_or_default(),
         touched: !answer.defaulted,
     }
-}
-
-fn editor_with(text: &str) -> TextArea<'static> {
-    let mut editor = TextArea::new(text.split('\n').map(str::to_owned).collect());
-    editor.set_hard_tab_indent(true);
-    editor.move_cursor(CursorMove::Bottom);
-    editor.move_cursor(CursorMove::End);
-    editor
-}
-
-/// Characters in the editor, a line break counting as one.
-fn text_length(editor: &TextArea<'_>) -> usize {
-    editor
-        .lines()
-        .iter()
-        .map(|line| line.chars().count())
-        .sum::<usize>()
-        + editor.lines().len().saturating_sub(1)
 }
 
 #[cfg(test)]
@@ -1604,6 +1529,34 @@ mod tests {
         assert_eq!(single.note.as_deref(), Some("a\nb"));
         assert!(!single.defaulted, "a note is an edit of the question");
         assert_eq!(state.tab(), 0, "enter leaves the note without moving on");
+    }
+
+    #[test]
+    fn up_and_down_move_between_the_lines_of_the_note() {
+        let mut state = state();
+        press(&mut state, "na");
+        state.handle(ctrl('j'));
+        press(&mut state, "b");
+
+        assert_eq!(state.handle(code(KeyCode::Up)), Effect::None);
+        assert_eq!(state.field_cursor(), Some((0, 1)));
+        press(&mut state, "c");
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.field_cursor(), Some((1, 1)));
+
+        assert_eq!(state.focus(), Focus::Note, "the note keeps the keys");
+        assert_eq!(state.note_text().as_deref(), Some("ac\nb"));
+    }
+
+    #[test]
+    fn a_note_is_counted_against_no_limits() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+        state.handle(code(KeyCode::Esc));
+
+        press(&mut state, "nlong note");
+
+        assert_eq!((state.field_limits(), state.field_length()), (None, None));
     }
 
     #[test]

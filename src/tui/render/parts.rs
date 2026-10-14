@@ -6,45 +6,8 @@
 //! be tested on their own.
 
 use super::source_line::{columns, fitting};
-use crate::format::{Answer, Kind, Length, Question, is_answered};
+use crate::format::{Answer, Kind, Question, is_answered};
 use crate::tui::{Focus, SessionState};
-
-/// How a length counter is coloured (spec section 7.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Level {
-    /// Within the target.
-    Fine,
-    /// Above the target, up to `warn`.
-    Warn,
-    /// Above `warn`.
-    Over,
-}
-
-/// The counter text for `length` characters against `limits`: the length
-/// over the end of the target range (or over `warn` without a target), `!`
-/// above the target and `!!` above `warn`. The text says everything the
-/// colour says, so it works without colour.
-pub fn counter(length: usize, limits: &Length) -> (String, Level) {
-    let length32 = u32::try_from(length).unwrap_or(u32::MAX);
-    let target_end = limits.target.map(|(_, end)| end);
-    let above_warn = limits.warn.is_some_and(|warn| length32 > warn);
-    let above_target = target_end.is_some_and(|end| length32 > end);
-
-    let mut text = match target_end.or(limits.warn) {
-        Some(reference) => format!("{length}/{reference}"),
-        None => length.to_string(),
-    };
-    let level = if above_warn {
-        text.push_str(" !!");
-        Level::Over
-    } else if above_target {
-        text.push_str(" !");
-        Level::Warn
-    } else {
-        Level::Fine
-    };
-    (text, level)
-}
 
 /// What the review shows for an answer: the chosen options by label, own
 /// text in quotes, a text answer as typed on one line, `-` for a skipped
@@ -132,45 +95,7 @@ pub fn question_key(state: &SessionState, key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::format::{Answer, Length, Question};
-
-    fn limits(target: Option<(u32, u32)>, warn: Option<u32>) -> Length {
-        Length { target, warn }
-    }
-
-    #[test]
-    fn the_counter_reads_against_the_target_end() {
-        let length = limits(Some((80, 125)), Some(145));
-
-        assert_eq!(counter(112, &length), ("112/125".to_owned(), Level::Fine));
-        assert_eq!(counter(125, &length), ("125/125".to_owned(), Level::Fine));
-        assert_eq!(counter(140, &length), ("140/125 !".to_owned(), Level::Warn));
-        assert_eq!(counter(145, &length), ("145/125 !".to_owned(), Level::Warn));
-        assert_eq!(
-            counter(182, &length),
-            ("182/125 !!".to_owned(), Level::Over)
-        );
-    }
-
-    #[test]
-    fn the_counter_falls_back_to_warn() {
-        assert_eq!(
-            counter(3, &limits(None, Some(10))),
-            ("3/10".to_owned(), Level::Fine)
-        );
-        assert_eq!(
-            counter(12, &limits(None, Some(10))),
-            ("12/10 !!".to_owned(), Level::Over)
-        );
-        assert_eq!(
-            counter(200, &limits(Some((1, 5)), None)),
-            ("200/5 !".to_owned(), Level::Warn)
-        );
-        assert_eq!(
-            counter(2, &limits(None, None)),
-            ("2".to_owned(), Level::Fine)
-        );
-    }
+    use crate::format::{Answer, Question};
 
     fn question(json: &str) -> Question {
         serde_json::from_str(json).expect("test question parses")

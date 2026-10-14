@@ -20,4 +20,6 @@ mod viewer;
 
 pub use images::may_query_protocol;
 pub use panes::PaneLayout;
+pub(crate) use screen::wrap;
 pub use screen::{MIN_HEIGHT, MIN_WIDTH, View, draw};
+pub(crate) use source_line::columns;

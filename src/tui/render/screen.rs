@@ -21,11 +21,12 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::context::{context_hint, draw_pane};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
-use super::parts::{Level, answer_summary, counter, cut, kind_hint, question_key};
+use super::parts::{answer_summary, cut, kind_hint, question_key};
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::viewer::Viewers;
 use crate::format::{ContextEntry, Kind};
+use crate::tui::text_field::{counted_lines, resting_lines};
 use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState, has_context};
 
 /// Below this size the layout does not fit; a message says so instead.
@@ -38,17 +39,6 @@ const MIN_DESCRIPTION_WIDTH: usize = 30;
 
 /// Where descriptions start that go on the lines below their label.
 const DESCRIPTION_INDENT: usize = 6;
-
-/// The text of a one-line field wraps under its own start only while that
-/// leaves it at least this much room; otherwise its further lines start
-/// at `NARROW_FIELD_INDENT`. Lower than `MIN_DESCRIPTION_WIDTH`, so the
-/// reject reason, whose head leaves 27 columns in a 60-column terminal,
-/// still wraps under its start there.
-const MIN_FIELD_WIDTH: usize = 20;
-
-/// The indent of a one-line field's further lines when its head leaves
-/// less than `MIN_FIELD_WIDTH` columns.
-const NARROW_FIELD_INDENT: usize = 4;
 
 /// `text` in at most `room` columns: whole as long as it fits, otherwise
 /// its end behind `…`, cut at a `/` where one is in reach, since the end
@@ -759,20 +749,21 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
                     && (question.kind == Kind::Multi || answer.selected.is_empty());
                 let head = format!("{pointer}{} ✎ {label}: ", mark(question.kind, chosen));
                 let text = answer.custom.as_deref().unwrap_or_default();
-                let mut lines = one_line_field(state, head, text, width, current);
-                let length = question.custom.as_ref().and_then(|custom| custom.length());
-                if !live && length.is_some() {
-                    lines.push(Line::default());
+                if live {
+                    live_field(state, head, text, width, current, true)
+                } else {
+                    let length = question.custom.as_ref().and_then(|custom| custom.length());
+                    counted_lines(Span::from(head), text, width, length.is_some())
                 }
-                lines
             }
             Row::Answer => {
+                let head = format!("{pointer}✎ ");
                 let text = answer.custom.as_deref().unwrap_or_default();
-                let mut lines = text_field(state, pointer, text, width, live);
-                if !live && question.length.is_some() {
-                    lines.push(Line::default());
+                if live {
+                    live_field(state, head, text, width, current, false)
+                } else {
+                    counted_lines(Span::from(head), text, width, question.length.is_some())
                 }
-                lines
             }
             Row::Question(_) | Row::Submit | Row::Note | Row::Reject => {
                 unreachable!("review rows only appear on the review")
@@ -784,21 +775,11 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
     if question.note {
         content.lines.push(Line::default());
         let editing = live && state.focus() == Focus::Note;
-        let typed = state.note_text().filter(|_| live);
-        let note = match typed {
-            Some(text) => with_cursor(&text, text_cursor(state)),
-            None => answer
-                .note
-                .as_deref()
-                .map_or_else(|| vec![Line::from(Span::from("—").dim())], plain_lines),
+        let head = Span::from("Notes: ").bold();
+        let note_lines = match state.field().filter(|_| editing) {
+            Some(field) => field.lines(head, width, !state.pane_focused(), None),
+            None => resting_lines(head, answer.note.as_deref().unwrap_or_default(), width),
         };
-        let mut note_lines = Vec::new();
-        for (index, line) in note.into_iter().enumerate() {
-            let label = if index == 0 { "Notes: " } else { "       " };
-            let mut spans = vec![Span::from(label).bold()];
-            spans.extend(line.spans);
-            note_lines.extend(wrap(Line::from(spans), width, 0, 7));
-        }
         content.push_row(note_lines, editing);
     }
     content
@@ -868,79 +849,33 @@ fn indented(line: Line<'static>, columns: usize) -> Line<'static> {
     Line::from(spans).style(line.style)
 }
 
-/// A one-line field after `head`. The text wraps like a note: under its
-/// own start while that leaves `MIN_FIELD_WIDTH` columns, otherwise from
-/// `NARROW_FIELD_INDENT` on. The value itself stays one line (ADR 27);
-/// only its display spans several. The counter of a focused field follows
-/// on a line of its own, as in `text_field`.
-fn one_line_field(
+/// The field of a row after `head` as the person sees it: with its text
+/// cursor and counter while it has the keys, otherwise with `text` as
+/// kept, its head highlighted when `highlight` holds and the cursor is on
+/// the row.
+fn live_field(
     state: &SessionState,
     head: String,
     text: &str,
     width: usize,
     current: bool,
+    highlight: bool,
 ) -> Vec<Line<'static>> {
-    let focused = current && state.focus() == Focus::Field;
-    let head_width = columns(&head);
-    let indent = if width.saturating_sub(head_width) >= MIN_FIELD_WIDTH {
-        head_width
-    } else {
-        NARROW_FIELD_INDENT
-    };
-
-    let mut spans = vec![if current && !focused {
-        Span::from(head).reversed()
-    } else {
-        Span::from(head)
-    }];
-    if focused {
-        let cursor = text_cursor(state).map(|(_, column)| (0, column));
-        spans.extend(with_cursor(text, cursor).remove(0).spans);
-    } else if text.is_empty() {
-        spans.push(Span::from("—").dim());
-    } else {
-        spans.push(Span::from(text.to_owned()));
+    match state
+        .field()
+        .filter(|_| current && state.focus() == Focus::Field)
+    {
+        // The text cursor hides while the context pane has the focus, so
+        // only one place on the screen looks like it takes the keys.
+        Some(field) => field.lines(
+            Span::from(head),
+            width,
+            !state.pane_focused(),
+            state.field_limits().as_ref(),
+        ),
+        None if current && highlight => resting_lines(Span::from(head).reversed(), text, width),
+        None => resting_lines(Span::from(head), text, width),
     }
-    let mut lines = wrap(Line::from(spans), width, 0, indent);
-
-    if let Some((length, limits)) = focused.then(|| state.field_length()).flatten() {
-        let (text, level) = counter(length, &limits);
-        lines.push(Line::from(Span::from(text).fg(level_colour(level))).right_aligned());
-    }
-    lines
-}
-
-/// The answer field of a text question: every line of the answer, wrapped,
-/// with the counter after the last one while it has the keys. `live` is
-/// false while counting rows, which draws the field unfocused.
-fn text_field(
-    state: &SessionState,
-    pointer: &str,
-    text: &str,
-    width: usize,
-    live: bool,
-) -> Vec<Line<'static>> {
-    let lines = match state.field_text().filter(|_| live) {
-        Some(typed) => with_cursor(&typed, text_cursor(state)),
-        None if text.is_empty() => vec![Line::from(Span::from("—").dim())],
-        None => plain_lines(text),
-    };
-    let mut out = Vec::new();
-    for (index, line) in lines.into_iter().enumerate() {
-        let lead = if index == 0 {
-            format!("{pointer}✎ ")
-        } else {
-            "    ".to_owned()
-        };
-        let mut spans = vec![Span::from(lead)];
-        spans.extend(line.spans);
-        out.extend(wrap(Line::from(spans), width, 0, 4));
-    }
-    if let Some((length, limits)) = state.field_length().filter(|_| live) {
-        let (text, level) = counter(length, &limits);
-        out.push(Line::from(Span::from(text).fg(level_colour(level))).right_aligned());
-    }
-    out
 }
 
 fn review_content(state: &SessionState, width: usize) -> Content {
@@ -1000,19 +935,21 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                     if current { button.reversed() } else { button },
                 ]
             }
-            Row::Note => one_line_field(
+            Row::Note => live_field(
                 state,
                 format!("{pointer}✎ Note to the asker (optional): "),
                 state.session_note(),
                 width,
                 current,
+                true,
             ),
-            Row::Reject => one_line_field(
+            Row::Reject => live_field(
                 state,
                 format!("{pointer}✗ Reject, reason (optional): "),
                 state.reject_reason(),
                 width,
                 current,
+                true,
             ),
             Row::Option(_) | Row::Own | Row::Answer => {
                 unreachable!("question rows never appear on the review")
@@ -1023,66 +960,9 @@ fn review_content(state: &SessionState, width: usize) -> Content {
     content
 }
 
-fn level_colour(level: Level) -> Color {
-    match level {
-        Level::Fine => Color::Green,
-        Level::Warn => Color::Yellow,
-        Level::Over => Color::Red,
-    }
-}
-
 // ---------------------------------------------------------------------
 // Text helpers
 // ---------------------------------------------------------------------
-
-/// Where the text cursor of the field or note being typed in shows. It
-/// hides while the context pane has the focus, so only one place on the
-/// screen looks like it takes the keys.
-fn text_cursor(state: &SessionState) -> Option<(usize, usize)> {
-    state.field_cursor().filter(|_| !state.pane_focused())
-}
-
-fn plain_lines(text: &str) -> Vec<Line<'static>> {
-    text.split('\n')
-        .map(|line| Line::from(line.to_owned()))
-        .collect()
-}
-
-/// `text` as lines with the grapheme under the text cursor inverted, or
-/// an inverted blank after the end of its line. The cursor's column is a
-/// character index, as ratatui-textarea counts it, and can lie inside a
-/// grapheme, such as on the skin tone of an emoji: the whole grapheme
-/// shows as the cursor then, as no terminal cell holds a part of one.
-fn with_cursor(text: &str, cursor: Option<(usize, usize)>) -> Vec<Line<'static>> {
-    text.split('\n')
-        .enumerate()
-        .map(|(index, line)| match cursor {
-            Some((row, column)) if row == index => {
-                let mut before = String::new();
-                let mut under = None;
-                let mut after = String::new();
-                let mut start = 0;
-                for grapheme in line.graphemes(true) {
-                    let end = start + grapheme.chars().count();
-                    if under.is_none() && column < end {
-                        under = Some(grapheme);
-                    } else if under.is_none() {
-                        before.push_str(grapheme);
-                    } else {
-                        after.push_str(grapheme);
-                    }
-                    start = end;
-                }
-                Line::from(vec![
-                    Span::from(before),
-                    Span::from(under.unwrap_or(" ").to_owned()).reversed(),
-                    Span::from(after),
-                ])
-            }
-            _ => Line::from(line.to_owned()),
-        })
-        .collect()
-}
 
 /// Word-wraps `line` to `width` columns: the first line is indented by
 /// `first`, the following ones by `rest`. A word is a run of non-blanks
@@ -1090,7 +970,7 @@ fn with_cursor(text: &str, cursor: Option<(usize, usize)>) -> Vec<Line<'static>>
 /// style change inside a word, such as the text cursor, never splits it.
 /// Every grapheme keeps its style, and a word longer than a line is broken
 /// where the line ends.
-pub(super) fn wrap(
+pub(crate) fn wrap(
     line: Line<'static>,
     width: usize,
     first: usize,
@@ -3631,42 +3511,6 @@ mod tests {
     }
 
     #[test]
-    fn the_text_cursor_after_a_full_line_starts_the_next_one() {
-        let line = with_cursor("ab cd", Some((0, 5))).remove(0);
-
-        let lines = wrap(line, 5, 0, 1);
-
-        assert_eq!(
-            cursor_columns(&lines),
-            [("ab cd".to_owned(), None), ("  ".to_owned(), Some(1))]
-        );
-    }
-
-    #[test]
-    fn the_text_cursor_on_the_space_at_a_line_break_starts_the_next_line() {
-        let line = with_cursor("abcd efg", Some((0, 4))).remove(0);
-
-        let lines = wrap(line, 4, 0, 0);
-
-        assert_eq!(
-            cursor_columns(&lines),
-            [("abcd".to_owned(), None), (" efg".to_owned(), Some(0))]
-        );
-    }
-
-    #[test]
-    fn the_text_cursor_inside_a_word_keeps_the_word_whole() {
-        let line = with_cursor("ab channel", Some((0, 3))).remove(0);
-
-        let lines = wrap(line, 8, 0, 0);
-
-        assert_eq!(
-            cursor_columns(&lines),
-            [("ab ".to_owned(), None), ("channel".to_owned(), Some(0))]
-        );
-    }
-
-    #[test]
     fn a_word_styled_in_parts_wraps_as_one_word() {
         let line = Line::from(vec![
             Span::from("ab "),
@@ -3790,43 +3634,6 @@ mod tests {
             wrapped("日本", 1, 0),
             ["日", "本"],
             "a character wider than the line still goes on"
-        );
-    }
-
-    #[test]
-    fn the_text_cursor_on_a_wide_character_moves_with_it_to_the_next_line() {
-        let line = with_cursor("日本語", Some((0, 2))).remove(0);
-        assert_eq!(
-            cursor_columns(&wrap(line, 5, 0, 1)),
-            [("日本".to_owned(), None), (" 語".to_owned(), Some(1))]
-        );
-
-        let line = with_cursor("日本", Some((0, 2))).remove(0);
-        assert_eq!(
-            cursor_columns(&wrap(line, 4, 0, 1)),
-            [("日本".to_owned(), None), ("  ".to_owned(), Some(1))],
-            "after a line full of wide characters"
-        );
-    }
-
-    #[test]
-    fn the_text_cursor_covers_the_whole_grapheme_its_character_is_in() {
-        // ratatui-textarea moves its cursor by characters, so it can stop
-        // on a combining accent or on the skin tone of an emoji.
-        let accent = with_cursor("ce\u{301}x", Some((0, 2))).remove(0);
-        assert_eq!(
-            accent.spans,
-            [
-                Span::from("c"),
-                Span::from("e\u{301}").reversed(),
-                Span::from("x")
-            ]
-        );
-
-        let emoji = with_cursor("👍🏽!", Some((0, 1))).remove(0);
-        assert_eq!(
-            emoji.spans,
-            [Span::from(""), Span::from("👍🏽").reversed(), Span::from("!")]
         );
     }
 

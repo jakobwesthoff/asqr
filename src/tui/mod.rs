@@ -13,6 +13,7 @@ pub mod render;
 mod run;
 mod scroll;
 mod session;
+mod text_field;
 mod watch;
 
 pub use alert::*;
@@ -21,4 +22,5 @@ pub use inbox::*;
 pub use run::*;
 pub use scroll::{Extent, Offset, Page};
 pub use session::*;
+pub use text_field::{FieldKey, Leave, TextField};
 pub use watch::*;
