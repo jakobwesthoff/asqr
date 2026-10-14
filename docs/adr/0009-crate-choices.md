@@ -61,6 +61,12 @@ it parses from a `Value`, and a session is parsed from one because
 raw JSON first. In a file with several questions, an agent could not
 tell which question held the wrong value.
 
+The path ends at a context entry for the fields inside it, as in
+`questions[0].context[0]: invalid type: null, expected a string`. An
+entry is an internally tagged enum: serde reads it into a buffer first
+and parses the variant's fields from that buffer, where
+`serde_path_to_error` no longer follows the path.
+
 ## Amendment (2026-10-15, spec section 7.7)
 
 `rustix` with its `event` feature, on Unix only, waits for the answer to

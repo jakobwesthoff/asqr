@@ -55,7 +55,9 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // `try_init` also installs the panic hook that gives the terminal back
     // before a panic message is printed. That hook knows nothing of focus
     // reports and bracketed paste, so the guard turns those off too, on
-    // every way out of this function from here on.
+    // every return from this function from here on and on a panic. A
+    // signal such as SIGTERM or SIGHUP ends the process without running
+    // the hook or the guard, and the terminal stays as set up here.
     let mut terminal = ratatui::try_init().context("setting up the terminal")?;
     let _guard = TerminalGuard {
         out: io::stdout(),

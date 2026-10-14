@@ -100,7 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multiple of 4 columns and other control characters are dropped, in a
   paste and in text restored from a draft, as a field shows neither. A
   paste on a field left with `esc` gives it the keys again and goes in;
-  elsewhere a message says that a paste goes into a field.
+  elsewhere a message says that a paste goes into a field. asqr turns
+  bracketed paste off again when it quits or panics. A terminal that
+  refuses bracketed paste, as a legacy Windows console does, runs asqr
+  without it.
 - `--layout auto|beside|below` and `ASQR_LAYOUT` choose where a
   question's context goes. `auto`, the default, puts it beside the
   question when the terminal's area looks landscape and below it when
@@ -277,13 +280,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The session schema requires at least one question, as validation
   does. Before, it accepted `"questions": []`, which `asqr validate`
   refuses.
-- A crash of asqr turns the terminal's focus reports off before asqr
-  ends. Before, they stayed on, and the shell received them as typed
-  text whenever its window gained or lost the focus. A terminal that
-  refuses focus reports or bracketed paste, as a legacy Windows console
-  refuses bracketed paste, runs asqr without them. Before, asqr ended
-  with an error and left the terminal in raw mode on its alternate
-  screen.
+- When asqr panics, it turns the terminal's focus reports off before
+  it ends. Before, they stayed on, and the shell received them as typed
+  text whenever its window gained or lost the focus. A signal that ends
+  asqr, such as SIGTERM, still leaves them on. A terminal that refuses
+  focus reports runs asqr without them. Before, asqr ended with an error
+  and left the terminal in raw mode on its alternate screen.
 - Run over ssh from a tmux pane without passthrough, asqr no longer
   asks the terminal for its graphics protocol and shows images as
   blocks. The question got no answer there, and the thread waiting for

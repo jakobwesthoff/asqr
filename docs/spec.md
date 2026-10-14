@@ -10,10 +10,10 @@ result format. The specifications of earlier versions are in the git
 history.
 
 Status: reviewed with the user and in an adversarial review on
-2026-09-27, with the findings F1 to F12 worked in, in two adversarial
-reviews on 2026-10-14, and revised with the decisions made while
-building it. The decisions behind it are recorded as ADRs in
-`docs/adr/`.
+2026-09-27, with the findings F1 to F12 worked in, in three more
+adversarial reviews, two on 2026-10-14 and one on 2026-10-15, and
+revised with the decisions made while building it. The decisions behind
+it are recorded as ADRs in `docs/adr/`.
 
 ## 1. Purpose
 
@@ -229,10 +229,12 @@ not JSON, or not shaped like a session, gets the message "not a session
 file: " followed by the parser's message. A shape error names the path
 of its field first, as in `questions[1].context: invalid type: map,
 expected a sequence`, and a `context` that is no list adds `context is a
-list with one entry: wrap the entry in [ ]`. The TUI shows a notice for
-an invalid session file, also when no session is waiting. The status
-line holds one notice, so when several files fail in one scan, the last
-one shows.
+list with one entry: wrap the entry in [ ]`. For a field inside a
+context entry, the path ends at the entry, as in
+`questions[0].context[0]: invalid type: null, expected a string` for a
+`path` of `null`. The TUI shows a notice for an invalid session file,
+also when no session is waiting. The status line holds one notice, so
+when several files fail in one scan, the last one shows.
 
 An error result never overwrites an existing `outbox/<id>.json`: in that
 case the file is archived without a result and the conflict is logged
@@ -587,7 +589,9 @@ wait.
 needs a terminal on stdin and stdout; otherwise it prints "asqr needs a
 terminal" and exits with 1. It creates the queue's directories and
 takes the queue lock (section 3.6). `q` quits with exit code 0 and gives
-the terminal back as it was, also after a crash.
+the terminal back as it was, also after a panic. A signal that ends
+asqr, such as SIGTERM, SIGHUP or SIGKILL, leaves the terminal as asqr
+had set it up.
 
 ### 7.1 Layout
 
@@ -843,8 +847,9 @@ a frame (user, 2026-09-27):
 - Pasted text goes in at the text cursor of the focused field or note
   as a whole. asqr asks the terminal for bracketed paste, so a line
   break in a paste is never an `enter` that picks, submits or rejects.
-  It turns bracketed paste and focus reports off again when it ends, a
-  crash included. A terminal that refuses either runs asqr without it.
+  It turns bracketed paste and focus reports off again when it quits or
+  panics, not when a signal ends it (section 7). A terminal that
+  refuses either runs asqr without it.
   Every field keeps the pasted line breaks; `\r` and `\r\n` become
   `\n` (ADR 36). A tab becomes blanks up to the next multiple of 4
   columns, counted from the start of its line, and other control
@@ -1129,21 +1134,20 @@ Known limitation: inside tmux, inline images and OSC notifications need
 `set -g allow-passthrough all`. Without passthrough, asqr falls back to
 the block rendering and the bell. With `on`, tmux passes sequences only
 while asqr's pane is visible: an image first shown while the pane is
-hidden stays empty until the pane gains the focus again, which asqr
-only learns when tmux forwards focus reports (`set -g focus-events on`).
-Inside
-tmux, asqr asks tmux whether passthrough
-is on for its pane and whether a client is attached, and queries the
-terminal only when both hold: otherwise the query gets no answer, and
-its reader would go on taking the keys typed afterwards. Without
-`TMUX`, when `TERM` starts with `tmux` or `TERM_PROGRAM` is `tmux`, as
-after ssh from a tmux pane, asqr cannot ask that tmux. It sends a device status request through tmux's passthrough
-instead and waits up to 300 ms for the answer: with one, it queries the
-terminal; without one, images show as blocks. Keys typed during that
-wait are lost, and an answer slower than 300 ms, as over a slow ssh
-link, also means blocks. Outside Unix asqr does not wait and shows
-blocks there. Notifications
-inside tmux go out in tmux's passthrough wrapper.
+hidden stays empty until the pane gains the focus again, which asqr only
+learns when tmux forwards focus reports (`set -g focus-events on`).
+Inside tmux, asqr asks tmux whether passthrough is on for its pane and
+whether a client is attached, and queries the terminal only when both
+hold: otherwise the query gets no answer, and its reader would go on
+taking the keys typed afterwards. Without `TMUX`, when `TERM` starts
+with `tmux` or `TERM_PROGRAM` is `tmux`, as after ssh from a tmux pane,
+asqr cannot ask that tmux. It sends a device status request through
+tmux's passthrough instead and waits up to 300 ms for the answer: with
+one, it queries the terminal; without one, images show as blocks. Keys
+typed during that wait are lost, and an answer slower than 300 ms, as
+over a slow ssh link, also means blocks. Outside Unix asqr does not wait
+and shows blocks there. Notifications inside tmux go out in tmux's
+passthrough wrapper.
 
 Whenever `TERM` starts with `tmux` or `TERM_PROGRAM` is `tmux`,
 ratatui-image, the crate asqr draws images with, sets
