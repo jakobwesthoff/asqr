@@ -730,7 +730,7 @@ On an option row (vim style plus arrows):
 | `L` | the list of waiting sessions |
 | `i` | the whole intro |
 | `o`, `z` | open the image shown in the system viewer; show the context shown full screen |
-| `tab` | move into the context pane; `tab`, `esc` or `q` move back |
+| `tab`, `shift-tab` | move into the context pane; `tab`, `shift-tab`, `esc` or `q` move back |
 | `pgup`/`pgdn`, `ctrl-u`/`ctrl-d` | scroll the context pane by a page, also while typing in a field |
 | `q`, `ctrl-c` | quit, keeping the draft; in the context pane `q` goes back |
 | `?` | help |
@@ -840,11 +840,30 @@ a frame (user, 2026-09-27):
   `\n` (ADR 36). Where no field or note has the keys, and
   while the context pane, the intro, the help or the session list has
   them, a paste does nothing.
-- `tab` never types into a field: it moves the focus into the context
-  pane where one shows, and does nothing otherwise. Where a pane shows,
-  `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll it from inside a field;
-  without one, the field's editor keeps its own meaning for them, such
-  as `ctrl-d` deleting the character under the text cursor (ADR 31).
+- `tab` and `shift-tab` never type into a field: they move the focus
+  into the context pane where one shows, and do nothing otherwise. Where
+  a pane shows, `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll it from
+  inside a field; without one, `pgup`/`pgdn` do nothing there, and
+  `ctrl-u` and `ctrl-d` undo and delete as listed below (ADR 31).
+- **Keys in a field,** besides `enter`, `esc` and `ctrl-j` (asqr keeps
+  these keys of its editor, ratatui-textarea):
+  - `←`/`→` and `ctrl-b`/`ctrl-f` move by a character, `ctrl-←`/`ctrl-→`
+    and `alt-b`/`alt-f` by a word, `home`/`end` and `ctrl-a`/`ctrl-e` to
+    the start and end of the line.
+  - `↑`/`↓`, with any modifier, and `ctrl-p`/`ctrl-n` move by a row as
+    described above, leaving the field from its first or last row.
+  - `alt-[`/`alt-]` and `alt-p`/`alt-n` move to the previous and next
+    paragraph, `alt-<`/`alt->` and `ctrl-alt-p`/`ctrl-alt-n` to the first
+    and last line.
+  - `backspace` and `ctrl-h` delete the character before the text
+    cursor, `delete` and `ctrl-d` the one under it; `ctrl-w`, `alt-h`
+    and `alt-backspace` delete the word before it, `alt-d` and
+    `alt-delete` the word after it, and `ctrl-k` the rest of the line.
+    `ctrl-y` puts back what the last of these word or line deletes took.
+  - `ctrl-u` undoes and `ctrl-r` redoes an edit.
+  - There is no selection: `shift` with a move only moves, and `ctrl-x`
+    cuts nothing.
+  - `ctrl-v` and `alt-v` do nothing, as `pgup`/`pgdn` without a pane.
 
 Where the question sets `length`, a counter on a line of its own after
 the focused field's text, at the right edge, shows the length as text,

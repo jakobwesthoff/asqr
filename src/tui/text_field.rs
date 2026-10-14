@@ -123,19 +123,35 @@ impl TextField {
     /// field; every other key edits.
     ///
     /// `↑`/`↓` move the text cursor to the row above or below as the field
-    /// shows it, and leave only from its first or last row (ADR 36). `←`
-    /// leaves only at the start of the text and `→` only at its end; inside
-    /// the text, and with a modifier held, they move the text cursor.
+    /// shows it, and leave only from its first or last row (ADR 36);
+    /// `ctrl-p` and `ctrl-n` are the editor's names for them and do the
+    /// same. `←` leaves only at the start of the text and `→` only at its
+    /// end; inside the text, and with a modifier held, they move the text
+    /// cursor.
+    ///
+    /// The editor's other keys keep their meaning (spec section 7.3), but
+    /// for those that scroll its own view: asqr draws the field itself, so
+    /// that view never has a size, and scrolling it threw the text cursor
+    /// to the start of the text. `tab` never types a tab, which would show
+    /// as nothing.
     pub fn key(&mut self, key: KeyEvent) -> FieldKey {
         let plain = key.modifiers.is_empty();
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
         let wanted = self.wanted.take();
         match key.code {
             KeyCode::Enter => FieldKey::Enter,
             KeyCode::Esc => FieldKey::Escape,
             KeyCode::Up => self.vertical(Leave::Up, wanted),
             KeyCode::Down => self.vertical(Leave::Down, wanted),
+            KeyCode::Char('p') if control && !alt => self.vertical(Leave::Up, wanted),
+            KeyCode::Char('n') if control && !alt => self.vertical(Leave::Down, wanted),
             KeyCode::Left if plain && self.cursor() == (0, 0) => FieldKey::Leave(Leave::Left),
             KeyCode::Right if plain && self.at_end() => FieldKey::Leave(Leave::Right),
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::PageUp | KeyCode::PageDown => {
+                FieldKey::Unchanged
+            }
+            KeyCode::Char('v') if control != alt => FieldKey::Unchanged,
             _ if self.input(key) => FieldKey::Changed,
             _ => FieldKey::Unchanged,
         }
@@ -144,6 +160,11 @@ impl TextField {
     /// Hands `key` to the editor as it is and says whether the text
     /// changed. `ctrl-j` adds a line, as `enter` is the field's action
     /// (ADR 36).
+    ///
+    /// A move with `shift` held starts a selection in the editor, which
+    /// asqr does not show; the next typed key would replace the selected
+    /// text unseen. So the selection ends after every key: `shift` only
+    /// moves, and `ctrl-x` finds nothing to cut.
     fn input(&mut self, key: KeyEvent) -> bool {
         let before = self.editor.lines().to_vec();
         if key.code == KeyCode::Char('j') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -151,6 +172,7 @@ impl TextField {
         } else {
             self.editor.input(key);
         }
+        self.editor.cancel_selection();
         self.editor.lines() != before.as_slice()
     }
 
@@ -978,6 +1000,94 @@ mod tests {
 
         assert_eq!(field.key(code(KeyCode::Right)), FieldKey::Unchanged);
         assert_eq!(field.cursor(), (1, 0), "on to the next line");
+    }
+
+    #[test]
+    fn tab_and_shift_tab_never_type() {
+        let mut field = TextField::new("ab");
+
+        for key in [KeyCode::Tab, KeyCode::BackTab] {
+            assert_eq!(field.key(code(key)), FieldKey::Unchanged, "{key:?}");
+            let shifted = KeyEvent::new(key, KeyModifiers::SHIFT);
+            assert_eq!(field.key(shifted), FieldKey::Unchanged, "{key:?}");
+        }
+
+        assert_eq!(field.text(), "ab");
+    }
+
+    #[test]
+    fn keys_that_scroll_the_editors_own_view_do_nothing() {
+        // The editor scrolls a view asqr never draws, and moved the text
+        // cursor to the start of the text doing so.
+        let alt = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+        for key in [
+            code(KeyCode::PageDown),
+            code(KeyCode::PageUp),
+            KeyEvent::new(KeyCode::PageDown, KeyModifiers::SHIFT),
+            ctrl('v'),
+            alt('v'),
+        ] {
+            let mut field = shaped("one\ntwo\nthree", 40, (1, 2));
+            assert_eq!(field.key(key), FieldKey::Unchanged, "{key:?}");
+            assert_eq!(field.cursor(), (1, 2), "{key:?}");
+            assert_eq!(field.text(), "one\ntwo\nthree", "{key:?}");
+        }
+    }
+
+    #[test]
+    fn ctrl_p_and_ctrl_n_move_like_up_and_down() {
+        let mut field = shaped(THREE_ROWS, 22, (0, 47));
+
+        assert_eq!(field.key(ctrl('p')), FieldKey::Unchanged);
+        assert_eq!(field.cursor(), (0, 29), "the row above, as drawn");
+        assert_eq!(field.key(ctrl('p')), FieldKey::Unchanged);
+        assert_eq!(field.key(ctrl('p')), FieldKey::Leave(Leave::Up));
+        assert_eq!(field.key(ctrl('n')), FieldKey::Unchanged);
+        assert_eq!(field.cursor(), (0, 29), "the column kept");
+        field.key(ctrl('n'));
+        assert_eq!(field.key(ctrl('n')), FieldKey::Leave(Leave::Down));
+    }
+
+    #[test]
+    fn the_editors_keys_for_the_first_and_last_line_stay() {
+        let alt = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+        let ctrl_alt =
+            |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL | KeyModifiers::ALT);
+        let mut field = TextField::new("one\ntwo");
+
+        field.key(alt('<'));
+        assert_eq!(field.cursor(), (0, 3), "the first line, in the same column");
+        field.key(alt('>'));
+        assert_eq!(field.cursor(), (1, 3));
+        field.key(code(KeyCode::Home));
+        field.key(ctrl_alt('p'));
+        assert_eq!(field.cursor(), (0, 0));
+        field.key(ctrl_alt('n'));
+        assert_eq!(field.cursor(), (1, 0));
+    }
+
+    #[test]
+    fn shift_moves_select_nothing_that_typing_would_delete() {
+        let shifted = |key| KeyEvent::new(key, KeyModifiers::SHIFT);
+        let mut field = TextField::new("abc");
+
+        field.key(shifted(KeyCode::Left));
+        field.key(shifted(KeyCode::Home));
+        assert_eq!(field.cursor(), (0, 0));
+        assert_eq!(field.key(code(KeyCode::Char('x'))), FieldKey::Changed);
+        assert_eq!(field.text(), "xabc");
+
+        field.key(shifted(KeyCode::End));
+        assert_eq!(field.key(ctrl('x')), FieldKey::Unchanged, "nothing to cut");
+        assert_eq!(field.key(code(KeyCode::Backspace)), FieldKey::Changed);
+        assert_eq!(field.text(), "xab", "one character, not a selection");
+
+        // What ctrl-k deleted still comes back with ctrl-y.
+        field.key(code(KeyCode::Home));
+        field.key(ctrl('k'));
+        assert_eq!(field.text(), "");
+        field.key(ctrl('y'));
+        assert_eq!(field.text(), "xab");
     }
 
     #[test]

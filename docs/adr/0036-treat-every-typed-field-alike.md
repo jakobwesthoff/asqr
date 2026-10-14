@@ -120,3 +120,26 @@ Agent's choices within that design:
   row of a long own answer with the arrows.
 - `↑` and `↓` take as many presses as a field has rows before they leave
   it.
+
+## Amendment (2026-10-14, adversarial review round 2)
+
+Every field hands the keys it does not handle itself to its editor,
+ratatui-textarea, whose default key table assumes that the editor draws
+itself. asqr draws the field, so some of those keys acted on a view
+nobody saw. The lead and the reviewer agreed on what each key does in a
+field (spec section 7.3):
+
+- **Kept:** the editor's moves by character, word, line, paragraph and
+  to the first or last line, its deletes, undo, redo and `ctrl-y`.
+- **Mapped:** `ctrl-p` and `ctrl-n` move by a row as `↑` and `↓` do,
+  leaving the field from its first or last row.
+- **Swallowed:** `pgup`/`pgdn`, `ctrl-v` and `alt-v` scroll the editor's
+  own view, which never has a size, and so moved the text cursor to the
+  start of the text. Without a context pane they do nothing.
+- **Never typed:** `shift-tab` acts as `tab` everywhere, and neither
+  reaches the editor, which would insert a tab character that shows as
+  nothing.
+- **No selection:** a move with `shift` held started a selection the
+  field did not show, and the next typed key replaced the selected text.
+  The selection ends after every key, so `shift` only moves and `ctrl-x`
+  cuts nothing.

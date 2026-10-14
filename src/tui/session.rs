@@ -612,12 +612,13 @@ impl SessionState {
     /// question. `tab`, `esc` and `q` go back, a typed word that starts with
     /// `q` included, so no word quits asqr; `ctrl-c` still does. Without the
     /// focus, `tab` and the page keys still reach the pane, also from a
-    /// field, as none of them types text (plan, *Keys*).
+    /// field, as none of them types text (plan, *Keys*). `shift-tab` acts as
+    /// `tab` everywhere.
     fn pane_key(&mut self, key: KeyEvent) -> Option<Effect> {
         if self.pane_focus {
             let control = key.modifiers.contains(KeyModifiers::CONTROL);
             let effect = match key.code {
-                KeyCode::Tab | KeyCode::Esc => self.leave_pane(),
+                KeyCode::Tab | KeyCode::BackTab | KeyCode::Esc => self.leave_pane(),
                 KeyCode::Char('q') if !control => self.leave_pane(),
                 KeyCode::Char('z') if !control && self.full_screen.is_some() => self.leave_pane(),
                 KeyCode::Char('z') if !control => self.show_full_screen(),
@@ -637,7 +638,9 @@ impl SessionState {
             // A tab never types: a tab character in an answer is a
             // mistake, and on a text question, whose field has the focus
             // from the start, the pane would otherwise take `esc` first.
-            KeyCode::Tab => {
+            // `shift-tab` does the same, as one pane is all there is to
+            // move to.
+            KeyCode::Tab | KeyCode::BackTab => {
                 self.pane_focus = self.pane_page.is_some();
                 Some(Effect::None)
             }
@@ -2183,6 +2186,50 @@ mod tests {
     }
 
     #[test]
+    fn shift_tab_acts_like_tab() {
+        let back_tab = code(KeyCode::BackTab);
+        let mut state = with_pane();
+        for back in [back_tab, code(KeyCode::Tab)] {
+            assert_eq!(state.handle(back_tab), Effect::None);
+            assert!(state.pane_focused(), "into the pane");
+            state.handle(back);
+            assert!(!state.pane_focused(), "{back:?} gives the focus back");
+        }
+
+        press(&mut state, "z");
+        state.handle(back_tab);
+        assert!(!state.full_screen(), "it leaves the full-screen view");
+    }
+
+    #[test]
+    fn shift_tab_never_types_into_a_field() {
+        let back_tab = code(KeyCode::BackTab);
+        // The own answer and a text answer's field, without a pane and
+        // with one.
+        for (mut state, question) in [(state(), "single"), (with_pane(), "q")] {
+            press(&mut state, "jjab");
+            assert_eq!(state.handle(back_tab), Effect::None);
+            state.handle(code(KeyCode::Esc));
+            assert_eq!(answer(&state, question).custom.as_deref(), Some("ab"));
+        }
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+        press(&mut state, "ab");
+        state.handle(back_tab);
+        assert_eq!(state.field_text().as_deref(), Some("ab"), "a text answer");
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "nab");
+        state.handle(back_tab);
+        assert_eq!(state.note_text().as_deref(), Some("ab"), "a note");
+        for row in [Row::Note, Row::Reject] {
+            review_row(&mut state, row);
+            press(&mut state, "ab");
+            state.handle(back_tab);
+            assert_eq!(state.field_text().as_deref(), Some("ab"), "{row:?}");
+        }
+    }
+
+    #[test]
     fn the_focused_pane_scrolls_by_line_page_and_to_its_ends() {
         let mut state = with_pane();
         state.handle(code(KeyCode::Tab));
@@ -2406,6 +2453,8 @@ mod tests {
 
         assert_eq!(state.field_text().as_deref(), Some("a"), "ctrl-d deleted");
         assert_eq!(state.handle(code(KeyCode::PageDown)), Effect::None);
+        assert_eq!(state.handle(ctrl('v')), Effect::None);
+        assert_eq!(state.field_cursor(), Some((0, 1)), "the text cursor stays");
     }
 
     #[test]

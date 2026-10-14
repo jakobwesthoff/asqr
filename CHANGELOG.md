@@ -153,9 +153,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   focus.
 - `o` on a code, Markdown or diff entry, or where no entry shows, says
   why it opens nothing.
-- `tab` no longer types a tab character into a field. While a context
-  pane shows, `ctrl-u` and `ctrl-d` scroll it instead of undoing and
-  deleting in a field.
+- `tab` and `shift-tab` no longer type a tab character into a field.
+  While a context pane shows, `ctrl-u` and `ctrl-d` scroll it instead of
+  undoing and deleting in a field.
 - Every typed field takes several lines: the own answer, the session
   note and the reject reason now accept `ctrl-j` like a `text` answer
   and a question's note, and `enter` still picks, submits or rejects.
@@ -166,7 +166,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   span several lines.
 - `↑`/`↓` in a typed field move the text cursor through the rows the
   field shows, wrapped rows included, and leave the field only from its
-  first or last row. Before, they left the own answer, the `text`
+  first or last row; `ctrl-p`/`ctrl-n` do the same. Before, they left the own answer, the `text`
   answer, the session note and the reject reason at once, so the cursor
   could not reach an earlier line of a `text` answer, and in a
   question's note they moved by the text's lines. The key bars of these
@@ -283,6 +283,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sends a status request through tmux's passthrough and asks for the
   graphics protocol only when the answer comes within 300 ms, so tmux
   with passthrough on still shows images inline.
+- In a field, `pgup`/`pgdn`, `ctrl-v` and `alt-v` do nothing without a
+  context pane. Before, they moved the text cursor to the start of the
+  text.
+- `shift` with a move in a field only moves the text cursor. Before, it
+  selected text that asqr did not show, and the next typed key, paste
+  or delete replaced it.
 - A field or a note taller than the question's area keeps its text
   cursor in view. Before, the question showed the field's start, and
   the cursor of a long `text` answer could stay below the screen while
