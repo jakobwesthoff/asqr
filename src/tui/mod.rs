@@ -22,5 +22,5 @@ pub use inbox::*;
 pub use run::*;
 pub use scroll::{Extent, Offset, Page};
 pub use session::*;
-pub use text_field::{FieldKey, Leave, TextField};
+pub use text_field::{FieldKey, FieldShape, Leave, TextField};
 pub use watch::*;

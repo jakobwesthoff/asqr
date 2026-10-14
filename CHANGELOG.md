@@ -150,6 +150,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tab` no longer types a tab character into a field. While a context
   pane shows, `ctrl-u` and `ctrl-d` scroll it instead of undoing and
   deleting in a field.
+- `↑`/`↓` in a typed field move the text cursor through the rows the
+  field shows, wrapped rows included, and leave the field only from its
+  first or last row. Before, they left the own answer, the `text`
+  answer, the session note and the reject reason at once, so the cursor
+  could not reach an earlier line of a `text` answer, and in a
+  question's note they moved by the text's lines. The key bars of these
+  fields drop their `↑/↓ leave` and `↑ back` hints, and the help states
+  the rule.
 - The key bar leaves out hints that do not fit whole instead of cutting
   the last one, and keeps `? help` and `q quit` longest.
 - The help puts `space` and `1`-`9` on one line and `n` and `ctrl-j` on

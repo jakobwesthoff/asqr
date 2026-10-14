@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
-use super::{FieldKey, Leave, Offset, Page, TextField};
+use super::{FieldKey, FieldShape, Leave, Offset, Page, TextField};
 
 pub use crate::format::Length;
 use crate::format::{
@@ -519,6 +519,13 @@ impl SessionState {
             .collect()
     }
 
+    /// Takes where the focused field or note was drawn, for `↑`/`↓`.
+    pub fn set_field_shape(&mut self, shape: FieldShape) {
+        if let Some(field) = self.field.as_mut() {
+            field.set_shape(shape);
+        }
+    }
+
     /// The focused field or note.
     pub fn field(&self) -> Option<&TextField> {
         self.field.as_ref()
@@ -912,18 +919,12 @@ impl SessionState {
             FieldKey::Unchanged => Effect::None,
             // A question's note is opened with `n` from a row and belongs
             // to no row of its own: `enter` and `esc` both return to the
-            // row, and `↑`/`↓`, with no row to leave, move the text cursor
-            // between the note's lines.
+            // row, and the arrows that leave a field find no row to go to.
             FieldKey::Enter | FieldKey::Escape if note => {
                 self.arrive();
                 Effect::None
             }
-            // Moving the text cursor leaves the text as it is, so there is
-            // nothing to save.
-            FieldKey::Leave(Leave::Up | Leave::Down) if note => {
-                field.input(key);
-                Effect::None
-            }
+            FieldKey::Leave(_) if note => Effect::None,
             FieldKey::Enter => self.enter(),
             FieldKey::Escape => {
                 self.focus = Focus::None;
@@ -934,9 +935,9 @@ impl SessionState {
             FieldKey::Leave(Leave::Down) => self.move_row(1),
             // At the edges of the text the arrows leave a row's field for
             // the question before or after, so a field never traps the
-            // person (user, 2026-09-28). The note stays where it is.
-            FieldKey::Leave(Leave::Left) if !note && self.tab > 0 => self.go_to_tab(self.tab - 1),
-            FieldKey::Leave(Leave::Right) if !note && self.tab + 1 < self.tab_count() => {
+            // person (user, 2026-09-28).
+            FieldKey::Leave(Leave::Left) if self.tab > 0 => self.go_to_tab(self.tab - 1),
+            FieldKey::Leave(Leave::Right) if self.tab + 1 < self.tab_count() => {
                 self.go_to_tab(self.tab + 1)
             }
             FieldKey::Leave(Leave::Left | Leave::Right) => Effect::None,
@@ -1384,6 +1385,27 @@ mod tests {
     }
 
     #[test]
+    fn up_and_down_go_through_the_rows_of_a_wrapped_own_answer_first() {
+        let mut state = state();
+        press(&mut state, "jjaaaaa bbbbb ccccc ddddd");
+        // Drawn after a head of 2 columns in 22: `ddddd` wraps onto a row
+        // of its own.
+        state.set_field_shape(FieldShape {
+            head: ratatui::text::Span::from("> "),
+            width: 22,
+        });
+
+        assert_eq!(state.handle(code(KeyCode::Up)), Effect::None);
+        assert_eq!((state.row(), state.field_cursor()), (2, Some((0, 5))));
+        state.handle(code(KeyCode::Up));
+        assert_eq!(
+            (state.row(), state.focus()),
+            (1, Focus::None),
+            "the first row leaves the field"
+        );
+    }
+
+    #[test]
     fn a_chosen_option_wins_over_typed_text_until_the_own_answer_is_picked() {
         let mut state = state();
         press(&mut state, "jjown");
@@ -1477,6 +1499,25 @@ mod tests {
     }
 
     #[test]
+    fn up_moves_to_the_line_above_in_a_text_answer() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+        press(&mut state, "one");
+        state.handle(ctrl('j'));
+        press(&mut state, "two");
+
+        state.handle(code(KeyCode::Up));
+        assert_eq!(state.field_cursor(), Some((0, 3)));
+        state.handle(code(KeyCode::Up));
+
+        assert_eq!(
+            (state.tab(), state.focus()),
+            (2, Focus::Field),
+            "the only row has nowhere to go"
+        );
+    }
+
+    #[test]
     fn a_text_question_can_be_left_with_esc() {
         let mut state = state();
         go_to_tab(&mut state, 2);
@@ -1546,6 +1587,14 @@ mod tests {
 
         assert_eq!(state.focus(), Focus::Note, "the note keeps the keys");
         assert_eq!(state.note_text().as_deref(), Some("ac\nb"));
+
+        state.handle(code(KeyCode::Up));
+        assert_eq!(state.handle(code(KeyCode::Up)), Effect::None);
+        assert_eq!(
+            (state.focus(), state.field_cursor()),
+            (Focus::Note, Some((0, 2))),
+            "back at column 2, and the first row of the note leads nowhere"
+        );
     }
 
     #[test]

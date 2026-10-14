@@ -74,9 +74,11 @@ where
             .draw(|frame| draw(frame, app, view))
             .context("drawing the screen")?;
         // How far the intro overlay and the context pane can scroll depends
-        // on the size they were drawn at.
+        // on the size they were drawn at, and where `↑`/`↓` go in a field
+        // on where its rows break.
         app.set_intro_page(view.intro_page());
         app.set_pane_page(view.pane_page());
+        app.set_field_shape(view.field_shape());
         let Ok(event) = events.recv() else {
             return Ok(());
         };

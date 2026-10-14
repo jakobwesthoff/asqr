@@ -27,7 +27,7 @@ use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::viewer::Viewers;
 use crate::format::{ContextEntry, Kind};
-use crate::tui::text_field::{counted_lines, resting_lines};
+use crate::tui::text_field::{FieldShape, counted_lines, resting_lines};
 use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState, has_context};
 
 /// Below this size the layout does not fit; a message says so instead.
@@ -84,6 +84,8 @@ pub struct View<'a> {
     viewers: Viewers,
     /// What the context pane showed in the last draw.
     pane_page: Option<Page>,
+    /// Where the field or note that has the keys was last drawn.
+    field_shape: Option<FieldShape>,
     question_height: QuestionHeight,
     /// Whether the last draw showed the help, the intro or the session
     /// list over the screen.
@@ -182,6 +184,7 @@ impl<'a> View<'a> {
             intro_page: Extent::default(),
             viewers: Viewers::new(picker),
             pane_page: None,
+            field_shape: None,
             question_height: QuestionHeight::default(),
             overlay_shown: false,
             image_shown: false,
@@ -213,6 +216,12 @@ impl<'a> View<'a> {
         self.pane_page
     }
 
+    /// Where the field or note that has the keys was drawn in the last
+    /// draw, for [`App::set_field_shape`]; nothing when none was.
+    pub fn field_shape(&self) -> Option<FieldShape> {
+        self.field_shape.clone()
+    }
+
     /// Reads and sends every image again as it is next shown (ADR 24).
     pub fn forget_images(&mut self) {
         self.viewers.forget_images();
@@ -222,6 +231,7 @@ impl<'a> View<'a> {
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     // Whatever returns early draws no pane and no overlay.
     view.pane_page = None;
+    view.field_shape = None;
     view.overlay_shown = false;
     view.image_shown = false;
     let area = frame.area();
@@ -555,6 +565,8 @@ struct Content {
     lines: Vec<Line<'static>>,
     /// The first and last line of the current row.
     cursor: (usize, usize),
+    /// Where the field or note that has the keys was drawn.
+    shape: Option<FieldShape>,
 }
 
 impl Content {
@@ -591,6 +603,7 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
     };
     let (text_area, context_area) = panes::areas(area, arrangement, question_rows);
     let content = content_at(text_area.width);
+    view.field_shape.clone_from(&content.shape);
 
     let pane = match context_area {
         Some(area) if arrangement == Some(Arrangement::Hint) => {
@@ -695,6 +708,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
     let mut content = Content {
         lines: field_lines(&question.text, width),
         cursor: (0, 0),
+        shape: None,
     };
     content
         .lines
@@ -751,7 +765,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
                 let head = format!("{pointer}{} ✎ {label}: ", mark(question.kind, chosen));
                 let text = answer.custom.as_deref().unwrap_or_default();
                 if live {
-                    live_field(state, head, text, width, current, true)
+                    live_field(state, head, text, width, current, true, &mut content.shape)
                 } else {
                     let length = question.custom.as_ref().and_then(|custom| custom.length());
                     counted_lines(Span::from(head), text, width, length.is_some())
@@ -761,7 +775,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
                 let head = format!("{pointer}✎ ");
                 let text = answer.custom.as_deref().unwrap_or_default();
                 if live {
-                    live_field(state, head, text, width, current, false)
+                    live_field(state, head, text, width, current, false, &mut content.shape)
                 } else {
                     counted_lines(Span::from(head), text, width, question.length.is_some())
                 }
@@ -778,7 +792,12 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
         let editing = live && state.focus() == Focus::Note;
         let head = Span::from("Notes: ").bold();
         let note_lines = match state.field().filter(|_| editing) {
-            Some(field) => field.lines(head, width, !state.pane_focused(), None),
+            Some(field) => {
+                let shape = FieldShape { head, width };
+                let lines = field.lines(&shape, !state.pane_focused(), None);
+                content.shape = Some(shape);
+                lines
+            }
             None => resting_lines(head, answer.note.as_deref().unwrap_or_default(), width),
         };
         content.push_row(note_lines, editing);
@@ -851,9 +870,9 @@ fn indented(line: Line<'static>, columns: usize) -> Line<'static> {
 }
 
 /// The field of a row after `head` as the person sees it: with its text
-/// cursor and counter while it has the keys, otherwise with `text` as
-/// kept, its head highlighted when `highlight` holds and the cursor is on
-/// the row.
+/// cursor and counter while it has the keys, where it is drawn then going
+/// to `shape`, otherwise with `text` as kept, its head highlighted when
+/// `highlight` holds and the cursor is on the row.
 fn live_field(
     state: &SessionState,
     head: String,
@@ -861,6 +880,7 @@ fn live_field(
     width: usize,
     current: bool,
     highlight: bool,
+    shape: &mut Option<FieldShape>,
 ) -> Vec<Line<'static>> {
     match state
         .field()
@@ -868,12 +888,15 @@ fn live_field(
     {
         // The text cursor hides while the context pane has the focus, so
         // only one place on the screen looks like it takes the keys.
-        Some(field) => field.lines(
-            Span::from(head),
-            width,
-            !state.pane_focused(),
-            state.field_limits().as_ref(),
-        ),
+        Some(field) => {
+            let drawn = FieldShape {
+                head: Span::from(head),
+                width,
+            };
+            let lines = field.lines(&drawn, !state.pane_focused(), state.field_limits().as_ref());
+            *shape = Some(drawn);
+            lines
+        }
         None if current && highlight => resting_lines(Span::from(head).reversed(), text, width),
         None => resting_lines(Span::from(head), text, width),
     }
@@ -886,6 +909,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
             Line::default(),
         ],
         cursor: (0, 0),
+        shape: None,
     };
     let answers = state.answers();
     let states = state.question_states();
@@ -943,6 +967,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 width,
                 current,
                 true,
+                &mut content.shape,
             ),
             Row::Reject => live_field(
                 state,
@@ -951,6 +976,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 width,
                 current,
                 true,
+                &mut content.shape,
             ),
             Row::Option(_) | Row::Own | Row::Answer => {
                 unreachable!("question rows never appear on the review")
@@ -1150,7 +1176,7 @@ pub(crate) fn styled_line(indent: usize, glyphs: &[Glyph]) -> Line<'static> {
 const HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "move between the rows"),
     ("←/→, h/l", "previous and next question"),
-    ("", "in a field: at the start or end of its text"),
+    ("", "in fields: ↑/↓ past the rows, ←/→ past the text"),
     ("enter", "pick and go on; open or submit on the review"),
     (
         "space, 1-9",
@@ -1323,17 +1349,9 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<(&'static str, &'stati
             ("enter", "next"),
             ("esc", "stop typing"),
         ],
-        (Focus::Field, Some(Row::Note)) => {
-            vec![
-                ("enter", "submit"),
-                ("↑/↓", "leave"),
-                ("esc", "stop typing"),
-            ]
-        }
-        (Focus::Field, Some(Row::Reject)) => {
-            vec![("enter", "reject"), ("↑", "back"), ("esc", "stop typing")]
-        }
-        (Focus::Field, _) => vec![("enter", "pick"), ("↑/↓", "leave"), ("esc", "stop typing")],
+        (Focus::Field, Some(Row::Note)) => vec![("enter", "submit"), ("esc", "stop typing")],
+        (Focus::Field, Some(Row::Reject)) => vec![("enter", "reject"), ("esc", "stop typing")],
+        (Focus::Field, _) => vec![("enter", "pick"), ("esc", "stop typing")],
         (Focus::None, _) if state.on_review() => vec![
             ("↑/↓", "move"),
             ("enter", "open/submit"),
@@ -1627,6 +1645,7 @@ mod tests {
     fn drawn(app: &mut App, view: &mut View, width: u16, height: u16) -> TestBackend {
         let backend = screen_in(app, view, width, height);
         app.set_intro_page(view.intro_page());
+        app.set_field_shape(view.field_shape());
         backend
     }
 
@@ -2105,6 +2124,29 @@ mod tests {
         // "❯ [x] ✎ Somewhere else: ", and the second line under it.
         assert_eq!(*x, 25, "{backend}");
         assert_eq!(buffer[(*x, y - 1)].symbol(), "a", "{backend}");
+    }
+
+    #[test]
+    fn up_and_down_move_the_text_cursor_through_the_rows_on_screen() {
+        // The text fills its last row at 60 columns, so the cursor after it
+        // shows on a row of its own.
+        let mut app = typed_own_answer();
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+        let mut cursor = |app: &mut App| {
+            let backend = drawn(app, &mut view, 60, 24);
+            let cells = reversed_cells_in_tab(&backend);
+            assert_eq!(cells.len(), 1, "only the cursor is reversed:\n{backend}");
+            (cells[0].0, cells[0].1)
+        };
+        let (x, y) = cursor(&mut app);
+
+        special(&mut app, KeyCode::Up);
+        let (above, row_above) = cursor(&mut app);
+        assert_eq!(row_above, y - 1, "one row up, still in the field");
+        assert!(above <= x, "at the column it was in, or before");
+        special(&mut app, KeyCode::Down);
+
+        assert_eq!(cursor(&mut app), (x, y), "back where it was");
     }
 
     /// A single question whose own answer has `label` and holds the

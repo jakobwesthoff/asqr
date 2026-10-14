@@ -775,8 +775,8 @@ Typed text is entered in place, in the line where it is shown, without
 a frame (user, 2026-09-27):
 
 - **The own-answer row** is a field as soon as the cursor lands on it:
-  every key that produces text types into it. `←`/`→` move the text
-  cursor, `↑`/`↓` leave the row, and `esc` leaves the field while the
+  every key that produces text types into it. `←`/`→` and `↑`/`↓` move
+  the text cursor (see below), and `esc` leaves the field while the
   cursor stays. `←` with the text cursor at the start of the text goes
   to the previous question, `→` at its end to the next one (ADR 23). After `esc`, `↑`/`↓` move on as usual; where the move
   cannot leave the row (the single row of a `text` question, `↓` on the
@@ -785,9 +785,8 @@ a frame (user, 2026-09-27):
   break. A text longer than the line wraps onto further lines under its
   start, after the row's head, focused or not, and is never cut with `…`.
   When the head leaves the text less than 20 columns, the further lines
-  start 4 columns in. `↑`/`↓` leave the row from any of its lines
-  (ADR 27). On a `multi` question the own answer counts once it has
-  text.
+  start 4 columns in (ADR 27). On a `multi` question the own answer
+  counts once it has text.
 - **A `text` question's answer** is a field that is active when the
   question is shown. It grows with its lines; `ctrl-j` adds a line, and
   `enter` moves on. `←`/`→` at the start or end of its text switch
@@ -796,6 +795,15 @@ a frame (user, 2026-09-27):
   multi-line (`ctrl-j` adds a line); `enter` or `esc` leave it.
 - **The session note** and **the reject reason** on the review tab are
   one-line fields like the own answer and wrap the same way.
+- **Moving in a field:** in every field and the note, `↑`/`↓` move the
+  text cursor to the row above or below as the field shows it, that is
+  the wrapped rows, not the text's lines, at the same display column or
+  the end of a shorter row. While `↑` and `↓` follow each other they
+  keep the column they started from. A field is left with `↑` only from
+  its first row and with `↓` only from its last row, as with `←` and `→`
+  at the start and end of its text; the note stays where it is (ADR 36).
+  `↓` from the last row of a line whose end shows on a row of its own,
+  as after a text that fills its row, goes to that end first.
 - Every edit is saved to the draft continuously, the session note and
   the reject reason included; there is no discard.
 - Pasted text goes in at the text cursor of the focused field or note

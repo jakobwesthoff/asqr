@@ -10,7 +10,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
-use super::{Effect, Extent, Offset, Page, SessionState};
+use super::{Effect, Extent, FieldShape, Offset, Page, SessionState};
 use crate::format::{Answer, SessionResult, same_session_id};
 
 /// How a finished session ends.
@@ -138,6 +138,15 @@ impl App {
     pub fn set_pane_page(&mut self, page: Option<Page>) {
         if let Some(state) = self.sessions.get_mut(self.active) {
             state.set_pane_page(page);
+        }
+    }
+
+    /// Hands the active session where its field or note that has the keys
+    /// was drawn, which `↑`/`↓` move through. A draw without one, as under
+    /// an overlay, leaves the last one.
+    pub fn set_field_shape(&mut self, shape: Option<FieldShape>) {
+        if let (Some(state), Some(shape)) = (self.sessions.get_mut(self.active), shape) {
+            state.set_field_shape(shape);
         }
     }
 

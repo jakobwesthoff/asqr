@@ -20,6 +20,8 @@ Amended by [30. Cap the question at a reading width and place context by the ter
 
 Amended by [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
 
+Amended by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md)
+
 ## Context
 
 The user looked at the first screens and the key model of ADR 8 and

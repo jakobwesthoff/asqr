@@ -9,6 +9,8 @@
 //! `enter` and leaving the field mean, depend on the field and stay with
 //! [`super::SessionState`].
 
+use std::ops::Range;
+
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
@@ -60,12 +62,26 @@ pub enum Leave {
     Down,
 }
 
+/// Where a field is drawn: the head its text follows and the width its
+/// rows wrap at.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldShape {
+    pub head: Span<'static>,
+    pub width: usize,
+}
+
 /// The field that has the keys: its text with the text cursor.
 #[derive(Debug, Clone)]
 pub struct TextField {
     editor: TextArea<'static>,
     /// Whether the text may hold line breaks.
     multiline: bool,
+    /// Where the field was last drawn, which `↑`/`↓` move through, as a
+    /// key acts on what is on screen.
+    shape: Option<FieldShape>,
+    /// The column `↑`/`↓` aim for while they follow each other, so the
+    /// cursor comes back to it after passing a shorter row.
+    wanted: Option<usize>,
 }
 
 impl TextField {
@@ -76,7 +92,12 @@ impl TextField {
         editor.set_hard_tab_indent(true);
         editor.move_cursor(CursorMove::Bottom);
         editor.move_cursor(CursorMove::End);
-        TextField { editor, multiline }
+        TextField {
+            editor,
+            multiline,
+            shape: None,
+            wanted: None,
+        }
     }
 
     pub fn text(&self) -> String {
@@ -95,20 +116,27 @@ impl TextField {
         lines.iter().map(|line| line.chars().count()).sum::<usize>() + lines.len().saturating_sub(1)
     }
 
+    /// Takes where the field was drawn, for `↑`/`↓`.
+    pub fn set_shape(&mut self, shape: FieldShape) {
+        self.shape = Some(shape);
+    }
+
     /// Applies `key`. `enter`, `esc` and the arrows that would leave the
-    /// text are left to the caller, as their meaning depends on the
+    /// field are left to the caller, as their meaning depends on the
     /// field; every other key edits.
     ///
-    /// `↑`/`↓` always leave, `←` only at the start of the text and `→`
-    /// only at its end. Inside the text, and with a modifier held, `←`
-    /// and `→` move the text cursor.
+    /// `↑`/`↓` move the text cursor to the row above or below as the field
+    /// shows it, and leave only from its first or last row (ADR 36). `←`
+    /// leaves only at the start of the text and `→` only at its end; inside
+    /// the text, and with a modifier held, they move the text cursor.
     pub fn key(&mut self, key: KeyEvent) -> FieldKey {
         let plain = key.modifiers.is_empty();
+        let wanted = self.wanted.take();
         match key.code {
             KeyCode::Enter => FieldKey::Enter,
             KeyCode::Esc => FieldKey::Escape,
-            KeyCode::Up => FieldKey::Leave(Leave::Up),
-            KeyCode::Down => FieldKey::Leave(Leave::Down),
+            KeyCode::Up => self.vertical(Leave::Up, wanted),
+            KeyCode::Down => self.vertical(Leave::Down, wanted),
             KeyCode::Left if plain && self.cursor() == (0, 0) => FieldKey::Leave(Leave::Left),
             KeyCode::Right if plain && self.at_end() => FieldKey::Leave(Leave::Right),
             _ if self.input(key) => FieldKey::Changed,
@@ -116,11 +144,11 @@ impl TextField {
         }
     }
 
-    /// Hands `key` to the editor as it is, arrows included, and says
-    /// whether the text changed. `ctrl-j` adds a line where the field is
+    /// Hands `key` to the editor as it is and says whether the text
+    /// changed. `ctrl-j` adds a line where the field is
     /// multi-line; any other way to a second line in a one-line field,
     /// such as `ctrl-m`, is undone.
-    pub fn input(&mut self, key: KeyEvent) -> bool {
+    fn input(&mut self, key: KeyEvent) -> bool {
         let before = self.editor.lines().to_vec();
         if key.code == KeyCode::Char('j') && key.modifiers.contains(KeyModifiers::CONTROL) {
             if self.multiline {
@@ -149,6 +177,91 @@ impl TextField {
         self.editor.insert_str(text)
     }
 
+    /// Moves the text cursor one row up or down, `to`, as the field was
+    /// last drawn, or says that the field is left from its first or last
+    /// row. Before the first draw the rows are the text's lines.
+    ///
+    /// The row comes from the layout with the cursor where it is. A
+    /// position whose cursor would show on another row, such as the end of
+    /// a row that fills the width, which would start a row of its own,
+    /// gives way to the closest one before it that stays on the row.
+    fn vertical(&mut self, to: Leave, wanted: Option<usize>) -> FieldKey {
+        let unshaped = FieldShape {
+            head: Span::default(),
+            width: usize::MAX,
+        };
+        let shape = self.shape.as_ref().unwrap_or(&unshaped);
+        let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
+        let cursor = self.cursor();
+        let rows = layout(&shape.head, &lines, Some(cursor), false, shape.width);
+        let here = rows
+            .iter()
+            .position(|row| row.holds(cursor))
+            .expect("the text cursor shows on a row");
+        let column = wanted.unwrap_or_else(|| rows[here].column_of(cursor.1));
+        self.wanted = Some(column);
+
+        // The end of a line whose last row fills the width shows on a row
+        // of its own, which is on screen only while the cursor is there.
+        // `↓` from the row above it goes there first, so `↑` and `↓` from
+        // that end come back to it; from further below, `↑` passes it.
+        let row = &rows[here];
+        if to == Leave::Down && row.last && cursor.1 != row.chars.end {
+            let end = (row.line, row.chars.end);
+            let own_row = layout(&shape.head, &lines, Some(end), false, shape.width)
+                .iter()
+                .find(|row| row.holds(end))
+                .is_some_and(|row| !row.shows_text());
+            if own_row {
+                self.jump(end);
+                return FieldKey::Unchanged;
+            }
+        }
+
+        let target = match to {
+            Leave::Up => rows[..here].iter().rev().find(|row| row.reachable()),
+            _ => rows[here + 1..].iter().find(|row| row.reachable()),
+        };
+        let Some(target) = target else {
+            return FieldKey::Leave(to);
+        };
+        let shows_on_target = |position: usize| {
+            layout(
+                &shape.head,
+                &lines,
+                Some((target.line, position)),
+                false,
+                shape.width,
+            )
+            .iter()
+            .find(|row| row.holds((target.line, position)))
+            .is_some_and(|row| row.line == target.line && row.chars.start == target.chars.start)
+        };
+        let aimed = target.position_at(column);
+        let position = if shows_on_target(aimed) {
+            aimed
+        } else {
+            target
+                .positions()
+                .filter(|position| *position < aimed)
+                .rev()
+                .find(|position| shows_on_target(*position))
+                .unwrap_or(aimed)
+        };
+        let line = target.line;
+        self.jump((line, position));
+        FieldKey::Unchanged
+    }
+
+    /// Puts the text cursor at `cursor`, a line and a character in it.
+    // TODO: the editor takes positions as `u16`, so a position past
+    // 65535 lines or characters lands at that limit.
+    fn jump(&mut self, (line, column): (usize, usize)) {
+        let clamp = |value: usize| u16::try_from(value).unwrap_or(u16::MAX);
+        self.editor
+            .move_cursor(CursorMove::Jump(clamp(line), clamp(column)));
+    }
+
     fn at_end(&self) -> bool {
         let (row, column) = self.cursor();
         let lines = self.editor.lines();
@@ -159,21 +272,20 @@ impl TextField {
     // Drawing
     // -----------------------------------------------------------------
 
-    /// The lines of this field while it has the keys: its text after
-    /// `head` with the text cursor, which hides while `cursor` is false,
+    /// The lines of this field while it has the keys, drawn as `shape`
+    /// says: its text after the head with the text cursor, which hides while `cursor` is false,
     /// and the counter against `limits` on a line of its own after the
     /// text. Without the text cursor an empty text shows nothing, not the
     /// `—` of a field without the keys, as the field still has them.
     pub fn lines(
         &self,
-        head: Span<'static>,
-        width: usize,
+        shape: &FieldShape,
         cursor: bool,
         limits: Option<&Length>,
     ) -> Vec<Line<'static>> {
         let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
         let cursor = cursor.then(|| self.cursor());
-        let mut lines = drawn(&layout(&head, &lines, cursor, false, width));
+        let mut lines = drawn(&layout(&shape.head, &lines, cursor, false, shape.width));
         if let Some(limits) = limits {
             let (text, level) = counter(self.length(), limits);
             lines.push(Line::from(Span::from(text).fg(level.colour())).right_aligned());
@@ -211,11 +323,115 @@ pub fn counted_lines(
 // Layout
 // ---------------------------------------------------------------------
 
+/// What a glyph of a field's layout shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// The head, the indent of a further line, or the `—` of an empty
+    /// field: no text.
+    Lead,
+    /// The grapheme at character `start` of its line, `chars` characters
+    /// long.
+    Text { start: usize, chars: usize },
+    /// The text cursor's blank after the end of its line.
+    End,
+}
+
 /// One row of a field as the person sees it.
 #[derive(Debug)]
 struct VisualRow<'a> {
+    /// The line of the text the row shows a part of.
+    line: usize,
     indent: usize,
     glyphs: Vec<Glyph<'a>>,
+    /// What each of `glyphs` shows.
+    sources: Vec<Source>,
+    /// The characters of `line` on the row.
+    chars: Range<usize>,
+    /// Whether the row ends its line, so the end of the line is on it.
+    last: bool,
+}
+
+impl VisualRow<'_> {
+    /// Whether the text cursor at `cursor` shows on this row.
+    fn holds(&self, (line, column): (usize, usize)) -> bool {
+        self.line == line
+            && self.sources.iter().any(|source| match *source {
+                Source::Text { start, chars } => (start..start + chars).contains(&column),
+                Source::End => true,
+                Source::Lead => false,
+            })
+    }
+
+    /// Whether the text cursor can be put on this row: it shows text, or
+    /// the end of its line, as on an empty line. A row with only the head,
+    /// where a long head wraps, cannot hold it.
+    fn reachable(&self) -> bool {
+        self.last || self.shows_text()
+    }
+
+    /// Whether the row shows text. A row with only the cursor's blank
+    /// after its line shows none.
+    fn shows_text(&self) -> bool {
+        self.sources
+            .iter()
+            .any(|source| matches!(source, Source::Text { .. }))
+    }
+
+    /// The display column at which the character `column` of the row's
+    /// line shows.
+    fn column_of(&self, column: usize) -> usize {
+        let before = self
+            .sources
+            .iter()
+            .take_while(|source| match **source {
+                Source::Text { start, chars } => start + chars <= column,
+                Source::Lead => true,
+                Source::End => false,
+            })
+            .count();
+        self.indent
+            + self.glyphs[..before]
+                .iter()
+                .map(|glyph| glyph.width)
+                .sum::<usize>()
+    }
+
+    /// The positions the text cursor can take on the row, in order: each
+    /// grapheme's start, and the end of the line on its last row.
+    fn positions(&self) -> impl DoubleEndedIterator<Item = usize> {
+        let starts: Vec<usize> = self
+            .sources
+            .iter()
+            .filter_map(|source| match source {
+                Source::Text { start, .. } => Some(*start),
+                _ => None,
+            })
+            .collect();
+        starts
+            .into_iter()
+            .chain(self.last.then_some(self.chars.end))
+    }
+
+    /// The position on the row closest to display column `column`: the
+    /// grapheme that covers it, the end of the line past the last one, or
+    /// the row's first or last grapheme where the column lies before or
+    /// past the text.
+    fn position_at(&self, column: usize) -> usize {
+        let mut at = self.indent;
+        let mut position = None;
+        for (glyph, source) in self.glyphs.iter().zip(&self.sources) {
+            if let Source::Text { start, .. } = *source
+                && (position.is_none() || at <= column)
+            {
+                position = Some(start);
+            }
+            at += glyph.width;
+        }
+        if self.last && column >= at {
+            return self.chars.end;
+        }
+        position.unwrap_or(self.chars.end)
+    }
 }
 
 /// What a field shows, laid out in rows of `width` columns: `lines` of its
@@ -253,13 +469,21 @@ fn layout<'a>(
         let cursor = cursor
             .filter(|(row, _)| *row == index)
             .map(|(_, column)| column);
-        rows.extend(line_rows(lead, line, cursor, placeholder, width, indent));
+        rows.extend(line_rows(
+            index,
+            lead,
+            line,
+            cursor,
+            placeholder,
+            width,
+            indent,
+        ));
     }
     rows
 }
 
-/// The rows of one line of a field's text after `lead`, the head or the
-/// indent, the further rows behind `indent` blanks.
+/// The rows of line `index` of a field's text after `lead`, the head or
+/// the indent, the further rows behind `indent` blanks.
 ///
 /// The text cursor's column is a character index, as ratatui-textarea
 /// counts it, and can lie inside a grapheme, such as on the skin tone of
@@ -267,6 +491,7 @@ fn layout<'a>(
 /// cell holds a part of one. At the end of the line the cursor is an
 /// inverted blank.
 fn line_rows<'a>(
+    index: usize,
     lead: Vec<Glyph<'a>>,
     line: &'a str,
     cursor: Option<usize>,
@@ -274,15 +499,17 @@ fn line_rows<'a>(
     width: usize,
     indent: usize,
 ) -> Vec<VisualRow<'a>> {
+    let mut sources = vec![Source::Lead; lead.len()];
     let mut glyphs = lead;
     if placeholder {
         glyphs.push(Glyph::new("—", Style::new().dim()));
+        sources.push(Source::Lead);
     }
     let mut start = 0;
     let mut covered = false;
     for grapheme in line.graphemes(true) {
-        let end = start + grapheme.chars().count();
-        let under = !covered && cursor.is_some_and(|column| column < end);
+        let chars = grapheme.chars().count();
+        let under = !covered && cursor.is_some_and(|column| column < start + chars);
         covered |= under;
         let style = if under {
             Style::new().reversed()
@@ -290,16 +517,37 @@ fn line_rows<'a>(
             Style::new()
         };
         glyphs.push(Glyph::new(grapheme, style));
-        start = end;
+        sources.push(Source::Text { start, chars });
+        start += chars;
     }
     if cursor.is_some() && !covered {
         glyphs.push(Glyph::new(" ", Style::new().reversed()));
+        sources.push(Source::End);
     }
-    wrap_rows(&glyphs, width, 0, indent)
+
+    let breaks = wrap_rows(&glyphs, width, 0, indent);
+    let count = breaks.len();
+    // Each row's characters run from where the row before ended to the
+    // end of its last grapheme.
+    let mut position = 0;
+    breaks
         .into_iter()
-        .map(|(indent, row)| VisualRow {
-            indent,
-            glyphs: glyphs[row].to_vec(),
+        .enumerate()
+        .map(|(number, (indent, row))| {
+            let from = position;
+            for source in &sources[row.clone()] {
+                if let Source::Text { start, chars } = *source {
+                    position = start + chars;
+                }
+            }
+            VisualRow {
+                line: index,
+                indent,
+                glyphs: glyphs[row.clone()].to_vec(),
+                sources: sources[row].to_vec(),
+                chars: from..position,
+                last: number + 1 == count,
+            }
         })
         .collect()
 }
@@ -419,25 +667,202 @@ mod tests {
         assert_eq!(field.text(), "ab", "enter adds no line");
     }
 
-    #[test]
-    fn up_and_down_leave_from_any_line() {
-        let mut field = TextField::new("one\ntwo\nthree", true);
-        field.input(code(KeyCode::Up));
+    /// `text` in a field drawn after the head `> ` in `width` columns, the
+    /// text cursor at `cursor`.
+    fn shaped(text: &str, width: usize, cursor: (usize, usize)) -> TextField {
+        let mut field = TextField::new(text, true);
+        field.set_shape(FieldShape {
+            head: Span::from("> "),
+            width,
+        });
+        field.jump(cursor);
+        field
+    }
 
-        assert_eq!(field.key(code(KeyCode::Up)), FieldKey::Leave(Leave::Up));
+    /// Presses `key` and returns where the text cursor went, or how the
+    /// field was left.
+    fn step(field: &mut TextField, key: KeyCode) -> Result<(usize, usize), FieldKey> {
+        match field.key(code(key)) {
+            FieldKey::Unchanged => Ok(field.cursor()),
+            other => Err(other),
+        }
+    }
+
+    /// Eight words of 5 letters, three to a row after `> ` in 22 columns:
+    ///
+    /// ```text
+    /// > aaaaa bbbbb ccccc
+    ///   ddddd eeeee fffff
+    ///   ggggg hhhhh
+    /// ```
+    const THREE_ROWS: &str = "aaaaa bbbbb ccccc ddddd eeeee fffff ggggg hhhhh";
+
+    #[test]
+    fn up_and_down_move_through_the_rows_the_field_shows() {
+        let mut field = shaped(THREE_ROWS, 22, (0, 47));
+
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((0, 29)), "under the end");
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((0, 11)));
         assert_eq!(
-            field.key(KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT)),
-            FieldKey::Leave(Leave::Down)
+            step(&mut field, KeyCode::Up),
+            Err(FieldKey::Leave(Leave::Up)),
+            "from the first row"
         );
-        assert_eq!(field.cursor().0, 1, "the text cursor stays");
+        assert_eq!(field.cursor(), (0, 11), "leaving moves nothing");
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((0, 29)));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((0, 47)));
+        assert_eq!(
+            step(&mut field, KeyCode::Down),
+            Err(FieldKey::Leave(Leave::Down)),
+            "from the last row"
+        );
     }
 
     #[test]
-    fn input_moves_the_text_cursor_between_lines() {
-        let mut field = TextField::new("one\ntwo", true);
+    fn up_and_down_keep_the_column_they_started_from() {
+        // The blank after `fffff`, at column 19 of the second row.
+        let mut field = shaped(THREE_ROWS, 22, (0, 35));
 
-        assert!(!field.input(code(KeyCode::Up)), "the text stays");
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((0, 47)), "at the end");
+        assert_eq!(
+            step(&mut field, KeyCode::Up),
+            Ok((0, 35)),
+            "column 19 again"
+        );
+        field.key(code(KeyCode::Left));
+        assert_eq!(
+            step(&mut field, KeyCode::Up),
+            Ok((0, 16)),
+            "another key starts afresh from column 18"
+        );
+    }
 
+    #[test]
+    fn up_and_down_go_by_the_columns_of_wide_characters() {
+        // One word wider than a row: it starts on the row below the head,
+        // ten characters of two columns to a row.
+        let mut field = shaped("日本語の説明です日本語の説明です", 22, (0, 16));
+
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((0, 6)));
+        assert_eq!(
+            step(&mut field, KeyCode::Up),
+            Err(FieldKey::Leave(Leave::Up)),
+            "the head's row holds no text"
+        );
+        field.key(code(KeyCode::Right));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((0, 16)), "the end");
+    }
+
+    #[test]
+    fn up_and_down_cross_line_breaks_and_wrapped_rows_alike() {
+        let mut field = shaped("aaaaa bbbbb ccccc ddddd\nee\n\nfff", 22, (3, 3));
+
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((2, 0)), "an empty line");
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((1, 2)));
+        assert_eq!(
+            step(&mut field, KeyCode::Up),
+            Ok((0, 21)),
+            "the wrapped row"
+        );
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((0, 3)));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((0, 21)));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 2)));
+    }
+
+    #[test]
+    fn a_row_ending_at_the_width_is_reached_in_both_directions() {
+        // `> ` and 20 letters fill the first row exactly. The cursor after
+        // its last letter shows as a blank on a row of its own below.
+        let full = "abcdefghijklmnopqrst\nxy";
+        let table = [
+            ((1, 2), KeyCode::Up, Ok((0, 2))),
+            ((0, 2), KeyCode::Down, Ok((0, 20))),
+            ((0, 19), KeyCode::Down, Ok((0, 20))),
+            ((0, 20), KeyCode::Up, Ok((0, 0))),
+            ((0, 20), KeyCode::Down, Ok((1, 0))),
+            ((0, 19), KeyCode::Up, Err(FieldKey::Leave(Leave::Up))),
+        ];
+        for (from, key, to) in table {
+            let mut field = shaped(full, 22, from);
+            assert_eq!(step(&mut field, key), to, "{key:?} from {from:?}");
+        }
+
+        // Back up from the line below at column 21 stops on the last
+        // letter: the end's own row is entered only from directly above.
+        let mut field = shaped(full, 22, (0, 19));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((0, 20)));
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 2)));
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((0, 19)));
+    }
+
+    #[test]
+    fn a_column_kept_from_a_wider_draw_still_lands_on_the_row() {
+        let mut field = shaped(
+            "abcdefghijklmnopqrstuvwxyz\nabcdefghijklmnopqrst",
+            40,
+            (0, 26),
+        );
+        // Column 28, after the first line, is kept for the next `↓`.
+        step(&mut field, KeyCode::Up).expect_err("leaves from the first row");
+        field.set_shape(shape_of(22));
+
+        // At 22 columns the second line fills its row, and column 28 lies
+        // past it: its end would show on a row of its own, so the cursor
+        // stops on its last letter.
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 19)));
+    }
+
+    #[test]
+    fn up_and_down_from_the_end_of_a_full_row_come_back_to_it() {
+        // The end of a full last row shows on a row of its own, in the
+        // last line and in a line with another after it.
+        for (text, end) in [
+            ("abcdefghijklmnopqrst", (0, 20)),
+            ("abcdefghijklmnopqrst\nxy", (0, 20)),
+        ] {
+            let mut field = shaped(text, 22, end);
+            assert_eq!(step(&mut field, KeyCode::Up), Ok((0, 0)), "{text:?}");
+            assert_eq!(step(&mut field, KeyCode::Down), Ok(end), "{text:?}");
+        }
+
+        let mut field = shaped("abcdefghijklmnopqrst", 22, (0, 20));
+        assert_eq!(
+            step(&mut field, KeyCode::Down),
+            Err(FieldKey::Leave(Leave::Down)),
+            "only from the end's own row"
+        );
+    }
+
+    #[test]
+    fn before_the_first_draw_up_and_down_go_by_the_texts_lines() {
+        let mut field = TextField::new("one\n\nthree", true);
+
+        assert_eq!(step(&mut field, KeyCode::Up), Ok((1, 0)));
+        assert_eq!(
+            step(&mut field, KeyCode::Up),
+            Ok((0, 3)),
+            "column 5 clamped"
+        );
+        assert_eq!(
+            step(&mut field, KeyCode::Up),
+            Err(FieldKey::Leave(Leave::Up))
+        );
+        assert_eq!(step(&mut field, KeyCode::Down), Ok((1, 0)));
+        assert_eq!(
+            step(&mut field, KeyCode::Down),
+            Ok((2, 5)),
+            "back to column 5"
+        );
+    }
+
+    #[test]
+    fn up_and_down_with_a_modifier_move_the_same_way() {
+        let mut field = shaped("one\ntwo", 40, (1, 3));
+
+        assert_eq!(
+            field.key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)),
+            FieldKey::Unchanged
+        );
         assert_eq!(field.cursor(), (0, 3));
     }
 
@@ -478,7 +903,7 @@ mod tests {
     #[test]
     fn the_end_of_a_multi_line_text_is_the_end_of_its_last_line() {
         let mut field = TextField::new("one\ntwo", true);
-        field.input(code(KeyCode::Up));
+        field.jump((0, 3));
 
         assert_eq!(field.key(code(KeyCode::Right)), FieldKey::Unchanged);
         assert_eq!(field.cursor(), (1, 0), "on to the next line");
@@ -522,6 +947,14 @@ mod tests {
     // ---------------------------------------------------------------
     // Drawing
     // ---------------------------------------------------------------
+
+    /// A field drawn after `> ` in `width` columns.
+    fn shape_of(width: usize) -> FieldShape {
+        FieldShape {
+            head: Span::from("> "),
+            width,
+        }
+    }
 
     /// The text of each line, spans joined.
     fn texts(lines: &[Line]) -> Vec<String> {
@@ -602,7 +1035,7 @@ mod tests {
         field.key(code(KeyCode::Left));
         let warn = limits(None, Some(10));
 
-        let lines = field.lines(Span::from("> "), 40, true, Some(&warn));
+        let lines = field.lines(&shape_of(40), true, Some(&warn));
 
         assert_eq!(
             cursor_columns(&lines),
@@ -616,7 +1049,7 @@ mod tests {
     fn the_counter_takes_the_colour_of_its_level() {
         let field = TextField::new(&"x".repeat(12), false);
 
-        let lines = field.lines(Span::from("> "), 40, true, Some(&limits(None, Some(10))));
+        let lines = field.lines(&shape_of(40), true, Some(&limits(None, Some(10))));
 
         assert_eq!(texts(&lines[1..]), ["12/10 !!"]);
         assert_eq!(lines[1].spans[0].style.fg, Some(Color::Red));
@@ -627,7 +1060,7 @@ mod tests {
     fn a_field_with_the_keys_but_without_its_cursor_shows_no_dash() {
         let field = TextField::new("", false);
 
-        let lines = field.lines(Span::from("> "), 40, false, None);
+        let lines = field.lines(&shape_of(40), false, None);
 
         assert_eq!(cursor_columns(&lines), [("> ".to_owned(), None)]);
     }
@@ -642,7 +1075,19 @@ mod tests {
         // its own, which counting leaves out.
         assert_eq!(counted_lines(head(), "abcd", 6, false).len(), 1);
         let field = TextField::new("abcd", false);
-        assert_eq!(field.lines(head(), 6, true, None).len(), 2);
+        assert_eq!(
+            field
+                .lines(
+                    &FieldShape {
+                        head: head(),
+                        width: 6
+                    },
+                    true,
+                    None
+                )
+                .len(),
+            2
+        );
     }
 
     /// `line` with the text cursor at `column`, wrapped to `width` with
@@ -654,6 +1099,7 @@ mod tests {
         rest: usize,
     ) -> Vec<Line<'static>> {
         drawn(&line_rows(
+            0,
             Vec::new(),
             line,
             Some(column),

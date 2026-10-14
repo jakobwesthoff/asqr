@@ -21,4 +21,4 @@ expression: backend
 "                                                                                "
 " ▸ image: x.png · esc, z: full screen                                           "
 "                                                                                "
-" enter  pick   ↑/↓  leave   esc  stop typing                                    "
+" enter  pick   esc  stop typing                                                 "
