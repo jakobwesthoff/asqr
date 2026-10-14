@@ -81,15 +81,15 @@ plan:
   their source. Inline code shows in yellow instead of reversed.
 - A wrapped list item lines up past its bullet, as patine lays it out,
   and so does a line after a single newline inside a list item.
-- Text and HTML glued together without a blank, such as `Vec` and
-  `<String>`, are two elements to patine and can wrap apart at the end
-  of a line.
+- Pieces glued together without a blank, such as `Vec` and `<String>`
+  or `**bold**` and a comma after it, wrap as one word (patine 1.6.1, its
+  ADR 0008).
 - Every frame renders the three fields again. On a 120×40 screen with a
   list, a Rust code block and four described options, a frame took
   87 µs with the subset and about 244 µs through patine in a release
   build, 3.1 ms in a debug build. patine's first rendering takes 34 ms
   once, for syntect's grammars.
-- asqr depends on patine 1.6 and no longer on `pulldown-cmark`.
+- asqr depends on patine 1.6.1 and no longer on `pulldown-cmark`.
 
 ## Amendment (2026-10-14, no render cache)
 

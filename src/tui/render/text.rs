@@ -173,6 +173,16 @@ mod tests {
     }
 
     #[test]
+    fn text_glued_to_html_wraps_as_one_word() {
+        // `Use a Vec` fits 16 columns and `Use a Vec<String>` does not, so
+        // a break between `Vec` and `<String>` would show here.
+        assert_eq!(
+            texts(&field_lines("Use a Vec<String> here", 16)),
+            ["Use a", "Vec<String> here"]
+        );
+    }
+
+    #[test]
     fn an_autolink_stays_a_link() {
         let lines = field_lines("<https://example.com>", 60);
 
