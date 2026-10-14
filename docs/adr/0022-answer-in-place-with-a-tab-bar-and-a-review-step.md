@@ -14,6 +14,8 @@ Amended by [25. Show an image per option](0025-show-an-image-per-option.md)
 
 Amended by [27. Wrap the own answer and the reject reason](0027-wrap-the-own-answer-and-the-reject-reason.md)
 
+Amended by [29. Let the person add a note to the whole session](0029-let-the-person-add-a-note-to-the-whole-session.md)
+
 ## Context
 
 The user looked at the first screens and the key model of ADR 8 and

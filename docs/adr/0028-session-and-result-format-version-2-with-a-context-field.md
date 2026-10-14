@@ -10,6 +10,8 @@ Supersedes [7. Session and result format version 1](0007-session-and-result-form
 
 Supersedes the format part of [25. Show an image per option](0025-show-an-image-per-option.md)
 
+Amended by [29. Let the person add a note to the whole session](0029-let-the-person-add-a-note-to-the-whole-session.md)
+
 ## Context
 
 The user asked on 2026-10-14 for a context pane next to the question:

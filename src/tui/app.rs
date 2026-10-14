@@ -15,7 +15,11 @@ use crate::format::{Answer, SessionResult, same_session_id};
 /// How a finished session ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    Submitted(Vec<Answer>),
+    /// With the person's note to the whole session, if they wrote one.
+    Submitted {
+        answers: Vec<Answer>,
+        note: Option<String>,
+    },
     Rejected(Option<String>),
 }
 
@@ -133,9 +137,9 @@ impl App {
         match state.handle(key) {
             Effect::None => AppEffect::None,
             Effect::DraftChanged => AppEffect::SaveDraft(state.to_draft()),
-            Effect::Submit(answers) => AppEffect::Finish {
+            Effect::Submit { answers, note } => AppEffect::Finish {
                 id: state.id().to_owned(),
-                outcome: Outcome::Submitted(answers),
+                outcome: Outcome::Submitted { answers, note },
             },
             Effect::Reject(reason) => AppEffect::Finish {
                 id: state.id().to_owned(),
@@ -215,8 +219,8 @@ mod tests {
     fn turns_session_effects_into_app_effects() {
         let mut app = app(&["one"]);
 
-        // Picking moves on to the review, which opens on Submit; Reject is
-        // the row below.
+        // Picking moves on to the review, which opens on Submit; the session
+        // note and Reject are the rows below.
         let AppEffect::SaveDraft(draft) = app.handle(key('1')) else {
             panic!("picking saves the draft");
         };
@@ -226,9 +230,28 @@ mod tests {
             panic!("enter on Submit finishes the session");
         };
         assert_eq!(id, "one");
-        assert!(matches!(outcome, Outcome::Submitted(answers) if answers.len() == 1));
+        assert!(
+            matches!(outcome, Outcome::Submitted { answers, note: None } if answers.len() == 1)
+        );
 
         app.handle(key('j'));
+        app.handle(key('k'));
+        assert_eq!(
+            app.handle(code(KeyCode::Enter)),
+            AppEffect::Finish {
+                id: "one".into(),
+                outcome: Outcome::Submitted {
+                    answers: vec![Answer {
+                        selected: vec!["a".into()],
+                        ..Answer::new("q")
+                    }],
+                    note: Some("k".into())
+                }
+            },
+            "the session note took the k"
+        );
+
+        app.handle(code(KeyCode::Down));
         assert_eq!(
             app.handle(code(KeyCode::Enter)),
             AppEffect::Finish {

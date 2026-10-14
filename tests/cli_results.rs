@@ -186,7 +186,7 @@ fn an_archived_session_whose_result_is_gone_ends_the_wait() {
     let sandbox = Sandbox::new();
     ask(&sandbox, "gone");
     answer(&sandbox, "gone", |sha| {
-        SessionResult::submitted("gone", sha, &now_rfc3339(), Vec::new())
+        SessionResult::submitted("gone", sha, &now_rfc3339(), None, Vec::new())
     });
     std::fs::remove_file(sandbox.queue_dir().join("outbox/gone.json")).expect("pruned");
 
@@ -279,7 +279,7 @@ fn status_lists_waiting_and_answered_sessions() {
     )
     .expect("saved");
     answer(&sandbox, "done", |sha| {
-        SessionResult::submitted("done", sha, &now_rfc3339(), Vec::new())
+        SessionResult::submitted("done", sha, &now_rfc3339(), None, Vec::new())
     });
 
     let text = sandbox.asqr_in_queue(&["status"]).output().expect("runs");
@@ -371,7 +371,7 @@ fn result_finished_at(sandbox: &Sandbox, id: &str, submitted_at: Option<&str>) {
     location(sandbox).create_layout().expect("layout");
     let result = SessionResult {
         submitted_at: submitted_at.map(str::to_owned),
-        ..SessionResult::submitted(id, "sha", "", Vec::new())
+        ..SessionResult::submitted(id, "sha", "", None, Vec::new())
     };
     std::fs::write(
         sandbox
@@ -628,7 +628,7 @@ fn result_fails_on_a_result_it_may_not_read() {
     let sandbox = Sandbox::new();
     ask(&sandbox, "locked");
     answer(&sandbox, "locked", |sha| {
-        SessionResult::submitted("locked", sha, &now_rfc3339(), Vec::new())
+        SessionResult::submitted("locked", sha, &now_rfc3339(), None, Vec::new())
     });
     let path = sandbox.queue_dir().join("outbox/locked.json");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000))

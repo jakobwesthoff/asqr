@@ -196,6 +196,7 @@ refuses while an unread result with the same id is in the outbox.
   "status": "submitted",
   "submitted_at": "2026-09-27T17:05:12+02:00",
   "session_sha256": "9f2c...",
+  "note": "go ahead, but keep the old changelog entry",
   "answers": [
     { "question": "go", "selected": ["yes"] },
     { "question": "channels", "selected": ["changelog"], "defaulted": true },
@@ -207,6 +208,10 @@ refuses while an unread result with the same id is in the outbox.
 - `status` is `submitted`, `cancelled` (rejected, with an optional
   `reason`) or `error` (with `error`).
 - A submitted result lists every question once, in session order.
+- `note` at the top is the person's note to the whole session, such as
+  a condition on their approval or a remark that spans several
+  questions. It is absent when they wrote none. Read it before acting
+  on the answers. A rejected result has `reason` and no `note`.
 - `selected` holds option ids, `custom` the typed text, `note` the
   person's note. A skipped question has `skipped: true` and may still
   carry a note: read it, it often says why.

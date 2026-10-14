@@ -223,7 +223,13 @@ mod tests {
     }
 
     fn submitted(id: &str, bytes: &[u8]) -> SessionResult {
-        SessionResult::submitted(id, &session_sha256(bytes), AT, vec![Answer::skipped("q")])
+        SessionResult::submitted(
+            id,
+            &session_sha256(bytes),
+            AT,
+            None,
+            vec![Answer::skipped("q")],
+        )
     }
 
     #[test]

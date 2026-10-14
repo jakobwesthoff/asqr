@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version 1, saying that an image is a context entry of type `image`.
 - `asqr validate` and `asqr ask` warn about a text or diff entry above
   1 MiB. asqr still shows it.
+- A note to the whole session: the review tab has a field for it below
+  Submit, and `enter` in it submits. A submitted result carries it as a
+  top-level `note`, the first new field of result format version 2. A
+  rejected result never has one. The draft keeps the note, and a draft
+  with a note counts as started, so `asqr ask` refuses to replace it.
+- The agent skill tells agents to read the session note.
 - An example session with a diff and text entries in
   `examples/sessions/retry-review.json`.
 

@@ -35,11 +35,11 @@ highlighting" and "Show diff entries in the context pane as a unified
 diff" build on the pane; the text viewer also waits for patine 1.5.0
 with the shared line renderer.
 
-Full Markdown in question texts and the session note on the review tab
-ship in the same release as their own todos; the wrapped own answer has
-landed already (ADR 27). The
-Markdown todo and the text viewer share the adapter from patine's lines
-to ratatui styles; whichever lands first builds it.
+Full Markdown in question texts ships in the same release as its own
+todo; the wrapped own answer (ADR 27) and the session note on the review
+tab (ADR 29) have landed already. The Markdown todo and the text viewer
+share the adapter from patine's lines to ratatui styles; whichever lands
+first builds it.
 
 ## Where asqr stands
 
@@ -138,7 +138,7 @@ wide, so the visible shape is W ÷ 2H.
 - `asqr ask` makes every path absolute, as for images today.
 - `validate` and `ask` warn about an entry above 1 MiB (file or inline);
   asqr still shows it. Files are read when first shown.
-- The result gains a session-level `note` (its own todo, same release).
+- The result gains a session-level `note` (landed, ADR 29).
 
 ### Viewers
 

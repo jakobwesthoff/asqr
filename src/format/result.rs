@@ -33,6 +33,11 @@ pub struct SessionResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_sha256: Option<String>,
 
+    /// The person's note to the whole session, given on the review tab.
+    /// Only a submitted result carries it; a draft keeps it as typed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+
     /// Why the person rejected the session, if they said so.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -111,6 +116,7 @@ impl SessionResult {
             status,
             submitted_at: Some(submitted_at.to_owned()),
             session_sha256: Some(session_sha256.to_owned()),
+            note: None,
             reason: None,
             error: None,
             current: None,
@@ -118,14 +124,17 @@ impl SessionResult {
         }
     }
 
-    /// `answers` holds every question of the session once, in session order.
+    /// `answers` holds every question of the session once, in session order;
+    /// `note` is the person's note to the whole session.
     pub fn submitted(
         id: &str,
         session_sha256: &str,
         submitted_at: &str,
+        note: Option<String>,
         answers: Vec<Answer>,
     ) -> Self {
         SessionResult {
+            note,
             answers,
             ..Self::finished(id, Status::Submitted, session_sha256, submitted_at)
         }
@@ -162,6 +171,7 @@ impl SessionResult {
             status: Status::Draft,
             submitted_at: None,
             session_sha256: None,
+            note: None,
             reason: None,
             error: None,
             current: Some(current.to_owned()),
@@ -195,6 +205,7 @@ mod tests {
             "batch-01",
             "9f2c",
             AT,
+            None,
             vec![
                 Answer {
                     selected: vec!["new1".into()],
@@ -231,6 +242,30 @@ mod tests {
                     { "question": "q3", "skipped": true, "note": "skip, the image is wrong" },
                     { "question": "q4", "custom": "Snappy -- own" }
                 ]
+            })
+        );
+    }
+
+    #[test]
+    fn a_submitted_result_carries_the_session_note_when_there_is_one() {
+        let result = SessionResult::submitted(
+            "batch-01",
+            "9f2c",
+            AT,
+            Some("approved if the tests pass".into()),
+            vec![Answer::skipped("q1")],
+        );
+
+        assert_eq!(
+            serde_json::to_value(&result).expect("result serializes"),
+            json!({
+                "asqr": 2,
+                "id": "batch-01",
+                "status": "submitted",
+                "submitted_at": AT,
+                "session_sha256": "9f2c",
+                "note": "approved if the tests pass",
+                "answers": [{ "question": "q1", "skipped": true }]
             })
         );
     }
@@ -294,6 +329,7 @@ mod tests {
             "batch-01",
             "9f2c",
             AT,
+            Some("note".into()),
             vec![Answer {
                 selected: vec!["a".into(), "b".into()],
                 custom: Some("c".into()),

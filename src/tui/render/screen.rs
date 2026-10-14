@@ -447,7 +447,7 @@ fn question_content(state: &SessionState, question: &Question, width: usize) -> 
                 answer.custom.as_deref().unwrap_or_default(),
                 width,
             ),
-            Row::Question(_) | Row::Submit | Row::Reject => {
+            Row::Question(_) | Row::Submit | Row::Note | Row::Reject => {
                 unreachable!("review rows only appear on the review")
             }
         };
@@ -666,6 +666,13 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                     if current { button.reversed() } else { button },
                 ]
             }
+            Row::Note => one_line_field(
+                state,
+                format!("{pointer}✎ Note to the asker (optional): "),
+                state.session_note(),
+                width,
+                current,
+            ),
             Row::Reject => one_line_field(
                 state,
                 format!("{pointer}✗ Reject, reason (optional): "),
@@ -951,6 +958,13 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<(&'static str, &'stati
             ("enter", "next"),
             ("esc", "stop typing"),
         ],
+        (Focus::Field, Some(Row::Note)) => {
+            vec![
+                ("enter", "submit"),
+                ("↑/↓", "leave"),
+                ("esc", "stop typing"),
+            ]
+        }
         (Focus::Field, Some(Row::Reject)) => {
             vec![("enter", "reject"), ("↑", "back"), ("esc", "stop typing")]
         }
@@ -1367,18 +1381,43 @@ mod tests {
         insta::assert_snapshot!(screen(&app, 60, 15));
     }
 
-    #[test]
-    fn a_long_reject_reason_wraps_under_its_start() {
+    /// The release session on its review, the cursor on `row` below
+    /// Submit: 1 for the session note, 2 for Reject.
+    fn review_row_below_submit(row: usize) -> App {
         let mut app = app(&[("release", RELEASE)]);
         keys(&mut app, "ll");
         special(&mut app, KeyCode::Esc);
-        keys(&mut app, "lj");
+        keys(&mut app, "l");
+        for _ in 0..row {
+            special(&mut app, KeyCode::Down);
+        }
+        app
+    }
+
+    #[test]
+    fn a_long_session_note_wraps_under_its_start() {
+        let mut app = review_row_below_submit(1);
+        keys(
+            &mut app,
+            "fine to ship once the changelog names the new format and the skill is updated",
+        );
+        insta::assert_snapshot!("session_note_typed_60x15", screen(&app, 60, 15));
+
+        special(&mut app, KeyCode::Up);
+        insta::assert_snapshot!("session_note_left_60x24", screen(&app, 60, 24));
+    }
+
+    #[test]
+    fn a_long_reject_reason_wraps_under_its_start() {
+        let mut app = review_row_below_submit(2);
         keys(
             &mut app,
             "the release waits for the security fix, which lands next week at the earliest",
         );
         insta::assert_snapshot!("reject_reason_typed_60x15", screen(&app, 60, 15));
 
+        // Up past the session note, which would take the focus, to Submit.
+        special(&mut app, KeyCode::Up);
         special(&mut app, KeyCode::Up);
         insta::assert_snapshot!("reject_reason_left_60x24", screen(&app, 60, 24));
     }
@@ -1700,10 +1739,15 @@ mod tests {
 
     #[test]
     fn the_reject_field_has_its_own_keys() {
-        let mut app = app(&[("release", RELEASE)]);
-        keys(&mut app, "ll");
-        special(&mut app, KeyCode::Esc);
-        keys(&mut app, "ljout of date");
+        let mut app = review_row_below_submit(2);
+        keys(&mut app, "out of date");
+        insta::assert_snapshot!(screen(&app, 80, 24));
+    }
+
+    #[test]
+    fn the_session_note_field_has_its_own_keys() {
+        let mut app = review_row_below_submit(1);
+        keys(&mut app, "approved");
         insta::assert_snapshot!(screen(&app, 80, 24));
     }
 

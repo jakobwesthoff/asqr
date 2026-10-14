@@ -257,8 +257,8 @@ impl Inbox {
 
         let at = now_rfc3339();
         let result = match outcome {
-            Outcome::Submitted(answers) => {
-                SessionResult::submitted(&known.id, &known.sha256, &at, answers)
+            Outcome::Submitted { answers, note } => {
+                SessionResult::submitted(&known.id, &known.sha256, &at, note, answers)
             }
             Outcome::Rejected(reason) => {
                 SessionResult::cancelled(&known.id, &known.sha256, &at, reason)
@@ -557,6 +557,7 @@ mod tests {
             "batch",
             &session_sha256(SESSION.as_bytes()),
             "2026-09-27T17:05:12+02:00",
+            None,
             vec![Answer::skipped("q")],
         );
         fs::write(
@@ -618,12 +619,14 @@ mod tests {
     }
 
     /// Picks the second option, which moves on to the review and its
-    /// Submit row, then presses enter on Submit or on Reject below it.
+    /// Submit row, then presses enter on Submit or on Reject, which lies
+    /// below the session note.
     fn answer_and(app: &mut App, inbox: &mut Inbox, reject: bool) -> Applied {
         let effect = app.handle(key('2'));
         inbox.apply(app, effect);
         if reject {
             app.handle(key('j'));
+            app.handle(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         }
         let effect = app.handle(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         inbox.apply(app, effect)
@@ -650,6 +653,38 @@ mod tests {
         assert_eq!(names(&location.drafts()), Vec::<String>::new());
         assert_eq!(ids(&app), ["next"], "the next session takes over");
         assert_eq!(inbox.sync(&mut app).expect("synced"), Synced::default());
+    }
+
+    #[test]
+    fn a_submit_with_a_session_note_writes_it_into_the_result() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        app.handle(key('j'));
+        for c in "ship it".chars() {
+            let effect = app.handle(key(c));
+            inbox.apply(&mut app, effect);
+        }
+        assert_eq!(
+            load_draft(&location, "batch")
+                .expect("readable")
+                .and_then(|draft| draft.note)
+                .as_deref(),
+            Some("ship it"),
+            "the draft keeps the note while it is typed"
+        );
+        let effect = app.handle(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        inbox.apply(&mut app, effect);
+
+        let result = result(&location, "batch");
+        assert_eq!(
+            (result.status, result.note.as_deref()),
+            (Status::Submitted, Some("ship it"))
+        );
     }
 
     #[test]

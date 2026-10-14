@@ -40,17 +40,18 @@ pub fn delete_draft(location: &QueueLocation, id: &str) -> io::Result<()> {
     }
 }
 
-/// Whether the person entered anything: a selection, typed text or a note.
-/// A selection counts even where it does not answer the question yet (a
-/// `multi` below `min`), since it is still work that a replacement would
-/// throw away.
+/// Whether the person entered anything: a selection, typed text, or a note
+/// to a question or to the whole session. A selection counts even where it
+/// does not answer the question yet (a `multi` below `min`), since it is
+/// still work that a replacement would throw away. The reject reason does
+/// not count (spec section 3.5).
 pub fn draft_has_answer(draft: &SessionResult) -> bool {
     let filled =
         |text: &Option<String>| text.as_deref().is_some_and(|text| !text.trim().is_empty());
-    draft
-        .answers
-        .iter()
-        .any(|answer| !answer.selected.is_empty() || filled(&answer.custom) || filled(&answer.note))
+    filled(&draft.note)
+        || draft.answers.iter().any(|answer| {
+            !answer.selected.is_empty() || filled(&answer.custom) || filled(&answer.note)
+        })
 }
 
 /// Whether the draft of `id` holds an answer. A draft that cannot be read
@@ -148,6 +149,26 @@ mod tests {
         }
         assert!(!draft_has_answer(&draft("d", vec![blank])));
         assert!(!draft_has_answer(&draft("d", Vec::new())));
+    }
+
+    #[test]
+    fn a_session_note_counts_and_a_reject_reason_does_not() {
+        let noted = SessionResult {
+            note: Some("approved if green".into()),
+            ..draft("d", Vec::new())
+        };
+        let blank = SessionResult {
+            note: Some("  ".into()),
+            ..draft("d", Vec::new())
+        };
+        let rejecting = SessionResult {
+            reason: Some("out of date".into()),
+            ..draft("d", Vec::new())
+        };
+
+        assert!(draft_has_answer(&noted));
+        assert!(!draft_has_answer(&blank));
+        assert!(!draft_has_answer(&rejecting));
     }
 
     #[test]

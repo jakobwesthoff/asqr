@@ -313,7 +313,7 @@ fn refuses_an_unread_result_unless_forced() {
         .assert()
         .success();
     answer(&sandbox, "batch-01", |sha| {
-        SessionResult::submitted("batch-01", sha, &now_rfc3339(), Vec::new())
+        SessionResult::submitted("batch-01", sha, &now_rfc3339(), None, Vec::new())
     });
 
     let refused = sandbox
@@ -370,7 +370,13 @@ fn ask_and_answer(result: impl Fn(&str) -> SessionResult) -> (Option<i32>, Strin
 #[test]
 fn waits_for_the_result_and_prints_only_the_result() {
     let (code, out, err) = ask_and_answer(|sha| {
-        SessionResult::submitted("batch-01", sha, &now_rfc3339(), vec![Answer::skipped("q")])
+        SessionResult::submitted(
+            "batch-01",
+            sha,
+            &now_rfc3339(),
+            None,
+            vec![Answer::skipped("q")],
+        )
     });
 
     assert_eq!(code, Some(0));

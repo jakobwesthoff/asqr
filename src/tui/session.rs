@@ -7,11 +7,11 @@
 //!
 //! A session is a row of tabs: one per question and the review last. Each
 //! tab is a list of rows: the options and the own answer, a text answer,
-//! or on the review the questions, Submit and Reject. Rows that take text
-//! are live fields, typed into in place as soon as the cursor lands on
-//! them. [`SessionState::handle`] returns an [`Effect`] for everything the
-//! state cannot do itself: saving the draft, finishing the session,
-//! quitting, opening an image.
+//! or on the review the questions, Submit, the session note and Reject.
+//! Rows that take text are live fields, typed into in place as soon as the
+//! cursor lands on them. [`SessionState::handle`] returns an [`Effect`] for
+//! everything the state cannot do itself: saving the draft, finishing the
+//! session, quitting, opening an image.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui_textarea::{CursorMove, TextArea};
@@ -34,8 +34,12 @@ pub enum Effect {
     None,
     /// The answers or the current question changed; save the draft.
     DraftChanged,
-    /// The person submitted; these are the result's answers.
-    Submit(Vec<Answer>),
+    /// The person submitted: the result's answers, and the note to the
+    /// whole session if they wrote one.
+    Submit {
+        answers: Vec<Answer>,
+        note: Option<String>,
+    },
     /// The person rejected the session, with a reason if they gave one.
     Reject(Option<String>),
     Quit,
@@ -55,6 +59,10 @@ pub enum Row {
     /// A question in the review, by index.
     Question(usize),
     Submit,
+    /// The note to the whole session, below Submit. It is a row of its own
+    /// so that Submit, where the review opens, stays a row on which keys
+    /// are commands (ADR 29).
+    Note,
     /// The reject row with its reason field.
     Reject,
 }
@@ -62,7 +70,7 @@ pub enum Row {
 impl Row {
     /// Rows that are text fields, focused when the cursor lands on them.
     fn is_field(self) -> bool {
-        matches!(self, Row::Own | Row::Answer | Row::Reject)
+        matches!(self, Row::Own | Row::Answer | Row::Note | Row::Reject)
     }
 }
 
@@ -126,6 +134,7 @@ pub struct SessionState {
     focus: Focus,
     /// The editor of the focused field or note.
     editor: Option<TextArea<'static>>,
+    session_note: String,
     reject_reason: String,
     help: bool,
     message: Option<String>,
@@ -176,6 +185,9 @@ impl SessionState {
             row: 0,
             focus: Focus::None,
             editor: None,
+            session_note: draft
+                .and_then(|draft| draft.note.clone())
+                .unwrap_or_default(),
             reject_reason: draft
                 .and_then(|draft| draft.reason.clone())
                 .unwrap_or_default(),
@@ -237,6 +249,11 @@ impl SessionState {
         self.image_full_screen
     }
 
+    /// The note to the whole session, as typed.
+    pub fn session_note(&self) -> &str {
+        &self.session_note
+    }
+
     pub fn reject_reason(&self) -> &str {
         &self.reject_reason
     }
@@ -285,7 +302,9 @@ impl SessionState {
     pub fn rows(&self) -> Vec<Row> {
         let Some(question) = self.question() else {
             let questions = (0..self.session.questions.len()).map(Row::Question);
-            return questions.chain([Row::Submit, Row::Reject]).collect();
+            return questions
+                .chain([Row::Submit, Row::Note, Row::Reject])
+                .collect();
         };
         if question.kind == Kind::Text {
             return vec![Row::Answer];
@@ -334,7 +353,7 @@ impl SessionState {
     }
 
     /// The draft; on the review it points at the last question. It also
-    /// keeps the reject reason typed so far.
+    /// keeps the session note and the reject reason typed so far.
     pub fn to_draft(&self) -> SessionResult {
         let current = self.tab.min(self.session.questions.len().saturating_sub(1));
         let current = self
@@ -344,6 +363,9 @@ impl SessionState {
             .map_or("", |question| question.id.as_str());
         let mut draft = SessionResult::draft(&self.id, current, self.answers());
         // Kept as typed, so a restored field reads exactly as it was left.
+        if !self.session_note.is_empty() {
+            draft.note = Some(self.session_note.clone());
+        }
         if !self.reject_reason.is_empty() {
             draft.reason = Some(self.reject_reason.clone());
         }
@@ -500,7 +522,7 @@ impl SessionState {
             Row::Option(_) | Row::Answer => self.go_to_tab(self.tab + 1),
             Row::Own => self.pick_own(),
             Row::Question(index) => self.go_to_tab(index),
-            Row::Submit => self.submit(),
+            Row::Submit | Row::Note => self.submit(),
             Row::Reject => {
                 let reason = self.reject_reason.trim();
                 Effect::Reject((!reason.is_empty()).then(|| reason.to_owned()))
@@ -544,6 +566,7 @@ impl SessionState {
         match self.current_row() {
             Some(row) if row.is_field() => {
                 let text = match row {
+                    Row::Note => self.session_note.clone(),
                     Row::Reject => self.reject_reason.clone(),
                     _ => self.working[self.tab].custom.clone(),
                 };
@@ -607,9 +630,14 @@ impl SessionState {
     }
 
     /// Every question is optional (user, 2026-09-28), so a submit always
-    /// goes through; unanswered questions come back as skipped.
+    /// goes through; unanswered questions come back as skipped. The session
+    /// note is trimmed like the reject reason, as both are one-line fields.
     fn submit(&mut self) -> Effect {
-        Effect::Submit(result_answers(&self.session, &self.answers()))
+        let note = self.session_note.trim();
+        Effect::Submit {
+            answers: result_answers(&self.session, &self.answers()),
+            note: (!note.is_empty()).then(|| note.to_owned()),
+        }
     }
 
     fn open_note(&mut self) -> Effect {
@@ -655,20 +683,22 @@ impl SessionState {
                 self.go_to_tab(self.tab + 1)
             }
             _ => {
-                // Only a text answer spans several lines; own answers and
-                // the reject reason are one line (ADR 22).
-                let multiline = self.current_row() == Some(Row::Answer);
-                if !self.edit(key, multiline) {
+                // Only a text answer spans several lines; own answers, the
+                // session note and the reject reason are one line (ADR 22).
+                let row = self.current_row();
+                if !self.edit(key, row == Some(Row::Answer)) {
                     return Effect::None;
                 }
                 let text = self.editor_text().unwrap_or_default();
-                if self.current_row() == Some(Row::Reject) {
-                    self.reject_reason = text;
-                    return Effect::DraftChanged;
+                match row {
+                    Some(Row::Note) => self.session_note = text,
+                    Some(Row::Reject) => self.reject_reason = text,
+                    _ => {
+                        let working = &mut self.working[self.tab];
+                        working.custom = text;
+                        working.touched = true;
+                    }
                 }
-                let working = &mut self.working[self.tab];
-                working.custom = text;
-                working.touched = true;
                 Effect::DraftChanged
             }
         }
@@ -874,6 +904,7 @@ mod tests {
                 Row::Question(2),
                 Row::Question(3),
                 Row::Submit,
+                Row::Note,
                 Row::Reject
             ]
         );
@@ -1095,6 +1126,8 @@ mod tests {
 
         go_to_tab(&mut state, 4);
         press(&mut state, "j");
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.current_row(), Some(Row::Reject));
         state.handle(code(KeyCode::Right));
         assert_eq!((state.tab(), state.focus()), (4, Focus::Field));
     }
@@ -1313,11 +1346,12 @@ mod tests {
         let mut state = state();
         go_to_tab(&mut state, 4);
 
-        let Effect::Submit(answers) = state.handle(code(KeyCode::Enter)) else {
+        let Effect::Submit { answers, note } = state.handle(code(KeyCode::Enter)) else {
             panic!("nothing blocks a submit");
         };
 
         assert_eq!(answers[2], Answer::skipped("text"));
+        assert_eq!(note, None);
     }
 
     #[test]
@@ -1328,7 +1362,7 @@ mod tests {
         state.handle(code(KeyCode::Enter));
         go_to_tab(&mut state, 4);
 
-        let Effect::Submit(answers) = state.handle(code(KeyCode::Enter)) else {
+        let Effect::Submit { answers, .. } = state.handle(code(KeyCode::Enter)) else {
             panic!("enter on Submit submits");
         };
 
@@ -1337,11 +1371,121 @@ mod tests {
         assert_eq!(answers[2].custom.as_deref(), Some("ok"));
     }
 
+    /// Moves from Submit, where the review opens, down to `row`.
+    fn review_row(state: &mut SessionState, row: Row) {
+        go_to_tab(state, 4);
+        while state.current_row() != Some(row) {
+            state.handle(code(KeyCode::Down));
+        }
+    }
+
     #[test]
-    fn the_reject_row_takes_an_optional_reason() {
+    fn the_note_row_below_submit_is_a_field_and_enter_submits_with_it() {
         let mut state = state();
         go_to_tab(&mut state, 4);
         press(&mut state, "j");
+        assert_eq!(
+            (state.current_row(), state.focus()),
+            (Some(Row::Note), Focus::Field)
+        );
+
+        assert_eq!(
+            press(&mut state, "  only if the tests pass "),
+            Effect::DraftChanged
+        );
+        assert_eq!(state.session_note(), "  only if the tests pass ");
+        let Effect::Submit { answers, note } = state.handle(code(KeyCode::Enter)) else {
+            panic!("enter on the note submits");
+        };
+
+        assert_eq!(answers.len(), 4);
+        assert_eq!(note.as_deref(), Some("only if the tests pass"), "trimmed");
+    }
+
+    #[test]
+    fn a_blank_session_note_is_no_note() {
+        let mut state = state();
+        review_row(&mut state, Row::Note);
+        press(&mut state, "   ");
+
+        assert!(matches!(
+            state.handle(code(KeyCode::Enter)),
+            Effect::Submit { note: None, .. }
+        ));
+    }
+
+    #[test]
+    fn the_note_row_is_left_like_any_other_field() {
+        let mut state = state();
+        review_row(&mut state, Row::Note);
+        press(&mut state, "ok");
+
+        state.handle(code(KeyCode::Up));
+        assert_eq!(
+            (state.current_row(), state.focus()),
+            (Some(Row::Submit), Focus::None)
+        );
+        state.handle(code(KeyCode::Down));
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.current_row(), Some(Row::Reject));
+
+        state.handle(code(KeyCode::Up));
+        state.handle(code(KeyCode::Esc));
+        assert_eq!(
+            (state.current_row(), state.focus()),
+            (Some(Row::Note), Focus::None)
+        );
+        press(&mut state, "h");
+        assert_eq!(state.tab(), 3, "after esc, keys are commands again");
+        assert_eq!(state.session_note(), "ok");
+    }
+
+    #[test]
+    fn left_at_the_start_of_the_session_note_goes_to_the_last_question() {
+        let mut state = state();
+        review_row(&mut state, Row::Note);
+        press(&mut state, "a");
+
+        state.handle(code(KeyCode::Left));
+        assert_eq!(state.tab(), 4, "left moved the text cursor first");
+        state.handle(code(KeyCode::Left));
+
+        assert_eq!(state.tab(), 3);
+    }
+
+    #[test]
+    fn the_session_note_is_saved_with_the_draft_as_typed() {
+        let mut state = state();
+        review_row(&mut state, Row::Note);
+        press(&mut state, " later ");
+
+        let draft = state.to_draft();
+        assert_eq!(draft.note.as_deref(), Some(" later "));
+
+        let session = serde_json::from_str(SESSION).expect("test session parses");
+        let restored = SessionState::new("batch", session, Some(&draft));
+        assert_eq!(restored.session_note(), " later ");
+    }
+
+    #[test]
+    fn an_empty_session_note_is_no_draft_note() {
+        assert_eq!(state().to_draft().note, None);
+    }
+
+    #[test]
+    fn rejecting_leaves_the_session_note_out() {
+        let mut state = state();
+        review_row(&mut state, Row::Note);
+        press(&mut state, "approved");
+        state.handle(code(KeyCode::Down));
+
+        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::Reject(None));
+    }
+
+    #[test]
+    fn the_reject_row_takes_an_optional_reason() {
+        let mut state = state();
+        review_row(&mut state, Row::Reject);
         assert_eq!(state.focus(), Focus::Field);
 
         press(&mut state, "  out of date ");
@@ -1351,16 +1495,14 @@ mod tests {
         );
 
         let mut empty = self::state();
-        go_to_tab(&mut empty, 4);
-        press(&mut empty, "j");
+        review_row(&mut empty, Row::Reject);
         assert_eq!(empty.handle(code(KeyCode::Enter)), Effect::Reject(None));
     }
 
     #[test]
     fn the_reject_reason_is_saved_with_the_draft() {
         let mut state = state();
-        go_to_tab(&mut state, 4);
-        press(&mut state, "j");
+        review_row(&mut state, Row::Reject);
 
         assert_eq!(press(&mut state, "stale"), Effect::DraftChanged);
         let draft = state.to_draft();
@@ -1647,14 +1789,20 @@ mod tests {
     }
 
     #[test]
-    fn the_review_takes_no_note_and_its_reject_field_no_counter() {
+    fn the_review_has_no_n_key_and_its_fields_no_counter() {
         let mut state = state();
         go_to_tab(&mut state, 4);
 
         assert_eq!(press(&mut state, "n"), Effect::None);
         assert_eq!(state.focus(), Focus::None);
-        press(&mut state, "j");
-        assert_eq!((state.focus(), state.field_length()), (Focus::Field, None));
+        for row in [Row::Note, Row::Reject] {
+            review_row(&mut state, row);
+            assert_eq!(
+                (state.focus(), state.field_length()),
+                (Focus::Field, None),
+                "{row:?}"
+            );
+        }
     }
 
     #[test]

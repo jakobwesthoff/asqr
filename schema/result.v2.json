@@ -94,6 +94,13 @@
     "id": {
       "type": "string"
     },
+    "note": {
+      "description": "The person's note to the whole session, given on the review tab.\nOnly a submitted result carries it; a draft keeps it as typed.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "reason": {
       "description": "Why the person rejected the session, if they said so.",
       "type": [

@@ -12,7 +12,7 @@ history.
 Status: reviewed with the user and in an adversarial review on
 2026-09-27, with the findings F1 to F12 worked in, and revised with the
 decisions made while building it. The decisions behind it are recorded
-as ADRs 2 to 28 in `docs/adr/`.
+as ADRs 2 to 29 in `docs/adr/`.
 
 ## 1. Purpose
 
@@ -435,6 +435,7 @@ The repo ships the JSON Schema (`schema/session.v2.json`,
   "status": "submitted",
   "submitted_at": "2026-09-27T17:05:12+02:00",
   "session_sha256": "9f2c...",
+  "note": "fine as long as the old line stays available",
   "answers": [
     { "question": "301-...", "selected": ["new1"], "note": "maybe shorter setup" },
     { "question": "302-...", "selected": ["old"], "defaulted": true },
@@ -447,16 +448,18 @@ The repo ships the JSON Schema (`schema/session.v2.json`,
 - One result per session, written when the session is finished. There
   are no partial submits.
 - `status`:
-  - `submitted`: the person submitted, possibly with skipped questions
+  - `submitted`: the person submitted, possibly with skipped questions,
+    with an optional `note` to the whole session (trimmed; absent when
+    empty; ADR 29)
   - `cancelled`: the person rejected the session, with an optional
-    `reason` (trimmed; absent when empty)
+    `reason` (trimmed; absent when empty) and never a `note`
   - `error`: the file was invalid, and `error` holds the message
 - `submitted_at` holds the time of finishing, as RFC 3339 with the
   offset. It is present for every status.
 - For `submitted`, every question appears exactly once, in session
   order. For `cancelled` and `error`, `answers` is empty.
-- asqr writes results in format version 2, with the same fields as
-  version 1. `wait` and `result` print a result of version 1 that an
+- asqr writes results in format version 2: the fields of version 1
+  plus `note`. `wait` and `result` print a result of version 1 that an
   earlier asqr left in the outbox as it is, so an asker waiting across
   an upgrade still gets its answers.
 
@@ -503,7 +506,8 @@ Answer shape per kind:
 A draft has the result format with `"status": "draft"`, no
 `submitted_at` and no `session_sha256`, plus `current`, the id of the
 question the cursor is on (the last question while the review tab is
-shown), and `reason`, the reject reason typed so far, when there is one.
+shown), `note`, the session note typed so far, and `reason`, the reject
+reason typed so far, each when there is one and as typed.
 It is written on every change. On restore, answers are matched by
 question id and option id, and anything that no longer fits (a question
 or option that is gone) is dropped. A draft that cannot be read is
@@ -511,8 +515,9 @@ logged and ignored, and the session starts fresh, with only its defaults
 selected.
 
 A draft "has an answer" (section 3.5) when any question has a selection,
-typed text that is not blank or a note that is not blank, or when the
-draft cannot be read. A selection counts even where it does not answer
+typed text that is not blank or a note that is not blank, when the
+session note is not blank, or when the draft cannot be read. The reject
+reason does not count. A selection counts even where it does not answer
 the question yet, since it is still work a replacement would throw
 away.
 
@@ -656,10 +661,10 @@ a frame (user, 2026-09-27):
   questions as on the own-answer row.
 - **The note** is edited in its line under the options after `n`. It is
   multi-line (`ctrl-j` adds a line); `enter` or `esc` leave it.
-- **The reject reason** on the review tab is a one-line field like the
-  own answer and wraps the same way.
-- Every edit is saved to the draft continuously, the reject reason
-  included; there is no discard.
+- **The session note** and **the reject reason** on the review tab are
+  one-line fields like the own answer and wrap the same way.
+- Every edit is saved to the draft continuously, the session note and
+  the reject reason included; there is no discard.
 
 Where the question sets `length`, a counter on a line of its own after
 the focused field's text, at the right edge, shows the length as text,
@@ -684,9 +689,12 @@ screen is cut with `…`. Below the list, the counts of answered, skipped
 and defaulted questions, then:
 
 - **Submit**: `enter` submits. The review tab opens with the cursor
-  here (ADR 23).
+  here (ADR 23), and the keys stay commands on this row.
+- **Note to the asker**: a live field for an optional note to the whole
+  session; `enter` submits with it (ADR 29). There is no `n` on the
+  review tab.
 - **Reject**: a live field for the optional reason; `enter` rejects the
-  session with it.
+  session with it. A rejected session never carries the note.
 
 `enter` on a question in the list moves to that question.
 

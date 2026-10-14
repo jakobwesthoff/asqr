@@ -25,7 +25,7 @@ fn asked_and_answered(sandbox: &Sandbox, id: &str) {
     finish(
         &QueueLocation::at(sandbox.queue_dir()),
         &path,
-        &SessionResult::submitted(id, &sha, &now_rfc3339(), Vec::new()),
+        &SessionResult::submitted(id, &sha, &now_rfc3339(), None, Vec::new()),
     )
     .expect("finished");
 }
