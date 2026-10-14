@@ -27,11 +27,10 @@ and skill changes for its part.
 
 ## Steps
 
-"Move session and result files to format version 2 with a context
-field" and "Cap the question at a reading width and pick the pane
-layout automatically" come first and are independent of each other.
-"Make the context area a pane of its own with focus and scrolling"
-needs both. "Show text entries in the context pane with syntax
+The format step, session and result files in format version 2 with a
+`context` field, has landed (ADR 28). "Cap the question at a reading
+width and pick the pane layout automatically" comes next. "Make the
+context area a pane of its own with focus and scrolling" needs it. "Show text entries in the context pane with syntax
 highlighting" and "Show diff entries in the context pane as a unified
 diff" build on the pane; the text viewer also waits for patine 1.5.0
 with the shared line renderer.
@@ -53,17 +52,19 @@ to ratatui styles; whichever lands first builds it.
   read (user's screenshot, 2026-10-14).
 - `header_lines`: the intro shows dimmed in at most three lines (one
   below 24 rows), cut with `…`; the rest cannot be read.
-- `draw_tab`: once a question or any of its options has an image
-  (`has_image_area`), the question keeps room for it while moving
-  through the options (ADR 0025). From 100 columns of content on
-  (`IMAGE_BESIDE_WIDTH`) the image goes beside the text at 3:2 for the
-  text; below that it goes underneath, at a third of the height and at
-  most 12 rows.
-- Images attach to a question (`image`) and to an option (`image`); the
-  option under the cursor shows its own image, otherwise the question's
-  (ADR 0025). `o` opens the shown image in the system viewer, `z` shows
-  it full screen. The review tab shows no images.
-- Session and result files are format version 1 (ADR 0007, schemas in
+- `draw_tab`: once a question or any of its options has context
+  (`has_context_area`), the question keeps room for it while moving
+  through the options. From 100 columns of content on
+  (`CONTEXT_BESIDE_WIDTH`) the context goes beside the text at 3:2 for
+  the text; below that it goes underneath, at a third of the height and
+  at most 12 rows.
+- Context attaches to a question (`context`) and to an option
+  (`context`), one entry each; the option under the cursor shows its
+  own, otherwise the question's (`shown_context`). Image entries show as
+  images, text and diff entries as a placeholder that names them. `o`
+  opens the shown image in the system viewer, `z` shows it full screen;
+  both ignore text and diff entries. The review tab shows no context.
+- Session and result files are format version 2 (ADR 28, schemas in
   `schema/`). An invalid session file gets a result with status `error`
   and is archived (spec section 3.8).
 - Keys: `ctrl-c` quits and `ctrl-j` adds a line in fields; every other

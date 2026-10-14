@@ -32,6 +32,9 @@ pub enum WarningKind {
     ImageField,
     RelativePath,
     FileNotFound(PathBuf),
+    /// A text or diff entry above [`LARGE_ENTRY_BYTES`]. Carries its size
+    /// in bytes.
+    LargeEntry(u64),
     /// The file exists but asqr has no decoder for it, or its header is
     /// broken. Carries the reason.
     ImageNotDecodable(String),
@@ -49,6 +52,17 @@ impl fmt::Display for Warning {
                 "relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
             ),
             WarningKind::FileNotFound(path) => write!(formatter, "file not found: {}", path.display()),
+            WarningKind::LargeEntry(size) => {
+                // Rounded up, so a size just above the limit does not read
+                // as the limit itself.
+                let tenths = size.saturating_mul(10).div_ceil(LARGE_ENTRY_BYTES);
+                write!(
+                    formatter,
+                    "{}.{} MiB, more than the 1 MiB an entry should stay under; asqr still shows it",
+                    tenths / 10,
+                    tenths % 10
+                )
+            }
             WarningKind::ImageNotDecodable(reason) => write!(formatter, "cannot be shown: {reason}"),
         }
     }
@@ -251,18 +265,54 @@ fn check_context(
                 }
             }
             ContextEntry::Text(text) => {
-                if let Some(file) = &text.path {
-                    check_file(file, &path.field("path"), base_dir, found);
-                }
+                let size = source_size(&text.path, &text.text, &path, base_dir, found);
+                check_size(size, &path, found);
             }
             ContextEntry::Diff(diff) => {
-                for (field, side) in [("old", &diff.old), ("new", &diff.new)] {
-                    if let Some(file) = side.as_ref().and_then(|side| side.path.as_ref()) {
-                        check_file(file, &path.field(field).field("path"), base_dir, found);
-                    }
-                }
+                // The viewer works on both texts, so they count together.
+                let size = [("old", &diff.old), ("new", &diff.new)]
+                    .into_iter()
+                    .filter_map(|(field, side)| Some((field, side.as_ref()?)))
+                    .map(|(field, side)| {
+                        source_size(&side.path, &side.text, &path.field(field), base_dir, found)
+                    })
+                    .sum();
+                check_size(size, &path, found);
             }
         }
+    }
+}
+
+/// The size in bytes of text given as a file or inline. A file is checked
+/// first; one that cannot be found counts as empty, as it has its own
+/// warning.
+fn source_size(
+    file: &Option<String>,
+    text: &Option<String>,
+    path: &FieldPath,
+    base_dir: Option<&Path>,
+    found: &mut Vec<Warning>,
+) -> u64 {
+    let file_size = file
+        .as_ref()
+        .and_then(|file| check_file(file, &path.field("path"), base_dir, found))
+        .and_then(|resolved| std::fs::metadata(resolved).ok())
+        .map_or(0, |metadata| metadata.len());
+    let text_size = text.as_ref().map_or(0, |text| text.len() as u64);
+    file_size + text_size
+}
+
+/// Above this size a text or diff entry gets a warning (user, 2026-10-14).
+/// asqr still shows it. Images are exempt: screenshots above it are common,
+/// and the image viewer handles them.
+const LARGE_ENTRY_BYTES: u64 = 1024 * 1024;
+
+fn check_size(size: u64, path: &FieldPath, found: &mut Vec<Warning>) {
+    if size > LARGE_ENTRY_BYTES {
+        found.push(Warning {
+            path: path.clone(),
+            kind: WarningKind::LargeEntry(size),
+        });
     }
 }
 
@@ -492,6 +542,101 @@ mod tests {
         );
 
         assert_eq!(warn(&json, None), Vec::<String>::new());
+    }
+
+    /// A session with one question carrying `entry` as its context.
+    fn with_context(entry: &serde_json::Value) -> String {
+        format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "text", "context": [{entry}]}}]}}"#
+        )
+    }
+
+    const MIB: usize = 1024 * 1024;
+
+    #[test]
+    fn warns_about_a_text_entry_above_1_mib_inline_or_in_a_file() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let log = directory.path().join("build.log");
+        std::fs::write(&log, "x".repeat(3 * MIB / 2)).expect("log is writable");
+
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "text", "text": "x".repeat(MIB + 1)})),
+                None
+            ),
+            [
+                "questions[0].context[0]: 1.1 MiB, more than the 1 MiB an entry should stay under; asqr still shows it"
+            ]
+        );
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "text", "path": log})),
+                None
+            ),
+            [
+                "questions[0].context[0]: 1.5 MiB, more than the 1 MiB an entry should stay under; asqr still shows it"
+            ]
+        );
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "text", "text": "x".repeat(MIB)})),
+                None
+            ),
+            Vec::<String>::new(),
+            "exactly 1 MiB is fine"
+        );
+    }
+
+    #[test]
+    fn a_diff_counts_both_sides_together() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let old = directory.path().join("old.rs");
+        std::fs::write(&old, "x".repeat(MIB / 2)).expect("file is writable");
+        let half_and_more = "y".repeat(MIB / 2 + 1);
+
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!(
+                    {"type": "diff", "old": {"path": old}, "new": {"text": half_and_more}})),
+                None
+            ),
+            [
+                "questions[0].context[0]: 1.1 MiB, more than the 1 MiB an entry should stay under; asqr still shows it"
+            ]
+        );
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "diff", "new": {"text": half_and_more}})),
+                None
+            ),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_large_image_gets_no_size_warning() {
+        // Screenshots above 1 MiB are common, and the image viewer handles
+        // them (decided with the user, 2026-10-14).
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let large = directory.path().join("large.png");
+        // Noise does not compress, so the file stays near its 3 MiB of
+        // pixels.
+        let mut state: u32 = 0x9e37_79b9;
+        let mut noise = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state.to_le_bytes()[0]
+        };
+        image::RgbImage::from_fn(1024, 1024, |_, _| image::Rgb([noise(), noise(), noise()]))
+            .save(&large)
+            .expect("png is writable");
+        assert!(std::fs::metadata(&large).expect("written").len() > MIB as u64);
+
+        assert_eq!(
+            warn(&text_question_with_image(&large), None),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

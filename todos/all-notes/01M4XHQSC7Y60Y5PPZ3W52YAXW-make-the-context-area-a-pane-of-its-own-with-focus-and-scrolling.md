@@ -11,9 +11,10 @@ tags: [ux, milestone/v0-11]
 
 Step 3 of the context pane plan (design settled with the user on
 2026-10-14). The context area from step 2 becomes a pane that shows one
-`context` entry (step 1) with a header, scrolls on its own, and takes
-the focus. Images are its first content; the text and diff viewers of
-steps 4 and 5 plug into it.
+`context` entry (format version 2, ADR 28) with a header, scrolls on
+its own, and takes the focus. Images are its first content; the text
+and diff viewers of steps 4 and 5 plug into it, replacing the
+placeholder that text and diff entries show until then.
 
 ## Proposal
 
@@ -39,5 +40,4 @@ The plan's Design section, *Keys*, has the full key set. In short:
 ## Relations
 
 - Part of: [Split the TUI into a question pane and a context pane](01M4XEGTAZ69KV9Y0ZTNYQJJ4X-split-the-tui-into-a-question-pane-and-a-context-pane.md)
-- Depends on: [Move session and result files to format version 2 with a context field](01M4XHQSAHREQAY2ZT1HZM0Q91-move-session-and-result-files-to-format-version-2-with-a-context-field.md)
 - Depends on: [Cap the question at a reading width and pick the pane layout automatically](01M4XHQSBDWD4J2EWY7FB7PKRG-cap-the-question-at-a-reading-width-and-pick-the-pane-layout.md)

@@ -21,7 +21,7 @@ questions.
   has a one-line reason field, which only a rejected session returns.
 - A question's note is edited after `n`, is multi-line (`ctrl-j`), and
   lands in the answer's `note` field of the result.
-- The result (format version 1, `schema/result.v1.json`) has no
+- The result (format version 2, `schema/result.v2.json`, ADR 28) has no
   session-level note; a cancelled result has `reason`.
 
 ## Proposal
@@ -35,10 +35,10 @@ questions.
 - The result carries it as a top-level `note` on a submitted session
   only. A rejected result carries `reason` as today and no `note`
   (user, 2026-10-14).
-- The field belongs to result format version 2, which the context pane
-  plan introduces in 0.11.0 together with session format version 2
-  (user, 2026-10-14). It ships in the same release, and the format step
-  of that plan names it as its first new result field.
+- The field belongs to result format version 2 (user, 2026-10-14),
+  which landed in 0.11.0 together with session format version 2
+  (ADR 28) with the fields of version 1 only. It ships in the same
+  release; ADR 28 names it as the first new result field.
 - The draft keeps it like every other edit.
 - Spec, schema, ADR and the agent skill (how to read the result) are
   updated with it.

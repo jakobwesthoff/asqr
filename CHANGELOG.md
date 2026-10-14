@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asqr validate` and `asqr ask` warn about a relative or missing file
   in any context entry, and about an `image` field left over from format
   version 1, saying that an image is a context entry of type `image`.
+- `asqr validate` and `asqr ask` warn about a text or diff entry above
+  1 MiB. asqr still shows it.
 - An example session with a diff and text entries in
   `examples/sessions/retry-review.json`.
 

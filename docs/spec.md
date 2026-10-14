@@ -374,6 +374,10 @@ Paths in context entries, for every type:
   exist, and about image files the terminal UI cannot decode (section
   7.7). That check reads only the image file's header. For an
   unsupported format the warning lists the formats that work.
+- `asqr validate` and `asqr ask` warn about a `text` or `diff` entry
+  above 1 MiB, from its file or inline; for a diff, both sides count
+  together. asqr still shows it. Image entries get no such warning:
+  screenshots above 1 MiB are common.
 - asqr reads a file when it first shows it, not when the session
   arrives.
 

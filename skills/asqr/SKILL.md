@@ -109,6 +109,9 @@ Once asked, asqr fits best when:
     two versions, never a unified diff of your own.
   - This version of asqr shows text and diff entries as a placeholder
     that names them; their viewers come in a later version.
+  - Keep a text or diff entry under 1 MiB (both sides of a diff
+    together); `validate` and `ask` warn above that. Show an excerpt
+    instead of a whole large file.
   - Paths are absolute. `asqr ask` turns relative paths into absolute
     ones, resolved against the session file. asqr reads a file when it
     shows it, so leave it in place until the person has answered.

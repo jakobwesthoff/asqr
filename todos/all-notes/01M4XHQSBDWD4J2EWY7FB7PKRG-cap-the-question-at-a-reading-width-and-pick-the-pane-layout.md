@@ -32,9 +32,10 @@ The plan's Design section, *Layout*, has the full rules. In short:
 - The header's title and intro wrap at the reading width; the tab bar
   keeps the full width. The intro still shows at most three lines, the
   cut reads `… i: more`, and `i` shows the whole intro in an overlay.
-- Images (question and option images as today, or `context` image
-  entries once step 1 landed) are drawn into the context area. This
-  replaces `IMAGE_BESIDE_WIDTH` and the 3:2 and one-third rules in
+- The context of a question or option (`context`, format version 2,
+  ADR 28) is drawn into the context area: image entries as images, text
+  and diff entries as a placeholder until their viewers land. This
+  replaces `CONTEXT_BESIDE_WIDTH` and the 3:2 and one-third rules in
   `draw_tab` (`src/tui/render/screen.rs`).
 - Spec section 7.1, the help overlay, an ADR, and the skill's
   description of the intro (`i`).

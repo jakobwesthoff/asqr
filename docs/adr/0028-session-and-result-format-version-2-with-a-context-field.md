@@ -56,6 +56,11 @@ Taken with the user:
 - **Paths:** `asqr ask` makes every path absolute, as it did for images.
   `validate` and `ask` warn about relative paths, missing files and
   images asqr cannot show.
+- **Size:** `validate` and `ask` warn about a text or diff entry above
+  1 MiB, from a file or inline; asqr still shows it. Files are read
+  when first shown. Image entries get no size warning, as screenshots
+  above 1 MiB are common (user, 2026-10-14); the two sides of a diff
+  count together.
 - **Results:** the result keeps the fields of version 1 under
   `"asqr": 2`. A session note on the review tab, its own todo in the
   same release, is the first new field.
