@@ -812,7 +812,9 @@ Context appears only when a question or one of its options has some.
   pane, the header's right end says which lines show, such as
   `4–15 of 120`. A row without context leaves the pane empty, header
   included (ADR 31).
-- Below the header, a viewer shows the entry. An image is scaled to fit.
+- Below the header, a viewer shows the entry. An image is scaled to
+  fill the pane as far as its proportions allow, a small one included,
+  and so is the `z` view.
 - The pane scrolls with its own keys (section 7.2). Every entry keeps
   its scroll position while its session waits: moving to an option with
   another entry shows that entry where the person left it, or at its top
@@ -833,9 +835,11 @@ Images:
   not match a known signature. SVG and AVIF are not decoded. The set follows
   the features of the `image` crate, and a test fails when it changes.
 - The protocol is detected once at start, by querying the terminal.
-- An image is read once and kept until asqr's terminal gains the focus
-  again. asqr asks the terminal for focus reports; on regaining the
-  focus it reads and sends every image again as it is next shown.
+- An image entry is read when it is first shown and kept while its
+  session waits, until asqr's terminal gains the focus again. asqr asks
+  the terminal for focus reports; on regaining the focus it reads and
+  sends every image again as it is next shown. Text and diff entries
+  keep what asqr derived from them (ADR 31).
 - A relative path, a missing file or a file that cannot be read or
   decoded shows a placeholder saying "image not shown" with the path and
   the reason. A path is never resolved against the working directory,

@@ -72,7 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Context shows in a pane whose first line names the entry by its
   title or file name and, when the entry is taller than the pane, says
   which of its lines show. Beside or below the question, an image gets
-  one row less for that line.
+  one row less for that line, and an image smaller than the pane grows
+  to fill it.
 - `z` shows any context entry full screen, not only an image, and the
   one-line hint on small terminals offers it for every entry.
 - `tab` no longer types a tab character into a field. While a context

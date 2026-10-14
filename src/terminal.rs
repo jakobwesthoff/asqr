@@ -13,7 +13,7 @@ use std::sync::mpsc;
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
-use asqr::tui::render::{Images, View, may_query_protocol};
+use asqr::tui::render::{View, may_query_protocol};
 use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
     self, DisableFocusChange, EnableFocusChange, Event as TerminalEvent,
@@ -75,7 +75,6 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         "graphics protocol detected"
     );
     log_window_size();
-    let mut images = Images::new(picker);
 
     // Focus reports tell asqr when it comes back into view, so it can send
     // images again whose transfer tmux dropped while it was hidden (spec
@@ -116,8 +115,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         &mut terminal,
         &mut app,
         &mut inbox,
-        &mut images,
-        &mut View::new(&queue, watch.layout()),
+        &mut View::new(&queue, watch.layout(), picker),
         &events,
         &mut host,
     );

@@ -29,11 +29,10 @@ Taken with the user (plan, *Keys*):
 
 - **Header:** the pane starts with a line that names the entry by its
   `title`, or by its file name.
-- **Viewers:** each kind of entry is shown by a viewer, which lays its
-  content out for the pane's width and height, says whether its lines
-  scroll sideways, and draws itself at a scroll offset. Images are the
-  first viewer; text and diff entries keep their placeholder, as a
-  viewer, until their own viewers land.
+- **Viewers:** each kind of entry is shown by a viewer behind one
+  interface, so new kinds plug into the pane without changing it.
+  Images are the first viewer; text and diff entries keep their
+  placeholder, as a viewer, until their own viewers land.
 - **`z`:** shows any entry full screen, not only an image. `o` still
   opens images only. Both work from the question and from the focused
   pane.
@@ -59,6 +58,53 @@ Settled in the review of this step:
   Without a pane, a field's editor keeps its own meaning for them
   (`ctrl-u` undoes, `ctrl-d` deletes the character under the cursor).
 
+Settled with the user in the review of the viewer interface:
+
+- **Ownership:** a viewer owns its content, which does not change for
+  the viewer's life, and everything derived from it. The pane owns
+  everything around it: the header, the scroll position and the keys.
+  An image viewer owns its decoded image, built from its own copy of
+  the terminal's graphics protocol; no shared image cache remains.
+- **Lifecycle:** a viewer is built cheaply when its entry is first
+  shown, and `load` then prepares everything that does not depend on
+  the body's size, once: reading files, decoding images, highlighting,
+  computing a diff. `lay_out` arranges the content for a body size and
+  returns its size; `draw` draws it at a scroll offset on every frame.
+  The interface is used as a trait object, which cannot hold a
+  constructor, so without `load` each viewer would decide alone whether
+  expensive work happens when it is built or on first use. The pane
+  decides when to load, which leaves room to load ahead of time.
+- **Failures are content:** `load` returns nothing. A missing file or an
+  undecodable image shows in the pane, which could do nothing better
+  with it, and the pane needs no error handling per kind of entry.
+- **Viewers live as long as their entry** in a waiting session, not one
+  frame. Building them on every frame would read, highlight and render
+  again each time. A viewer is rebuilt when a replaced session file
+  puts another entry in its place, and dropped when its session leaves
+  the queue.
+- **Layout only on a new size:** as the content is fixed, the layout
+  depends on the body's size alone. The keeper of the viewers remembers
+  the size each viewer was last laid out for and what it returned, and
+  calls `lay_out` again only for another size, so a viewer computes
+  without checking for changes itself, and `draw` always follows a
+  `lay_out` of its area's size.
+- **Sideways scrolling follows from the size:** content that wraps
+  reports at most the body's width, so lines wider than the body mean
+  cut lines, and the pane offers sideways scrolling only then. A
+  separate flag could contradict the layout.
+- **Drawing:** `draw` gets an area and a buffer, as ratatui's own
+  widgets do. It needs the area for its position, which depends on the
+  arrangement and on `z` while the size stays the same, and nothing on
+  the frame beyond the buffer. A viewer never learns whether it is
+  shown full screen: `z` only gives it a larger area.
+- **Images scale to their area,** keeping their proportions, in the pane
+  as in the `z` view. A small image fills the pane, so the person sees
+  more of it.
+- **Focus regained (ADR 24)** drops only the image viewers, so their
+  images are sent to the terminal again. Text and diff viewers keep what
+  they derived: highlighting a large file again on every change of
+  window would stall.
+
 Agent's choices within that design:
 
 - An entry without a title and without a path, such as inline text, is
@@ -72,12 +118,6 @@ Agent's choices within that design:
   included, inside the same one-column margins as the tab.
 - The hint that stands in for the pane on a small terminal offers `z`
   for every entry.
-- Viewers live as long as their entry is shown in a waiting session,
-  not one draw (settled in the review of this step). The text
-  viewer reads a file, highlights it and renders Markdown; building it
-  on every frame would redo that work each time. A viewer is rebuilt
-  when a replaced session file puts another entry in its place, and
-  dropped when its session leaves the queue.
 - **Scroll position per entry:** every entry keeps its own position
   while its session waits. Moving to another entry shows it where the
   person left it, or at its top the first time; coming back restores
@@ -113,7 +153,9 @@ Agent's choices within that design:
 - The text and diff viewers plug into the pane without changing it, and
   so does phase 2's tab strip above the body.
 - The pane takes one row for its header, so an image beside or below
-  the question gets one row less than before.
+  the question gets one row less than before. An image smaller than the
+  pane grows to fill it, where it kept its natural size before.
+- Every viewer can be tested by drawing into a plain buffer.
 - `z` on a text or diff entry shows its placeholder full screen until
   the viewers land.
 - A field can no longer take a typed tab character.

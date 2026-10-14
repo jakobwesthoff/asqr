@@ -14,13 +14,13 @@ use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui_image::picker::Picker;
 
-use super::Images;
 use super::context::{context_hint, draw_pane};
 use super::markdown;
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
-use super::viewer::{DrawContext, Viewers};
+use super::viewer::Viewers;
 use crate::format::{Kind, Question};
 use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState};
 
@@ -79,13 +79,15 @@ pub struct View<'a> {
 }
 
 impl<'a> View<'a> {
-    pub fn new(queue: &'a str, layout: PaneLayout) -> Self {
+    /// The view of `queue`, with images sent in the graphics protocol
+    /// `picker` speaks.
+    pub fn new(queue: &'a str, layout: PaneLayout, picker: Picker) -> Self {
         View {
             queue,
             layout,
             shown: None,
             intro_page: Extent::default(),
-            viewers: Viewers::default(),
+            viewers: Viewers::new(picker),
             pane_page: None,
         }
     }
@@ -101,9 +103,14 @@ impl<'a> View<'a> {
     pub fn pane_page(&self) -> Option<Page> {
         self.pane_page
     }
+
+    /// Reads and sends every image again as it is next shown (ADR 24).
+    pub fn forget_images(&mut self) {
+        self.viewers.forget_images();
+    }
 }
 
-pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) {
+pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     // Whatever returns early draws no pane.
     view.pane_page = None;
     let area = frame.area();
@@ -167,13 +174,9 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
         .retain_sessions(|id| app.sessions().iter().any(|waiting| waiting.id() == id));
     let main = main.inner(ratatui::layout::Margin::new(1, 0));
     view.pane_page = if state.full_screen() && state.shown_context().is_some() {
-        let mut cx = DrawContext {
-            images,
-            full_screen: true,
-        };
-        draw_pane(frame, state, main, &mut view.viewers, &mut cx)
+        draw_pane(frame, state, main, &mut view.viewers)
     } else {
-        draw_tab(frame, state, main, view, images)
+        draw_tab(frame, state, main, view)
     };
 
     let feedback = app.current_notice().or(state.message()).unwrap_or_default();
@@ -439,13 +442,7 @@ impl Content {
 /// Draws the current tab into `area`: the question, or the review, at no
 /// more than the reading width, and the context pane where
 /// [`panes::choose`] puts it. Says what the pane showed, if one did.
-fn draw_tab(
-    frame: &mut Frame,
-    state: &SessionState,
-    area: Rect,
-    view: &mut View,
-    images: &mut Images,
-) -> Option<Page> {
+fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View) -> Option<Page> {
     let arrangement = state.has_context_area().then(|| {
         let arrangement = panes::choose(area.width, area.height, view.layout, view.shown);
         if arrangement != Arrangement::Hint {
@@ -475,13 +472,7 @@ fn draw_tab(
             frame.render_widget(context_hint(state.shown_context(), area.width), area);
             None
         }
-        Some(area) => {
-            let mut cx = DrawContext {
-                images,
-                full_screen: false,
-            };
-            draw_pane(frame, state, area, &mut view.viewers, &mut cx)
-        }
+        Some(area) => draw_pane(frame, state, area, &mut view.viewers),
         None => None,
     };
 
@@ -1301,16 +1292,20 @@ mod tests {
     }
 
     fn screen_of_queue(app: &App, queue: &str, width: u16, height: u16) -> TestBackend {
-        screen_in(app, &mut View::new(queue, PaneLayout::Auto), width, height)
+        screen_in(
+            app,
+            &mut View::new(queue, PaneLayout::Auto, Picker::halfblocks()),
+            width,
+            height,
+        )
     }
 
     /// The screen drawn with `view`, which keeps what it remembers for the
     /// next draw.
     fn screen_in(app: &App, view: &mut View, width: u16, height: u16) -> TestBackend {
-        let mut images = Images::new(ratatui_image::picker::Picker::halfblocks());
         let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
         terminal
-            .draw(|frame| draw(frame, app, view, &mut images))
+            .draw(|frame| draw(frame, app, view))
             .expect("draws");
         terminal.backend().clone()
     }
@@ -1452,7 +1447,7 @@ mod tests {
     #[test]
     fn i_shows_the_whole_intro_and_scrolls_it_on_a_small_screen() {
         let mut app = longer_intro();
-        let mut view = View::new("default", PaneLayout::Auto);
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
         keys(&mut app, "i");
         insta::assert_snapshot!("intro_overlay_top", drawn(&mut app, &mut view, 60, 15));
 
@@ -1942,6 +1937,19 @@ mod tests {
         assert_eq!(*rows.start(), 5, "under the pane's header: {rows:?}");
     }
 
+    #[test]
+    fn a_small_image_grows_to_fill_the_pane() {
+        // The 160 pixels of the test image take 16 columns at the half
+        // blocks' cell size, far less than the pane has.
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+
+        let (columns, rows) = image_cells(&screen(&app, 140, 20));
+
+        assert_eq!(rows, 5..=17, "every row of the pane's body");
+        assert!(columns.end() - columns.start() > 16, "{columns:?}");
+    }
+
     /// With the Kitty protocol the terminal draws the image into the cells
     /// its placement names. They must be the cells asqr fills with
     /// placeholders: left to the terminal, it derives them from its own cell
@@ -1951,19 +1959,12 @@ mod tests {
     fn a_kitty_image_is_placed_over_exactly_its_placeholder_cells() {
         let file = png();
         let app = with_image(file.path().to_str().expect("UTF-8 path"));
-        let mut picker = ratatui_image::picker::Picker::halfblocks();
+        let mut picker = Picker::halfblocks();
         picker.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
-        let mut images = Images::new(picker);
+        let mut view = View::new("q", PaneLayout::Auto, picker);
         let mut terminal = Terminal::new(TestBackend::new(140, 24)).expect("test terminal");
         terminal
-            .draw(|frame| {
-                draw(
-                    frame,
-                    &app,
-                    &mut View::new("q", PaneLayout::Auto),
-                    &mut images,
-                )
-            })
+            .draw(|frame| draw(frame, &app, &mut view))
             .expect("draws");
 
         let buffer = terminal.backend().buffer();
@@ -2196,7 +2197,7 @@ mod tests {
     #[test]
     fn the_focused_pane_scrolls_and_shows_its_keys() {
         let mut app = long_context();
-        let mut view = View::new("default", PaneLayout::Auto);
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
         let mut drawn = |app: &mut App| {
             let backend = screen_in(app, &mut view, 80, 24);
             app.set_pane_page(view.pane_page());
@@ -2223,7 +2224,7 @@ mod tests {
     #[test]
     fn the_text_cursor_hides_while_the_pane_has_the_focus() {
         let mut app = long_context();
-        let mut view = View::new("default", PaneLayout::Auto);
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
         screen_in(&app, &mut view, 80, 24);
         app.set_pane_page(view.pane_page());
         keys(&mut app, "jmine");
@@ -2407,7 +2408,12 @@ mod tests {
         let app = with_image(file.path().to_str().expect("UTF-8 path"));
 
         // 140×40 is landscape, where auto puts the image beside.
-        let backend = screen_in(&app, &mut View::new("q", PaneLayout::Below), 140, 40);
+        let backend = screen_in(
+            &app,
+            &mut View::new("q", PaneLayout::Below, Picker::halfblocks()),
+            140,
+            40,
+        );
         let (columns, rows) = image_cells(&backend);
         assert_eq!(
             (*columns.start(), *rows.start()),
@@ -2418,7 +2424,12 @@ mod tests {
         // 110×70 is portrait, where auto puts the image below; 108 columns
         // inside the margins give the question its 60 and the image the
         // rest after the separator.
-        let backend = screen_in(&app, &mut View::new("q", PaneLayout::Beside), 110, 70);
+        let backend = screen_in(
+            &app,
+            &mut View::new("q", PaneLayout::Beside, Picker::halfblocks()),
+            110,
+            70,
+        );
         let (columns, rows) = image_cells(&backend);
         assert_eq!((*columns.start(), *rows.start()), (62, 5), "{backend}");
     }
@@ -2435,7 +2446,7 @@ mod tests {
             "shown fresh, it is below"
         );
 
-        let mut view = View::new("q", PaneLayout::Auto);
+        let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks());
         screen_in(&app, &mut view, 230, 60);
         let (columns, rows) = image_cells(&screen_in(&app, &mut view, 192, 106));
         assert_eq!(

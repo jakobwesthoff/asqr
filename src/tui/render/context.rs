@@ -15,7 +15,7 @@ use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 
 use super::parts::cut;
-use super::viewer::{DrawContext, Viewers};
+use super::viewer::Viewers;
 use crate::format::ContextEntry;
 use crate::tui::{Extent, Offset, Page, SessionState};
 
@@ -28,7 +28,6 @@ pub fn draw_pane(
     state: &SessionState,
     area: Rect,
     viewers: &mut Viewers,
-    cx: &mut DrawContext,
 ) -> Option<Page> {
     let (key, entry) = state.shown_entry()?;
     let header = Rect { height: 1, ..area };
@@ -38,23 +37,17 @@ pub fn draw_pane(
         ..area
     };
 
-    let viewer = viewers.viewer(state.id(), key, entry);
-    let size = viewer.lay_out(body.width, body.height);
-    let width = usize::from(body.width);
+    let (viewer, size) = viewers.laid_out(state.id(), key, entry, body.width, body.height);
+    // Content reports lines wider than the body only where it cuts them, so
+    // its size alone says whether the pane scrolls sideways.
     let page = Page {
         rows: Extent {
             shown: usize::from(body.height),
             total: size.lines,
         },
-        // Content that does not scroll sideways never reaches past the
-        // body's width, whatever size it reports.
         columns: Extent {
-            shown: width,
-            total: if viewer.scrolls_sideways() {
-                size.columns
-            } else {
-                width
-            },
+            shown: usize::from(body.width),
+            total: size.columns,
         },
     };
     // A smaller terminal may have left the offset past the end.
@@ -63,7 +56,7 @@ pub fn draw_pane(
         top: offset.top.min(page.rows.last_start()),
         left: offset.left.min(page.columns.last_start()),
     };
-    viewer.draw(frame, body, offset, cx);
+    viewer.draw(body, frame.buffer_mut(), offset);
     let line = header_line(entry, page, offset, header.width);
     // The focused pane's header stands out the way the current tab does,
     // so the person sees where the keys go.

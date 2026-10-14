@@ -16,7 +16,7 @@ use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
 
-use super::render::{Images, View, draw};
+use super::render::{View, draw};
 use super::{App, Applied, Inbox};
 use crate::queue::QueueLocation;
 
@@ -54,7 +54,6 @@ pub fn run<B: Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
     inbox: &mut Inbox,
-    images: &mut Images,
     view: &mut View,
     events: &Receiver<Event>,
     host: &mut impl Host,
@@ -64,7 +63,7 @@ where
 {
     loop {
         terminal
-            .draw(|frame| draw(frame, app, view, images))
+            .draw(|frame| draw(frame, app, view))
             .context("drawing the screen")?;
         // How far the intro overlay and the context pane can scroll depends
         // on the size they were drawn at.
@@ -92,7 +91,7 @@ where
             Event::Resize => {}
             // Coming back into view is when a transfer lost in the
             // background can be repeated.
-            Event::FocusGained => images.forget(),
+            Event::FocusGained => view.forget_images(),
             // The inbox coming back or not is out of asqr's hands; the
             // notice says why nothing changes, and every later change
             // tries again.
@@ -185,17 +184,17 @@ mod tests {
             inbox: &mut Inbox,
             events: Vec<Event>,
         ) -> anyhow::Result<()> {
-            let mut images = Images::new(Picker::halfblocks());
-            self.run_with_images(app, inbox, &mut images, events)
+            let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+            self.run_with_view(app, inbox, &mut view, events)
         }
 
-        /// Like [`Harness::run_started`], keeping the images loaded so far
-        /// from one run to the next.
-        fn run_with_images(
+        /// Like [`Harness::run_started`], keeping the view, and with it the
+        /// images loaded so far, from one run to the next.
+        fn run_with_view(
             &mut self,
             app: &mut App,
             inbox: &mut Inbox,
-            images: &mut Images,
+            view: &mut View,
             events: Vec<Event>,
         ) -> anyhow::Result<()> {
             let (sender, receiver) = mpsc::channel();
@@ -207,8 +206,7 @@ mod tests {
                 &mut self.terminal,
                 app,
                 inbox,
-                images,
-                &mut View::new("test", PaneLayout::Auto),
+                view,
                 &receiver,
                 &mut self.host,
             )
@@ -415,10 +413,10 @@ mod tests {
         let session = SESSION.replace("/nowhere/cat.png", picture.to_str().expect("utf-8 path"));
         fs::write(harness.location.inbox().join("pictured.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut images = Images::new(Picker::halfblocks());
+        let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
 
         harness
-            .run_with_images(&mut app, &mut inbox, &mut images, vec![])
+            .run_with_view(&mut app, &mut inbox, &mut view, vec![])
             .expect("runs");
         assert!(shows_hue(&harness.terminal, red), "{}", harness.screen());
 
@@ -426,7 +424,7 @@ mod tests {
         // stays in use until focus comes back.
         paint([0, 0, 255]);
         harness
-            .run_with_images(&mut app, &mut inbox, &mut images, vec![Event::Resize])
+            .run_with_view(&mut app, &mut inbox, &mut view, vec![Event::Resize])
             .expect("runs");
         assert!(
             shows_hue(&harness.terminal, red),
@@ -434,7 +432,7 @@ mod tests {
         );
 
         harness
-            .run_with_images(&mut app, &mut inbox, &mut images, vec![Event::FocusGained])
+            .run_with_view(&mut app, &mut inbox, &mut view, vec![Event::FocusGained])
             .expect("runs");
         assert!(shows_hue(&harness.terminal, blue), "{}", harness.screen());
     }

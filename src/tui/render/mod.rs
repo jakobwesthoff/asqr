@@ -12,6 +12,6 @@ mod parts;
 mod screen;
 mod viewer;
 
-pub use images::{Images, may_query_protocol};
+pub use images::may_query_protocol;
 pub use panes::PaneLayout;
 pub use screen::{MIN_HEIGHT, MIN_WIDTH, View, draw};

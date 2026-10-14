@@ -2,104 +2,72 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Question images (spec section 7.7). The graphics protocol is detected
-//! once, in the binary, by querying the terminal; this module receives the
-//! resulting [`Picker`], so tests draw with the halfblock protocol and never
-//! talk to a terminal. Images load on first display and are cached by
-//! path. A path that is relative, missing or unreadable shows a placeholder
-//! and never becomes an error.
+//! Images of context entries (spec section 7.7). The graphics protocol is
+//! detected once, in the binary, by querying the terminal; the image
+//! viewers receive the resulting [`Picker`], so tests draw with the
+//! halfblock protocol and never talk to a terminal. A path that is
+//! relative, missing or unreadable shows a placeholder and never becomes an
+//! error.
 
-use std::collections::HashMap;
 use std::path::Path;
 
-use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, StatefulWidget, Widget, Wrap};
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 use ratatui_image::{Resize, StatefulImage};
 
-enum Slot {
+/// One image file, decoded and encoded for the terminal's graphics
+/// protocol, or the reason it cannot be shown.
+pub enum Image {
     Ready(Box<StatefulProtocol>),
     Unavailable(String),
 }
 
-pub struct Images {
-    picker: Picker,
-    cache: HashMap<String, Slot>,
-}
-
-impl Images {
-    pub fn new(picker: Picker) -> Self {
-        Images {
-            picker,
-            cache: HashMap::new(),
+impl Image {
+    /// Reads and decodes the image at `path` for `picker`'s protocol.
+    pub fn load(picker: &Picker, path: &str) -> Image {
+        // A relative path depends on where asqr was started, so it is
+        // never resolved (spec section 7.7).
+        if Path::new(path).is_relative() {
+            return Image::Unavailable("relative path".to_owned());
+        }
+        match image::ImageReader::open(path).and_then(|reader| reader.with_guessed_format()) {
+            Err(error) => Image::Unavailable(error.to_string()),
+            Ok(reader) => match reader.decode() {
+                Ok(decoded) => Image::Ready(Box::new(picker.new_resize_protocol(decoded))),
+                Err(error) => Image::Unavailable(error.to_string()),
+            },
         }
     }
 
-    fn slot(&mut self, path: &str) -> &mut Slot {
-        let picker = &self.picker;
-        self.cache.entry(path.to_owned()).or_insert_with(|| {
-            // A relative path depends on where asqr was started, so it is
-            // never resolved (spec section 7.7).
-            if Path::new(path).is_relative() {
-                return Slot::Unavailable("relative path".to_owned());
-            }
-            match image::ImageReader::open(path).and_then(|reader| reader.with_guessed_format()) {
-                Err(error) => Slot::Unavailable(error.to_string()),
-                Ok(reader) => match reader.decode() {
-                    Ok(decoded) => Slot::Ready(Box::new(picker.new_resize_protocol(decoded))),
-                    Err(error) => Slot::Unavailable(error.to_string()),
-                },
-            }
-        })
-    }
-
-    /// Forgets every loaded image, so each is read and sent to the terminal
-    /// again when it is next drawn.
-    ///
-    /// The Kitty protocol sends an image's data once, on its first draw,
-    /// and afterwards only refers to it. tmux with `allow-passthrough on`
-    /// drops that transfer while the pane is not visible, and the image
-    /// would never appear (spec section 7.7).
-    pub fn forget(&mut self) {
-        self.cache.clear();
-    }
-
-    /// Draws the image at `path` into `area`, never larger than it is, or
-    /// the placeholder.
-    pub fn draw(&mut self, frame: &mut Frame, path: &str, area: Rect) {
-        self.draw_resized(frame, path, area, Resize::Fit(None));
-    }
-
-    /// Draws the image at `path` filling `area` as far as its proportions
-    /// allow, enlarging small images: the `z` view.
-    pub fn draw_full_screen(&mut self, frame: &mut Frame, path: &str, area: Rect) {
-        self.draw_resized(frame, path, area, Resize::Scale(None));
-    }
-
-    fn draw_resized(&mut self, frame: &mut Frame, path: &str, area: Rect, resize: Resize) {
-        match self.slot(path) {
-            Slot::Ready(protocol) => {
-                frame.render_stateful_widget(
-                    StatefulImage::default().resize(resize),
+    /// Draws the image into `area` of `buf`, scaled to fill it as far as
+    /// its proportions allow, or a placeholder that names `path` and the
+    /// reason it is not shown.
+    pub fn draw(&mut self, path: &str, area: Rect, buf: &mut Buffer) {
+        match self {
+            Image::Ready(protocol) => {
+                StatefulImage::default().resize(Resize::Scale(None)).render(
                     area,
+                    buf,
                     protocol.as_mut(),
                 );
                 // Works around images cropped by a changed cell size; see
                 // the function for when it can go.
-                size_kitty_placement(frame.buffer_mut(), area);
+                size_kitty_placement(buf, area);
             }
-            Slot::Unavailable(reason) => {
+            Image::Unavailable(reason) => {
                 let text = vec![
                     Line::from("image not shown").dim(),
                     Line::from(path.to_owned()),
                     Line::from(reason.clone()).dim(),
                 ];
-                frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), area);
+                Paragraph::new(text)
+                    .wrap(Wrap { trim: false })
+                    .render(area, buf);
             }
         }
     }
@@ -180,7 +148,7 @@ const KITTY_PLACEMENT: &str = "a=T,U=1,";
 ///    `Cargo.toml`. The release is likely a 12.x, which may change the
 ///    `Picker` API that `src/terminal.rs` and this module use.
 /// 2. Delete this function, its two constants and the call in
-///    [`Images::draw_resized`].
+///    [`Image::draw`].
 /// 3. Run the test named above. It must stay green without this
 ///    function, as the crate then writes `c=` and `r=` itself.
 fn size_kitty_placement(buffer: &mut Buffer, area: Rect) {
