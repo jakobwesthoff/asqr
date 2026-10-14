@@ -35,6 +35,10 @@ switches between items quickly (user, round 1).
   front of them.
 - A limit on items per question, if any.
 
-## Relations
+## Where the pane leaves it
 
-- Depends on: [Make the context area a pane of its own with focus and scrolling](01M4XHQSC7Y60Y5PPZ3W52YAXW-make-the-context-area-a-pane-of-its-own-with-focus-and-scrolling.md)
+The context pane (ADR 31) shows one entry under a header line, which is
+where a tab strip can go. `SessionState` keeps a scroll position per
+`EntryKey` (question and option index); an item index in that key gives
+each item its own position. `Viewers` keeps one viewer per shown entry
+under the same key plus the session id.

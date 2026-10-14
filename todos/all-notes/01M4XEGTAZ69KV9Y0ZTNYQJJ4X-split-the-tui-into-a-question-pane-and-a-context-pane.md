@@ -28,13 +28,15 @@ and skill changes for its part.
 ## Steps
 
 The format step, session and result files in format version 2 with a
-`context` field, has landed (ADR 28), and so has the layout step, which
+`context` field, has landed (ADR 28), and so have the layout step, which
 caps the question at a reading width and places the context area
-beside or below it (ADR 30). "Make the context area a pane of its own
-with focus and scrolling" comes next. "Show text entries in the context pane with syntax highlighting" and
-"Show diff entries in the context pane as a unified diff" build on the
-pane; the text viewer uses the shared line renderer of patine 1.5.0,
-published 2026-10-14.
+beside or below it (ADR 30), and the pane step, which made that area a
+pane with a header, viewers, focus and scrolling (ADR 31). "Show text
+entries in the context pane with syntax highlighting" and "Show diff
+entries in the context pane as a unified diff" come next; each
+implements the pane's `Viewer` trait (`src/tui/render/viewer.rs`) in
+place of the placeholder viewer there. The text viewer uses the shared
+line renderer of patine 1.5.0, published 2026-10-14.
 
 Full Markdown in question texts ships in the same release as its own
 todo; the wrapped own answer (ADR 27) and the session note on the review
@@ -59,16 +61,22 @@ first builds it.
   *Layout*, with `--layout` and `ASQR_LAYOUT` (ADR 30).
 - Context attaches to a question (`context`) and to an option
   (`context`), one entry each; the option under the cursor shows its
-  own, otherwise the question's (`shown_context`). Image entries show as
-  images, text and diff entries as a placeholder that names them. `o`
-  opens the shown image in the system viewer, `z` shows it full screen;
-  both ignore text and diff entries. The review tab shows no context.
+  own, otherwise the question's (`shown_entry`). The context pane
+  (ADR 31, `src/tui/render/context.rs`) shows a header that names the
+  entry and the entry's viewer below it. Image entries show as images,
+  text and diff entries as a placeholder viewer that names them. `tab`
+  focuses the pane, the page keys scroll it from anywhere, and each
+  entry keeps its scroll position. `o` opens the shown image in the
+  system viewer and ignores text and diff entries; `z` shows any entry
+  full screen. The review tab shows no context.
 - Session and result files are format version 2 (ADR 28, schemas in
   `schema/`). An invalid session file gets a result with status `error`
   and is archived (spec section 3.8).
-- Keys: `ctrl-c` quits and `ctrl-j` adds a line in fields; every other
-  `ctrl` combination is free (`command` in `src/tui/session.rs` ignores
-  them). Also free: `tab`, `shift-tab`, `pgup`, `pgdn`, `home`, `end`,
+- Keys: `ctrl-c` quits and `ctrl-j` adds a line in fields; `tab`,
+  `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` belong to the context pane, and
+  the focused pane takes every key (`pane_key` in `src/tui/session.rs`).
+  Every other `ctrl` combination is free outside fields (`command`
+  ignores them). Also free on the question: `shift-tab`, `home`, `end`,
   `J`, `K`, `g`, `G`, `/`. In a field, every printable key types text,
   so keys that must work there are non-printing ones.
 

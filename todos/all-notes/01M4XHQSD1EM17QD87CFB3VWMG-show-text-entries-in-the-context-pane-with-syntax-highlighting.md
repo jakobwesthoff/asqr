@@ -2,7 +2,6 @@
 title: "Show text entries in the context pane with syntax highlighting"
 kind: feature
 component: tui
-status: blocked
 horizon: next
 origin: discussion
 tags: [ux, milestone/v0-11]
@@ -31,7 +30,19 @@ The plan's Design section, *Viewers*, has the full design. In short:
 - A file is read when the entry is first shown; read errors show in the
   pane like a missing image does today.
 
+## Where the pane leaves it
+
+The context pane (ADR 31) shows every entry through the `Viewer` trait
+in `src/tui/render/viewer.rs`: `load` once for everything that does not
+depend on the body's size (reading the file, highlighting, diffing), with
+a failure shown as content; `lay_out` for each new body size, returning
+the lines and the widest line; `draw` into a buffer at a scroll offset.
+The pane scrolls sideways when the reported width exceeds the body's, so
+a viewer that cuts lines reports their full width. `viewer_for` there
+still builds the placeholder for this kind of entry, with a TODO naming
+this todo. `Viewers` keeps a text or diff viewer, and what it derived,
+while its session waits, also when the terminal regains the focus.
+
 ## Relations
 
 - Part of: [Split the TUI into a question pane and a context pane](01M4XEGTAZ69KV9Y0ZTNYQJJ4X-split-the-tui-into-a-question-pane-and-a-context-pane.md)
-- Depends on: [Make the context area a pane of its own with focus and scrolling](01M4XHQSC7Y60Y5PPZ3W52YAXW-make-the-context-area-a-pane-of-its-own-with-focus-and-scrolling.md)
