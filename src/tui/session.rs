@@ -76,6 +76,16 @@ impl Row {
     }
 }
 
+/// Which context entry a pane shows: the question's, or the one of the
+/// option with this index. It names the entry across draws, so what belongs
+/// to an entry, such as its viewer, outlives moving between rows and tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EntryKey {
+    /// The question's index in the session.
+    pub question: usize,
+    pub option: Option<usize>,
+}
+
 /// Where typed keys go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -140,7 +150,8 @@ pub struct SessionState {
     reject_reason: String,
     help: bool,
     message: Option<String>,
-    image_full_screen: bool,
+    /// The context entry shown, drawn over the question's area (`z`).
+    full_screen: bool,
 }
 
 impl SessionState {
@@ -195,7 +206,7 @@ impl SessionState {
                 .unwrap_or_default(),
             help: false,
             message: None,
-            image_full_screen: false,
+            full_screen: false,
         };
         state.arrive();
         state
@@ -247,8 +258,8 @@ impl SessionState {
         self.message.as_deref()
     }
 
-    pub fn image_full_screen(&self) -> bool {
-        self.image_full_screen
+    pub fn full_screen(&self) -> bool {
+        self.full_screen
     }
 
     /// The note to the whole session, as typed.
@@ -265,23 +276,36 @@ impl SessionState {
         self.session.questions.get(self.tab)
     }
 
-    /// The context entry shown on the current tab. The option under the
-    /// cursor shows its own context, so the person can browse the options
-    /// before picking; every other row shows the question's (spec section
-    /// 7.7).
-    pub fn shown_context(&self) -> Option<&ContextEntry> {
+    /// The context entry shown on the current tab, and which one it is. The
+    /// option under the cursor shows its own context, so the person can
+    /// browse the options before picking; every other row shows the
+    /// question's (spec section 7.7).
+    pub fn shown_entry(&self) -> Option<(EntryKey, &ContextEntry)> {
         let question = self.question()?;
-        let option_context = match self.current_row() {
+        let option_entry = match self.current_row() {
             Some(Row::Option(index)) => question
                 .options
                 .as_ref()
-                .and_then(|options| options[index].context.first()),
+                .and_then(|options| options[index].context.first())
+                .map(|entry| (Some(index), entry)),
             _ => None,
         };
-        option_context.or(question.context.first())
+        let (option, entry) =
+            option_entry.or_else(|| question.context.first().map(|entry| (None, entry)))?;
+        let key = EntryKey {
+            question: self.tab,
+            option,
+        };
+        Some((key, entry))
     }
 
-    /// The image shown on the current tab; `o` and `z` act on it.
+    /// The context entry shown on the current tab; `z` shows it full
+    /// screen.
+    pub fn shown_context(&self) -> Option<&ContextEntry> {
+        self.shown_entry().map(|(_, entry)| entry)
+    }
+
+    /// The image shown on the current tab; `o` opens it.
     pub fn shown_image(&self) -> Option<&str> {
         self.shown_context().and_then(ContextEntry::image_path)
     }
@@ -504,7 +528,7 @@ impl SessionState {
                 None => Effect::None,
             },
             KeyCode::Char('z') => {
-                self.image_full_screen = self.shown_image().is_some() && !self.image_full_screen;
+                self.full_screen = self.shown_context().is_some() && !self.full_screen;
                 Effect::None
             }
             _ => Effect::None,
@@ -558,7 +582,7 @@ impl SessionState {
         } else {
             0
         };
-        self.image_full_screen = false;
+        self.full_screen = false;
         self.arrive();
         Effect::DraftChanged
     }
@@ -1573,7 +1597,7 @@ mod tests {
             "no image on this question"
         );
         press(&mut state, "z");
-        assert!(!state.image_full_screen());
+        assert!(!state.full_screen());
 
         go_to_tab(&mut state, 3);
         assert_eq!(
@@ -1581,10 +1605,10 @@ mod tests {
             Effect::OpenImage("/pictures/p.png".into())
         );
         press(&mut state, "z");
-        assert!(state.image_full_screen());
+        assert!(state.full_screen());
         press(&mut state, "l");
         assert!(
-            !state.image_full_screen(),
+            !state.full_screen(),
             "another tab ends the full-screen view"
         );
     }
@@ -1638,7 +1662,41 @@ mod tests {
     }
 
     #[test]
-    fn only_an_image_entry_opens_or_fills_the_screen() {
+    fn the_shown_entry_is_known_by_its_question_and_option() {
+        let session = r#"{"asqr": 2, "questions": [
+            {"id": "pictured", "text": "?", "kind": "single",
+             "context": [{"type": "image", "path": "/pictures/question.png"}],
+             "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B", "context": [{"type": "image", "path": "/pictures/b.png"}]}]}
+        ]}"#;
+        let mut state = SessionState::new(
+            "batch",
+            serde_json::from_str(session).expect("test session parses"),
+            None,
+        );
+        let key = |state: &SessionState| state.shown_entry().map(|(key, _)| key);
+
+        assert_eq!(
+            key(&state),
+            Some(EntryKey {
+                question: 0,
+                option: None
+            }),
+            "an option without context shows the question's"
+        );
+        press(&mut state, "j");
+        assert_eq!(
+            key(&state),
+            Some(EntryKey {
+                question: 0,
+                option: Some(1)
+            })
+        );
+        go_to_tab(&mut state, 1);
+        assert_eq!(key(&state), None, "the review shows no context");
+    }
+
+    #[test]
+    fn only_an_image_entry_opens_but_any_entry_fills_the_screen() {
         let session = r#"{"asqr": 2, "questions": [
             {"id": "q", "text": "?", "kind": "single",
              "context": [{"type": "text", "title": "Log", "text": "ok"}],
@@ -1657,7 +1715,9 @@ mod tests {
         assert_eq!(state.shown_image(), None);
         assert_eq!(press(&mut state, "o"), Effect::None);
         press(&mut state, "z");
-        assert!(!state.image_full_screen());
+        assert!(state.full_screen());
+        press(&mut state, "z");
+        assert!(!state.full_screen(), "z toggles back");
     }
 
     #[test]

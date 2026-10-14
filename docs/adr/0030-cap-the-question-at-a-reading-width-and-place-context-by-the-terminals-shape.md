@@ -10,6 +10,8 @@ Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
 Amends [22. Answer in place with a tab bar and a review step](0022-answer-in-place-with-a-tab-bar-and-a-review-step.md)
 
+Amended by [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
+
 ## Context
 
 ADR 22 laid the TUI out in one column over the full width. On a

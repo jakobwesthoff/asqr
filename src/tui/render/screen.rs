@@ -16,11 +16,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use super::Images;
+use super::context::{Shown, context_hint, draw_pane};
 use super::markdown;
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
-use crate::format::{ContextEntry, Kind, Question};
-use crate::tui::{AnswerState, App, Extent, Focus, Row, SessionState};
+use super::viewer::{DrawContext, Viewers};
+use crate::format::{Kind, Question};
+use crate::tui::{AnswerState, App, Extent, Focus, Offset, Row, SessionState};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -70,6 +72,8 @@ pub struct View<'a> {
     shown: Option<Arrangement>,
     /// What the intro overlay showed in the last draw.
     intro_page: Extent,
+    /// The viewers of the context entries shown so far.
+    viewers: Viewers,
 }
 
 impl<'a> View<'a> {
@@ -79,6 +83,7 @@ impl<'a> View<'a> {
             layout,
             shown: None,
             intro_page: Extent::default(),
+            viewers: Viewers::default(),
         }
     }
 
@@ -147,17 +152,30 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
     frame.render_widget(Paragraph::new(header_lines), header);
     draw_tabs(frame, state, tabs);
 
-    let full_screen_image = state.shown_image().filter(|_| state.image_full_screen());
-    if let Some(path) = full_screen_image {
-        images.draw_full_screen(frame, path, main);
-    } else {
-        draw_tab(
-            frame,
-            state,
-            main.inner(ratatui::layout::Margin::new(1, 0)),
-            view,
+    view.viewers
+        .retain_sessions(|id| app.sessions().iter().any(|waiting| waiting.id() == id));
+    let main = main.inner(ratatui::layout::Margin::new(1, 0));
+    let full_screen = state.shown_entry().filter(|_| state.full_screen());
+    if let Some((key, entry)) = full_screen {
+        let shown = Shown {
+            session: state.id(),
+            key,
+            entry,
+        };
+        let mut cx = DrawContext {
             images,
+            full_screen: true,
+        };
+        draw_pane(
+            frame,
+            &shown,
+            main,
+            Offset::default(),
+            &mut view.viewers,
+            &mut cx,
         );
+    } else {
+        draw_tab(frame, state, main, view, images);
     }
 
     let feedback = app.current_notice().or(state.message()).unwrap_or_default();
@@ -420,21 +438,6 @@ impl Content {
     }
 }
 
-/// What stands in for a text or diff entry, which this asqr has no viewer
-/// for yet. It names the entry the way an image placeholder names its file.
-// TODO: replace with the text and diff viewers (context pane plan, steps 4
-// and 5).
-fn viewerless_placeholder(
-    heading: &'static str,
-    name: Option<&String>,
-    reason: &'static str,
-) -> Paragraph<'static> {
-    let mut lines = vec![Line::from(heading).dim()];
-    lines.extend(name.map(|name| Line::from(name.clone())));
-    lines.push(Line::from(reason).dim());
-    Paragraph::new(lines).wrap(Wrap { trim: false })
-}
-
 /// Draws the current tab into `area`: the question, or the review, at no
 /// more than the reading width, and the context area where
 /// [`panes::choose`] puts it.
@@ -469,12 +472,33 @@ fn draw_tab(
         content_at(text_area.width)
     };
 
-    if let Some(context) = context_area {
-        if arrangement == Some(Arrangement::Hint) {
-            frame.render_widget(context_hint(state.shown_context(), context.width), context);
-        } else {
-            draw_context(frame, state.shown_context(), context, images);
+    match (context_area, state.shown_entry()) {
+        (Some(area), shown) if arrangement == Some(Arrangement::Hint) => {
+            let entry = shown.map(|(_, entry)| entry);
+            frame.render_widget(context_hint(entry, area.width), area);
         }
+        // A row without context leaves the pane empty, so it keeps its
+        // place while the cursor moves on.
+        (Some(area), Some((key, entry))) => {
+            let shown = Shown {
+                session: state.id(),
+                key,
+                entry,
+            };
+            let mut cx = DrawContext {
+                images,
+                full_screen: false,
+            };
+            draw_pane(
+                frame,
+                &shown,
+                area,
+                Offset::default(),
+                &mut view.viewers,
+                &mut cx,
+            );
+        }
+        _ => {}
     }
 
     // Scroll so the whole current row is visible, its start winning when
@@ -486,74 +510,6 @@ fn draw_tab(
         Paragraph::new(content.lines).scroll((scroll as u16, 0)),
         text_area,
     );
-}
-
-/// The entry shown on the current row, drawn into the context area. A row
-/// without one leaves the area empty, so it keeps its place.
-fn draw_context(frame: &mut Frame, entry: Option<&ContextEntry>, area: Rect, images: &mut Images) {
-    match entry {
-        Some(ContextEntry::Image(image)) => images.draw(frame, &image.path, area),
-        Some(ContextEntry::Text(text)) => frame.render_widget(
-            viewerless_placeholder(
-                "text not shown",
-                text.title.as_ref().or(text.path.as_ref()),
-                "this asqr cannot show text entries yet",
-            ),
-            area,
-        ),
-        Some(ContextEntry::Diff(diff)) => frame.render_widget(
-            viewerless_placeholder(
-                "diff not shown",
-                diff.title.as_ref().or(diff.name.as_ref()),
-                "this asqr cannot show diffs yet",
-            ),
-            area,
-        ),
-        None => {}
-    }
-}
-
-/// The one line that stands in for the context area when the terminal has
-/// room for it neither beside nor below the question: what the entry is,
-/// and for an image that `z` shows it.
-// TODO: `z` for text and diff entries comes with the context pane (plan
-// step 3), and the hint names it for every entry then.
-fn context_hint(entry: Option<&ContextEntry>, width: u16) -> Line<'static> {
-    let Some(entry) = entry else {
-        return Line::default();
-    };
-    // A path names the entry by its file name, which fits the one line
-    // where the whole path often does not.
-    let file_name = |path: &str| {
-        std::path::Path::new(path).file_name().map_or_else(
-            || path.to_owned(),
-            |name| name.to_string_lossy().into_owned(),
-        )
-    };
-    let (kind, name, tail) = match entry {
-        ContextEntry::Image(image) => (
-            "image",
-            image.title.clone().or_else(|| Some(file_name(&image.path))),
-            " · z: full screen",
-        ),
-        ContextEntry::Text(text) => (
-            "text",
-            text.title
-                .clone()
-                .or_else(|| text.path.as_deref().map(file_name)),
-            " · not shown in this asqr yet",
-        ),
-        ContextEntry::Diff(diff) => (
-            "diff",
-            diff.title.clone().or_else(|| diff.name.clone()),
-            " · not shown in this asqr yet",
-        ),
-    };
-    let text = match name {
-        Some(name) => format!("▸ {kind}: {name}{tail}"),
-        None => format!("▸ {kind}{tail}"),
-    };
-    Line::from(cut(&text, usize::from(width))).dim()
 }
 
 /// The mark in front of an option or the own answer.
@@ -927,7 +883,12 @@ fn with_cursor(text: &str, cursor: Option<(usize, usize)>) -> Vec<Line<'static>>
 /// change inside a word, such as the text cursor or Markdown emphasis,
 /// never splits it. Every character keeps its style, and a word longer
 /// than a line is broken where the line ends.
-fn wrap(line: Line<'static>, width: usize, first: usize, rest: usize) -> Vec<Line<'static>> {
+pub(super) fn wrap(
+    line: Line<'static>,
+    width: usize,
+    first: usize,
+    rest: usize,
+) -> Vec<Line<'static>> {
     let mut words: Vec<Vec<(char, Style)>> = Vec::new();
     for span in &line.spans {
         let style = line.style.patch(span.style);
@@ -1050,7 +1011,7 @@ const HELP: &[(&str, &str)] = &[
     ("ctrl-j", "new line in an answer or a note"),
     ("esc", "stop typing in a field"),
     ("L", "the list of waiting sessions"),
-    ("o, z", "open the image; show it full screen"),
+    ("o, z", "open the image; show the context full screen"),
     ("q, ctrl-c", "quit, keeping the draft"),
     ("?, i", "this help; the whole intro"),
 ];
@@ -1890,7 +1851,7 @@ mod tests {
             70,
             "right of the question text: {columns:?}"
         );
-        assert_eq!(*rows.start(), 4, "from the top of the tab: {rows:?}");
+        assert_eq!(*rows.start(), 5, "under the pane's header: {rows:?}");
     }
 
     /// With the Kitty protocol the terminal draws the image into the cells
@@ -1950,8 +1911,9 @@ mod tests {
 
         let (_, rows) = image_cells(&screen(&app, 80, 24));
 
-        // The question takes the six rows it needs, from row 4 on.
-        assert_eq!(*rows.start(), 10, "below the question text: {rows:?}");
+        // The question takes the six rows it needs, from row 4 on, and the
+        // pane's header the next one.
+        assert_eq!(*rows.start(), 11, "below the question text: {rows:?}");
     }
 
     #[test]
@@ -2108,6 +2070,18 @@ mod tests {
     }
 
     #[test]
+    fn z_shows_any_entry_full_screen_with_its_header() {
+        let review = include_str!("../../../examples/sessions/retry-review.json");
+        let mut app = app(&[("review", review)]);
+        keys(&mut app, "lz");
+        insta::assert_snapshot!("text_full_screen", screen(&app, 80, 24));
+
+        keys(&mut app, "z");
+        let text = screen(&app, 80, 24).to_string();
+        assert!(text.contains("pick one"), "z goes back:\n{text}");
+    }
+
+    #[test]
     fn a_relative_image_path_shows_a_placeholder() {
         let text = screen(&with_image("images/x.png"), 80, 24).to_string();
         assert!(text.contains("relative path"), "{text}");
@@ -2210,62 +2184,6 @@ mod tests {
     }
 
     #[test]
-    fn the_hint_names_the_entry_shown() {
-        let entry =
-            |json: &str| -> ContextEntry { serde_json::from_str(json).expect("entry parses") };
-        let hint = |entry: Option<&ContextEntry>, width: u16| -> String {
-            context_hint(entry, width)
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect()
-        };
-
-        let cases = [
-            (
-                r#"{"type": "image", "path": "/pictures/cat.png"}"#,
-                "▸ image: cat.png · z: full screen",
-            ),
-            (
-                r#"{"type": "image", "title": "The cat", "path": "/pictures/cat.png"}"#,
-                "▸ image: The cat · z: full screen",
-            ),
-            (
-                r#"{"type": "image", "path": "/"}"#,
-                "▸ image: / · z: full screen",
-            ),
-            (
-                r#"{"type": "text", "path": "/src/fetch.rs"}"#,
-                "▸ text: fetch.rs · not shown in this asqr yet",
-            ),
-            (
-                r#"{"type": "text", "text": "inline"}"#,
-                "▸ text · not shown in this asqr yet",
-            ),
-            (
-                r#"{"type": "diff", "name": "src/fetch.rs", "new": {"text": "x"}}"#,
-                "▸ diff: src/fetch.rs · not shown in this asqr yet",
-            ),
-            (
-                r#"{"type": "diff", "new": {"text": "x"}}"#,
-                "▸ diff · not shown in this asqr yet",
-            ),
-        ];
-        for (json, expected) in cases {
-            assert_eq!(hint(Some(&entry(json)), 78), expected, "{json}");
-        }
-        assert_eq!(
-            hint(
-                Some(&entry(r#"{"type": "image", "path": "/pictures/cat.png"}"#)),
-                20
-            ),
-            "▸ image: cat.png · …",
-            "cut to the line"
-        );
-        assert_eq!(hint(None, 78), "", "a row without context leaves it empty");
-    }
-
-    #[test]
     fn a_layout_asked_for_wins_while_it_fits() {
         let file = png();
         let app = with_image(file.path().to_str().expect("UTF-8 path"));
@@ -2275,8 +2193,8 @@ mod tests {
         let (columns, rows) = image_cells(&backend);
         assert_eq!(
             (*columns.start(), *rows.start()),
-            (1, 10),
-            "under the question's six rows:\n{backend}"
+            (1, 11),
+            "under the question's six rows and the header:\n{backend}"
         );
 
         // 110×70 is portrait, where auto puts the image below; 108 columns
@@ -2284,7 +2202,7 @@ mod tests {
         // rest after the separator.
         let backend = screen_in(&app, &mut View::new("q", PaneLayout::Beside), 110, 70);
         let (columns, rows) = image_cells(&backend);
-        assert_eq!((*columns.start(), *rows.start()), (62, 4), "{backend}");
+        assert_eq!((*columns.start(), *rows.start()), (62, 5), "{backend}");
     }
 
     #[test]
@@ -2295,7 +2213,7 @@ mod tests {
         let (columns, rows) = image_cells(&screen(&app, 192, 106));
         assert_eq!(
             (*columns.start(), *rows.start()),
-            (1, 10),
+            (1, 11),
             "shown fresh, it is below"
         );
 
@@ -2304,7 +2222,7 @@ mod tests {
         let (columns, rows) = image_cells(&screen_in(&app, &mut view, 192, 106));
         assert_eq!(
             (*columns.start(), *rows.start()),
-            (96, 4),
+            (96, 5),
             "after beside, it stays beside"
         );
     }

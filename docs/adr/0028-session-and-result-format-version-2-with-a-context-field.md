@@ -12,6 +12,8 @@ Supersedes the format part of [25. Show an image per option](0025-show-an-image-
 
 Amended by [29. Let the person add a note to the whole session](0029-let-the-person-add-a-note-to-the-whole-session.md)
 
+Amended by [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
+
 ## Context
 
 The user asked on 2026-10-14 for a context pane next to the question:

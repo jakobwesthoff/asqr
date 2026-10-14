@@ -542,8 +542,8 @@ the terminal back as it was, also after a crash.
 ### 7.1 Layout
 
 A stack of rows over the full width (user, 2026-09-27), with the
-question kept to a reading width and a context area beside or below it
-when the question has context (user, 2026-10-14; ADR 30):
+question kept to a reading width and a context pane beside or below it
+when the question has context (user, 2026-10-14; ADRs 30 and 31):
 
 ```
  asqr · queue: default · 2 sessions waiting
@@ -564,7 +564,7 @@ when the question has context (user, 2026-10-14; ADR 30):
 
  Notes: —
 
- [context below, or beside the question on a landscape terminal]
+ [context pane below, or beside the question on a landscape terminal]
  [notices and messages]
  ↑/↓ move  enter pick  ←/→ question  n note  ? help  q quit
 ```
@@ -600,17 +600,17 @@ when the question has context (user, 2026-10-14; ADR 30):
 - The key bar shows the keys that work where the cursor is; they change
   inside a field.
 - **Reading width:** the question and the review take at most 100
-  columns and start at the left, with or without a context area. The
+  columns and start at the left, with or without a context pane. The
   tab's area, W×H, is the area under the tab bar inside a margin of one
   column on each side.
-- **Context area:** a question that has context, or has an option with
-  context, shares the tab's area with a context area (section 7.7):
+- **Context pane:** a question that has context, or has an option with
+  context, shares the tab's area with a context pane (section 7.7):
   - Beside: the question takes half of W after the blank separator
-    column, at least 60 and at most 100 columns, and the context area
+    column, at least 60 and at most 100 columns, and the context pane
     takes the rest. Beside fits from W = 101, a terminal of 103 columns.
   - Below: the question keeps its width and takes the rows its content
-    needs, at most half of H, and the context area takes the rest over
-    the whole of W. Below fits when the context area gets at least 8
+    needs, at most half of H, and the context pane takes the rest over
+    the whole of W. Below fits when the context pane gets at least 8
     rows with the question at half of H, that is from H = 15.
   - `--layout auto`, the default: when both fit, the context goes
     beside on a landscape area, where W ÷ 2H is at least 1 (cells are
@@ -621,8 +621,8 @@ when the question has context (user, 2026-10-14; ADR 30):
     terminal gets beside, 110×70 and 90×50 get below.
   - `--layout beside` or `--layout below` (or `ASQR_LAYOUT`, section 8)
     is used when it fits, and the other one when only that fits.
-  - When neither fits, the context area shrinks to one line at the
-    bottom of the tab that names the entry shown; for an image it adds
+  - When neither fits, the context pane shrinks to one line at the
+    bottom of the tab that names the entry shown and adds
     `z: full screen`.
   - A question without context takes the width it can get up to the
     reading width, so its text reflows when moving to a question with
@@ -648,7 +648,7 @@ On an option row (vim style plus arrows):
 | `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
 | `i` | the whole intro |
-| `o`, `z` | open the image shown in the system viewer; show it full screen |
+| `o`, `z` | open the image shown in the system viewer; show the context shown full screen |
 | `q`, `ctrl-c` | quit, keeping the draft |
 | `?` | help |
 
@@ -662,9 +662,10 @@ On an option row (vim style plus arrows):
   over the help, which it closes like any other key.
 - `o` opens the image shown (section 7.7) with the system's opener
   (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
-  started, a notice says why. `z` shows the image shown over the
-  question's area and toggles back; changing the question ends it.
-  Neither acts on a text or diff entry.
+  started, a notice says why. It does not act on a text or diff entry.
+- `z` shows the context pane of the entry shown over the question's
+  area, header included, and toggles back; changing the question ends
+  it. It acts on every kind of entry (ADR 31).
 - Help closes on any key.
 - `i` shows the session's whole intro in a frame over the question,
   styled as in the header (section 7.6), with the key bar left free. An
@@ -777,9 +778,16 @@ Context appears only when a question or one of its options has some.
   question's context, or nothing when the question has none.
 - The room for the context stays while the cursor moves, also when the
   current row shows none, so the layout does not jump.
-- The context area goes beside or below the question, or shrinks to a
+- The context pane goes beside or below the question, or shrinks to a
   one-line hint, by the terminal's size and `--layout` (section 7.1).
 - The review shows no context.
+- The pane's first line is a header that names the entry: its `title`,
+  or the file name of its `path` (a diff's `name`), or its kind, `text`
+  or `diff`, when it has neither. When the entry is taller than the
+  pane, the header's right end says which lines show, such as
+  `4–15 of 120`. A row without context leaves the pane empty, header
+  included (ADR 31).
+- Below the header, a viewer shows the entry. An image is scaled to fit.
 - Text and diff entries show a placeholder that names the entry by its
   `title` (a text entry's `path` or a diff's `name` without one) and
   says that this asqr cannot show them yet.
@@ -835,7 +843,7 @@ Every command takes `--queue` or `--dir` (section 3.2). `--no-notify`,
 `--no-bell` and `--layout` may also stand before `watch` or alone (`asqr
 --no-bell`); next to any other command they are a usage error.
 
-`--layout` places the context area (section 7.1). Without it,
+`--layout` places the context pane (section 7.1). Without it,
 `ASQR_LAYOUT` sets the layout, and without either it is `auto`. A
 `--layout` after `watch` wins over one before it. An empty
 `ASQR_LAYOUT` counts as unset. Any other value than `auto`, `beside` or

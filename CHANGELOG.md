@@ -61,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   least 8 rows and the question at most half the height. Where neither
   fits, context shrinks to a line that names it, and `z` still shows an
   image full screen.
+- Context shows in a pane whose first line names the entry by its
+  title or file name and, when the entry is taller than the pane, says
+  which of its lines show. Beside or below the question, an image gets
+  one row less for that line.
+- `z` shows any context entry full screen, not only an image, and the
+  one-line hint on small terminals offers it for every entry.
 - The session title and intro wrap at the reading width instead of
   running to the edge. The title takes at most two lines, one on
   terminals under 24 rows. A cut intro ends in `… i: more`.

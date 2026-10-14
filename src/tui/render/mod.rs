@@ -4,11 +4,13 @@
 
 //! Drawing the TUI (spec section 7) from the state in [`super::App`].
 
+mod context;
 mod images;
 pub mod markdown;
 mod panes;
 mod parts;
 mod screen;
+mod viewer;
 
 pub use images::{Images, may_query_protocol};
 pub use panes::PaneLayout;
