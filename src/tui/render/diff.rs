@@ -5,8 +5,6 @@
 //! The viewer of diff entries (spec section 7.7, ADR 33): the change from
 //! the old to the new text as a unified diff, which asqr computes itself.
 
-use std::fs;
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
@@ -15,6 +13,7 @@ use ratatui::style::{Color, Style};
 use similar::{Algorithm, ChangeTag, InlineChange, InlineChangeOptions, TextDiff};
 use unicode_width::UnicodeWidthStr;
 
+use super::source_file::{Unreadable, read_source};
 use super::source_line::SourceLine;
 use super::viewer::{ContentSize, Placeholder, Viewer};
 use crate::format::{DiffEntry, DiffSide};
@@ -69,9 +68,7 @@ impl Viewer for DiffViewer {
         let sides = read(self.old.as_ref()).and_then(|old| Ok((old, read(self.new.as_ref())?)));
         self.content = Some(match sides {
             Ok((old, new)) => Content::Rows(Rows::of(old.as_deref(), new.as_deref())),
-            Err(Unreadable { path, reason }) => {
-                Content::Unreadable(Placeholder::new("diff not shown", Some(&path), reason))
-            }
+            Err(unreadable) => Content::Unreadable(unreadable.placeholder("diff not shown")),
         });
     }
 
@@ -96,43 +93,10 @@ impl Viewer for DiffViewer {
 // Reading the sides
 // ---------------------------------------------------------------------
 
-/// A side whose file cannot be shown, and why.
-struct Unreadable {
-    path: String,
-    reason: String,
-}
-
 /// The text of a side, or `None` for a side the entry leaves out.
 fn read(side: Option<&DiffSide>) -> Result<Option<String>, Unreadable> {
-    let Some(side) = side else {
-        return Ok(None);
-    };
-    // Validation lets exactly one of the two through; a side with neither
-    // never reaches the pane, and would show as empty.
-    if let Some(content) = &side.content {
-        return Ok(Some(content.clone()));
-    }
-    let Some(path) = &side.path else {
-        return Ok(Some(String::new()));
-    };
-    let unreadable = |reason: String| Unreadable {
-        path: path.clone(),
-        reason,
-    };
-    // A relative path depends on where asqr was started, so it is never
-    // resolved (spec section 4).
-    if Path::new(path).is_relative() {
-        return Err(unreadable("relative path".to_owned()));
-    }
-    let bytes = fs::read(path).map_err(|error| unreadable(error.to_string()))?;
-    // A NUL byte marks a binary file, as git decides; its lines would be
-    // noise, however they were decoded.
-    if bytes.contains(&0) {
-        return Err(unreadable("binary file".to_owned()));
-    }
-    // A stray byte from another encoding shows as `�` and leaves the rest
-    // of the file readable.
-    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+    side.map(|side| read_source(side.path.as_deref(), side.content.as_deref()))
+        .transpose()
 }
 
 // ---------------------------------------------------------------------

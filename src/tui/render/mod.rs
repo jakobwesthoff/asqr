@@ -11,6 +11,7 @@ pub mod markdown;
 mod panes;
 mod parts;
 mod screen;
+mod source_file;
 mod source_line;
 mod viewer;
 
