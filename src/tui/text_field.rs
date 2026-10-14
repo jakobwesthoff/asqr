@@ -10,12 +10,12 @@
 //! [`super::SessionState`].
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::style::{Color, Stylize};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui_textarea::{CursorMove, TextArea};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::render::{columns, wrap};
+use super::render::{Glyph, columns, styled_line, wrap_rows};
 use crate::format::Length;
 
 /// The text of a field wraps under its own start while that leaves it at
@@ -171,8 +171,9 @@ impl TextField {
         cursor: bool,
         limits: Option<&Length>,
     ) -> Vec<Line<'static>> {
+        let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
         let cursor = cursor.then(|| self.cursor());
-        let mut lines = after_head(head, with_cursor(&self.text(), cursor), width);
+        let mut lines = drawn(&layout(&head, &lines, cursor, false, width));
         if let Some(limits) = limits {
             let (text, level) = counter(self.length(), limits);
             lines.push(Line::from(Span::from(text).fg(level.colour())).right_aligned());
@@ -184,14 +185,8 @@ impl TextField {
 /// The lines of a field without the keys that holds `text`: the text
 /// after `head`, or a dim `—` when it is empty.
 pub fn resting_lines(head: Span<'static>, text: &str, width: usize) -> Vec<Line<'static>> {
-    let text = if text.is_empty() {
-        vec![Line::from(Span::from("—").dim())]
-    } else {
-        text.split('\n')
-            .map(|line| Line::from(line.to_owned()))
-            .collect()
-    };
-    after_head(head, text, width)
+    let lines: Vec<&str> = text.split('\n').collect();
+    drawn(&layout(&head, &lines, None, text.is_empty(), width))
 }
 
 /// The lines a field holding `text` takes however it shows, so the layout
@@ -212,65 +207,107 @@ pub fn counted_lines(
     lines
 }
 
-/// `text`, one line per line of the field, after `head`, wrapped to
-/// `width`. Every further line, whether the text breaks there or it is
-/// wrapped, starts under the start of the text, or `NARROW_INDENT`
-/// columns in when the head leaves the text less than `MIN_TEXT_WIDTH`
-/// (ADR 27).
-fn after_head(head: Span<'static>, text: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
+// ---------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------
+
+/// One row of a field as the person sees it.
+#[derive(Debug)]
+struct VisualRow<'a> {
+    indent: usize,
+    glyphs: Vec<Glyph<'a>>,
+}
+
+/// What a field shows, laid out in rows of `width` columns: `lines` of its
+/// text after `head`, the grapheme under the text cursor inverted, and a
+/// dim `—` for an empty text where `placeholder` holds. Drawing and
+/// counting rows both go through this one function, so they agree on
+/// where a row breaks.
+///
+/// Every line after the first starts under the start of the text, or
+/// `NARROW_INDENT` columns in when the head leaves the text less than
+/// `MIN_TEXT_WIDTH` (ADR 27), and so does every row a line wraps onto.
+fn layout<'a>(
+    head: &'a Span<'a>,
+    lines: &[&'a str],
+    cursor: Option<(usize, usize)>,
+    placeholder: bool,
+    width: usize,
+) -> Vec<VisualRow<'a>> {
     let head_width = columns(&head.content);
     let indent = if width.saturating_sub(head_width) >= MIN_TEXT_WIDTH {
         head_width
     } else {
         NARROW_INDENT
     };
-    let mut lines = Vec::new();
-    for (index, line) in text.into_iter().enumerate() {
-        let lead = if index == 0 {
-            head.clone()
+    let mut rows = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let lead: Vec<Glyph> = if index == 0 {
+            head.content
+                .graphemes(true)
+                .map(|grapheme| Glyph::new(grapheme, head.style))
+                .collect()
         } else {
-            Span::from(" ".repeat(indent))
+            vec![Glyph::new(" ", Style::new()); indent]
         };
-        let mut spans = vec![lead];
-        spans.extend(line.spans);
-        lines.extend(wrap(Line::from(spans), width, 0, indent));
+        let cursor = cursor
+            .filter(|(row, _)| *row == index)
+            .map(|(_, column)| column);
+        rows.extend(line_rows(lead, line, cursor, placeholder, width, indent));
     }
-    lines
+    rows
 }
 
-/// `text` as lines with the grapheme under the text cursor inverted, or
-/// an inverted blank after the end of its line. The cursor's column is a
-/// character index, as ratatui-textarea counts it, and can lie inside a
-/// grapheme, such as on the skin tone of an emoji: the whole grapheme
-/// shows as the cursor then, as no terminal cell holds a part of one.
-fn with_cursor(text: &str, cursor: Option<(usize, usize)>) -> Vec<Line<'static>> {
-    text.split('\n')
-        .enumerate()
-        .map(|(index, line)| match cursor {
-            Some((row, column)) if row == index => {
-                let mut before = String::new();
-                let mut under = None;
-                let mut after = String::new();
-                let mut start = 0;
-                for grapheme in line.graphemes(true) {
-                    let end = start + grapheme.chars().count();
-                    if under.is_none() && column < end {
-                        under = Some(grapheme);
-                    } else if under.is_none() {
-                        before.push_str(grapheme);
-                    } else {
-                        after.push_str(grapheme);
-                    }
-                    start = end;
-                }
-                Line::from(vec![
-                    Span::from(before),
-                    Span::from(under.unwrap_or(" ").to_owned()).reversed(),
-                    Span::from(after),
-                ])
-            }
-            _ => Line::from(line.to_owned()),
+/// The rows of one line of a field's text after `lead`, the head or the
+/// indent, the further rows behind `indent` blanks.
+///
+/// The text cursor's column is a character index, as ratatui-textarea
+/// counts it, and can lie inside a grapheme, such as on the skin tone of
+/// an emoji: the whole grapheme shows as the cursor then, as no terminal
+/// cell holds a part of one. At the end of the line the cursor is an
+/// inverted blank.
+fn line_rows<'a>(
+    lead: Vec<Glyph<'a>>,
+    line: &'a str,
+    cursor: Option<usize>,
+    placeholder: bool,
+    width: usize,
+    indent: usize,
+) -> Vec<VisualRow<'a>> {
+    let mut glyphs = lead;
+    if placeholder {
+        glyphs.push(Glyph::new("—", Style::new().dim()));
+    }
+    let mut start = 0;
+    let mut covered = false;
+    for grapheme in line.graphemes(true) {
+        let end = start + grapheme.chars().count();
+        let under = !covered && cursor.is_some_and(|column| column < end);
+        covered |= under;
+        let style = if under {
+            Style::new().reversed()
+        } else {
+            Style::new()
+        };
+        glyphs.push(Glyph::new(grapheme, style));
+        start = end;
+    }
+    if cursor.is_some() && !covered {
+        glyphs.push(Glyph::new(" ", Style::new().reversed()));
+    }
+    wrap_rows(&glyphs, width, 0, indent)
+        .into_iter()
+        .map(|(indent, row)| VisualRow {
+            indent,
+            glyphs: glyphs[row].to_vec(),
         })
+        .collect()
+}
+
+/// `rows` as lines to draw.
+fn drawn(rows: &[VisualRow]) -> Vec<Line<'static>> {
+    rows.iter()
+        .map(|row| styled_line(row.indent, &row.glyphs))
         .collect()
 }
 
@@ -608,11 +645,27 @@ mod tests {
         assert_eq!(field.lines(head(), 6, true, None).len(), 2);
     }
 
+    /// `line` with the text cursor at `column`, wrapped to `width` with
+    /// further rows `rest` columns in.
+    fn line_with_cursor(
+        line: &str,
+        column: usize,
+        width: usize,
+        rest: usize,
+    ) -> Vec<Line<'static>> {
+        drawn(&line_rows(
+            Vec::new(),
+            line,
+            Some(column),
+            false,
+            width,
+            rest,
+        ))
+    }
+
     #[test]
     fn the_text_cursor_after_a_full_line_starts_the_next_one() {
-        let line = with_cursor("ab cd", Some((0, 5))).remove(0);
-
-        let lines = wrap(line, 5, 0, 1);
+        let lines = line_with_cursor("ab cd", 5, 5, 1);
 
         assert_eq!(
             cursor_columns(&lines),
@@ -622,9 +675,7 @@ mod tests {
 
     #[test]
     fn the_text_cursor_on_the_space_at_a_line_break_starts_the_next_line() {
-        let line = with_cursor("abcd efg", Some((0, 4))).remove(0);
-
-        let lines = wrap(line, 4, 0, 0);
+        let lines = line_with_cursor("abcd efg", 4, 4, 0);
 
         assert_eq!(
             cursor_columns(&lines),
@@ -634,9 +685,7 @@ mod tests {
 
     #[test]
     fn the_text_cursor_inside_a_word_keeps_the_word_whole() {
-        let line = with_cursor("ab channel", Some((0, 3))).remove(0);
-
-        let lines = wrap(line, 8, 0, 0);
+        let lines = line_with_cursor("ab channel", 3, 8, 0);
 
         assert_eq!(
             cursor_columns(&lines),
@@ -646,39 +695,42 @@ mod tests {
 
     #[test]
     fn the_text_cursor_on_a_wide_character_moves_with_it_to_the_next_line() {
-        let line = with_cursor("日本語", Some((0, 2))).remove(0);
         assert_eq!(
-            cursor_columns(&wrap(line, 5, 0, 1)),
+            cursor_columns(&line_with_cursor("日本語", 2, 5, 1)),
             [("日本".to_owned(), None), (" 語".to_owned(), Some(1))]
         );
 
-        let line = with_cursor("日本", Some((0, 2))).remove(0);
         assert_eq!(
-            cursor_columns(&wrap(line, 4, 0, 1)),
+            cursor_columns(&line_with_cursor("日本", 2, 4, 1)),
             [("日本".to_owned(), None), ("  ".to_owned(), Some(1))],
             "after a line full of wide characters"
         );
+    }
+
+    /// The text of the inverted span of `lines`.
+    fn under_cursor(lines: &[Line]) -> String {
+        lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .filter(|span| span.style.add_modifier.contains(Modifier::REVERSED))
+            .map(|span| span.content.as_ref())
+            .collect()
     }
 
     #[test]
     fn the_text_cursor_covers_the_whole_grapheme_its_character_is_in() {
         // ratatui-textarea moves its cursor by characters, so it can stop
         // on a combining accent or on the skin tone of an emoji.
-        let accent = with_cursor("ce\u{301}x", Some((0, 2))).remove(0);
+        let accent = line_with_cursor("ce\u{301}x", 2, 10, 0);
+        assert_eq!(under_cursor(&accent), "e\u{301}");
         assert_eq!(
-            accent.spans,
-            [
-                Span::from("c"),
-                Span::from("e\u{301}").reversed(),
-                Span::from("x")
-            ]
+            cursor_columns(&accent),
+            [("ce\u{301}x".to_owned(), Some(1))]
         );
 
-        let emoji = with_cursor("👍🏽!", Some((0, 1))).remove(0);
-        assert_eq!(
-            emoji.spans,
-            [Span::from(""), Span::from("👍🏽").reversed(), Span::from("!")]
-        );
+        let emoji = line_with_cursor("👍🏽!", 1, 10, 0);
+        assert_eq!(under_cursor(&emoji), "👍🏽");
+        assert_eq!(cursor_columns(&emoji), [("👍🏽!".to_owned(), Some(0))]);
     }
 
     // ---------------------------------------------------------------

@@ -10,6 +10,7 @@
 //! can always be scrolled into view, whatever the size of the terminal.
 
 use std::collections::HashMap;
+use std::ops::Range;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
@@ -965,106 +966,131 @@ fn review_content(state: &SessionState, width: usize) -> Content {
 // ---------------------------------------------------------------------
 
 /// Word-wraps `line` to `width` columns: the first line is indented by
-/// `first`, the following ones by `rest`. A word is a run of non-blanks
-/// with the blanks after it, whatever styles its graphemes carry, so a
-/// style change inside a word, such as the text cursor, never splits it.
-/// Every grapheme keeps its style, and a word longer than a line is broken
-/// where the line ends.
-pub(crate) fn wrap(
+/// `first`, the following ones by `rest`, as [`wrap_rows`] breaks it.
+pub(super) fn wrap(
     line: Line<'static>,
     width: usize,
     first: usize,
     rest: usize,
 ) -> Vec<Line<'static>> {
-    let mut words: Vec<Vec<Glyph>> = Vec::new();
-    for span in &line.spans {
-        let style = line.style.patch(span.style);
-        for grapheme in span.content.graphemes(true) {
-            let after_blank = words
-                .last()
-                .and_then(|word| word.last())
-                .is_none_or(Glyph::is_blank);
-            if words.is_empty() || (grapheme != " " && after_blank) {
-                words.push(Vec::new());
-            }
-            words.last_mut().expect("a word was started").push(Glyph {
-                text: grapheme,
-                style,
-                width: columns(grapheme),
-            });
+    let glyphs: Vec<Glyph> = line
+        .spans
+        .iter()
+        .flat_map(|span| {
+            let style = line.style.patch(span.style);
+            span.content
+                .graphemes(true)
+                .map(move |grapheme| Glyph::new(grapheme, style))
+        })
+        .collect();
+    wrap_rows(&glyphs, width, first, rest)
+        .into_iter()
+        .map(|(indent, row)| styled_line(indent, &glyphs[row]))
+        .collect()
+}
+
+/// Where `glyphs` break into rows of `width` columns: each row's indent
+/// and the glyphs it takes, in order, the first row indented by `first`
+/// and the following ones by `rest`. Every glyph lands on exactly one row.
+///
+/// A word is a run of non-blanks with the blanks after it, whatever
+/// styles its glyphs carry, so a style change inside a word, such as the
+/// text cursor, never splits it. A word longer than a row is broken where
+/// the row ends.
+pub(crate) fn wrap_rows(
+    glyphs: &[Glyph],
+    width: usize,
+    first: usize,
+    rest: usize,
+) -> Vec<(usize, Range<usize>)> {
+    let mut words: Vec<Range<usize>> = Vec::new();
+    for (index, glyph) in glyphs.iter().enumerate() {
+        let after_blank = words
+            .last()
+            .is_none_or(|word| glyphs[word.end - 1].is_blank());
+        if words.is_empty() || (!glyph.is_blank() && after_blank) {
+            words.push(index..index);
         }
+        words.last_mut().expect("a word was started").end = index + 1;
     }
 
     let mut wrapped = Wrapped {
-        lines: vec![(first, Vec::new())],
+        rows: vec![(first, 0..0)],
         used: first,
         rest,
     };
     for word in words {
-        let blanks = word
+        let blanks = glyphs[word.clone()]
             .iter()
             .rev()
             .take_while(|glyph| glyph.is_blank())
             .count();
-        let (mut body, blanks) = word.split_at(word.len() - blanks);
+        let mut body = word.start..word.end - blanks;
         while !body.is_empty() {
-            let indent = if wrapped.lines.len() == 1 {
-                first
-            } else {
-                rest
-            };
-            if wrapped.used + Glyph::columns(body) <= width {
-                wrapped.push(body);
+            let indent = if wrapped.rows.len() == 1 { first } else { rest };
+            if wrapped.used + Glyph::columns(&glyphs[body.clone()]) <= width {
+                wrapped.push(glyphs, body.end);
                 break;
             }
             if wrapped.used > indent {
-                wrapped.break_line();
+                wrapped.break_row();
                 continue;
             }
-            // A word longer than a whole line: break it where the line
-            // ends. A wide character that would cross the end starts the
-            // next line whole, and every line takes at least one grapheme,
-            // so one wider than the whole line still makes progress.
+            // A word longer than a whole row: break it where the row ends.
+            // A wide character that would cross the end starts the next
+            // row whole, and every row takes at least one grapheme, so one
+            // wider than the whole row still makes progress.
             let mut used = wrapped.used;
-            let fits = body
+            let fits = glyphs[body.clone()]
                 .iter()
                 .take_while(|glyph| {
                     used += glyph.width;
                     used <= width
                 })
                 .count();
-            let (head, tail) = body.split_at(fits.max(1));
-            wrapped.push(head);
-            if !tail.is_empty() {
-                wrapped.break_line();
+            let split = body.start + fits.max(1);
+            wrapped.push(glyphs, split);
+            if split < body.end {
+                wrapped.break_row();
             }
-            body = tail;
+            body = split..body.end;
         }
-        // Blanks may hang past the end of a line, so the next line does not
+        // Blanks may hang past the end of a row, so the next row does not
         // start with them. A reversed blank is the exception, since it is
-        // visible: the text cursor's cell (`with_cursor`) or part of a
-        // highlighted head. It starts the next line when this one is full.
-        for blank in blanks {
-            let visible = blank.style.add_modifier.contains(Modifier::REVERSED);
+        // visible: the text cursor's cell or part of a highlighted head. It
+        // starts the next row when this one is full.
+        for blank in word.end - blanks..word.end {
+            let visible = glyphs[blank]
+                .style
+                .add_modifier
+                .contains(Modifier::REVERSED);
             if visible && wrapped.used >= width {
-                wrapped.break_line();
+                wrapped.break_row();
             }
-            wrapped.push(std::slice::from_ref(blank));
+            wrapped.push(glyphs, blank + 1);
         }
     }
-    wrapped.into_lines()
+    wrapped.rows
 }
 
-/// One grapheme of the line `wrap` breaks, with its style and the columns
-/// it takes.
-#[derive(Clone, Copy)]
-struct Glyph<'a> {
-    text: &'a str,
-    style: Style,
-    width: usize,
+/// One grapheme of a line to wrap, with its style and the columns it
+/// takes.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Glyph<'a> {
+    pub(crate) text: &'a str,
+    pub(crate) style: Style,
+    pub(crate) width: usize,
 }
 
-impl Glyph<'_> {
+impl<'a> Glyph<'a> {
+    pub(crate) fn new(text: &'a str, style: Style) -> Self {
+        Glyph {
+            text,
+            style,
+            width: columns(text),
+        }
+    }
+
     fn is_blank(&self) -> bool {
         self.text == " "
     }
@@ -1075,48 +1101,45 @@ impl Glyph<'_> {
     }
 }
 
-/// The lines `wrap` builds: each one's indent and its styled graphemes.
-struct Wrapped<'a> {
-    lines: Vec<(usize, Vec<Glyph<'a>>)>,
-    /// The columns taken on the last line, its indent included.
+/// The rows `wrap_rows` builds: each one's indent and its glyphs.
+struct Wrapped {
+    rows: Vec<(usize, Range<usize>)>,
+    /// The columns taken on the last row, its indent included.
     used: usize,
     rest: usize,
 }
 
-impl<'a> Wrapped<'a> {
-    fn push(&mut self, glyphs: &[Glyph<'a>]) {
-        let (_, line) = self.lines.last_mut().expect("there is always a line");
-        line.extend_from_slice(glyphs);
-        self.used += Glyph::columns(glyphs);
+impl Wrapped {
+    /// Extends the last row up to glyph `end`.
+    fn push(&mut self, glyphs: &[Glyph], end: usize) {
+        let (_, row) = self.rows.last_mut().expect("there is always a row");
+        self.used += Glyph::columns(&glyphs[row.end..end]);
+        row.end = end;
     }
 
-    fn break_line(&mut self) {
-        self.lines.push((self.rest, Vec::new()));
+    fn break_row(&mut self) {
+        let end = self.rows.last().expect("there is always a row").1.end;
+        self.rows.push((self.rest, end..end));
         self.used = self.rest;
     }
+}
 
-    /// The lines as spans: the indent first, as a span of its own that
-    /// `ending_in` keeps, then one span per run of a style.
-    fn into_lines(self) -> Vec<Line<'static>> {
-        self.lines
-            .into_iter()
-            .map(|(indent, glyphs)| {
-                let mut runs: Vec<(String, Style)> = Vec::new();
-                for glyph in glyphs {
-                    match runs.last_mut() {
-                        Some((text, style)) if *style == glyph.style => text.push_str(glyph.text),
-                        _ => runs.push((glyph.text.to_owned(), glyph.style)),
-                    }
-                }
-                let mut spans = vec![Span::from(" ".repeat(indent))];
-                spans.extend(
-                    runs.into_iter()
-                        .map(|(text, style)| Span::styled(text, style)),
-                );
-                Line::from(spans)
-            })
-            .collect()
+/// A row of `glyphs` behind `indent` blanks: the indent as a span of its
+/// own, which `ending_in` keeps, then one span per run of a style.
+pub(crate) fn styled_line(indent: usize, glyphs: &[Glyph]) -> Line<'static> {
+    let mut runs: Vec<(String, Style)> = Vec::new();
+    for glyph in glyphs {
+        match runs.last_mut() {
+            Some((text, style)) if *style == glyph.style => text.push_str(glyph.text),
+            _ => runs.push((glyph.text.to_owned(), glyph.style)),
+        }
     }
+    let mut spans = vec![Span::from(" ".repeat(indent))];
+    spans.extend(
+        runs.into_iter()
+            .map(|(text, style)| Span::styled(text, style)),
+    );
+    Line::from(spans)
 }
 
 // ---------------------------------------------------------------------
