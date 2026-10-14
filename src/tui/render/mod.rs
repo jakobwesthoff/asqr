@@ -18,7 +18,7 @@ mod source_line;
 mod text;
 mod viewer;
 
-pub use images::may_query_protocol;
+pub use images::{TerminalNames, may_query_protocol};
 pub use panes::PaneLayout;
 pub(crate) use screen::{Glyph, styled_line, wrap_rows};
 pub use screen::{MIN_HEIGHT, MIN_WIDTH, View, draw};

@@ -13,7 +13,7 @@ use std::sync::mpsc;
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
-use asqr::tui::render::{View, may_query_protocol};
+use asqr::tui::render::{TerminalNames, View, may_query_protocol};
 use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -63,13 +63,20 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // The protocol query reads the terminal's answers from stdin, so it
     // runs before the thread that reads key events starts.
     let tmux = std::env::var("TMUX").ok();
-    let picker = if may_query_protocol(tmux.as_deref(), tmux_state) {
+    let term = std::env::var("TERM").ok();
+    let term_program = std::env::var("TERM_PROGRAM").ok();
+    let names = TerminalNames {
+        tmux: tmux.as_deref(),
+        term: term.as_deref(),
+        term_program: term_program.as_deref(),
+    };
+    let picker = if may_query_protocol(&names, tmux_state) {
         Picker::from_query_stdio().unwrap_or_else(|error| {
             tracing::info!(%error, "no graphics protocol detected; using half blocks");
             Picker::halfblocks()
         })
     } else {
-        tracing::info!("tmux cannot forward the graphics query; using half blocks");
+        tracing::info!("tmux or screen cannot forward the graphics query; using half blocks");
         Picker::halfblocks()
     };
     // Images are sized with this cell size for the whole run, so a report
@@ -124,7 +131,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     let mut host = TerminalHost {
         alerts: watch.alerts(),
         terminal: AlertTerminal {
-            term: std::env::var("TERM").ok(),
+            term,
             tmux: tmux.is_some_and(|tmux| !tmux.is_empty()),
         },
     };
@@ -272,22 +279,12 @@ mod tests {
         assert!(RESTORED.get());
     }
 
-    struct BrokenTerminal;
-
-    impl Write for BrokenTerminal {
-        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-            Err(io::Error::other("the terminal is gone"))
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::Error::other("the terminal is gone"))
-        }
-    }
-
     #[test]
     fn a_terminal_that_refuses_the_sequences_is_still_restored() {
+        // A full buffer fails every write with `WriteZero`.
+        let mut full: [u8; 0] = [];
         drop(TerminalGuard {
-            out: BrokenTerminal,
+            out: &mut full[..],
             restore: note_restore,
         });
         assert!(RESTORED.get());

@@ -1076,7 +1076,11 @@ Inside
 tmux, asqr asks tmux whether passthrough
 is on for its pane and whether a client is attached, and queries the
 terminal only when both hold: otherwise the query gets no answer, and
-its reader would go on taking the keys typed afterwards. Notifications
+its reader would go on taking the keys typed afterwards. Without
+`TMUX`, asqr does not query either when `TERM` starts with `tmux` or
+`screen` or `TERM_PROGRAM` is `tmux`, as in GNU screen or after ssh
+from a tmux pane: it cannot ask that tmux or screen whether an answer
+would come, and images show as blocks. Notifications
 inside tmux go out in tmux's passthrough wrapper.
 
 ## 8. The command line

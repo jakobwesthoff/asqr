@@ -198,18 +198,42 @@ fn size_kitty_placement(buffer: &mut Buffer, area: Rect) {
     cell.set_symbol(&symbol);
 }
 
-/// Whether the terminal may be asked for its graphics protocol. `tmux` is
-/// the `TMUX` variable, and `tmux_state` asks tmux for
-/// `#{allow-passthrough} #{session_attached}`: the pane's passthrough
-/// option and the number of clients attached to the session.
+/// The environment variables that tell whether asqr runs inside tmux or
+/// GNU screen.
+pub struct TerminalNames<'a> {
+    /// `TMUX`, which tmux sets in its panes; empty counts as unset.
+    pub tmux: Option<&'a str>,
+    /// `TERM`.
+    pub term: Option<&'a str>,
+    /// `TERM_PROGRAM`.
+    pub term_program: Option<&'a str>,
+}
+
+/// Whether the terminal may be asked for its graphics protocol.
+/// `tmux_state` asks tmux for `#{allow-passthrough} #{session_attached}`:
+/// the pane's passthrough option and the number of clients attached to the
+/// session.
 ///
 /// Inside tmux the query only reaches a terminal through passthrough, and
 /// only while a client is attached. Without an answer the query's reader
 /// goes on taking the keys the person types, so the query is skipped and
 /// images fall back to half blocks (spec section 7.7).
-pub fn may_query_protocol(tmux: Option<&str>, tmux_state: impl FnOnce() -> Option<String>) -> bool {
-    if tmux.is_none_or(str::is_empty) {
-        return true;
+///
+/// A `TERM` that starts with `tmux` or `screen`, or a `TERM_PROGRAM` of
+/// `tmux`, without `TMUX` means a tmux or screen that asqr cannot ask, as
+/// after ssh from a tmux pane, which carries `TERM` along but not `TMUX`.
+/// Whether the query would be answered is unknowable then, so it is
+/// skipped too.
+pub fn may_query_protocol(
+    names: &TerminalNames<'_>,
+    tmux_state: impl FnOnce() -> Option<String>,
+) -> bool {
+    if names.tmux.is_none_or(str::is_empty) {
+        let multiplexed = names
+            .term
+            .is_some_and(|term| term.starts_with("tmux") || term.starts_with("screen"))
+            || names.term_program == Some("tmux");
+        return !multiplexed;
     }
     let Some(state) = tmux_state() else {
         return false;
@@ -311,32 +335,78 @@ mod tests {
         assert_eq!(refused(path.to_str().expect("a UTF-8 path")), None);
     }
 
+    /// `TERM` and `TERM_PROGRAM` of a terminal that is not tmux or screen.
+    const PLAIN: (Option<&str>, Option<&str>) = (Some("xterm-ghostty"), Some("ghostty"));
+
+    fn may_query(
+        tmux: Option<&str>,
+        (term, term_program): (Option<&str>, Option<&str>),
+        tmux_state: impl FnOnce() -> Option<String>,
+    ) -> bool {
+        may_query_protocol(
+            &TerminalNames {
+                tmux,
+                term,
+                term_program,
+            },
+            tmux_state,
+        )
+    }
+
     #[test]
     fn outside_tmux_the_terminal_is_asked() {
-        assert!(may_query_protocol(None, || unreachable!(
+        assert!(may_query(None, PLAIN, || unreachable!(
             "not asked outside tmux"
         )));
-        assert!(may_query_protocol(Some(""), || unreachable!(
+        assert!(may_query(Some(""), PLAIN, || unreachable!(
             "an empty TMUX is unset"
+        )));
+        assert!(may_query(None, (None, None), || unreachable!(
+            "not asked outside tmux"
         )));
     }
 
     #[test]
+    fn a_tmux_or_screen_without_its_variable_is_not_asked() {
+        let unknowable = || unreachable!("tmux cannot be asked without TMUX");
+        // ssh from a tmux pane carries TERM along, but not TMUX.
+        assert!(!may_query(None, (Some("tmux-256color"), None), unknowable));
+        assert!(!may_query(Some(""), (Some("tmux"), None), unknowable));
+        assert!(!may_query(
+            None,
+            (Some("xterm-256color"), Some("tmux")),
+            unknowable
+        ));
+        // GNU screen sets STY, not TMUX, and forwards no graphics query.
+        assert!(!may_query(
+            None,
+            (Some("screen.xterm-256color"), None),
+            unknowable
+        ));
+        assert!(!may_query(None, (Some("screen"), Some("")), unknowable));
+    }
+
+    #[test]
     fn inside_tmux_only_with_passthrough_and_a_client() {
-        assert!(may_query_protocol(TMUX, || Some("on 1\n".into())));
-        assert!(may_query_protocol(TMUX, || Some("all 2".into())));
-        assert!(!may_query_protocol(TMUX, || Some("off 1\n".into())));
+        let tmux_term = (Some("tmux-256color"), Some("tmux"));
+        assert!(may_query(TMUX, tmux_term, || Some("on 1\n".into())));
+        assert!(may_query(TMUX, tmux_term, || Some("all 2".into())));
+        assert!(!may_query(TMUX, tmux_term, || Some("off 1\n".into())));
         assert!(
-            !may_query_protocol(TMUX, || Some("on 0\n".into())),
+            !may_query(TMUX, tmux_term, || Some("on 0\n".into())),
             "detached"
+        );
+        assert!(
+            may_query(TMUX, PLAIN, || Some("on 1\n".into())),
+            "TMUX decides, whatever TERM says"
         );
     }
 
     #[test]
     fn inside_tmux_anything_unexpected_counts_as_no() {
-        assert!(!may_query_protocol(TMUX, || None));
-        assert!(!may_query_protocol(TMUX, || Some(String::new())));
-        assert!(!may_query_protocol(TMUX, || Some("on".into())));
-        assert!(!may_query_protocol(TMUX, || Some("on many".into())));
+        assert!(!may_query(TMUX, PLAIN, || None));
+        assert!(!may_query(TMUX, PLAIN, || Some(String::new())));
+        assert!(!may_query(TMUX, PLAIN, || Some("on".into())));
+        assert!(!may_query(TMUX, PLAIN, || Some("on many".into())));
     }
 }
