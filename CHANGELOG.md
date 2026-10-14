@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renderer patine and the 8 colours of the terminal's palette, with line
   numbers in a dim gutter. The language comes from `language`,
   else from the extension or file name of `path` or `title`. Long lines
-  do not wrap; the pane scrolls sideways and a `›` marks a cut line.
+  do not wrap; the pane scrolls sideways, a `›` marks a line cut at the
+  right edge and a `‹` a line scrolled past the start of its text.
 - A Markdown entry shows rendered in patine's style and wrapped to the
   pane: headings, emphasis, inline code, lists, quotes, tables and
   highlighted code blocks. A line patine leaves wider than the pane,
@@ -30,7 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gutter, removed lines red and added lines green, and the changed words
   of a changed line marked. A diff without old text is a new file, one
   without new text a deleted one. Long lines do not wrap; the pane
-  scrolls sideways and a `›` marks a cut line. Tabs expand to stops of 4
+  scrolls sideways, and `›` and `‹` mark cut lines as in a code entry.
+  A wide character that would reach under a marker shows as blanks, so
+  the marker stays visible. Tabs expand to stops of 4
   columns, and other control characters show as their pictures, such as
   `␛`. The agent skill describes what to put into `old`, `new`, `name`
   and `title`.

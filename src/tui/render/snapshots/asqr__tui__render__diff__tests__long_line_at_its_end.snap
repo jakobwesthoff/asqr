@@ -2,5 +2,5 @@
 source: src/tui/render/diff.rs
 expression: "shown(&mut viewer, 40, 31)"
 ---
-"1   -                                   "
-"  1 + ng text a long text a long text ";"
+"1   - ‹                                 "
+"  1 + ‹g text a long text a long text ";"

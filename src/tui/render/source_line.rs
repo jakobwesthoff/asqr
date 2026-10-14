@@ -21,6 +21,9 @@ pub const TAB_STOP: usize = 4;
 /// What marks a line that goes on past the right edge.
 const CUT_MARKER: &str = "›";
 
+/// What marks a line scrolled past the start of its text.
+const LEFT_CUT_MARKER: &str = "‹";
+
 /// A line of text ready to draw: every grapheme in it takes the columns
 /// its width says, so the width measured here is the width drawn.
 pub struct SourceLine {
@@ -142,15 +145,28 @@ impl SourceLine {
     }
 
     /// Draws the columns `left..left + area.width` of the line into the
-    /// first row of `area`. A wide character that an edge cuts in two
-    /// shows as blanks in its style. When the line goes on past the right
-    /// edge, a dim `›` in the last cell says so.
+    /// first row of `area`.
+    ///
+    /// When text that is not blank lies left of `left`, a dim `‹` takes the
+    /// first cell; when the line goes on past the right edge, a dim `›`
+    /// takes the last. Each marker covers the column it sits on, so the
+    /// text runs between them, and a wide character that crosses into a
+    /// marker's cell or past an edge shows as blanks in its style. A
+    /// marker never shares its cell with the trailing half of a wide
+    /// character, where the terminal would not show it. Blanks alone
+    /// left of `left`, such as an indent, get no marker, as nothing of
+    /// the line is hidden.
     pub fn draw(&self, buf: &mut Buffer, area: Rect, left: usize) {
         let room = usize::from(area.width);
         if room == 0 {
             return;
         }
         let right = left + room;
+        let hidden_left = left > 0 && self.has_text_before(left);
+        let hidden_right = self.width > right;
+        // The columns the text itself may take, between the markers.
+        let first = left + usize::from(hidden_left);
+        let end = right - usize::from(hidden_right);
         // The cell of column `column`, which lies inside the window.
         let x_of = |column: usize| {
             area.x + u16::try_from(column - left).expect("inside the window, as wide as the area")
@@ -162,14 +178,14 @@ impl SourceLine {
                 let width = grapheme_columns(grapheme);
                 let start = column;
                 column += width;
-                if width == 0 || column <= left {
+                if width == 0 || column <= first {
                     continue;
                 }
-                if start >= right {
+                if start >= end {
                     break 'pieces;
                 }
-                if start < left || column > right {
-                    for cut in start.max(left)..column.min(right) {
+                if start < first || column > end {
+                    for cut in start.max(first)..column.min(end) {
                         buf[(x_of(cut), area.y)]
                             .set_symbol(" ")
                             .set_style(piece.style);
@@ -180,11 +196,36 @@ impl SourceLine {
             }
         }
 
-        if self.width > right {
-            let last = &mut buf[(x_of(right - 1), area.y)];
-            last.reset();
-            last.set_symbol(CUT_MARKER).set_style(Style::new().dim());
+        // In a window of a single cell both markers want it; the right one
+        // is drawn last and takes it.
+        for (shown, column, marker) in [
+            (hidden_left, left, LEFT_CUT_MARKER),
+            (hidden_right, right - 1, CUT_MARKER),
+        ] {
+            if shown {
+                let cell = &mut buf[(x_of(column), area.y)];
+                cell.reset();
+                cell.set_symbol(marker).set_style(Style::new().dim());
+            }
         }
+    }
+
+    /// Whether any grapheme other than a blank starts before column
+    /// `column`, wholly or partly hidden by a window that starts there.
+    fn has_text_before(&self, column: usize) -> bool {
+        let mut start = 0;
+        for piece in &self.pieces {
+            for grapheme in piece.text.graphemes(true) {
+                if start >= column {
+                    return false;
+                }
+                if grapheme != " " && grapheme_columns(grapheme) > 0 {
+                    return true;
+                }
+                start += grapheme_columns(grapheme);
+            }
+        }
+        false
     }
 }
 
@@ -342,28 +383,66 @@ mod tests {
         assert_eq!(row, "01234›");
         assert!(buf[(5, 0)].modifier.contains(Modifier::DIM));
 
-        assert_eq!(drawn(&line, 6, 2).0, "23456›", "scrolled on");
-        assert_eq!(drawn(&line, 6, 4).0, "456789", "the end shows whole");
-        assert_eq!(drawn(&line, 6, 7).0, "789   ");
-        assert_eq!(drawn(&line, 6, 12).0, "      ", "past the end");
+        assert_eq!(drawn(&line, 6, 4).0, "‹56789", "the end shows whole");
+    }
+
+    #[test]
+    fn a_line_scrolled_past_its_start_begins_with_a_dim_marker() {
+        let line = plain("0123456789");
+
+        let (row, buf) = drawn(&line, 6, 2);
+        assert_eq!(row, "‹3456›", "the marker hides the column at the offset");
+        assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
+
+        assert_eq!(drawn(&line, 6, 7).0, "‹89   ");
+        assert_eq!(
+            drawn(&line, 6, 12).0,
+            "‹     ",
+            "a line scrolled out of sight still has text to the left"
+        );
+        assert_eq!(
+            drawn(&plain(""), 6, 2).0,
+            "      ",
+            "an empty line has none"
+        );
+    }
+
+    #[test]
+    fn blanks_alone_left_of_the_offset_get_no_marker() {
+        let indented = SourceLine::new([("    ", Style::new()), ("x = 1", Style::new().red())]);
+
+        assert_eq!(drawn(&indented, 6, 2).0, "  x =›");
+        assert_eq!(drawn(&indented, 6, 4).0, "x = 1 ");
+        assert_eq!(drawn(&indented, 6, 5).0, "‹= 1  ", "the x is hidden");
     }
 
     #[test]
     fn a_wide_character_cut_by_an_edge_becomes_blanks_in_its_style() {
         let line = SourceLine::new([("a日本b", Style::new().red())]);
 
-        let (row, buf) = drawn(&line, 4, 2);
-        assert_eq!(row, " 本b", "the right half of 日 is a blank");
-        assert_eq!(buf[(0, 0)].fg, Color::Red);
+        let (row, buf) = drawn(&line, 5, 1);
+        assert_eq!(
+            row, "‹ 本b",
+            "the left marker hides 日's left half, its right half is a blank"
+        );
+        assert_eq!(buf[(1, 0)].fg, Color::Red);
 
-        let (row, _) = drawn(&line, 3, 0);
-        assert_eq!(row, "a日", "日 ends at the edge");
+        let (row, buf) = drawn(&line, 3, 0);
+        assert_eq!(row, "a ›", "the marker's column cuts 日");
+        assert_eq!(buf[(1, 0)].fg, Color::Red);
         let (row, _) = drawn(&line, 2, 0);
-        assert_eq!(row, "a›", "the marker takes the cut half");
+        assert_eq!(row, "a›");
+        assert_eq!(drawn(&plain("日本語"), 4, 0).0, "日 ›");
 
         let tight = SourceLine::new([("日本", Style::new())]);
         let (row, _) = drawn(&tight, 3, 1);
-        assert_eq!(row, " 本", "cut on the left, whole on the right");
+        assert_eq!(row, "‹本", "the marker takes the cut half of 日");
+    }
+
+    #[test]
+    fn a_single_column_shows_the_right_marker_over_the_left_one() {
+        assert_eq!(drawn(&plain("0123"), 1, 1).0, "›");
+        assert_eq!(drawn(&plain("0123"), 1, 3).0, "‹");
     }
 
     /// The text of each row `line` wraps into.

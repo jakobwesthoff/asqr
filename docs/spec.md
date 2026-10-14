@@ -926,7 +926,10 @@ Diffs (ADR 33):
   the added line would look the same otherwise.
 - Lines do not wrap. A line wider than the pane ends in a dim `›`, and
   the pane scrolls sideways (section 7.2) while the gutter and the sign
-  stay in place.
+  stay in place. Scrolled sideways, a line whose hidden start holds
+  more than blanks begins with a dim `‹`. Each marker takes a column of
+  the line, and a wide character that would cross into it shows as
+  blanks.
 - Tabs expand to the next stop of 4 columns, counted from the start of
   the line. Any other control character shows as its picture from
   Unicode's Control Pictures block, such as `␛` for escape; the C1
@@ -953,8 +956,8 @@ Code and Markdown (ADR 34):
   source.
 - A dim gutter holds each line's number. Lines do not wrap: a line wider
   than the pane ends in a dim `›`, and the pane scrolls sideways while
-  the gutter stays in place. Tabs and control characters show as in a
-  diff.
+  the gutter stays in place. The `‹` of a scrolled line, tabs and
+  control characters show as in a diff.
 - A Markdown entry shows rendered in patine's style, wrapped at the
   pane's width, without a gutter and without sideways scrolling:
   headings bold (level one also italic and underlined, level two

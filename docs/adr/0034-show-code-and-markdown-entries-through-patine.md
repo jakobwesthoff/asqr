@@ -39,7 +39,7 @@ Taken with the user (plan, *Viewers*, and the step's todo):
   any of them the text stays plain. A dim gutter holds each line's
   number. Lines go through `SourceLine` (ADR 33): tabs to stops of 4,
   control characters as their pictures, widths in columns, a dim `›` at
-  a cut. Lines do not wrap. The viewer reports the width of its widest
+  a cut and a dim `‹` where scrolling hides text. Lines do not wrap. The viewer reports the width of its widest
   line, so the pane scrolls sideways, and the gutter stays in place
   while it does.
 - **Markdown:** rendered by patine for the body's width in `lay_out`,

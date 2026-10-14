@@ -92,9 +92,13 @@ viewer that shows lines of source:
   out of the cells it draws, which would put a line's measured width
   out of step with what shows, and an escape that reached the terminal
   could change the screen.
-- **Cut lines:** a wide character cut by either edge of the visible
-  columns shows as blanks in its style, and a line that goes on past the
-  right edge ends in a dim `›`.
+- **Cut lines:** a line that goes on past the right edge ends in a dim
+  `›`, and a line scrolled sideways past text that is not blank starts
+  with a dim `‹`, so the person sees which lines have more on either
+  side. Blanks alone, such as an indent, get no `‹`. Each marker takes
+  the column it sits on, and a wide character that would cross into a
+  marker's cell or past an edge shows as blanks in its style. A marker
+  written into the trailing half of a wide character would not show.
 - One module, `src/tui/render/source_line.rs`, does all three, so the
   text viewer takes it over unchanged.
 
