@@ -33,10 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without new text a deleted one. Long lines do not wrap; the pane
   scrolls sideways, and `›` and `‹` mark cut lines as in a code entry.
   A wide character that would reach under a marker shows as blanks, so
-  the marker stays visible. Tabs expand to stops of 4
-  columns, and other control characters show as their pictures, such as
-  `␛`. The agent skill describes what to put into `old`, `new`, `name`
-  and `title`.
+  the marker stays visible. Lines compare without their line ends, and
+  a dim "line endings differ" says when the two sides use different
+  ones, such as `\r\n` and `\n`. Tabs expand to stops of 4 columns, and
+  other control characters show as their pictures, such as `␛`. The
+  agent skill describes what to put into `old`, `new`, `name` and
+  `title`.
 - An image entry takes `"enlarge": false` to keep the image at its
   natural size where it fits, in the pane and full screen, instead of
   scaling it up to fill the space. A larger image still shrinks. The

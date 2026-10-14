@@ -65,6 +65,13 @@ Agent's choices within that design:
   the removed and the added line look the same and need the note.
   When both sides lack it, the note would only repeat on every diff of
   inline text, which agents often write without a final newline.
+- **Line ends:** both sides have `\r\n` and a lone `\r` turned into `\n`
+  before they are compared, for the check for equal sides as well as
+  for the diff. Otherwise a file saved on Windows, diffed against its
+  Unix copy, shows every line removed and added again with the same
+  text, and nothing says why. A dim "line endings differ" says it
+  instead, once: above the hunks, or below "no changes". A side of a
+  single line without a line end has no line ends to differ in.
 - **Histogram:** the diff uses `similar`'s Histogram algorithm, git's
   algorithm of that name, which anchors on lines that occur rarely,
   such as a function's signature, rather than on blank lines and lone

@@ -5,6 +5,7 @@
 //! The viewer of diff entries (spec section 7.7, ADR 33): the change from
 //! the old to the new text as a unified diff, which asqr computes itself.
 
+use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
@@ -133,14 +134,35 @@ impl Rows {
             _ => None,
         };
         rows.extend(created_or_deleted.map(Row::Note));
-        let (old, new) = (old.unwrap_or_default(), new.unwrap_or_default());
+        // Lines compare without their line ends, so a file saved on
+        // Windows does not show every line as removed and added again with
+        // the same text. One note says the ends differ, as nothing else
+        // would show it.
+        let endings_differ = match (old, new) {
+            (Some(old), Some(new)) => {
+                let (old, new) = (LineEnds::of(old), LineEnds::of(new));
+                old != new && old != LineEnds::NONE && new != LineEnds::NONE
+            }
+            _ => false,
+        };
+        let (old, new) = (
+            unix_line_ends(old.unwrap_or_default()),
+            unix_line_ends(new.unwrap_or_default()),
+        );
+        let (old, new) = (old.as_ref(), new.as_ref());
         if old == new {
             rows.push(Row::Note(if created_or_deleted.is_some() {
                 "empty file"
             } else {
                 "no changes"
             }));
+            if endings_differ {
+                rows.push(Row::Note(ENDINGS_DIFFER));
+            }
             return Rows { rows, digits: 0 };
+        }
+        if endings_differ {
+            rows.push(Row::Note(ENDINGS_DIFFER));
         }
 
         let deadline = Instant::now() + DIFF_TIME;
@@ -261,11 +283,9 @@ fn line_row(change: &InlineChange<'_, str>) -> Row {
         .iter()
         .enumerate()
         .map(|(index, (emphasised, value))| {
-            // The line break belongs to the last piece; `\r\n` counts whole.
+            // The line break belongs to the last piece.
             let value = if index == last {
-                value
-                    .strip_suffix('\n')
-                    .map_or(*value, |value| value.strip_suffix('\r').unwrap_or(value))
+                value.strip_suffix('\n').unwrap_or(value)
             } else {
                 value
             };
@@ -276,6 +296,56 @@ fn line_row(change: &InlineChange<'_, str>) -> Row {
         old: change.old_index().map(|index| index + 1),
         new: change.new_index().map(|index| index + 1),
         text: SourceLine::new(pieces),
+    }
+}
+
+/// The note shown when the two sides end their lines differently.
+const ENDINGS_DIFFER: &str = "line endings differ";
+
+/// Which line ends a text uses: `\n` as on Unix, `\r\n` as on Windows, and
+/// a lone `\r` as on classic Mac OS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LineEnds {
+    unix: bool,
+    windows: bool,
+    mac: bool,
+}
+
+impl LineEnds {
+    /// A text of a single line without a line end, which can agree with
+    /// any other.
+    const NONE: LineEnds = LineEnds {
+        unix: false,
+        windows: false,
+        mac: false,
+    };
+
+    fn of(text: &str) -> LineEnds {
+        let mut ends = LineEnds::NONE;
+        let mut bytes = text.bytes().peekable();
+        while let Some(byte) = bytes.next() {
+            match byte {
+                b'\r' if bytes.peek() == Some(&b'\n') => {
+                    bytes.next();
+                    ends.windows = true;
+                }
+                b'\r' => ends.mac = true,
+                b'\n' => ends.unix = true,
+                _ => {}
+            }
+        }
+        ends
+    }
+}
+
+/// `text` with every `\r\n` and every lone `\r` turned into `\n`. A lone
+/// `\r` counts as a line end, so a file with classic Mac OS line ends
+/// shows its lines rather than one line with a `␍` between them.
+fn unix_line_ends(text: &str) -> Cow<'_, str> {
+    if text.contains('\r') {
+        Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        Cow::Borrowed(text)
     }
 }
 
@@ -627,10 +697,72 @@ impl Fetcher {
     fn windows_line_ends_do_not_show() {
         let mut viewer = inline(Some("a\r\nb\r\n"), Some("a\r\nc\r\n"));
 
+        assert_eq!(
+            shown(&mut viewer, 20, 0),
+            "\"1 1   a             \"\n\"2   - b             \"\n\"  2 + c             \"",
+            "the same line ends on both sides need no note"
+        );
+    }
+
+    #[test]
+    fn sides_that_differ_only_in_their_line_ends_have_no_changes() {
+        for old in ["a\r\nb\r\n", "a\rb\r", "a\r\nb\n"] {
+            let mut viewer = inline(Some(old), Some("a\nb\n"));
+
+            let buf = drawn(&mut viewer, 30, 2, Offset::default());
+
+            assert_eq!(row(&buf, 0), "no changes", "{old:?}");
+            assert_eq!(row(&buf, 1), "line endings differ", "{old:?}");
+            assert_eq!(with_modifier(&buf, 1, Modifier::DIM), "line endings differ");
+        }
+    }
+
+    #[test]
+    fn a_change_between_line_ends_of_two_kinds_shows_as_one_note_above_the_hunks() {
+        let mut viewer = inline(Some("a\r\nb\r\nc\r\n"), Some("a\nB\nc\n"));
+
+        assert_eq!(
+            shown(&mut viewer, 22, 0),
+            [
+                "\"line endings differ   \"",
+                "\"1 1   a               \"",
+                "\"2   - b               \"",
+                "\"  2 + B               \"",
+                "\"3 3   c               \"",
+            ]
+            .join("\n")
+        );
+    }
+
+    #[test]
+    fn a_lone_carriage_return_ends_a_line() {
+        let mut viewer = inline(Some("one\rtwo\r"), Some("one\rthree\r"));
+
         let buf = drawn(&mut viewer, 20, 3, Offset::default());
 
-        assert_eq!(row(&buf, 1), "2   - b");
-        assert_eq!(row(&buf, 2), "  2 + c");
+        assert_eq!(row(&buf, 0), "1 1   one");
+        assert_eq!(row(&buf, 1), "2   - two");
+        assert_eq!(row(&buf, 2), "  2 + three");
+    }
+
+    #[test]
+    fn a_side_without_any_line_end_differs_in_no_line_ends() {
+        let mut viewer = inline(Some("one"), Some("one\r\n"));
+
+        let text = shown(&mut viewer, 30, 0);
+
+        assert!(!text.contains("line endings"), "{text}");
+        assert!(text.contains("no newline at end of file"), "{text}");
+    }
+
+    #[test]
+    fn a_new_file_with_windows_line_ends_has_no_note_about_them() {
+        let mut viewer = inline(None, Some("a\r\n"));
+
+        assert_eq!(
+            shown(&mut viewer, 12, 0),
+            "\"new file    \"\n\"  1 + a     \""
+        );
     }
 
     // -----------------------------------------------------------------
