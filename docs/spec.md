@@ -711,7 +711,10 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
 - A field or a note taller than the question's area keeps its text
   cursor in view instead of showing its start: the cursor's line stays
   on the area's last row while the field's start lies further up, so
-  `↑` scrolls back to the start row by row.
+  `↑` scrolls back to the start row by row. On the text's last line, the
+  counter of a field with a length takes the area's last row and the
+  cursor's line the row above it; where the area has no room for both,
+  the cursor's line shows.
 - With nothing waiting, the screen says "Nothing to answer. New sessions
   show up here as soon as they arrive." Notices still show.
 

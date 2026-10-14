@@ -304,9 +304,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selected text that asqr did not show, and the next typed key, paste
   or delete replaced it.
 - A field or a note taller than the question's area keeps its text
-  cursor in view. Before, the question showed the field's start, and
-  the cursor of a long `text` answer could stay below the screen while
-  the person typed.
+  cursor in view, and on the text's last line the length counter below
+  it too. Before, the question showed the field's start, and the cursor
+  of a long `text` answer could stay below the screen while the person
+  typed.
 
 ## [0.10.1] - 2026-10-14
 

@@ -343,10 +343,11 @@ impl TextField {
     }
 
     /// Where the text cursor shows among the lines [`Self::lines`] draws
-    /// as `shape` says: the line, and the columns its cell takes, two for a
-    /// wide character. The screen keeps that cell in view and clear of its
-    /// markers (spec section 7.1).
-    pub fn cursor_cell(&self, shape: &FieldShape) -> (usize, Range<usize>) {
+    /// as `shape` says: the line, the columns its cell takes, two for a
+    /// wide character, and whether the line is the last of the text. The
+    /// screen keeps that cell in view and clear of its markers, and on the
+    /// last line the counter below it too (spec section 7.1).
+    pub fn cursor_cell(&self, shape: &FieldShape) -> (usize, Range<usize>, bool) {
         let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
         let cursor = self.cursor();
         let rows = layout(&shape.head, &lines, Some(cursor), false, shape.width);
@@ -368,7 +369,7 @@ impl TextField {
             .expect("the row holds the text cursor")
             .0
             .width;
-        (line, column..column + width)
+        (line, column..column + width, line + 1 == rows.len())
     }
 }
 

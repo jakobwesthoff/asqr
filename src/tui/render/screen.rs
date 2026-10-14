@@ -601,6 +601,9 @@ struct TextCursor {
     columns: Range<usize>,
     /// Whether it is drawn; it hides while the context pane has the keys.
     shown: bool,
+    /// Whether it is on the last line of the field's text, the line before
+    /// the counter of a field with a length.
+    last_line: bool,
 }
 
 impl Content {
@@ -664,14 +667,19 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
     // Scroll so the whole current row is visible. A row taller than the
     // area shows its start, unless it holds the text cursor: then the
     // cursor's line stays in view, on the area's last row while the start
-    // of the row is further up, so `↑` scrolls back to it row by row.
+    // of the row is further up, so `↑` scrolls back to it row by row. On
+    // the text's last line, the row's end, a counter under it included,
+    // takes the area's last row instead, so the length shows while the
+    // person types at the end; the cursor wins where both do not fit.
     let height = text_area.height as usize;
     let (start, end) = content.cursor;
     let scroll = match &content.text_cursor {
-        Some(cursor) if end - start >= height => cursor
-            .line
-            .saturating_sub(height.saturating_sub(1))
-            .max(start),
+        Some(cursor) if end - start >= height => {
+            let kept = if cursor.last_line { end } else { cursor.line };
+            kept.saturating_sub(height.saturating_sub(1))
+                .max(start)
+                .min(cursor.line)
+        }
         _ => end.saturating_sub(height.saturating_sub(1)).min(start),
     };
     let total = content.lines.len();
@@ -1013,11 +1021,12 @@ fn live_field(
 
 /// Where `field`'s text cursor shows among its lines drawn as `shape`.
 fn field_cursor(field: &TextField, shape: &FieldShape, shown: bool) -> TextCursor {
-    let (line, columns) = field.cursor_cell(shape);
+    let (line, columns, last_line) = field.cursor_cell(shape);
     TextCursor {
         line,
         columns,
         shown,
+        last_line,
     }
 }
 
@@ -3844,14 +3853,15 @@ mod tests {
         let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
         type_lines(&mut app, &mut view, 80, 24, 30);
 
+        // On the last line, the counter takes the area's last row.
         let backend = drawn(&mut app, &mut view, 80, 24);
         let rows = visible_rows(&backend);
         assert_eq!(
             cursor_cells(&backend),
-            [(12, 12, " ".to_owned())],
+            [(12, 11, " ".to_owned())],
             "{backend}"
         );
-        assert!(rows[12].starts_with("     line 30"), "{backend}");
+        assert!(rows[11].starts_with("     line 30"), "{backend}");
         assert!(rows[4].contains("↑ more"), "{backend}");
 
         // `↑` keeps the cursor on the last row while the view scrolls up,
@@ -3903,6 +3913,32 @@ mod tests {
     }
 
     #[test]
+    fn typing_at_the_end_of_a_tall_field_keeps_its_counter_in_view() {
+        let mut own = own_and_note("q");
+        own["custom"] = serde_json::json!({"length": {"warn": 500}});
+        for (name, question, start) in [("text answer", typed("t"), ""), ("own answer", own, "jj")]
+        {
+            let mut app = app(&[("shape", &shaped(&[question]))]);
+            let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
+            keys(&mut app, start);
+            type_lines(&mut app, &mut view, 80, 24, 30);
+
+            // The question's area takes rows 4 to 12; the counter takes the
+            // last of them, and the cursor stays on the row above.
+            let backend = drawn(&mut app, &mut view, 80, 24);
+            let rows = visible_rows(&backend);
+            let cursor = cursor_cells(&backend);
+            assert_eq!(cursor.len(), 1, "{name}:\n{backend}");
+            assert_eq!(cursor[0].1, 11, "{name}:\n{backend}");
+            assert!(rows[11].contains("line 30"), "{name}:\n{backend}");
+            // The notes below are cut off, and the marker keeps clear of the
+            // counter at the row's right end.
+            assert!(rows[12].trim_end().ends_with("/500"), "{name}:\n{backend}");
+            assert!(rows[12].contains("↓ more"), "{name}:\n{backend}");
+        }
+    }
+
+    #[test]
     fn a_text_answer_of_twelve_lines_keeps_the_cursor_on_a_small_screen() {
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
         let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks());
@@ -3930,8 +3966,15 @@ mod tests {
         type_lines(&mut app, &mut view, 80, 24, 29);
         ctrl_j(&mut app);
         keys(&mut app, &full);
+        // A line after the full one keeps the counter out of the way: on
+        // the text's last line the area's last row would hold the counter.
+        ctrl_j(&mut app);
+        keys(&mut app, "end");
+        drawn(&mut app, &mut view, 80, 24);
+        special(&mut app, KeyCode::Up);
+        special(&mut app, KeyCode::End);
 
-        // The cursor's blank after the last line shows on a row of its own
+        // The cursor's blank after the full line shows on a row of its own
         // at the bottom, where `↓ more` takes the blank right end.
         let backend = drawn(&mut app, &mut view, 80, 24);
         assert_eq!(
