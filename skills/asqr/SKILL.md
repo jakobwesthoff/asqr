@@ -97,6 +97,13 @@ Once asked, asqr fits best when:
   as quotes, headings, links and code blocks, shows as its literal
   source, `> ` and `#` included. To set a line apart, put a bold label
   on a line of its own or make it a list item.
+- `intro` shows dimmed under the title in at most three lines, one on
+  terminals under 24 rows. Anything longer is cut off with `…`, and the
+  person has no way to read the rest. Keep it to a sentence or two that
+  identifies the session, such as which round of which piece of work it
+  is. Everything the person needs to answer a question goes into that
+  question's `text`: it wraps instead of being cut, takes the Markdown
+  above, and a little context there makes the decision easier.
 - Leave the session's `id` out: `asqr ask` assigns one and prints it.
   Questions and options always need their own `id`.
 
