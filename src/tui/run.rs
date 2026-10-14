@@ -24,6 +24,9 @@ use crate::queue::QueueLocation;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     Key(KeyEvent),
+    /// Text the person pasted, which a terminal with bracketed paste sends
+    /// as a whole rather than as keys.
+    Paste(String),
     /// The terminal changed its size; the next draw adapts.
     Resize,
     /// Something changed in the inbox.
@@ -77,37 +80,42 @@ where
         let Ok(event) = events.recv() else {
             return Ok(());
         };
-        match event {
+        let effect = match event {
             // Terminals that report releases and repeats (the kitty
             // keyboard protocol, Windows) would otherwise act twice.
-            Event::Key(key) if key.kind != KeyEventKind::Press => {}
-            Event::Key(key) => {
-                let effect = app.handle(key);
-                match inbox.apply(app, effect) {
-                    Applied::Continue => {}
-                    Applied::Quit => return Ok(()),
-                    Applied::OpenImage(path) => {
-                        if let Err(error) = host.open_image(&path) {
-                            app.notice(format!("cannot open {path}: {error}"));
-                        }
-                    }
-                }
-            }
-            Event::Resize => {}
+            Event::Key(key) if key.kind != KeyEventKind::Press => continue,
+            Event::Key(key) => app.handle(key),
+            Event::Paste(text) => app.paste(&text),
+            Event::Resize => continue,
             // Coming back into view is when a transfer lost in the
             // background can be repeated.
-            Event::FocusGained => view.forget_images(),
+            Event::FocusGained => {
+                view.forget_images();
+                continue;
+            }
             // The inbox coming back or not is out of asqr's hands; the
             // notice says why nothing changes, and every later change
             // tries again.
-            Event::InboxChanged => match inbox.sync(app) {
-                Ok(synced) => {
-                    if !synced.arrived.is_empty() {
-                        host.alert(&synced.arrived);
+            Event::InboxChanged => {
+                match inbox.sync(app) {
+                    Ok(synced) => {
+                        if !synced.arrived.is_empty() {
+                            host.alert(&synced.arrived);
+                        }
                     }
+                    Err(error) => app.notice(format!("cannot read the inbox: {error}")),
                 }
-                Err(error) => app.notice(format!("cannot read the inbox: {error}")),
-            },
+                continue;
+            }
+        };
+        match inbox.apply(app, effect) {
+            Applied::Continue => {}
+            Applied::Quit => return Ok(()),
+            Applied::OpenImage(path) => {
+                if let Err(error) = host.open_image(&path) {
+                    app.notice(format!("cannot open {path}: {error}"));
+                }
+            }
         }
     }
 }
@@ -321,6 +329,31 @@ mod tests {
                 .is_none(),
             "a release picks nothing"
         );
+    }
+
+    #[test]
+    fn a_pasted_line_break_in_the_session_note_submits_nothing() {
+        let mut harness = Harness::new();
+        harness.put("batch-01");
+
+        // `2` picks and moves on to the review, which opens on Submit; the
+        // session note is the row below.
+        harness
+            .run(vec![
+                key(KeyCode::Char('2')),
+                key(KeyCode::Down),
+                Event::Paste("a\nb".to_owned()),
+            ])
+            .expect("runs");
+
+        assert!(
+            !harness.location.outbox().join("batch-01.json").exists(),
+            "no result was written"
+        );
+        let draft = crate::queue::load_draft(&harness.location, "batch-01")
+            .expect("readable")
+            .expect("a draft");
+        assert_eq!(draft.note.as_deref(), Some("a b"));
     }
 
     #[test]

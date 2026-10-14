@@ -16,7 +16,8 @@ use asqr::cli::{Exit, Watch};
 use asqr::tui::render::{View, may_query_protocol};
 use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
-    self, DisableFocusChange, EnableFocusChange, Event as TerminalEvent,
+    self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
+    Event as TerminalEvent,
 };
 use ratatui::crossterm::{execute, terminal};
 use ratatui_image::picker::Picker;
@@ -80,6 +81,9 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // images again whose transfer tmux dropped while it was hidden (spec
     // section 7.7). tmux forwards them with its `focus-events` option.
     execute!(io::stdout(), EnableFocusChange).context("asking for focus reports")?;
+    // Bracketed paste sends a paste as one event, so a line break in it is
+    // no `enter` that picks, submits or rejects (spec section 7.3).
+    execute!(io::stdout(), EnableBracketedPaste).context("asking for bracketed paste")?;
 
     // The thread blocks in `read` for the life of the process; it ends
     // with it.
@@ -92,6 +96,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
                     Event::Resize
                 }
                 TerminalEvent::FocusGained => Event::FocusGained,
+                TerminalEvent::Paste(text) => Event::Paste(text),
                 _ => continue,
             };
             if sender.send(event).is_err() {
@@ -119,9 +124,13 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         &events,
         &mut host,
     );
-    // Left on, the shell would receive the reports as typed text.
+    // Left on, the shell would receive the reports as typed text, and its
+    // pastes wrapped in the markers.
     if let Err(error) = execute!(io::stdout(), DisableFocusChange) {
         tracing::warn!(%error, "could not turn focus reports off");
+    }
+    if let Err(error) = execute!(io::stdout(), DisableBracketedPaste) {
+        tracing::warn!(%error, "could not turn bracketed paste off");
     }
     ratatui::restore();
     result

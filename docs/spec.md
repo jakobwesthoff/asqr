@@ -798,6 +798,14 @@ a frame (user, 2026-09-27):
   one-line fields like the own answer and wrap the same way.
 - Every edit is saved to the draft continuously, the session note and
   the reject reason included; there is no discard.
+- Pasted text goes in at the text cursor of the focused field or note
+  as a whole. asqr asks the terminal for bracketed paste, so a line
+  break in a paste is never an `enter` that picks, submits or rejects.
+  The own answer, the session note and the reject reason, which are one
+  line, take each pasted line break as a blank; a `text` answer and a
+  question's note keep them. Where no field or note has the keys, and
+  while the context pane, the intro, the help or the session list has
+  them, a paste does nothing.
 - `tab` never types into a field: it moves the focus into the context
   pane where one shows, and does nothing otherwise. Where a pane shows,
   `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll it from inside a field;

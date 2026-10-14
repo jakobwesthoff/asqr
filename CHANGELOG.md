@@ -88,6 +88,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scroll position while the person moves between options and
   questions. The key bar and the help show the pane's keys while it has
   the focus.
+- Pasting into a field or a note inserts the text as a whole, through
+  the terminal's bracketed paste. A line break in it no longer acts as
+  `enter`, which picked an option, submitted the session from its note
+  or rejected it. The own answer, the session note and the reject
+  reason take a pasted line break as a blank; a `text` answer and a
+  note keep it.
 - `--layout auto|beside|below` and `ASQR_LAYOUT` choose where a
   question's context goes. `auto`, the default, puts it beside the
   question when the terminal's area looks landscape and below it when

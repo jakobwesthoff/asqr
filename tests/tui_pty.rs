@@ -234,6 +234,16 @@ fn answers_a_session_that_arrives_while_it_runs() {
     tui.press("y");
     tui.wait_for("Own answer: xy");
 
+    // asqr asks for bracketed paste, so a pasted line break is no enter
+    // that would pick the own answer; in this one-line field it is a
+    // blank.
+    assert!(
+        tui.output().contains("\x1b[?2004h"),
+        "bracketed paste is on"
+    );
+    tui.send("\x1b[200~ z\nw\x1b[201~");
+    tui.wait_for("Own answer: xy z w");
+
     // Pick the own answer, which moves on to the review, where the cursor
     // rests on Submit.
     tui.press("\r");
@@ -251,12 +261,16 @@ fn answers_a_session_that_arrives_while_it_runs() {
         tui.output().contains("\x1b[?1004l"),
         "focus reporting is off again"
     );
+    assert!(
+        tui.output().contains("\x1b[?2004l"),
+        "bracketed paste is off again"
+    );
     let result: SessionResult = serde_json::from_slice(
         &std::fs::read(sandbox.queue_dir().join("outbox/pty-test.json")).expect("result"),
     )
     .expect("parses");
     assert_eq!(result.status, Status::Submitted);
-    assert_eq!(result.answers[0].custom.as_deref(), Some("xy"));
+    assert_eq!(result.answers[0].custom.as_deref(), Some("xy z w"));
 }
 
 #[test]

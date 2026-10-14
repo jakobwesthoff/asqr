@@ -189,7 +189,29 @@ impl App {
                 AppEffect::None
             };
         };
-        match state.handle(key) {
+        let effect = state.handle(key);
+        self.apply(effect)
+    }
+
+    /// Text the person pasted. It goes into the active session's focused
+    /// field or note, and nowhere while the intro or the session list
+    /// shows, as they take every key.
+    pub fn paste(&mut self, text: &str) -> AppEffect {
+        self.notice = None;
+        if self.intro.is_some() || self.list.is_some() {
+            return AppEffect::None;
+        }
+        let Some(state) = self.sessions.get_mut(self.active) else {
+            return AppEffect::None;
+        };
+        let effect = state.paste(text);
+        self.apply(effect)
+    }
+
+    /// What the active session's `effect` asks of the app.
+    fn apply(&mut self, effect: Effect) -> AppEffect {
+        let state = &self.sessions[self.active];
+        match effect {
             Effect::None => AppEffect::None,
             Effect::DraftChanged => AppEffect::SaveDraft(state.to_draft()),
             Effect::Submit { answers, note } => AppEffect::Finish {
@@ -551,6 +573,38 @@ mod tests {
 
         let state = app.active().expect("active");
         assert_eq!(state.pane_offset().top, 5, "the last line is at the bottom");
+    }
+
+    #[test]
+    fn a_paste_reaches_the_field_but_not_the_intro_or_the_list() {
+        assert_eq!(App::default().paste("x"), AppEffect::None, "no session");
+
+        let mut app = App::default();
+        let text: Session = serde_json::from_str(
+            r#"{"asqr": 2, "intro": "Hello.", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+        )
+        .expect("parses");
+        app.add(SessionState::new("text", text, None));
+
+        let AppEffect::SaveDraft(draft) = app.paste("ab") else {
+            panic!("a paste into the answer saves the draft");
+        };
+        assert_eq!(draft.answers[0].custom.as_deref(), Some("ab"));
+
+        app.handle(code(KeyCode::Esc));
+        app.handle(key('i'));
+        assert_eq!(app.paste("c"), AppEffect::None, "the intro has the keys");
+        assert_eq!(app.intro_scroll(), Some(0), "and stays open");
+        app.handle(code(KeyCode::Esc));
+        app.handle(key('L'));
+        assert_eq!(app.paste("c"), AppEffect::None, "the list has the keys");
+        assert_eq!(app.list_cursor(), Some(0), "and stays open");
+        app.handle(code(KeyCode::Esc));
+
+        app.handle(code(KeyCode::Down));
+        assert!(matches!(app.paste("c"), AppEffect::SaveDraft(_)));
+        let answers = app.active().expect("active").answers();
+        assert_eq!(answers[0].custom.as_deref(), Some("abc"));
     }
 
     #[test]

@@ -887,20 +887,10 @@ impl SessionState {
             _ => {
                 // Only a text answer spans several lines; own answers, the
                 // session note and the reject reason are one line (ADR 22).
-                let row = self.current_row();
-                if !self.edit(key, row == Some(Row::Answer)) {
+                if !self.edit(key, self.current_row() == Some(Row::Answer)) {
                     return Effect::None;
                 }
-                let text = self.editor_text().unwrap_or_default();
-                match row {
-                    Some(Row::Note) => self.session_note = text,
-                    Some(Row::Reject) => self.reject_reason = text,
-                    _ => {
-                        let working = &mut self.working[self.tab];
-                        working.custom = text;
-                        working.touched = true;
-                    }
-                }
+                self.store_edit();
                 Effect::DraftChanged
             }
         }
@@ -930,14 +920,59 @@ impl SessionState {
                 if !self.edit(key, true) {
                     return Effect::None;
                 }
-                let working = &mut self.working[self.tab];
-                working.note = self
-                    .editor
-                    .as_ref()
-                    .map(|editor| editor.lines().join("\n"))
-                    .unwrap_or_default();
-                working.touched = true;
+                self.store_edit();
                 Effect::DraftChanged
+            }
+        }
+    }
+
+    /// Inserts `text` the person pasted at the text cursor of the focused
+    /// field or note (spec section 7.3). The terminal sends a paste as one
+    /// event, so a line break in it never reaches `enter`, which would
+    /// pick, submit or reject. A one-line field takes each line break as a
+    /// blank; the text answer and a question's note keep them. Without a
+    /// focused field or note, and while the pane has the keys, the paste
+    /// goes nowhere. The help shows only over the question's keys or the
+    /// pane's, so it never has a field under it.
+    pub fn paste(&mut self, text: &str) -> Effect {
+        self.message = None;
+        if self.focus == Focus::None || self.pane_focus {
+            return Effect::None;
+        }
+        // Terminals send a line break as `\r`, some as `\r\n`.
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        let multiline = self.focus == Focus::Note || self.current_row() == Some(Row::Answer);
+        let text = if multiline {
+            text
+        } else {
+            text.replace('\n', " ")
+        };
+        let editor = self
+            .editor
+            .as_mut()
+            .expect("a focused field or note always has its editor");
+        if !editor.insert_str(text) {
+            return Effect::None;
+        }
+        self.store_edit();
+        Effect::DraftChanged
+    }
+
+    /// Keeps the editor's text where the focused field or note belongs.
+    fn store_edit(&mut self) {
+        let text = self.editor_text().unwrap_or_default();
+        match (self.focus, self.current_row()) {
+            (Focus::Field, Some(Row::Note)) => self.session_note = text,
+            (Focus::Field, Some(Row::Reject)) => self.reject_reason = text,
+            (Focus::Note, _) => {
+                let working = &mut self.working[self.tab];
+                working.note = text;
+                working.touched = true;
+            }
+            _ => {
+                let working = &mut self.working[self.tab];
+                working.custom = text;
+                working.touched = true;
             }
         }
     }
@@ -2318,6 +2353,71 @@ mod tests {
         assert!(!state.pane_focused());
         press(&mut state, "j");
         assert_eq!(state.row(), 1, "keys move the cursor again");
+    }
+
+    // ---------------------------------------------------------------
+    // Pasting
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn a_paste_into_a_one_line_field_puts_blanks_for_its_line_breaks() {
+        let mut state = state();
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Left));
+
+        assert_eq!(state.paste("x\ny\r\nz\rw"), Effect::DraftChanged);
+
+        assert_eq!(state.field_text().as_deref(), Some("ax y z wb"));
+        let single = answer(&state, "single");
+        assert_eq!(single.custom.as_deref(), Some("ax y z wb"));
+        assert!(!single.defaulted, "a paste is an edit");
+    }
+
+    #[test]
+    fn a_paste_into_the_session_note_or_the_reject_reason_stays_one_line() {
+        let mut state = state();
+        review_row(&mut state, Row::Note);
+        state.paste("only if\nthe tests pass");
+        assert_eq!(state.session_note(), "only if the tests pass");
+
+        state.handle(code(KeyCode::Down));
+        state.paste("out\r\nof date");
+        assert_eq!(state.reject_reason(), "out of date");
+    }
+
+    #[test]
+    fn a_paste_into_a_text_answer_or_a_note_keeps_its_lines() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+        state.paste("one\r\ntwo\rthree");
+        assert_eq!(
+            answer(&state, "text").custom.as_deref(),
+            Some("one\ntwo\nthree")
+        );
+
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "n");
+        assert_eq!(state.paste("a\nb"), Effect::DraftChanged);
+        assert_eq!(answer(&state, "text").note.as_deref(), Some("a\nb"));
+    }
+
+    #[test]
+    fn a_paste_goes_nowhere_without_a_field_and_while_the_pane_or_help_has_the_keys() {
+        let mut state = with_pane();
+        assert_eq!(state.paste("1"), Effect::None, "no field has the keys");
+        assert_eq!(state.answers()[0].selected, Vec::<String>::new());
+
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(state.paste("c"), Effect::None, "the pane has the keys");
+        press(&mut state, "?");
+        assert_eq!(state.paste("c"), Effect::None, "the help over the pane");
+        assert!(state.help(), "a paste does not close the help");
+        state.handle(code(KeyCode::Esc));
+        state.handle(code(KeyCode::Tab));
+
+        assert_eq!(state.paste(""), Effect::None, "an empty paste");
+        assert_eq!(state.field_text().as_deref(), Some("ab"));
     }
 
     #[test]
