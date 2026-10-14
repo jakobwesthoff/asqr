@@ -11,6 +11,7 @@ mod app;
 mod inbox;
 pub mod render;
 mod run;
+mod scroll;
 mod session;
 mod watch;
 
@@ -18,5 +19,6 @@ pub use alert::*;
 pub use app::*;
 pub use inbox::*;
 pub use run::*;
+pub use scroll::{Extent, Offset, Page};
 pub use session::*;
 pub use watch::*;

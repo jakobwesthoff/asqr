@@ -20,7 +20,7 @@ use super::markdown;
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
 use crate::format::{ContextEntry, Kind, Question};
-use crate::tui::{AnswerState, App, Focus, IntroPage, Row, SessionState};
+use crate::tui::{AnswerState, App, Extent, Focus, Row, SessionState};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -69,7 +69,7 @@ pub struct View<'a> {
     /// shape. A hint leaves it as it is.
     shown: Option<Arrangement>,
     /// What the intro overlay showed in the last draw.
-    intro_page: IntroPage,
+    intro_page: Extent,
 }
 
 impl<'a> View<'a> {
@@ -78,13 +78,13 @@ impl<'a> View<'a> {
             queue,
             layout,
             shown: None,
-            intro_page: IntroPage::default(),
+            intro_page: Extent::default(),
         }
     }
 
     /// What the intro overlay showed in the last draw, for
     /// [`App::set_intro_page`]; nothing while it is closed.
-    pub fn intro_page(&self) -> IntroPage {
+    pub fn intro_page(&self) -> Extent {
         self.intro_page
     }
 }
@@ -174,11 +174,11 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
             };
             draw_intro(frame, intro, scroll, above_keys)
         }
-        _ => IntroPage::default(),
+        _ => Extent::default(),
     };
 
     let hints = match app.intro_scroll() {
-        Some(_) if view.intro_page.lines > view.intro_page.rows => vec![
+        Some(_) if view.intro_page.total > view.intro_page.shown => vec![
             ("↑/↓", "scroll"),
             ("pgup/pgdn", "page"),
             ("esc/q/i", "close"),
@@ -204,7 +204,7 @@ fn session_intro(state: &SessionState) -> Option<&str> {
 /// The whole intro in a frame over the screen, from line `scroll` on, and
 /// what of it fits. An intro longer than the frame scrolls, and the frame's
 /// bottom edge says which lines show.
-fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> IntroPage {
+fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> Extent {
     // The text keeps to the reading width, with a blank column inside each
     // border.
     let width = area.width.saturating_sub(4).min(READING_WIDTH + 4);
@@ -215,15 +215,15 @@ fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> Intr
         .collect();
     let wanted = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
     let area = center(area, width, wanted);
-    let page = IntroPage {
-        rows: usize::from(area.height.saturating_sub(2)),
-        lines: lines.len(),
+    let page = Extent {
+        shown: usize::from(area.height.saturating_sub(2)),
+        total: lines.len(),
     };
-    let scroll = scroll.min(page.lines.saturating_sub(page.rows));
+    let scroll = scroll.min(page.last_start());
 
     let mut block = Block::bordered().title(" Intro ");
-    if page.lines > page.rows {
-        let position = format!(" {}–{} of {} ", scroll + 1, scroll + page.rows, page.lines);
+    if page.total > page.shown {
+        let position = format!(" {}–{} of {} ", scroll + 1, scroll + page.shown, page.total);
         block = block.title_bottom(Line::from(position).dim().right_aligned());
     }
     frame.render_widget(Clear, area);
@@ -1416,7 +1416,7 @@ mod tests {
         keys(&mut app, "i");
         let backend = drawn(&mut app, &mut view, 60, 15);
         assert!(!backend.to_string().contains("Intro"), "{backend}");
-        assert_eq!(view.intro_page(), IntroPage::default());
+        assert_eq!(view.intro_page(), Extent::default());
     }
 
     #[test]

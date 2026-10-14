@@ -9,7 +9,8 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{Effect, SessionState};
+use super::scroll::scroll;
+use super::{Effect, Extent, Offset, Page, SessionState};
 use crate::format::{Answer, SessionResult, same_session_id};
 
 /// How a finished session ends.
@@ -37,22 +38,6 @@ pub enum AppEffect {
     OpenImage(String),
 }
 
-/// How much of the intro the overlay showed in the last draw, which is
-/// how far its keys can scroll it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct IntroPage {
-    /// The lines of the intro the overlay has room for.
-    pub rows: usize,
-    /// The lines the whole intro takes at the overlay's width.
-    pub lines: usize,
-}
-
-impl IntroPage {
-    fn last_scroll(self) -> usize {
-        self.lines.saturating_sub(self.rows)
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct App {
     sessions: Vec<SessionState>,
@@ -62,7 +47,9 @@ pub struct App {
     /// The first line of the active session's intro shown in the open
     /// intro overlay.
     intro: Option<usize>,
-    intro_page: IntroPage,
+    /// The intro's lines the overlay showed in the last draw, which is how
+    /// far its keys can scroll it.
+    intro_page: Extent,
     notice: Option<String>,
 }
 
@@ -128,34 +115,30 @@ impl App {
 
     /// Takes what the last draw of the intro overlay showed, which depends
     /// on the size of the terminal.
-    pub fn set_intro_page(&mut self, page: IntroPage) {
+    pub fn set_intro_page(&mut self, page: Extent) {
         self.intro_page = page;
     }
 
     /// A key while the intro overlay is open. It reads like a pager, so
     /// only `esc`, `q` and `i` close it and other keys do nothing: a key
     /// meant to scroll never closes it by accident.
-    fn intro_key(&mut self, key: KeyEvent, scroll: usize) -> AppEffect {
-        let page = self.intro_page;
+    fn intro_key(&mut self, key: KeyEvent, top: usize) -> AppEffect {
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
-        let scroll = match key.code {
+        match key.code {
             KeyCode::Char('c') if control => return AppEffect::Quit,
-            KeyCode::Char('u') if control => scroll.saturating_sub(page.rows),
-            KeyCode::Char('d') if control => scroll + page.rows,
-            _ if control => scroll,
-            KeyCode::Esc | KeyCode::Char('q' | 'i') => {
+            KeyCode::Esc | KeyCode::Char('q' | 'i') if !control => {
                 self.intro = None;
                 return AppEffect::None;
             }
-            KeyCode::Char('k') | KeyCode::Up => scroll.saturating_sub(1),
-            KeyCode::Char('j') | KeyCode::Down => scroll + 1,
-            KeyCode::PageUp => scroll.saturating_sub(page.rows),
-            KeyCode::PageDown => scroll + page.rows,
-            KeyCode::Char('g') | KeyCode::Home => 0,
-            KeyCode::Char('G') | KeyCode::End => page.last_scroll(),
-            _ => scroll,
+            _ => {}
+        }
+        let page = Page {
+            rows: self.intro_page,
+            columns: Extent::default(),
         };
-        self.intro = Some(scroll.min(page.last_scroll()));
+        if let Some(offset) = scroll(key, Offset { top, left: 0 }, page, true) {
+            self.intro = Some(offset.top);
+        }
         AppEffect::None
     }
 
@@ -444,7 +427,10 @@ mod tests {
         .expect("parses");
         app.add(SessionState::new("intro", session, None));
         assert_eq!(app.handle(key('i')), AppEffect::None);
-        app.set_intro_page(IntroPage { rows, lines });
+        app.set_intro_page(Extent {
+            shown: rows,
+            total: lines,
+        });
         app
     }
 
