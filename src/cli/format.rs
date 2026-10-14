@@ -37,6 +37,11 @@ impl ReadError {
                 eprintln!("error: cannot read {}: {error}", path.display());
                 Exit::Failure
             }
+            // One line per error, as validation errors are listed.
+            ReadError::Parse(ParseError::Refused(errors)) => {
+                print_errors(errors);
+                Exit::ErrorResult
+            }
             ReadError::Parse(error) => {
                 eprintln!("error: {error}");
                 Exit::ErrorResult
@@ -83,8 +88,8 @@ pub(super) fn run_validate(path: &Path) -> Exit {
 
 /// A session to start from: one question of each kind, one context entry,
 /// and a fresh ULID as the id, so it is ready for `asqr ask` once the texts
-/// are filled in. The context entry is inline text, so the skeleton names
-/// no file that could be missing.
+/// are filled in. The context entry is inline Markdown, so the skeleton
+/// names no file that could be missing.
 pub(super) fn run_new() -> Exit {
     let skeleton = serde_json::json!({
         "asqr": FORMAT_VERSION,
@@ -97,9 +102,9 @@ pub(super) fn run_new() -> Exit {
                 "kind": "single",
                 "context": [
                     {
-                        "type": "text",
+                        "type": "markdown",
                         "title": "Background",
-                        "text": "Material that helps to decide, shown next to the question. Leave context out when a question needs none."
+                        "content": "Material that helps to decide, shown next to the question. Leave context out when a question needs none."
                     }
                 ],
                 "options": [

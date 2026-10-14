@@ -109,8 +109,8 @@ fn read(side: Option<&DiffSide>) -> Result<Option<String>, Unreadable> {
     };
     // Validation lets exactly one of the two through; a side with neither
     // never reaches the pane, and would show as empty.
-    if let Some(text) = &side.text {
-        return Ok(Some(text.clone()));
+    if let Some(content) = &side.content {
+        return Ok(Some(content.clone()));
     }
     let Some(path) = &side.path else {
         return Ok(Some(String::new()));
@@ -340,7 +340,7 @@ mod tests {
         let side = |text: Option<&str>| {
             text.map(|text| DiffSide {
                 path: None,
-                text: Some(text.to_owned()),
+                content: Some(text.to_owned()),
             })
         };
         loaded(DiffEntry {
@@ -361,7 +361,7 @@ mod tests {
     fn file(path: &str) -> Option<DiffSide> {
         Some(DiffSide {
             path: Some(path.to_owned()),
-            text: None,
+            content: None,
         })
     }
 
@@ -752,17 +752,17 @@ impl Fetcher {
     }
 
     #[test]
-    fn a_side_with_neither_path_nor_text_counts_as_empty() {
+    fn a_side_with_neither_path_nor_content_counts_as_empty() {
         let empty = Some(DiffSide {
             path: None,
-            text: None,
+            content: None,
         });
 
         let mut viewer = from_files(
             empty,
             Some(DiffSide {
                 path: None,
-                text: Some("x\n".into()),
+                content: Some("x\n".into()),
             }),
         );
 
@@ -780,7 +780,7 @@ impl Fetcher {
         let mut viewer = from_files(
             Some(DiffSide {
                 path: None,
-                text: Some("x".into()),
+                content: Some("x".into()),
             }),
             file(path),
         );

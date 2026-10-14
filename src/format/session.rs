@@ -14,14 +14,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use super::{ContextEntry, FieldPath, ValidationError, version_problem};
+use super::{ContextEntry, FieldPath, Problem, ValidationError, version_problem};
 
 /// Why a file could not be read as a session.
 #[derive(Debug, Error)]
 pub enum ParseError {
-    /// The file names a format version other than this asqr's.
-    #[error("{0}")]
-    Version(ValidationError),
+    /// The file names a format version other than this asqr's, or has
+    /// entries whose `type` the parser would only report as unknown. Each
+    /// error says what to write instead.
+    #[error("{}", .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
+    Refused(Vec<ValidationError>),
 
     #[error("not a session file: {0}")]
     NotASession(serde_json::Error),
@@ -30,19 +32,53 @@ pub enum ParseError {
 /// Reads a session from `bytes`, returning the raw JSON too, which keeps
 /// the unknown fields the typed session drops.
 ///
-/// The format version is checked before the shape: a file of another
-/// version has the rules of that version, so its shape errors would only
-/// mislead, and the version error says what to do instead.
+/// Some problems are checked on the raw JSON before the shape, because
+/// the parser's message would name the wrong cause. A file of another
+/// format version has the rules of that version, so its shape errors would
+/// only mislead. An entry of `type: "text"`, written from an older skill,
+/// would only be an unknown variant, while the error here names the two
+/// types that replace it.
 pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
     let raw: Value = serde_json::from_slice(bytes).map_err(ParseError::NotASession)?;
     if let Some(problem) = raw["asqr"].as_u64().and_then(version_problem) {
-        return Err(ParseError::Version(ValidationError {
+        return Err(ParseError::Refused(vec![ValidationError {
             path: FieldPath::root("asqr"),
             problem,
-        }));
+        }]));
+    }
+    let text_entries = text_entries(&raw);
+    if !text_entries.is_empty() {
+        return Err(ParseError::Refused(text_entries));
     }
     let session = serde_json::from_value(raw.clone()).map_err(ParseError::NotASession)?;
     Ok((raw, session))
+}
+
+/// An error for every context entry of `type: "text"`, on questions and
+/// options alike.
+fn text_entries(raw: &Value) -> Vec<ValidationError> {
+    let mut found = Vec::new();
+    let mut check = |holder: &Value, path: FieldPath| {
+        let entries = holder["context"].as_array().into_iter().flatten();
+        for (index, entry) in entries.enumerate() {
+            if entry["type"] == "text" {
+                found.push(ValidationError {
+                    path: path.field("context").index(index).field("type"),
+                    problem: Problem::TextEntryType,
+                });
+            }
+        }
+    };
+    let questions = raw["questions"].as_array().into_iter().flatten();
+    for (index, question) in questions.enumerate() {
+        let path = FieldPath::root("questions").index(index);
+        check(question, path.clone());
+        let options = question["options"].as_array().into_iter().flatten();
+        for (index, option) in options.enumerate() {
+            check(option, path.field("options").index(index));
+        }
+    }
+    found
 }
 
 /// One session: a list of questions answered and submitted as a whole.
@@ -335,6 +371,25 @@ mod tests {
                 .expect_err("version 3 is refused")
                 .to_string(),
             "asqr: unsupported format version 3"
+        );
+    }
+
+    #[test]
+    fn a_text_entry_is_refused_with_the_types_that_replace_it() {
+        let error = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                "context": [{"type": "text", "text": "notes"}],
+                "options": [{"id": "a", "label": "A", "context": [{"type": "code", "content": "x"}]},
+                            {"id": "b", "label": "B", "context": [{"type": "text", "path": "/b.md"}]}]}]}"#,
+        )
+        .expect_err("text entries are refused");
+
+        let replaced = r#""text" is no entry type; use "code" for text shown as written (source, a log, a Markdown file's source) or "markdown" for Markdown to render, with "path" or "content""#;
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "questions[0].context[0].type: {replaced}; questions[0].options[1].context[0].type: {replaced}"
+            )
         );
     }
 

@@ -98,3 +98,44 @@ Agent's choices within that design:
   results instead of being shown.
 - The format carries text and diff entries before asqr can show them;
   their viewers need no further format change.
+
+## Amendment (2026-10-14, code and Markdown entries)
+
+Decided by the user before format version 2 was released, so the
+version stays 2. Two entry types, each with a viewer of its own, replace
+the `text` entry and its `render` flag (todo "Show code and Markdown
+entries in the context pane"):
+
+- **`code`:** `path` or inline `content`, an optional `language`.
+  Shown exactly as written and highlighted, like a fenced code block.
+- **`markdown`:** `path` or inline `content`. Rendered.
+- **`content`:** the inline key `text` becomes `content` in every entry,
+  the sides of a diff included.
+
+The reasons, from the same decision:
+
+- Each viewer does one job. The code viewer reads, highlights once,
+  numbers its lines, cuts long lines and scrolls sideways; the Markdown
+  viewer renders for the width and wraps. In one viewer these were two
+  paths behind a flag, with different caching.
+- No flag that only means something for one language. A `.md` file as
+  a `code` entry shows its source, which is what reviewing the Markdown
+  itself needs.
+- `text` was overloaded: the question kind `text`, the question field
+  `text` and the inline content key already used the word, so an agent
+  could easily put an explanation that belongs in the question into a
+  `text` entry. `code` matches the fenced code block agents write all
+  the time (verbatim, monospace, a language tag), which is also where
+  logs, terminal output and configuration files go. With `content`,
+  "text" and "kind" each mean one thing in the format.
+
+Agent's choices within that design:
+
+- An entry of type `text` is refused before the rest of the file is
+  parsed, as another format version is, with an error that names `code`
+  and `markdown`. The parser would only report an unknown variant.
+  Every such entry is listed.
+- The keys `text` and `render` get warnings of their own, as the
+  `image` field does, instead of the warning about an unknown field.
+- Until their viewers land, code and Markdown entries show the
+  placeholder that text entries showed.

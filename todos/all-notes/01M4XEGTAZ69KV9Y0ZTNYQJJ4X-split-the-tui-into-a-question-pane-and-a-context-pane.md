@@ -33,9 +33,10 @@ caps the question at a reading width and places the context area
 beside or below it (ADR 30), the pane step, which made that area a
 pane with a header, viewers, focus and scrolling (ADR 31), and the diff
 step, which shows diff entries as a unified diff (ADR 33). "Show code
-and Markdown entries in the context pane" comes next. It first replaces
-the `text` entry type by `code` and `markdown` in format version 2
-(user, 2026-10-14), then implements the pane's `Viewer` trait
+and Markdown entries in the context pane" comes next. Its first part
+has landed: `code` and `markdown` replace the `text` entry type in
+format version 2 (user, 2026-10-14; ADR 28, amendment). It then
+implements the pane's `Viewer` trait
 (`src/tui/render/viewer.rs`) for both in place of the placeholder viewer
 there. The code viewer draws source lines through
 `src/tui/render/source_line.rs` as the diff viewer does; both use patine
@@ -68,8 +69,7 @@ whichever lands first builds it.
   (ADR 31, `src/tui/render/context.rs`) shows a header that names the
   entry and the entry's viewer below it. Image entries show as images,
   diff entries as a unified diff (ADR 33, `src/tui/render/diff.rs`),
-  and text entries as a placeholder viewer that names them (until the
-  `code` and `markdown` types replace them). `tab` focuses the pane,
+  and code and Markdown entries as a placeholder viewer that names them. `tab` focuses the pane,
   the page keys scroll it from anywhere, and each entry keeps its scroll
   position. `o` opens the shown image in the system viewer and ignores
   the other entries; `z` shows any entry

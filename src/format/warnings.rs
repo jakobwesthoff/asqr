@@ -30,9 +30,16 @@ pub enum WarningKind {
     /// An agent working from an older skill writes it, and the generic
     /// unknown-field warning would not tell it where the image goes.
     ImageField,
+    /// A `text` key where the inline text of an entry or a diff side
+    /// goes into `content`. Written from an older skill, where the key
+    /// was `text`; the generic warning would not say where the text goes.
+    TextKey,
+    /// A `render` key on a code or Markdown entry, from an older skill
+    /// where one entry type held both and the flag picked one.
+    RenderKey,
     RelativePath,
     FileNotFound(PathBuf),
-    /// A text or diff entry above [`LARGE_ENTRY_BYTES`]. Carries its size
+    /// A code, Markdown or diff entry above [`LARGE_ENTRY_BYTES`]. Carries its size
     /// in bytes.
     LargeEntry(u64),
     /// The file exists but asqr has no decoder for it, or its header is
@@ -47,6 +54,12 @@ impl fmt::Display for Warning {
             WarningKind::UnknownField => formatter.write_str("unknown field"),
             WarningKind::ImageField => formatter.write_str(
                 r#"ignored; since format version 2 an image is a context entry: "context": [{"type": "image", "path": ...}]"#,
+            ),
+            WarningKind::TextKey => {
+                formatter.write_str(r#"ignored; inline text goes into "content""#)
+            }
+            WarningKind::RenderKey => formatter.write_str(
+                r#"ignored; the type decides: "markdown" renders Markdown, "code" shows it as written"#,
             ),
             WarningKind::RelativePath => formatter.write_str(
                 "relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
@@ -76,6 +89,7 @@ pub fn warnings(raw: &Value, session: &Session, base_dir: Option<&Path>) -> Vec<
     let mut found = Vec::new();
     unknown_fields(raw, &mut found);
     image_fields(raw, &mut found);
+    retired_entry_keys(raw, &mut found);
     context_files(session, base_dir, &mut found);
     found
 }
@@ -116,6 +130,13 @@ impl KnownFields {
                 let name = reference.rsplit('/').next()?;
                 let mut fields = definition(name);
                 fields.insert("type".to_owned());
+                // `text` and `render` get warnings of their own
+                // (`retired_entry_keys`), so they do not count as unknown
+                // as well.
+                if fields.contains("content") {
+                    fields.insert("text".to_owned());
+                    fields.insert("render".to_owned());
+                }
                 Some((kind.to_owned(), fields))
             })
             .collect();
@@ -132,7 +153,11 @@ impl KnownFields {
             custom: definition("CustomConfig"),
             length: definition("Length"),
             context,
-            diff_side: definition("DiffSide"),
+            diff_side: {
+                let mut fields = definition("DiffSide");
+                fields.insert("text".to_owned());
+                fields
+            },
         }
     }
 }
@@ -210,6 +235,57 @@ fn image_fields(raw: &Value, found: &mut Vec<Warning>) {
     }
 }
 
+/// Reports the `text` and `render` keys that code and Markdown entries
+/// and diff sides had before `content` replaced `text` and the two entry
+/// types replaced one with a `render` flag.
+fn retired_entry_keys(raw: &Value, found: &mut Vec<Warning>) {
+    let mut report = |object: &Value, path: FieldPath, keys: &[(&str, WarningKind)]| {
+        for (key, kind) in keys {
+            if object.get(key).is_some() {
+                found.push(Warning {
+                    path: path.field(key),
+                    kind: kind.clone(),
+                });
+            }
+        }
+    };
+    let mut check = |holder: &Value, path: FieldPath| {
+        let entries = holder["context"].as_array().into_iter().flatten();
+        for (index, entry) in entries.enumerate() {
+            let path = path.field("context").index(index);
+            match entry["type"].as_str() {
+                Some("code" | "markdown") => report(
+                    entry,
+                    path,
+                    &[
+                        ("text", WarningKind::TextKey),
+                        ("render", WarningKind::RenderKey),
+                    ],
+                ),
+                Some("diff") => {
+                    for side in ["old", "new"] {
+                        report(
+                            &entry[side],
+                            path.field(side),
+                            &[("text", WarningKind::TextKey)],
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    };
+    let questions = raw["questions"].as_array().into_iter().flatten();
+    for (index, question) in questions.enumerate() {
+        let path = FieldPath::root("questions").index(index);
+        check(question, path.clone());
+        let options = question["options"].as_array().into_iter().flatten();
+        for (index, option) in options.enumerate() {
+            check(option, path.field("options").index(index));
+        }
+    }
+}
+
 /// Reports the unknown fields of the context entries of a question or an
 /// option. An entry of an unknown `type` fails parsing anyway, so only the
 /// known kinds are looked at.
@@ -264,8 +340,12 @@ fn check_context(
                     check_decodable(&file, path.field("path"), found);
                 }
             }
-            ContextEntry::Text(text) => {
-                let size = source_size(&text.path, &text.text, &path, base_dir, found);
+            ContextEntry::Code(code) => {
+                let size = source_size(&code.path, &code.content, &path, base_dir, found);
+                check_size(size, &path, found);
+            }
+            ContextEntry::Markdown(markdown) => {
+                let size = source_size(&markdown.path, &markdown.content, &path, base_dir, found);
                 check_size(size, &path, found);
             }
             ContextEntry::Diff(diff) => {
@@ -274,7 +354,13 @@ fn check_context(
                     .into_iter()
                     .filter_map(|(field, side)| Some((field, side.as_ref()?)))
                     .map(|(field, side)| {
-                        source_size(&side.path, &side.text, &path.field(field), base_dir, found)
+                        source_size(
+                            &side.path,
+                            &side.content,
+                            &path.field(field),
+                            base_dir,
+                            found,
+                        )
                     })
                     .sum();
                 check_size(size, &path, found);
@@ -288,7 +374,7 @@ fn check_context(
 /// warning.
 fn source_size(
     file: &Option<String>,
-    text: &Option<String>,
+    content: &Option<String>,
     path: &FieldPath,
     base_dir: Option<&Path>,
     found: &mut Vec<Warning>,
@@ -298,11 +384,11 @@ fn source_size(
         .and_then(|file| check_file(file, &path.field("path"), base_dir, found))
         .and_then(|resolved| std::fs::metadata(resolved).ok())
         .map_or(0, |metadata| metadata.len());
-    let text_size = text.as_ref().map_or(0, |text| text.len() as u64);
-    file_size + text_size
+    let content_size = content.as_ref().map_or(0, |content| content.len() as u64);
+    file_size + content_size
 }
 
-/// Above this size a text or diff entry gets a warning (user, 2026-10-14).
+/// Above this size a code, Markdown or diff entry gets a warning (user, 2026-10-14).
 /// asqr still shows it. Images are exempt: screenshots above it are common,
 /// and the image viewer handles them.
 const LARGE_ENTRY_BYTES: u64 = 1024 * 1024;
@@ -414,10 +500,10 @@ mod tests {
              "custom": {"label": "Own", "x": 1, "length": {"warn": 9, "z": 2}}},
             {"id": "t", "text": "?", "kind": "text", "length": {"warn": 9, "y": 3}},
             {"id": "m", "text": "?", "kind": "multi", "custom": true,
-             "context": [{"type": "text", "text": "x", "lang": "rust"}],
+             "context": [{"type": "code", "content": "x", "lang": "rust"}],
              "options": [{"id": "a", "label": "A",
-                          "context": [{"type": "diff", "nmae": "a.rs", "old": {"text": "a", "p": 1},
-                                       "new": {"text": "b"}}]},
+                          "context": [{"type": "diff", "nmae": "a.rs", "old": {"content": "a", "p": 1},
+                                       "new": {"content": "b"}}]},
                          {"id": "b", "label": "B",
                           "context": [{"type": "image", "path": "/b.png", "alt": "B", "old": {"x": 1}}]}]}]}"#;
 
@@ -508,14 +594,15 @@ mod tests {
     }
 
     #[test]
-    fn checks_every_file_of_text_and_diff_entries_on_questions_and_options() {
+    fn checks_every_file_of_code_markdown_and_diff_entries_on_questions_and_options() {
         let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
-            "context": [{"type": "text", "path": "missing.md"}],
+            "context": [{"type": "markdown", "path": "missing.md"}],
             "options": [
                 {"id": "a", "label": "A", "context": [{"type": "diff",
                     "old": {"path": "Cargo.toml"}, "new": {"path": "/nonexistent/Cargo.toml"}}]},
-                {"id": "b", "label": "B", "context": [{"type": "diff", "new": {"text": "inline"}}]},
-                {"id": "c", "label": "C", "context": [{"type": "text", "text": "inline"}]}]}]}"#;
+                {"id": "b", "label": "B", "context": [{"type": "diff", "new": {"content": "inline"}}]},
+                {"id": "c", "label": "C", "context": [{"type": "code", "content": "inline"}]},
+                {"id": "d", "label": "D", "context": [{"type": "code", "path": "/nonexistent/fetch.rs"}]}]}]}"#;
 
         assert_eq!(
             warn(json, Some(repo())),
@@ -528,16 +615,18 @@ mod tests {
                 format!("questions[0].options[0].context[0].old.path: {RELATIVE}"),
                 "questions[0].options[0].context[0].new.path: file not found: /nonexistent/Cargo.toml"
                     .to_owned(),
+                "questions[0].options[3].context[0].path: file not found: /nonexistent/fetch.rs"
+                    .to_owned(),
             ]
         );
     }
 
     #[test]
     fn only_image_entries_are_checked_for_a_decoder() {
-        // An existing text file is no image, but a text entry shows text.
+        // An existing text file is no image, but a code entry shows text.
         let json = format!(
             r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "text",
-                "context": [{{"type": "text", "path": {path:?}}}]}}]}}"#,
+                "context": [{{"type": "code", "path": {path:?}}}]}}]}}"#,
             path = repo().join("Cargo.toml").display().to_string()
         );
 
@@ -554,14 +643,14 @@ mod tests {
     const MIB: usize = 1024 * 1024;
 
     #[test]
-    fn warns_about_a_text_entry_above_1_mib_inline_or_in_a_file() {
+    fn warns_about_a_code_or_markdown_entry_above_1_mib_inline_or_in_a_file() {
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
         let log = directory.path().join("build.log");
         std::fs::write(&log, "x".repeat(3 * MIB / 2)).expect("log is writable");
 
         assert_eq!(
             warn(
-                &with_context(&serde_json::json!({"type": "text", "text": "x".repeat(MIB + 1)})),
+                &with_context(&serde_json::json!({"type": "code", "content": "x".repeat(MIB + 1)})),
                 None
             ),
             [
@@ -570,7 +659,7 @@ mod tests {
         );
         assert_eq!(
             warn(
-                &with_context(&serde_json::json!({"type": "text", "path": log})),
+                &with_context(&serde_json::json!({"type": "markdown", "path": log})),
                 None
             ),
             [
@@ -579,7 +668,7 @@ mod tests {
         );
         assert_eq!(
             warn(
-                &with_context(&serde_json::json!({"type": "text", "text": "x".repeat(MIB)})),
+                &with_context(&serde_json::json!({"type": "markdown", "content": "x".repeat(MIB)})),
                 None
             ),
             Vec::<String>::new(),
@@ -597,7 +686,7 @@ mod tests {
         assert_eq!(
             warn(
                 &with_context(&serde_json::json!(
-                    {"type": "diff", "old": {"path": old}, "new": {"text": half_and_more}})),
+                    {"type": "diff", "old": {"path": old}, "new": {"content": half_and_more}})),
                 None
             ),
             [
@@ -606,7 +695,9 @@ mod tests {
         );
         assert_eq!(
             warn(
-                &with_context(&serde_json::json!({"type": "diff", "new": {"text": half_and_more}})),
+                &with_context(
+                    &serde_json::json!({"type": "diff", "new": {"content": half_and_more}})
+                ),
                 None
             ),
             Vec::<String>::new()
@@ -651,6 +742,32 @@ mod tests {
                 format!("questions[0].image: {moved}"),
                 format!("questions[0].options[0].image: {moved}"),
             ]
+        );
+    }
+
+    #[test]
+    fn the_former_text_and_render_keys_say_what_replaced_them() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "context": [{"type": "code", "text": "fn main() {}", "content": "fn main() {}"}],
+            "options": [
+                {"id": "a", "label": "A", "context": [{"type": "markdown", "content": "*a*", "render": false}]},
+                {"id": "b", "label": "B", "context": [{"type": "diff",
+                    "old": {"text": "a", "content": "a"}, "new": {"content": "b"}}]},
+                {"id": "c", "label": "C", "context": [{"type": "image", "path": "/c.png", "text": "x"}]}]}]}"#;
+
+        let text = r#"ignored; inline text goes into "content""#;
+        let render =
+            r#"ignored; the type decides: "markdown" renders Markdown, "code" shows it as written"#;
+        assert_eq!(
+            warn(json, None),
+            [
+                "questions[0].options[2].context[0].text: unknown field".to_owned(),
+                format!("questions[0].context[0].text: {text}"),
+                format!("questions[0].options[0].context[0].render: {render}"),
+                format!("questions[0].options[1].context[0].old.text: {text}"),
+                "questions[0].options[2].context[0].path: file not found: /c.png".to_owned(),
+            ],
+            "an image never had inline text, so there it is just unknown"
         );
     }
 

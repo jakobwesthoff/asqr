@@ -34,6 +34,40 @@
       ],
       "type": "object"
     },
+    "CodeEntry": {
+      "description": "Text shown exactly as written and highlighted, like a fenced code\nblock: source code, a log, terminal output, a configuration file, or\nthe source of a Markdown file. Exactly one of `path` and `content` is\ngiven.",
+      "properties": {
+        "content": {
+          "description": "The text itself, in place of a file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "language": {
+          "description": "The language for highlighting, such as `rust` or `json`. Without\nit, the extension of `path`, then of `title`, decides.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "An absolute path to the file to show; `asqr ask` makes a relative\none absolute.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "A name for the entry, such as a file name. Its extension picks the\nlanguage when neither `language` nor `path` does.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ContextEntry": {
       "description": "One entry of a `context` list. The `type` field picks the kind.",
       "oneOf": [
@@ -51,10 +85,23 @@
           "type": "object"
         },
         {
-          "$ref": "#/$defs/TextEntry",
+          "$ref": "#/$defs/CodeEntry",
           "properties": {
             "type": {
-              "const": "text",
+              "const": "code",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/MarkdownEntry",
+          "properties": {
+            "type": {
+              "const": "markdown",
               "type": "string"
             }
           },
@@ -157,16 +204,17 @@
       "type": "object"
     },
     "DiffSide": {
-      "description": "One side of a diff: a file or inline text. Exactly one of the two is\ngiven.",
+      "description": "One side of a diff: a file or inline content. Exactly one of the two\nis given.",
       "properties": {
-        "path": {
-          "description": "An absolute path; `asqr ask` makes a relative one absolute.",
+        "content": {
+          "description": "The text itself, in place of a file.",
           "type": [
             "string",
             "null"
           ]
         },
-        "text": {
+        "path": {
+          "description": "An absolute path; `asqr ask` makes a relative one absolute.",
           "type": [
             "string",
             "null"
@@ -249,6 +297,33 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "MarkdownEntry": {
+      "description": "Markdown, rendered and wrapped to the space it gets. Exactly one of\n`path` and `content` is given.",
+      "properties": {
+        "content": {
+          "description": "The Markdown itself, in place of a file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "An absolute path to the file to show; `asqr ask` makes a relative\none absolute.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "A name for the entry, such as a file name.",
+          "type": [
+            "string",
             "null"
           ]
         }
@@ -341,45 +416,6 @@
         "text",
         "kind"
       ],
-      "type": "object"
-    },
-    "TextEntry": {
-      "description": "Longer text: source code, plain text or Markdown, from a file or\ninline. Exactly one of `path` and `text` is given.",
-      "properties": {
-        "language": {
-          "description": "The language for highlighting, such as `rust` or `markdown`.\nWithout it, the extension of `path`, then of `title`, decides.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "path": {
-          "description": "An absolute path to the file to show; `asqr ask` makes a relative\none absolute.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "render": {
-          "default": true,
-          "description": "`false` shows Markdown as its source instead of rendering it.",
-          "type": "boolean"
-        },
-        "text": {
-          "description": "The text itself, in place of a file.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "title": {
-          "description": "A name for the entry, such as a file name. Its extension picks the\nlanguage when neither `language` nor `path` does.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
       "type": "object"
     }
   },

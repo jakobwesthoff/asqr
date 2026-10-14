@@ -2197,11 +2197,11 @@ mod tests {
     }
 
     #[test]
-    fn text_entries_show_a_placeholder_naming_them() {
+    fn markdown_entries_show_a_placeholder_naming_them() {
         let review = include_str!("../../../examples/sessions/retry-review.json");
         let mut titled = app(&[("review", review)]);
         keys(&mut titled, "l");
-        insta::assert_snapshot!("text_placeholder", screen(&titled, 80, 24));
+        insta::assert_snapshot!("markdown_placeholder", screen(&titled, 80, 24));
 
         // Without a title the placeholder names the file, or nothing for
         // inline text.
@@ -2209,7 +2209,7 @@ mod tests {
         let mut untitled = app(&[("review", &without_title)]);
         keys(&mut untitled, "l");
         let text = screen(&untitled, 120, 20).to_string();
-        assert!(text.contains("text not shown"), "{text}");
+        assert!(text.contains("markdown not shown"), "{text}");
     }
 
     #[test]
@@ -2217,7 +2217,7 @@ mod tests {
         let review = include_str!("../../../examples/sessions/retry-review.json");
         let mut app = app(&[("review", review)]);
         keys(&mut app, "lz");
-        insta::assert_snapshot!("text_full_screen", screen(&app, 80, 24));
+        insta::assert_snapshot!("markdown_full_screen", screen(&app, 80, 24));
 
         keys(&mut app, "z");
         let text = screen(&app, 80, 24).to_string();
@@ -2232,7 +2232,7 @@ mod tests {
             "long",
             &format!(
                 r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Merge it?", "kind": "single", "custom": true,
-                    "context": [{{"type": "diff", "title": "Thirty lines", "new": {{"text": "{lines}"}}}}],
+                    "context": [{{"type": "diff", "title": "Thirty lines", "new": {{"content": "{lines}"}}}}],
                     "options": [{{"id": "a", "label": "Yes"}}]}}]}}"#
             ),
         )])
@@ -2342,7 +2342,7 @@ mod tests {
         );
 
         let text = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
-            "context": [{"type": "text", "text": "x"}], "options": [{"id": "a", "label": "A"}]}]}"#;
+            "context": [{"type": "code", "content": "x"}], "options": [{"id": "a", "label": "A"}]}]}"#;
         let mut state =
             SessionState::new("text", serde_json::from_str(text).expect("parses"), None);
         state.set_pane_page(Some(page(20)));

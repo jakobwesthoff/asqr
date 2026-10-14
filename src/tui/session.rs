@@ -1801,7 +1801,7 @@ mod tests {
     fn only_an_image_entry_opens_but_any_entry_fills_the_screen() {
         let session = r#"{"asqr": 2, "questions": [
             {"id": "q", "text": "?", "kind": "single",
-             "context": [{"type": "text", "title": "Log", "text": "ok"}],
+             "context": [{"type": "code", "title": "Log", "content": "ok"}],
              "options": [{"id": "a", "label": "A"}]}]}"#;
         let mut state = SessionState::new(
             "batch",
@@ -1853,13 +1853,13 @@ mod tests {
     // The context pane
     // ---------------------------------------------------------------
 
-    /// A question whose text entry shows on every row but the second,
+    /// A question whose code entry shows on every row but the second,
     /// which has an entry of its own, then a text question with an image.
     const WITH_CONTEXT: &str = r#"{"asqr": 2, "questions": [
         {"id": "q", "text": "?", "kind": "single", "custom": true,
-         "context": [{"type": "text", "text": "the question's"}],
+         "context": [{"type": "code", "content": "the question's"}],
          "options": [{"id": "a", "label": "A"},
-                     {"id": "b", "label": "B", "context": [{"type": "text", "text": "the option's"}]}]},
+                     {"id": "b", "label": "B", "context": [{"type": "markdown", "content": "the option's"}]}]},
         {"id": "t", "text": "?", "kind": "text", "context": [{"type": "image", "path": "/pictures/p.png"}]}
     ]}"#;
 

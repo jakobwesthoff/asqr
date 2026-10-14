@@ -110,7 +110,7 @@ fn assigns_a_ulid_when_the_session_has_no_id() {
 #[test]
 fn makes_every_context_path_absolute_and_keeps_unknown_fields() {
     let sandbox = Sandbox::new();
-    for file in ["q.png", "a.png", "notes.md", "old.rs", "new.rs"] {
+    for file in ["q.png", "a.png", "notes.md", "fetch.rs", "old.rs", "new.rs"] {
         sandbox.file(&format!("session/files/{file}"), "content");
     }
     let file = sandbox.file(
@@ -119,14 +119,16 @@ fn makes_every_context_path_absolute_and_keeps_unknown_fields() {
             "questions": [{"id": "q", "text": "?", "kind": "text",
                            "context": [{"type": "image", "path": "files/q.png"}]},
                           {"id": "s", "text": "?", "kind": "single",
-                           "context": [{"type": "text", "path": "files/notes.md"}],
+                           "context": [{"type": "markdown", "path": "files/notes.md"}],
                            "options": [{"id": "a", "label": "A",
                                         "context": [{"type": "image", "path": "files/a.png"}]},
                                        {"id": "b", "label": "B",
                                         "context": [{"type": "diff", "old": {"path": "files/old.rs"},
                                                      "new": {"path": "files/new.rs"}}]},
                                        {"id": "c", "label": "C",
-                                        "context": [{"type": "diff", "new": {"text": "inline"}}]}]}]}"#,
+                                        "context": [{"type": "diff", "new": {"content": "inline"}}]},
+                                       {"id": "d", "label": "D",
+                                        "context": [{"type": "code", "path": "files/fetch.rs"}]}]}]}"#,
     );
 
     let output = sandbox
@@ -144,6 +146,7 @@ fn makes_every_context_path_absolute_and_keeps_unknown_fields() {
         &options[0]["context"][0]["path"],
         &options[1]["context"][0]["old"]["path"],
         &options[1]["context"][0]["new"]["path"],
+        &options[3]["context"][0]["path"],
     ] {
         let path = path.as_str().expect("path");
         assert!(Path::new(path).is_absolute(), "{path}");
@@ -153,7 +156,7 @@ fn makes_every_context_path_absolute_and_keeps_unknown_fields() {
     // `context` or `options` where the asker wrote none.
     assert_eq!(
         options[2]["context"][0],
-        serde_json::json!({"type": "diff", "new": {"text": "inline"}})
+        serde_json::json!({"type": "diff", "new": {"content": "inline"}})
     );
     assert!(dropped["questions"][0].get("options").is_none());
     assert!(options[2].get("description").is_none());

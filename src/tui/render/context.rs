@@ -111,11 +111,18 @@ fn kind_and_name(entry: &ContextEntry) -> (&'static str, Option<String>) {
             "image",
             image.title.clone().or_else(|| Some(file_name(&image.path))),
         ),
-        ContextEntry::Text(text) => (
-            "text",
-            text.title
+        ContextEntry::Code(code) => (
+            "code",
+            code.title
                 .clone()
-                .or_else(|| text.path.as_deref().map(file_name)),
+                .or_else(|| code.path.as_deref().map(file_name)),
+        ),
+        ContextEntry::Markdown(markdown) => (
+            "markdown",
+            markdown
+                .title
+                .clone()
+                .or_else(|| markdown.path.as_deref().map(file_name)),
         ),
         ContextEntry::Diff(diff) => ("diff", diff.title.clone().or_else(|| diff.name.clone())),
     }
@@ -168,19 +175,27 @@ mod tests {
                 "▸ image: / · z: full screen",
             ),
             (
-                r#"{"type": "text", "path": "/src/fetch.rs"}"#,
-                "▸ text: fetch.rs · z: full screen",
+                r#"{"type": "code", "path": "/src/fetch.rs"}"#,
+                "▸ code: fetch.rs · z: full screen",
             ),
             (
-                r#"{"type": "text", "text": "inline"}"#,
-                "▸ text · z: full screen",
+                r#"{"type": "code", "content": "inline"}"#,
+                "▸ code · z: full screen",
             ),
             (
-                r#"{"type": "diff", "name": "src/fetch.rs", "new": {"text": "x"}}"#,
+                r#"{"type": "markdown", "path": "/notes/plan.md"}"#,
+                "▸ markdown: plan.md · z: full screen",
+            ),
+            (
+                r#"{"type": "markdown", "content": "*inline*"}"#,
+                "▸ markdown · z: full screen",
+            ),
+            (
+                r#"{"type": "diff", "name": "src/fetch.rs", "new": {"content": "x"}}"#,
                 "▸ diff: src/fetch.rs · z: full screen",
             ),
             (
-                r#"{"type": "diff", "new": {"text": "x"}}"#,
+                r#"{"type": "diff", "new": {"content": "x"}}"#,
                 "▸ diff · z: full screen",
             ),
         ];
@@ -214,13 +229,18 @@ mod tests {
                 r#"{"type": "image", "path": "/pictures/cat.png"}"#,
                 "cat.png",
             ),
-            (r#"{"type": "text", "title": "Log", "text": "x"}"#, "Log"),
-            (r#"{"type": "text", "text": "x"}"#, "text"),
+            (r#"{"type": "code", "title": "Log", "content": "x"}"#, "Log"),
+            (r#"{"type": "code", "content": "x"}"#, "code"),
             (
-                r#"{"type": "diff", "name": "src/fetch.rs", "new": {"text": "x"}}"#,
+                r#"{"type": "markdown", "path": "/notes/plan.md"}"#,
+                "plan.md",
+            ),
+            (r#"{"type": "markdown", "content": "x"}"#, "markdown"),
+            (
+                r#"{"type": "diff", "name": "src/fetch.rs", "new": {"content": "x"}}"#,
                 "src/fetch.rs",
             ),
-            (r#"{"type": "diff", "new": {"text": "x"}}"#, "diff"),
+            (r#"{"type": "diff", "new": {"content": "x"}}"#, "diff"),
         ];
         for (json, expected) in cases {
             assert_eq!(header(json).trim_end(), expected, "{json}");
@@ -238,7 +258,7 @@ mod tests {
             columns: Extent::default(),
         };
         let titled = entry(
-            r#"{"type": "text", "title": "A very long title for a short line", "text": "x"}"#,
+            r#"{"type": "code", "title": "A very long title for a short line", "content": "x"}"#,
         );
 
         let line = text(&header_line(&titled, page, Offset { top: 3, left: 0 }, 30));

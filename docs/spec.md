@@ -354,18 +354,20 @@ a name for the entry such as a file name:
   default `true`): `false` keeps the image at its natural size where it
   fits, in the pane and full screen, instead of scaling it up; a larger
   image still shrinks to fit (ADR 32).
-- `text`: longer text such as source code, a log or Markdown, from the
-  file at `path` or inline in `text`, exactly one of the two. `language`
-  (optional), such as `rust`, names the language; without it the
-  extension of `path`, then of `title`, decides, and failing that it is
-  plain text. `render` (optional, default `true`): `false` shows
-  Markdown as its source.
+- `code`: text shown exactly as written and highlighted, like a fenced
+  code block: source code, a log, terminal output, a configuration file
+  or the source of a Markdown file. From the file at `path` or inline in
+  `content`, exactly one of the two. `language` (optional), such as
+  `rust`, names the language; without it the extension of `path`, then
+  of `title`, decides, and failing that it is plain text.
+- `markdown`: Markdown, rendered, from the file at `path` or inline in
+  `content`, exactly one of the two.
 - `diff`: a change between two versions of a text, which asqr diffs
-  itself. `old` and `new` are each `{ "path": ... }` or `{ "text": ... }`,
-  exactly one of the two. A missing `old` is a new file, a missing `new`
-  a deleted one. `name` (optional) is the file name the diff is about,
-  shown with it and the source of the language; `language` (optional)
-  as for `text`. A unified diff written by the asker is not accepted:
+  itself. `old` and `new` are each `{ "path": ... }` or
+  `{ "content": ... }`, exactly one of the two. A missing `old` is a new
+  file, a missing `new` a deleted one. `name` (optional) is the file
+  name the diff is about, shown with it and the source of the language;
+  `language` (optional) as for `code`. A unified diff written by the asker is not accepted:
   every hunk header needs exact line counts, which goes wrong easily.
   asqr shows the change as a unified diff (section 7.7).
 
@@ -378,8 +380,8 @@ Paths in context entries, for every type:
   exist, and about image files the terminal UI cannot decode (section
   7.7). That check reads only the image file's header. For an
   unsupported format the warning lists the formats that work.
-- `asqr validate` and `asqr ask` warn about a `text` or `diff` entry
-  above 1 MiB, from its file or inline; for a diff, both sides count
+- `asqr validate` and `asqr ask` warn about a `code`, `markdown` or
+  `diff` entry above 1 MiB, from its file or inline; for a diff, both sides count
   together. asqr still shows it. Image entries get no such warning:
   screenshots above 1 MiB are common.
 - asqr reads a file when it first shows it, not when the session
@@ -401,10 +403,14 @@ Validation errors, besides missing or mistyped fields:
 - `min` greater than `max`, or either outside `0..=options`
 - a reversed `target` range, or `warn` below the end of `target`
 - more than one context entry on a question or an option
-- a `text` entry or a side of a `diff` with neither or both of `path`
-  and `text`, and a `diff` with neither `old` nor `new`
-- an entry whose `type` is not `image`, `text` or `diff` (the file is
-  not shaped like a session)
+- a `code` or `markdown` entry or a side of a `diff` with neither or
+  both of `path` and `content`, and a `diff` with neither `old` nor
+  `new`
+- an entry whose `type` is not `image`, `code`, `markdown` or `diff`
+  (the file is not shaped like a session). An entry of type `text` gets
+  an error of its own that names `code` and `markdown`. Like the
+  version, it is checked before the rest of the file, and every such
+  entry is listed.
 - in the inbox: an `id` that differs from the file stem
 
 Unknown fields are ignored when parsing, so later format versions can
@@ -413,7 +419,10 @@ comparing the keys against the schema, so a typo like `requred` is
 reported. Context entries are compared against the fields of their
 `type`. The `image` field of format version 1 on a question or an option
 gets a warning of its own, saying that an image is a context entry of
-type `image`.
+type `image`. So do the key `text` on a `code` or `markdown` entry or
+on a side of a diff, saying that inline text goes into `content`, and
+the key `render` on a `code` or `markdown` entry, saying that the type
+decides whether Markdown is rendered.
 
 `asqr validate <file>` prints `<file>: valid` and exits with 0, or lists
 every error and exits with 11. Warnings go to stderr and never fail it.
@@ -671,7 +680,8 @@ On an option row (vim style plus arrows):
   over the help, which it closes like any other key.
 - `o` opens the image shown (section 7.7) with the system's opener
   (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
-  started, a notice says why. It does not act on a text or diff entry.
+  started, a notice says why. It does not act on a code, Markdown or
+  diff entry.
 - `z` shows the context pane of the entry shown over the question's
   area, header included, and toggles back; changing the question ends
   it. It acts on every kind of entry (ADR 31).
@@ -811,8 +821,8 @@ Context appears only when a question or one of its options has some.
   one-line hint, by the terminal's size and `--layout` (section 7.1).
 - The review shows no context.
 - The pane's first line is a header that names the entry: its `title`,
-  or the file name of its `path` (a diff's `name`), or its kind, `text`
-  or `diff`, when it has neither. When the entry is taller than the
+  or the file name of its `path` (a diff's `name`), or its kind, `code`,
+  `markdown` or `diff`, when it has neither. When the entry is taller than the
   pane, the header's right end says which lines show, such as
   `4–15 of 120`. A row without context leaves the pane empty, header
   included (ADR 31).
@@ -825,8 +835,9 @@ Context appears only when a question or one of its options has some.
   another entry shows that entry where the person left it, or at its top
   the first time, and coming back restores the first one's. Rows that
   show the question's entry share its position.
-- Text entries show a placeholder that names the entry by its `title`
-  (its `path` without one) and says that this asqr cannot show them yet.
+- Code and Markdown entries show a placeholder that names the entry by
+  its `title` (its `path` without one) and says that this asqr cannot
+  show them yet.
 
 Diffs (ADR 33):
 
@@ -880,8 +891,8 @@ Images:
 - An image entry is read when it is first shown and kept while its
   session waits, until asqr's terminal gains the focus again. asqr asks
   the terminal for focus reports; on regaining the focus it reads and
-  sends every image again as it is next shown. Text and diff entries
-  keep what asqr derived from them (ADR 31).
+  sends every image again as it is next shown. Code, Markdown and diff
+  entries keep what asqr derived from them (ADR 31).
 - A relative path, a missing file or a file that cannot be read or
   decoded shows a placeholder saying "image not shown" with the path and
   the reason. A path is never resolved against the working directory,

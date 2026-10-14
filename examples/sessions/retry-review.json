@@ -14,8 +14,8 @@
           "type": "diff",
           "title": "Retry with backoff",
           "name": "src/fetch.rs",
-          "old": { "text": "pub fn fetch(url: &str) -> Result<Response> {\n    get(url)\n}\n" },
-          "new": { "text": "pub fn fetch(url: &str) -> Result<Response> {\n    let mut delay = Duration::from_millis(100);\n    for _ in 0..3 {\n        match get(url) {\n            Ok(response) => return Ok(response),\n            Err(_) => sleep(delay),\n        }\n        delay *= 2;\n    }\n    get(url)\n}\n" }
+          "old": { "content": "pub fn fetch(url: &str) -> Result<Response> {\n    get(url)\n}\n" },
+          "new": { "content": "pub fn fetch(url: &str) -> Result<Response> {\n    let mut delay = Duration::from_millis(100);\n    for _ in 0..3 {\n        match get(url) {\n            Ok(response) => return Ok(response),\n            Err(_) => sleep(delay),\n        }\n        delay *= 2;\n    }\n    get(url)\n}\n" }
         }
       ],
       "options": [
@@ -32,12 +32,12 @@
         {
           "id": "short",
           "label": "Short",
-          "context": [{ "type": "text", "title": "short.md", "text": "## Retries\n\nA failed request is tried again up to three times.\n" }]
+          "context": [{ "type": "markdown", "title": "short.md", "content": "## Retries\n\nA failed request is tried again up to three times.\n" }]
         },
         {
           "id": "long",
           "label": "Detailed",
-          "context": [{ "type": "text", "title": "long.md", "render": false, "text": "## Retries\n\nA failed request is tried again up to three times. The fetcher waits\n100 ms before the first retry and doubles the wait each time.\n" }]
+          "context": [{ "type": "markdown", "title": "long.md", "content": "## Retries\n\nA failed request is tried again up to three times. The fetcher waits\n100 ms before the first retry and doubles the wait each time.\n" }]
         }
       ]
     },
@@ -46,7 +46,7 @@
       "header": "Checks",
       "text": "Does the check recipe cover what the change needs?",
       "kind": "text",
-      "context": [{ "type": "text", "title": "Justfile", "path": "../../Justfile" }]
+      "context": [{ "type": "code", "title": "Justfile", "path": "../../Justfile" }]
     }
   ]
 }

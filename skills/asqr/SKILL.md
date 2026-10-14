@@ -43,7 +43,7 @@ Once asked, asqr fits best when:
       "text": "All checks passed. Publish 0.3.0 now?",
       "kind": "single",
       "context": [
-        { "type": "text", "title": "CHANGELOG.md", "text": "## 0.3.0\n\n- Faster startup\n- A `--quiet` flag\n" }
+        { "type": "markdown", "title": "CHANGELOG.md", "content": "## 0.3.0\n\n- Faster startup\n- A `--quiet` flag\n" }
       ],
       "options": [
         { "id": "yes", "label": "Publish now" },
@@ -110,14 +110,24 @@ Once asked, asqr fits best when:
     pixel art, a screenshot whose size is the point, or an icon at its
     real size; the image then keeps its natural size and only shrinks
     when it does not fit.
-  - `{ "type": "text", "path": "..." }` or `{ "type": "text", "text":
-    "..." }`: source code, a log, notes or Markdown, from a file or
-    inline. `language`, such as `rust`, picks the highlighting; without
-    it the extension of `path`, then of `title`, decides. Markdown is
-    rendered unless the entry says `"render": false`.
+  - `{ "type": "code", "path": "..." }` or `{ "type": "code", "content":
+    "..." }`: text shown exactly as written and highlighted, like a
+    fenced code block: source code, a log, terminal output, a
+    configuration file. `language`, such as `rust`, picks the
+    highlighting; without it the extension of `path`, then of `title`,
+    decides. A Markdown file as `code` shows its source, which is what
+    you want when the Markdown itself is under review.
+  - `{ "type": "markdown", "path": "..." }` or `{ "type": "markdown",
+    "content": "..." }`: Markdown the person reads rendered, such as
+    notes, a plan or a draft section of documentation.
+  - Choose by what the person should see: the text as written is
+    `code`, rendered prose is `markdown`. Neither is the place for your
+    explanation of the question; that goes into the question's `text`.
+  - Inline text goes into `content` in every entry, the sides of a diff
+    included. The key `text` belongs to questions only.
   - `{ "type": "diff", "old": {...}, "new": {...} }`: a change, which asqr
     diffs itself. `old` is the text before the change and `new` the text
-    after it, each `{ "path": "..." }` or `{ "text": "..." }`: two
+    after it, each `{ "path": "..." }` or `{ "content": "..." }`: two
     versions of the same text, never a unified diff of your own, which
     asqr would show as a changed file of `+` and `-` lines. The two
     versions can be whole files or the same excerpt of both; the line
@@ -132,9 +142,9 @@ Once asked, asqr fits best when:
     lines green, and the changed words inside a changed line marked. A
     long line does not wrap; the person scrolls sideways. There is no
     syntax highlighting in a diff. Identical versions show "no changes".
-  - This version of asqr shows text entries as a placeholder that names
-    them; their viewer comes in a later version.
-  - Keep a text or diff entry under 1 MiB (both sides of a diff
+  - This version of asqr shows code and Markdown entries as a
+    placeholder that names them; their viewers come in a later version.
+  - Keep a code, Markdown or diff entry under 1 MiB (both sides of a diff
     together); `validate` and `ask` warn above that. Show an excerpt
     instead of a whole large file.
   - Paths are absolute. `asqr ask` turns relative paths into absolute

@@ -180,10 +180,15 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
         }),
         // TODO: replace with the code and Markdown viewers, see the todo
         // `01M4XHQSD1EM17QD87CFB3VWMG-show-code-and-markdown-entries-in-the-context-pane.md`.
-        ContextEntry::Text(text) => Box::new(Placeholder::new(
-            "text not shown",
-            text.title.as_ref().or(text.path.as_ref()),
-            "this asqr cannot show text entries yet",
+        ContextEntry::Code(code) => Box::new(Placeholder::new(
+            "code not shown",
+            code.title.as_ref().or(code.path.as_ref()),
+            "this asqr cannot show code entries yet",
+        )),
+        ContextEntry::Markdown(markdown) => Box::new(Placeholder::new(
+            "markdown not shown",
+            markdown.title.as_ref().or(markdown.path.as_ref()),
+            "this asqr cannot show markdown entries yet",
         )),
         ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff)),
     }
@@ -369,7 +374,7 @@ mod tests {
     #[test]
     fn a_viewer_is_loaded_once_and_laid_out_only_when_the_size_changes() {
         let (mut viewers, calls) = recording();
-        let text = entry(r#"{"type": "text", "text": "notes"}"#);
+        let text = entry(r#"{"type": "code", "content": "notes"}"#);
 
         for _ in 0..3 {
             let (_, size) = viewers.laid_out("s", QUESTION, &text, 40, 10);
@@ -399,7 +404,7 @@ mod tests {
     fn a_viewer_is_built_once_per_entry_and_reused() {
         let mut viewers = viewers();
         let image = entry(r#"{"type": "image", "path": "/pictures/cat.png"}"#);
-        let text = entry(r#"{"type": "text", "text": "notes"}"#);
+        let text = entry(r#"{"type": "code", "content": "notes"}"#);
 
         built(&mut viewers, "s", QUESTION, &image);
         built(&mut viewers, "s", QUESTION, &image);
@@ -419,14 +424,14 @@ mod tests {
             &mut viewers,
             "s",
             QUESTION,
-            &entry(r#"{"type": "text", "text": "one"}"#),
+            &entry(r#"{"type": "code", "content": "one"}"#),
         );
 
         built(
             &mut viewers,
             "s",
             QUESTION,
-            &entry(r#"{"type": "text", "text": "two"}"#),
+            &entry(r#"{"type": "code", "content": "two"}"#),
         );
 
         assert_eq!(viewers.built, 2);
@@ -453,7 +458,7 @@ mod tests {
     fn forgetting_images_rebuilds_only_the_image_viewers() {
         let mut viewers = viewers();
         let image = entry(r#"{"type": "image", "path": "/pictures/cat.png"}"#);
-        let text = entry(r#"{"type": "text", "text": "notes"}"#);
+        let text = entry(r#"{"type": "code", "content": "notes"}"#);
         built(&mut viewers, "s", QUESTION, &image);
         built(&mut viewers, "s", OPTION, &text);
 
@@ -507,7 +512,7 @@ mod tests {
 
     #[test]
     fn a_placeholder_wraps_to_the_body_and_counts_its_lines() {
-        let text = entry(r#"{"type": "text", "path": "/src/fetch.rs"}"#);
+        let text = entry(r#"{"type": "code", "path": "/src/fetch.rs"}"#);
         let mut viewers = viewers();
 
         let (_, size) = viewers.laid_out("s", QUESTION, &text, 40, 10);
@@ -537,16 +542,16 @@ mod tests {
         assert_eq!(
             drawn(&text, 40, 3, 0),
             [
-                "text not shown",
+                "code not shown",
                 "/src/fetch.rs",
-                "this asqr cannot show text entries yet"
+                "this asqr cannot show code entries yet"
             ]
         );
         assert_eq!(
             drawn(&text, 40, 3, 1),
             [
                 "/src/fetch.rs",
-                "this asqr cannot show text entries yet",
+                "this asqr cannot show code entries yet",
                 ""
             ],
             "it starts at the offset"
@@ -560,26 +565,29 @@ mod tests {
     #[test]
     fn a_diff_entry_shows_its_diff() {
         let diff = entry(
-            r#"{"type": "diff", "name": "src/fetch.rs", "old": {"text": "get(url)\n"}, "new": {"text": "get(uri)\n"}}"#,
+            r#"{"type": "diff", "name": "src/fetch.rs", "old": {"content": "get(url)\n"}, "new": {"content": "get(uri)\n"}}"#,
         );
 
         assert_eq!(drawn(&diff, 40, 2, 0), ["1   - get(url)", "  1 + get(uri)"]);
     }
 
     #[test]
-    fn a_text_placeholder_names_its_title_or_path() {
-        let titled = entry(r#"{"type": "text", "title": "Log", "path": "/var/log/x"}"#);
+    fn a_code_or_markdown_placeholder_names_its_title_or_path() {
+        let titled = entry(r#"{"type": "code", "title": "Log", "path": "/var/log/x"}"#);
         assert_eq!(drawn(&titled, 40, 3, 0)[1], "Log");
 
-        let untitled = entry(r#"{"type": "text", "path": "/var/log/x"}"#);
-        assert_eq!(drawn(&untitled, 40, 3, 0)[1], "/var/log/x");
+        let untitled = entry(r#"{"type": "markdown", "path": "/notes/plan.md"}"#);
+        assert_eq!(
+            drawn(&untitled, 50, 3, 0)[..2],
+            ["markdown not shown", "/notes/plan.md"]
+        );
 
-        let inline = entry(r#"{"type": "text", "text": "x"}"#);
+        let inline = entry(r#"{"type": "code", "content": "x"}"#);
         assert_eq!(
             drawn(&inline, 40, 3, 0),
             [
-                "text not shown",
-                "this asqr cannot show text entries yet",
+                "code not shown",
+                "this asqr cannot show code entries yet",
                 ""
             ]
         );

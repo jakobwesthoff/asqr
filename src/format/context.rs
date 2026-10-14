@@ -7,8 +7,8 @@
 //! shows it next to the question (spec section 7.7).
 //!
 //! As with the rest of the session, the types only describe the shape.
-//! Rules that span fields, such as a text entry naming either a file or
-//! inline text, live in validation, which can name the offending field.
+//! Rules that span fields, such as a code entry naming either a file or
+//! inline content, live in validation, which can name the offending field.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ContextEntry {
     Image(ImageEntry),
-    Text(TextEntry),
+    Code(CodeEntry),
+    Markdown(MarkdownEntry),
     Diff(DiffEntry),
 }
 
@@ -53,10 +54,12 @@ fn is_true(value: &bool) -> bool {
     *value
 }
 
-/// Longer text: source code, plain text or Markdown, from a file or
-/// inline. Exactly one of `path` and `text` is given.
+/// Text shown exactly as written and highlighted, like a fenced code
+/// block: source code, a log, terminal output, a configuration file, or
+/// the source of a Markdown file. Exactly one of `path` and `content` is
+/// given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct TextEntry {
+pub struct CodeEntry {
     /// A name for the entry, such as a file name. Its extension picks the
     /// language when neither `language` nor `path` does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,20 +72,30 @@ pub struct TextEntry {
 
     /// The text itself, in place of a file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
+    pub content: Option<String>,
 
-    /// The language for highlighting, such as `rust` or `markdown`.
-    /// Without it, the extension of `path`, then of `title`, decides.
+    /// The language for highlighting, such as `rust` or `json`. Without
+    /// it, the extension of `path`, then of `title`, decides.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
-
-    /// `false` shows Markdown as its source instead of rendering it.
-    #[serde(default = "render_by_default")]
-    pub render: bool,
 }
 
-fn render_by_default() -> bool {
-    true
+/// Markdown, rendered and wrapped to the space it gets. Exactly one of
+/// `path` and `content` is given.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MarkdownEntry {
+    /// A name for the entry, such as a file name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+
+    /// An absolute path to the file to show; `asqr ask` makes a relative
+    /// one absolute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+
+    /// The Markdown itself, in place of a file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 /// A change between two versions of a text, which asqr diffs itself. A
@@ -108,16 +121,17 @@ pub struct DiffEntry {
     pub language: Option<String>,
 }
 
-/// One side of a diff: a file or inline text. Exactly one of the two is
-/// given.
+/// One side of a diff: a file or inline content. Exactly one of the two
+/// is given.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DiffSide {
     /// An absolute path; `asqr ask` makes a relative one absolute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 
+    /// The text itself, in place of a file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
+    pub content: Option<String>,
 }
 
 impl ContextEntry {
@@ -125,14 +139,15 @@ impl ContextEntry {
     pub fn image_path(&self) -> Option<&str> {
         match self {
             ContextEntry::Image(image) => Some(&image.path),
-            ContextEntry::Text(_) | ContextEntry::Diff(_) => None,
+            ContextEntry::Code(_) | ContextEntry::Markdown(_) | ContextEntry::Diff(_) => None,
         }
     }
 
     pub fn title(&self) -> Option<&str> {
         match self {
             ContextEntry::Image(image) => image.title.as_deref(),
-            ContextEntry::Text(text) => text.title.as_deref(),
+            ContextEntry::Code(code) => code.title.as_deref(),
+            ContextEntry::Markdown(markdown) => markdown.title.as_deref(),
             ContextEntry::Diff(diff) => diff.title.as_deref(),
         }
     }
@@ -159,43 +174,43 @@ mod tests {
             })
         );
         assert_eq!(
-            parse(json!({"type": "text", "title": "Notes", "text": "# Plan", "render": false})),
-            ContextEntry::Text(TextEntry {
-                title: Some("Notes".into()),
+            parse(
+                json!({"type": "code", "title": "fetch", "content": "fn f() {}", "language": "rust"})
+            ),
+            ContextEntry::Code(CodeEntry {
+                title: Some("fetch".into()),
                 path: None,
-                text: Some("# Plan".into()),
-                language: None,
-                render: false,
+                content: Some("fn f() {}".into()),
+                language: Some("rust".into()),
+            })
+        );
+        assert_eq!(
+            parse(json!({"type": "markdown", "title": "Plan", "path": "/notes/plan.md"})),
+            ContextEntry::Markdown(MarkdownEntry {
+                title: Some("Plan".into()),
+                path: Some("/notes/plan.md".into()),
+                content: None,
             })
         );
         assert_eq!(
             parse(
                 json!({"type": "diff", "name": "main.rs", "language": "rust",
-                         "old": {"path": "/src/main.rs"}, "new": {"text": "fn main() {}"}})
+                         "old": {"path": "/src/main.rs"}, "new": {"content": "fn main() {}"}})
             ),
             ContextEntry::Diff(DiffEntry {
                 title: None,
                 old: Some(DiffSide {
                     path: Some("/src/main.rs".into()),
-                    text: None
+                    content: None
                 }),
                 new: Some(DiffSide {
                     path: None,
-                    text: Some("fn main() {}".into())
+                    content: Some("fn main() {}".into())
                 }),
                 name: Some("main.rs".into()),
                 language: Some("rust".into()),
             })
         );
-    }
-
-    #[test]
-    fn markdown_renders_unless_the_entry_says_otherwise() {
-        let ContextEntry::Text(text) = parse(json!({"type": "text", "text": "**bold**"})) else {
-            panic!("a text entry");
-        };
-
-        assert!(text.render);
     }
 
     #[test]
@@ -223,34 +238,42 @@ mod tests {
 
     #[test]
     fn an_unknown_type_is_no_context_entry() {
-        let parsed: Result<ContextEntry, _> =
-            serde_json::from_value(json!({"type": "video", "path": "/clip.mp4"}));
+        for kind in ["video", "text"] {
+            let parsed: Result<ContextEntry, _> =
+                serde_json::from_value(json!({"type": kind, "path": "/clip"}));
 
-        assert!(parsed.is_err());
+            assert!(parsed.is_err(), "{kind}");
+        }
     }
 
     #[test]
     fn writes_the_type_back_with_the_fields_in_use() {
-        let entry = parse(json!({"type": "diff", "new": {"text": "added"}}));
-
-        assert_eq!(
-            serde_json::to_value(&entry).expect("entry serializes"),
-            json!({"type": "diff", "new": {"text": "added"}})
-        );
+        for entry in [
+            json!({"type": "diff", "new": {"content": "added"}}),
+            json!({"type": "code", "content": "x = 1"}),
+            json!({"type": "markdown", "path": "/notes.md"}),
+        ] {
+            assert_eq!(
+                serde_json::to_value(parse(entry.clone())).expect("entry serializes"),
+                entry
+            );
+        }
     }
 
     #[test]
     fn only_image_entries_have_an_image_path() {
         let image = parse(json!({"type": "image", "title": "Login", "path": "/a.png"}));
-        let text = parse(json!({"type": "text", "title": "Log", "text": "ok"}));
-        let diff = parse(json!({"type": "diff", "title": "Change", "new": {"text": "x"}}));
+        let code = parse(json!({"type": "code", "title": "Log", "content": "ok"}));
+        let markdown = parse(json!({"type": "markdown", "title": "Notes", "content": "ok"}));
+        let diff = parse(json!({"type": "diff", "title": "Change", "new": {"content": "x"}}));
 
         assert_eq!(image.image_path(), Some("/a.png"));
-        assert_eq!(text.image_path(), None);
-        assert_eq!(diff.image_path(), None);
+        for entry in [&code, &markdown, &diff] {
+            assert_eq!(entry.image_path(), None);
+        }
         assert_eq!(
-            [image.title(), text.title(), diff.title()],
-            [Some("Login"), Some("Log"), Some("Change")]
+            [image.title(), code.title(), markdown.title(), diff.title()],
+            [Some("Login"), Some("Log"), Some("Notes"), Some("Change")]
         );
     }
 }

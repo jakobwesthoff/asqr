@@ -534,7 +534,7 @@ mod tests {
         app.set_pane_page(None);
         let with_text: Session = serde_json::from_str(
             r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
-                "context": [{"type": "text", "text": "long"}], "options": [{"id": "a", "label": "A"}]}]}"#,
+                "context": [{"type": "code", "content": "long"}], "options": [{"id": "a", "label": "A"}]}]}"#,
         )
         .expect("parses");
         app.add(SessionState::new("text", with_text, None));

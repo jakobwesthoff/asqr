@@ -141,6 +141,39 @@ fn validate_refuses_an_enlarge_that_is_no_boolean() {
 }
 
 #[test]
+fn validate_lists_each_text_entry_with_the_types_that_replace_it() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "text.json",
+        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "text", "text": "notes"}]},
+            {"id": "r", "text": "?", "kind": "text", "context": [{"type": "text", "path": "/r.md"}]}]}"#,
+    );
+
+    let output = sandbox
+        .asqr()
+        .arg("validate")
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(11));
+    let errors = stderr(&output);
+    let lines: Vec<&str> = errors.lines().collect();
+    assert_eq!(lines.len(), 2, "{errors}");
+    assert!(
+        lines[0].starts_with(
+            r#"error: questions[0].context[0].type: "text" is no entry type; use "code""#
+        ),
+        "{errors}"
+    );
+    assert!(
+        lines[1].starts_with("error: questions[1].context[0].type: "),
+        "{errors}"
+    );
+}
+
+#[test]
 fn validate_warns_without_failing() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(

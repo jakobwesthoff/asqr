@@ -98,7 +98,8 @@ fn array_mut<'a>(object: &'a mut Value, field: &str) -> impl Iterator<Item = &'a
 }
 
 /// Rewrites every path in the `context` of a question or an option: the
-/// `path` of an image or text entry and the paths of a diff's sides.
+/// `path` of an image, code or Markdown entry and the paths of a diff's
+/// sides.
 fn make_context_absolute(holder: &mut Value, base: &Path) {
     for entry in array_mut(holder, "context") {
         make_path_absolute(entry, base);

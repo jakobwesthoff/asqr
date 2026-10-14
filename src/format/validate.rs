@@ -94,11 +94,19 @@ pub enum Problem {
     #[error("{0} entries, but this asqr shows one per question or option")]
     TooManyContextEntries(usize),
 
-    #[error("needs path or text")]
+    #[error("needs path or content")]
     SourceMissing,
 
-    #[error("takes path or text, not both")]
+    #[error("takes path or content, not both")]
     SourceTwice,
+
+    /// A context entry of `type: "text"`, which a draft of format
+    /// version 2 had. Agents working from an older skill write it, and
+    /// the parser's own message would only list the types.
+    #[error(
+        r#""text" is no entry type; use "code" for text shown as written (source, a log, a Markdown file's source) or "markdown" for Markdown to render, with "path" or "content""#
+    )]
+    TextEntryType,
 
     #[error("a diff needs old, new or both")]
     DiffWithoutSides,
@@ -335,8 +343,16 @@ fn validate_context(
         let path = path.index(index);
         match entry {
             ContextEntry::Image(_) => {}
-            ContextEntry::Text(text) => {
-                validate_source(text.path.is_some(), text.text.is_some(), &path, report);
+            ContextEntry::Code(code) => {
+                validate_source(code.path.is_some(), code.content.is_some(), &path, report);
+            }
+            ContextEntry::Markdown(markdown) => {
+                validate_source(
+                    markdown.path.is_some(),
+                    markdown.content.is_some(),
+                    &path,
+                    report,
+                );
             }
             ContextEntry::Diff(diff) => {
                 // One missing side is a new or a deleted file; with both
@@ -346,8 +362,17 @@ fn validate_context(
                 }
                 let sides = [("old", &diff.old), ("new", &diff.new)];
                 for (field, side) in sides {
-                    if let Some(DiffSide { path: file, text }) = side {
-                        validate_source(file.is_some(), text.is_some(), &path.field(field), report);
+                    if let Some(DiffSide {
+                        path: file,
+                        content,
+                    }) = side
+                    {
+                        validate_source(
+                            file.is_some(),
+                            content.is_some(),
+                            &path.field(field),
+                            report,
+                        );
                     }
                 }
             }
@@ -359,11 +384,11 @@ fn validate_context(
 /// says where.
 fn validate_source(
     has_path: bool,
-    has_text: bool,
+    has_content: bool,
     path: &FieldPath,
     report: &mut impl FnMut(FieldPath, Problem),
 ) {
-    match (has_path, has_text) {
+    match (has_path, has_content) {
         (false, false) => report(path.clone(), Problem::SourceMissing),
         (true, true) => report(path.clone(), Problem::SourceTwice),
         _ => {}
@@ -670,14 +695,16 @@ mod tests {
         assert_eq!(
             errors(&with_question(
                 r#"{"id": "q", "text": "?", "kind": "single",
-                    "context": [{"type": "text", "path": "/notes.md", "language": "markdown", "render": false}],
+                    "context": [{"type": "code", "path": "/notes.md", "language": "markdown"}],
                     "options": [
                         {"id": "a", "label": "A", "context": [{"type": "image", "title": "A", "path": "/a.png"}]},
                         {"id": "b", "label": "B", "context": [{"type": "diff", "name": "b.rs",
-                            "old": {"path": "/old.rs"}, "new": {"text": "fn b() {}"}}]},
-                        {"id": "c", "label": "C", "context": [{"type": "diff", "new": {"text": "new file"}}]},
-                        {"id": "d", "label": "D", "context": [{"type": "text", "text": "inline"}]},
-                        {"id": "e", "label": "E", "context": []}]}"#
+                            "old": {"path": "/old.rs"}, "new": {"content": "fn b() {}"}}]},
+                        {"id": "c", "label": "C", "context": [{"type": "diff", "new": {"content": "new file"}}]},
+                        {"id": "d", "label": "D", "context": [{"type": "code", "content": "inline"}]},
+                        {"id": "e", "label": "E", "context": [{"type": "markdown", "content": "*inline*"}]},
+                        {"id": "f", "label": "F", "context": [{"type": "markdown", "path": "/plan.md"}]},
+                        {"id": "g", "label": "G", "context": []}]}"#
             )),
             Vec::<String>::new()
         );
@@ -700,20 +727,24 @@ mod tests {
     }
 
     #[test]
-    fn a_text_entry_names_a_file_or_holds_the_text() {
-        assert_eq!(
-            errors(&with_question(
-                r#"{"id": "q", "text": "?", "kind": "text", "context": [{"type": "text", "title": "Log"}]}"#
-            )),
-            ["questions[0].context[0]: needs path or text"]
-        );
-        assert_eq!(
-            errors(&with_question(
-                r#"{"id": "q", "text": "?", "kind": "text",
-                    "context": [{"type": "text", "path": "/log.txt", "text": "ok"}]}"#
-            )),
-            ["questions[0].context[0]: takes path or text, not both"]
-        );
+    fn code_and_markdown_entries_name_a_file_or_hold_the_content() {
+        for kind in ["code", "markdown"] {
+            assert_eq!(
+                errors(&with_question(&format!(
+                    r#"{{"id": "q", "text": "?", "kind": "text", "context": [{{"type": "{kind}", "title": "Log"}}]}}"#
+                ))),
+                ["questions[0].context[0]: needs path or content"],
+                "{kind}"
+            );
+            assert_eq!(
+                errors(&with_question(&format!(
+                    r#"{{"id": "q", "text": "?", "kind": "text",
+                        "context": [{{"type": "{kind}", "path": "/log.txt", "content": "ok"}}]}}"#
+                ))),
+                ["questions[0].context[0]: takes path or content, not both"],
+                "{kind}"
+            );
+        }
     }
 
     #[test]
@@ -727,11 +758,11 @@ mod tests {
         assert_eq!(
             errors(&with_question(
                 r#"{"id": "q", "text": "?", "kind": "text",
-                    "context": [{"type": "diff", "old": {}, "new": {"path": "/a.rs", "text": "x"}}]}"#
+                    "context": [{"type": "diff", "old": {}, "new": {"path": "/a.rs", "content": "x"}}]}"#
             )),
             [
-                "questions[0].context[0].old: needs path or text",
-                "questions[0].context[0].new: takes path or text, not both",
+                "questions[0].context[0].old: needs path or content",
+                "questions[0].context[0].new: takes path or content, not both",
             ]
         );
     }

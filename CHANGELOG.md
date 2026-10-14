@@ -10,11 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Questions and options take `context`: material shown next to the
-  question that helps to answer it. An entry is an image, a text (a
-  file or inline, such as source code, a log or Markdown) or a diff,
-  which asqr computes from the old and the new text. A question or
-  option holds one entry. This version shows text entries as a
-  placeholder that names them.
+  question that helps to answer it. An entry is an image, code (text
+  shown as written and highlighted, such as source, a log or a
+  configuration file), Markdown (rendered) or a diff, which asqr
+  computes from the old and the new text. Code and Markdown come from a
+  file or inline in `content`. A question or option holds one entry.
+  This version shows code and Markdown entries as a placeholder that
+  names them.
 - A diff entry shows as a unified diff: hunks with 3 lines of context, a
   separator between hunks, the old and the new line number in a dim
   gutter, removed lines red and added lines green, and the changed words
@@ -32,15 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asqr validate` and `asqr ask` warn about a relative or missing file
   in any context entry, and about an `image` field left over from format
   version 1, saying that an image is a context entry of type `image`.
-- `asqr validate` and `asqr ask` warn about a text or diff entry above
-  1 MiB. asqr still shows it.
+  They also warn about a `text` key where inline text goes into
+  `content`, and a `render` key, since the entry's type decides whether
+  Markdown is rendered. An entry of type `text` is an error that names
+  `code` and `markdown`.
+- `asqr validate` and `asqr ask` warn about a code, Markdown or diff
+  entry above 1 MiB. asqr still shows it.
 - A note to the whole session: the review tab has a field for it below
   Submit, and `enter` in it submits. A submitted result carries it as a
   top-level `note`, the first new field of result format version 2. A
   rejected result never has one. The draft keeps the note, and a draft
   with a note counts as started, so `asqr ask` refuses to replace it.
 - The agent skill tells agents to read the session note.
-- An example session with a diff and text entries in
+- An example session with diff, Markdown and code entries in
   `examples/sessions/retry-review.json`.
 - `i` shows the session's whole intro in a frame of its own, which
   scrolls with `↑`/`↓`, `j`/`k`, `pgup`/`pgdn`, `ctrl-u`/`ctrl-d`,
