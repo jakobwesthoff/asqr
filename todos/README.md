@@ -90,6 +90,17 @@ those citations change with it (`rg -i <ulid>` finds them).
 
 - `ux`: what a person sees and does: hints, editing, rendering
 
+## Milestones
+
+- `milestone/v0-11`: release 0.11.0, the context pane (phase 1) with
+  format version 2, full Markdown in question texts, the wrapped own
+  answer and the session note on the review tab
+
+## Related repositories
+
+- `../patine`: the Markdown renderer asqr shares (ships its own
+  releases)
+
 ## Filing and editing a todo
 
 Never create a note file in `all-notes/` by hand: the ULID must come
