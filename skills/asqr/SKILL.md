@@ -138,7 +138,8 @@ Once asked, asqr fits best when:
     one; give the two versions instead. The two
     versions can be whole files or the same excerpt of both; the line
     numbers then count from the excerpt's first line. Leave out
-    `old` for a new file and `new` for a deleted one. `name` is the
+    `old` for a new file and `new` for a deleted one, never both: a
+    diff needs at least one side. `name` is the
     file's name, such as `src/fetch.rs`, shown in the header when there
     is no `title`. Give a `title` that says what the change does, such
     as "Retry with backoff".

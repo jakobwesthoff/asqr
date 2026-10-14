@@ -65,9 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The JSON Schemas state the format version as the constant `2`, allow
   one context entry per question or option, require exactly one of
   `path` and `content` in a code or Markdown entry and in each side of a
-  diff, and require `old`, `new` or both in a diff. They describe `intro`, question `text` and option `description`
-  as Markdown in which a single newline breaks the line and raw HTML
-  shows as written.
+  diff, and require `old`, `new` or both in a diff. They describe
+  `intro`, question `text` and option `description` as Markdown in
+  which a single newline breaks the line and raw HTML shows as written.
 - A note to the whole session: the review tab has a field for it below
   Submit, and `enter` in it submits. A submitted result carries it as a
   top-level `note`, the first new field of result format version 2. A
@@ -83,17 +83,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tab` moves into the context pane, which then scrolls with `↑`/`↓`,
   `j`/`k`, `←`/`→`, `h`/`l`, `g`/`G`, `home`/`end`, `pgup`/`pgdn` and
   `ctrl-u`/`ctrl-d`; `tab`, `esc` or `q` move back to the question or
-  the field being typed in, so a word typed after `tab` never quits. `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the
-  pane from anywhere, also while typing in a field. Each entry keeps its
+  the field being typed in, so a word typed after `tab` never quits.
+  `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the pane from anywhere,
+  also while typing in a field. Each entry keeps its
   scroll position while the person moves between options and
   questions. The key bar and the help show the pane's keys while it has
   the focus.
 - Pasting into a field or a note inserts the text as a whole, through
   the terminal's bracketed paste. A line break in it no longer acts as
   `enter`, which picked an option, submitted the session from its note
-  or rejected it. The own answer, the session note and the reject
-  reason take a pasted line break as a blank; a `text` answer and a
-  note keep it.
+  or rejected it. The pasted line breaks stay in the text, and `\r\n`
+  or a lone `\r` arrive as `\n`.
 - `--layout auto|beside|below` and `ASQR_LAYOUT` choose where a
   question's context goes. `auto`, the default, puts it beside the
   question when the terminal's area looks landscape and below it when
@@ -134,9 +134,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   title or file name and, when the entry is taller than the pane, says
   which of its lines show. While the pane does not have the focus and
   its entry is taller or wider than the pane, the header also names
-  `tab`, as in `1–10 of 31 · tab`. Beside or below the question, an image gets
-  one row less for that line, and an image smaller than the pane grows
-  to fill it.
+  `tab`, as in `1–10 of 31 · tab`. Beside or below the question, an
+  image gets one row less for that line, and an image smaller than the
+  pane grows to fill it.
 - `z` shows any context entry full screen, not only an image, and the
   one-line hint on small terminals offers it for every entry, as
   `esc, z: full screen` while a field or a note has the keys. The
@@ -151,10 +151,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deleting in a field.
 - Every typed field takes several lines: the own answer, the session
   note and the reject reason now accept `ctrl-j` like a `text` answer
-  and a question's note, and `enter` still picks, submits or rejects. A
-  paste keeps its line breaks in every field instead of turning them
-  into blanks. In results, `custom`, the session `note` and `reason` may
-  contain `\n`; the format stays version 2. The review shows a line
+  and a question's note, and `enter` still picks, submits or rejects.
+  In results, `custom`, the session `note` and `reason` may contain
+  `\n`; the format stays version 2. The review shows a line
   break in an own answer as `⏎`. The key bars of these fields show
   `ctrl-j new line`, and the agent skill says that these fields may
   span several lines.
