@@ -117,8 +117,8 @@ mod tests {
     use super::*;
     use crate::format::{SessionResult, Status};
 
-    const SESSION: &str = r#"{"asqr": 1, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
-        "image": "/nowhere/cat.png",
+    const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
+        "context": [{"type": "image", "path": "/nowhere/cat.png"}],
         "options": [{"id": "a", "label": "Apples"}, {"id": "b", "label": "Bananas"}]}]}"#;
 
     #[derive(Default)]

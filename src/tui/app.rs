@@ -160,7 +160,7 @@ mod tests {
 
     fn session(question: &str) -> Session {
         serde_json::from_str(&format!(
-            r#"{{"asqr": 1, "questions": [{{"id": "{question}", "text": "?", "kind": "single",
+            r#"{{"asqr": 2, "questions": [{{"id": "{question}", "text": "?", "kind": "single",
                 "options": [{{"id": "a", "label": "A"}}]}}]}}"#
         ))
         .expect("test session parses")
@@ -244,7 +244,7 @@ mod tests {
     fn opening_an_image_passes_through() {
         let mut app = App::default();
         let with_image: Session = serde_json::from_str(
-            r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "single", "image": "/i.png",
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single", "context": [{"type": "image", "path": "/i.png"}],
                 "options": [{"id": "a", "label": "A"}]}]}"#,
         )
         .expect("parses");

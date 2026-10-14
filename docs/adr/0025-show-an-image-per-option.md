@@ -10,6 +10,8 @@ Amends [7. Session and result format version 1](0007-session-and-result-format-v
 
 Amends [22. Answer in place with a tab bar and a review step](0022-answer-in-place-with-a-tab-bar-and-a-review-step.md)
 
+Format part superseded by [28. Session and result format version 2 with a context field](0028-session-and-result-format-version-2-with-a-context-field.md)
+
 ## Context
 
 Choosing between logo variants through asqr took one question per image

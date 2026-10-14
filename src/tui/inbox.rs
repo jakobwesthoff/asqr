@@ -15,7 +15,7 @@ use std::io;
 use std::path::PathBuf;
 
 use super::{App, AppEffect, Outcome, SessionState};
-use crate::format::{Session, SessionResult, now_rfc3339, same_session_id, validate};
+use crate::format::{SessionResult, now_rfc3339, parse_session, same_session_id, validate};
 use crate::queue::{
     QueueLocation, Recovery, Rejected, Waiting, archive_invalid_stem, finish, load_draft, recover,
     reject_invalid, save_draft, scan_inbox, session_sha256,
@@ -150,9 +150,9 @@ impl Inbox {
             return Ok(());
         }
 
-        let session = serde_json::from_slice::<Session>(&bytes)
-            .map_err(|error| format!("not a session file: {error}"))
-            .and_then(|session| match validate(&session, Some(&waiting.id)) {
+        let session = parse_session(&bytes)
+            .map_err(|error| error.to_string())
+            .and_then(|(_, session)| match validate(&session, Some(&waiting.id)) {
                 Ok(()) => Ok(session),
                 Err(errors) => Err(errors
                     .iter()
@@ -285,7 +285,7 @@ mod tests {
     use crate::format::{Answer, Status};
     use crate::queue::{drop_session, parse_archive_name};
 
-    const SESSION: &str = r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "single",
+    const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
 
     fn queue() -> (tempfile::TempDir, QueueLocation) {
@@ -446,6 +446,32 @@ mod tests {
                 .is_some_and(|notice| notice.contains("answered with an error")),
             "{:?}",
             app.current_notice()
+        );
+    }
+
+    #[test]
+    fn a_session_of_format_version_1_still_waiting_gets_an_error_result() {
+        // Sessions an earlier asqr would have shown can wait in a queue
+        // across an upgrade. Their askers learn from the result what to
+        // write instead (spec section 3.8).
+        let (_scratch, location) = queue();
+        put(
+            &location,
+            "old.json",
+            r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "text", "image": "/q.png"}]}"#,
+        );
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        assert!(app.sessions().is_empty());
+        let old = result(&location, "old");
+        assert_eq!(old.status, Status::Error);
+        assert_eq!(
+            old.error.as_deref(),
+            Some(
+                "asqr: this asqr no longer supports format version 1; `asqr skill` describes the current format (version 2)"
+            )
         );
     }
 

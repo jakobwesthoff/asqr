@@ -15,7 +15,7 @@ use asqr::queue::{QueueLocation, finish, lock_queue, save_draft, session_sha256}
 use common::{Sandbox, stderr, stdout};
 
 const SESSION: &str =
-    r#"{"asqr": 1, "id": "batch-01", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#;
+    r#"{"asqr": 2, "id": "batch-01", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#;
 
 fn inbox_file(sandbox: &Sandbox, id: &str) -> serde_json::Value {
     let path = sandbox.queue_dir().join("inbox").join(format!("{id}.json"));
@@ -93,7 +93,7 @@ fn assigns_a_ulid_when_the_session_has_no_id() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(
         "session.json",
-        r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
     );
 
     let output = sandbox
@@ -108,16 +108,25 @@ fn assigns_a_ulid_when_the_session_has_no_id() {
 }
 
 #[test]
-fn makes_image_paths_absolute_and_keeps_unknown_fields() {
+fn makes_every_context_path_absolute_and_keeps_unknown_fields() {
     let sandbox = Sandbox::new();
-    sandbox.file("session/images/q.png", "png");
-    sandbox.file("session/images/a.png", "png");
+    for file in ["q.png", "a.png", "notes.md", "old.rs", "new.rs"] {
+        sandbox.file(&format!("session/files/{file}"), "content");
+    }
     let file = sandbox.file(
         "session/session.json",
-        r#"{"asqr": 1, "id": "img", "later": 1,
-            "questions": [{"id": "q", "text": "?", "kind": "text", "image": "images/q.png"},
+        r#"{"asqr": 2, "id": "ctx", "later": 1,
+            "questions": [{"id": "q", "text": "?", "kind": "text",
+                           "context": [{"type": "image", "path": "files/q.png"}]},
                           {"id": "s", "text": "?", "kind": "single",
-                           "options": [{"id": "a", "label": "A", "image": "images/a.png"}]}]}"#,
+                           "context": [{"type": "text", "path": "files/notes.md"}],
+                           "options": [{"id": "a", "label": "A",
+                                        "context": [{"type": "image", "path": "files/a.png"}]},
+                                       {"id": "b", "label": "B",
+                                        "context": [{"type": "diff", "old": {"path": "files/old.rs"},
+                                                     "new": {"path": "files/new.rs"}}]},
+                                       {"id": "c", "label": "C",
+                                        "context": [{"type": "diff", "new": {"text": "inline"}}]}]}]}"#,
     );
 
     let output = sandbox
@@ -126,16 +135,28 @@ fn makes_image_paths_absolute_and_keeps_unknown_fields() {
         .output()
         .expect("runs");
 
-    assert_eq!(output.status.code(), Some(0));
-    let dropped = inbox_file(&sandbox, "img");
-    for image in [
-        &dropped["questions"][0]["image"],
-        &dropped["questions"][1]["options"][0]["image"],
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let dropped = inbox_file(&sandbox, "ctx");
+    let options = &dropped["questions"][1]["options"];
+    for path in [
+        &dropped["questions"][0]["context"][0]["path"],
+        &dropped["questions"][1]["context"][0]["path"],
+        &options[0]["context"][0]["path"],
+        &options[1]["context"][0]["old"]["path"],
+        &options[1]["context"][0]["new"]["path"],
     ] {
-        let image = image.as_str().expect("image");
-        assert!(Path::new(image).is_absolute(), "{image}");
-        assert!(Path::new(image).is_file(), "{image}");
+        let path = path.as_str().expect("path");
+        assert!(Path::new(path).is_absolute(), "{path}");
+        assert!(Path::new(path).is_file(), "{path}");
     }
+    // Fields that were not there stay away: no `old` on a new file, no
+    // `context` or `options` where the asker wrote none.
+    assert_eq!(
+        options[2]["context"][0],
+        serde_json::json!({"type": "diff", "new": {"text": "inline"}})
+    );
+    assert!(dropped["questions"][0].get("options").is_none());
+    assert!(options[2].get("description").is_none());
     assert_eq!(dropped["later"], 1);
     assert!(
         stderr(&output).contains("warning: later: unknown field"),
@@ -149,9 +170,38 @@ fn makes_image_paths_absolute_and_keeps_unknown_fields() {
 }
 
 #[test]
-fn refuses_an_invalid_session() {
+fn a_question_without_context_gets_none_in_the_dropped_file() {
     let sandbox = Sandbox::new();
-    let file = sandbox.file("bad.json", r#"{"asqr": 2, "id": "bad", "questions": []}"#);
+    let file = sandbox.file(
+        "session.json",
+        r#"{"asqr": 2, "id": "plain", "questions": [{"id": "q", "text": "?", "kind": "single",
+            "options": [{"id": "a", "label": "A"}]}]}"#,
+    );
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let dropped = inbox_file(&sandbox, "plain");
+    assert!(dropped["questions"][0].get("context").is_none());
+    assert!(
+        dropped["questions"][0]["options"][0]
+            .get("context")
+            .is_none()
+    );
+}
+
+#[test]
+fn refuses_a_session_of_format_version_1_and_points_to_the_skill() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "old.json",
+        r#"{"asqr": 1, "id": "old", "questions": [{"id": "q", "text": "?", "kind": "text",
+            "image": "/q.png"}]}"#,
+    );
 
     let output = sandbox
         .asqr_in_queue(&["ask"])
@@ -160,7 +210,26 @@ fn refuses_an_invalid_session() {
         .expect("runs");
 
     assert_eq!(output.status.code(), Some(11));
-    assert!(stderr(&output).contains("error: asqr: unsupported format version 2"));
+    assert_eq!(
+        stderr(&output),
+        "error: asqr: this asqr no longer supports format version 1; `asqr skill` describes the current format (version 2)\n"
+    );
+    assert!(!sandbox.queue_dir().join("inbox").join("old.json").exists());
+}
+
+#[test]
+fn refuses_an_invalid_session() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("bad.json", r#"{"asqr": 3, "id": "bad", "questions": []}"#);
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(11));
+    assert!(stderr(&output).contains("error: asqr: unsupported format version 3"));
     assert!(!sandbox.queue_dir().join("inbox").join("bad.json").exists());
 }
 

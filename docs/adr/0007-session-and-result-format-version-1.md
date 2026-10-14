@@ -4,7 +4,7 @@ Date: 2026-09-27
 
 ## Status
 
-Accepted
+Superseded by [28. Session and result format version 2 with a context field](0028-session-and-result-format-version-2-with-a-context-field.md)
 
 Amended by [23. Refine the interaction after the first real use](0023-refine-the-interaction-after-the-first-real-use.md)
 
@@ -18,7 +18,7 @@ versioned and checkable.
 ## Decision
 
 The format is JSON, versioned with `"asqr": 1`. The full description is
-in `docs/spec-1.0.0.md` sections 4 and 5.
+in `docs/spec.md` sections 4 and 5.
 
 - Question kinds are `single`, `multi` (with optional `min` and `max`)
   and `text`. Other kinds such as `confirm`, `rank` and `number` are left

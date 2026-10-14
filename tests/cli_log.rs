@@ -22,7 +22,7 @@ fn commands_log_what_they_changed() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(
         "session.json",
-        r#"{"asqr": 1, "id": "logged", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+        r#"{"asqr": 2, "id": "logged", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
     );
 
     sandbox

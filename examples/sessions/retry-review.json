@@ -1,0 +1,52 @@
+{
+  "asqr": 2,
+  "title": "Review the retry change",
+  "intro": "Three decisions about retrying failed requests in the fetcher.",
+  "from": "code review",
+  "questions": [
+    {
+      "id": "merge",
+      "header": "Merge?",
+      "text": "The fetcher retries a failed request up to three times, waiting longer before each try. Merge the change?",
+      "kind": "single",
+      "context": [
+        {
+          "type": "diff",
+          "title": "Retry with backoff",
+          "name": "src/fetch.rs",
+          "old": { "text": "pub fn fetch(url: &str) -> Result<Response> {\n    get(url)\n}\n" },
+          "new": { "text": "pub fn fetch(url: &str) -> Result<Response> {\n    let mut delay = Duration::from_millis(100);\n    for _ in 0..3 {\n        match get(url) {\n            Ok(response) => return Ok(response),\n            Err(_) => sleep(delay),\n        }\n        delay *= 2;\n    }\n    get(url)\n}\n" }
+        }
+      ],
+      "options": [
+        { "id": "yes", "label": "Merge" },
+        { "id": "no", "label": "Not yet", "description": "Say what is missing in a note." }
+      ]
+    },
+    {
+      "id": "docs",
+      "header": "Docs",
+      "text": "Which section should the README get?",
+      "kind": "single",
+      "options": [
+        {
+          "id": "short",
+          "label": "Short",
+          "context": [{ "type": "text", "title": "short.md", "text": "## Retries\n\nA failed request is tried again up to three times.\n" }]
+        },
+        {
+          "id": "long",
+          "label": "Detailed",
+          "context": [{ "type": "text", "title": "long.md", "render": false, "text": "## Retries\n\nA failed request is tried again up to three times. The fetcher waits\n100 ms before the first retry and doubles the wait each time.\n" }]
+        }
+      ]
+    },
+    {
+      "id": "checks",
+      "header": "Checks",
+      "text": "Does the check recipe cover what the change needs?",
+      "kind": "text",
+      "context": [{ "type": "text", "title": "Justfile", "path": "../../Justfile" }]
+    }
+  ]
+}

@@ -1,20 +1,18 @@
 ---
 title: asqr specification
-version: 1.0.0
-format: 1
-status: draft
+format: 2
 ---
 
-# asqr 1.0.0 specification (draft)
+# asqr specification
 
-This file describes asqr 1.0.0, the first release, with version 1 of
-the session and result format. A later version of asqr gets a
-specification file of its own.
+This file describes asqr as it is now, with version 2 of the session and
+result format. The specifications of earlier versions are in the git
+history.
 
 Status: reviewed with the user and in an adversarial review on
 2026-09-27, with the findings F1 to F12 worked in, and revised with the
 decisions made while building it. The decisions behind it are recorded
-as ADRs 2 to 26 in `docs/adr/`.
+as ADRs 2 to 28 in `docs/adr/`.
 
 ## 1. Purpose
 
@@ -45,8 +43,10 @@ Design goals:
   intro, and a list of questions. It is answered and submitted as a
   whole.
 - **Question**: one thing to decide. It has a kind (section 4), text,
-  optional options (each with an optional image), an optional image, and
+  optional options (each with optional context), optional context, and
   optional custom entry and note.
+- **Context**: material shown next to a question that helps to answer
+  it: an image, a text or a diff.
 - **Result**: the answer file for one session.
 - **Draft**: the answers to a session while it is being answered.
 - **Queue**: a directory with an inbox, an outbox, drafts and an archive,
@@ -140,7 +140,7 @@ dotfiles, editor swap and backup files, `.DS_Store`.
 `.tmp` suffix the watcher ignores, and renames it into place.
 
 What `ask` drops is a copy of the asker's file: pretty-printed, with the
-`id` filled in and image paths made absolute. The asker's own file is
+`id` filled in and the paths of context entries made absolute. The asker's own file is
 never changed. `session_sha256` in the result (section 3.7) is the hash
 of that copy.
 
@@ -239,6 +239,11 @@ original name and archived as `invalid.<ulid>.json`, without a notice.
 A session file that cannot be read (permissions) stays in the inbox and
 is reported with a notice.
 
+A session of an earlier format version is invalid in the same way
+(section 4). One that still waits in a queue when asqr is upgraded gets
+an error result that names the version and points to `asqr skill`, so
+the asker waiting for it sees exit code 11 and what to write instead.
+
 ### 3.9 Cleaning up
 
 Nothing is deleted automatically, apart from drafts in step 3 of section
@@ -259,11 +264,11 @@ Why files and not a socket: dropping a file already triggers asqr, files
 queue while asqr is not running, they survive crashes, and any language
 can write them without a client library.
 
-## 4. Session file (version 1)
+## 4. Session file (version 2)
 
 ```json
 {
-  "asqr": 1,
+  "asqr": 2,
   "id": "alt-rework-3-batch-01",
   "title": "Alt rework 3, batch 1",
   "intro": "Pick the best line per mascot. 'More' sends it back with new variations.",
@@ -274,7 +279,9 @@ can write them without a client library.
       "id": "301-holly-crown-green-robe-feast-ghost",
       "header": "301",
       "text": "holly-crown-green-robe-feast-ghost: Ghost of Christmas Present (A Christmas Carol)",
-      "image": "/Users/someone/mascots/301-holly-crown-green-robe-feast-ghost.png",
+      "context": [
+        { "type": "image", "path": "/Users/someone/mascots/301-holly-crown-green-robe-feast-ghost.png" }
+      ],
       "kind": "single",
       "options": [
         { "id": "old",  "label": "Old",   "description": "Snappy ... -- ..." },
@@ -291,8 +298,13 @@ can write them without a client library.
 
 Session fields:
 
-- `asqr` (required): the format version, `1`. Any other value is the
-  validation error "unsupported format version".
+- `asqr` (required): the format version, `2`. Format version 1, which
+  asqr up to 0.10 read, is the validation error "this asqr no longer
+  supports format version 1; `asqr skill` describes the current format
+  (version 2)". Any other value is the validation error "unsupported
+  format version". The version is checked before the rest of the file,
+  so a file of another version gets only this error, even when its
+  shape does not parse under version 2.
 - `id` (optional): a valid id (section 3.3). In the inbox it must equal
   the file stem, ignoring case. Without it, `asqr ask` assigns a fresh
   ULID and names the dropped file after it. A file dropped by hand
@@ -309,13 +321,14 @@ Question fields:
 - `id` (required, unique within the session), `text` (required),
   `header` (optional, a short label for the question's tab).
 - `kind`: `single` (pick one), `multi` (pick several, with optional `min`
-  and `max`) or `text` (typed answer, no options). Version 1 has no other
-  kinds.
+  and `max`) or `text` (typed answer, no options). Format version 2 has
+  no other kinds.
 - `options` (required for `single` and `multi`, not allowed for `text`):
   each option has an `id` (unique within the question), a `label`, an
   optional `description` of any length shown in full and wrapped, an
-  optional `default: true`, and an optional `image`, shown in place of
-  the question's image while the cursor is on the option (section 7.7).
+  optional `default: true`, and optional `context`, shown in place of
+  the question's context while the cursor is on the option (section
+  7.7).
 - `custom` (optional, only on `single` and `multi`): allows a typed
   answer, always one line. `true`, or an object with `label` and
   `length`.
@@ -323,15 +336,10 @@ Question fields:
   range) and `warn` (above it the counter warns). Both are optional, and
   `warn` must not be below the end of `target`. There is no hard limit:
   the counter guides, and input is never refused (user, 2026-09-27).
-- `image` (optional): an absolute path to an image file. Most questions
-  have none. `asqr ask` resolves relative paths against the file it was
-  given and drops absolute ones. `asqr validate` warns about
-  relative paths, which a file dropped by hand must not use. `asqr
-  validate` and `asqr ask` both warn about image files that do not
-  exist, and about files the terminal UI cannot decode (section 7.7).
-  That check reads only the file's header. For an unsupported format the
-  warning lists the formats that work. All of this applies to an option's
-  `image` too.
+- `context` (optional): material that helps to answer the question,
+  shown next to it (section 7.7). Most questions have none. A list,
+  limited to one entry: the format allows more, so showing several
+  needs no new format version. An empty list is the same as none.
 - `note` (optional, default `true`): whether the person may add a note.
   One note per question.
 - Every question is optional (ADR 23): there is no way to force an
@@ -339,9 +347,39 @@ Question fields:
   that still set the former `required` field parse as before; the field
   is ignored and reported as unknown.
 
+Context entry fields. Every entry has a `type` and an optional `title`,
+a name for the entry such as a file name:
+
+- `image`: `path` (required), an image file.
+- `text`: longer text such as source code, a log or Markdown, from the
+  file at `path` or inline in `text`, exactly one of the two. `language`
+  (optional), such as `rust`, names the language; without it the
+  extension of `path`, then of `title`, decides, and failing that it is
+  plain text. `render` (optional, default `true`): `false` shows
+  Markdown as its source.
+- `diff`: a change between two versions of a text, which asqr diffs
+  itself. `old` and `new` are each `{ "path": ... }` or `{ "text": ... }`,
+  exactly one of the two. A missing `old` is a new file, a missing `new`
+  a deleted one. `name` (optional) is the file name the diff is about,
+  shown with it and the source of the language; `language` (optional)
+  as for `text`. A unified diff written by the asker is not accepted:
+  every hunk header needs exact line counts, which goes wrong easily.
+
+Paths in context entries, for every type:
+
+- A path is absolute. `asqr ask` resolves relative paths against the
+  file it was given and drops absolute ones. `asqr validate` warns about
+  relative paths, which a file dropped by hand must not use.
+- `asqr validate` and `asqr ask` both warn about files that do not
+  exist, and about image files the terminal UI cannot decode (section
+  7.7). That check reads only the image file's header. For an
+  unsupported format the warning lists the formats that work.
+- asqr reads a file when it first shows it, not when the session
+  arrives.
+
 Validation errors, besides missing or mistyped fields:
 
-- an unsupported format version, or an `id` that is no valid id
+- a format version other than 2, or an `id` that is no valid id
 - no questions
 - a duplicate question id or option id
 - `options` on `text`, or missing or empty on `single` or `multi`
@@ -354,12 +392,20 @@ Validation errors, besides missing or mistyped fields:
   `multi`
 - `min` greater than `max`, or either outside `0..=options`
 - a reversed `target` range, or `warn` below the end of `target`
+- more than one context entry on a question or an option
+- a `text` entry or a side of a `diff` with neither or both of `path`
+  and `text`, and a `diff` with neither `old` nor `new`
+- an entry whose `type` is not `image`, `text` or `diff` (the file is
+  not shaped like a session)
 - in the inbox: an `id` that differs from the file stem
 
 Unknown fields are ignored when parsing, so later format versions can
 add optional fields. `asqr validate` and `asqr ask` warn about them,
 comparing the keys against the schema, so a typo like `requred` is
-reported.
+reported. Context entries are compared against the fields of their
+`type`. The `image` field of format version 1 on a question or an option
+gets a warning of its own, saying that an image is a context entry of
+type `image`.
 
 `asqr validate <file>` prints `<file>: valid` and exits with 0, or lists
 every error and exits with 11. Warnings go to stderr and never fail it.
@@ -370,8 +416,8 @@ Text fields (`intro`, question `text`, option `description`) may use a
 small Markdown subset: bold, italic, inline code, lists and line breaks.
 Everything else is shown exactly as written in the source (section 7.6).
 
-The repo ships the JSON Schema (`schema/session.v1.json`,
-`schema/result.v1.json`). `asqr schema` prints the session schema and
+The repo ships the JSON Schema (`schema/session.v2.json`,
+`schema/result.v2.json`). `asqr schema` prints the session schema and
 `asqr schema --result` the result schema.
 
 ## 5. Results and drafts
@@ -380,7 +426,7 @@ The repo ships the JSON Schema (`schema/session.v1.json`,
 
 ```json
 {
-  "asqr": 1,
+  "asqr": 2,
   "id": "alt-rework-3-batch-01",
   "status": "submitted",
   "submitted_at": "2026-09-27T17:05:12+02:00",
@@ -405,6 +451,10 @@ The repo ships the JSON Schema (`schema/session.v1.json`,
   offset. It is present for every status.
 - For `submitted`, every question appears exactly once, in session
   order. For `cancelled` and `error`, `answers` is empty.
+- asqr writes results in format version 2, with the same fields as
+  version 1. `wait` and `result` print a result of version 1 that an
+  earlier asqr left in the outbox as it is, so an asker waiting across
+  an upgrade still gets its answers.
 
 ### 5.2 Answer state
 
@@ -503,7 +553,7 @@ One column over the full width (user, 2026-09-27):
 
  Notes: —
 
- [image, if the question or one of its options has one]
+ [context, if the question or one of its options has some]
  [notices and messages]
  ↑/↓ move  enter pick  ←/→ question  n note  ? help  q quit
 ```
@@ -555,7 +605,7 @@ On an option row (vim style plus arrows):
 | `1`-`9` | `single`: pick that option and move on. `multi`: toggle it |
 | `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
-| `o`, `z` | open the image in the system viewer; show it full screen |
+| `o`, `z` | open the image shown in the system viewer; show it full screen |
 | `q`, `ctrl-c` | quit, keeping the draft |
 | `?` | help |
 
@@ -571,6 +621,7 @@ On an option row (vim style plus arrows):
   (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
   started, a notice says why. `z` shows the image shown over the
   question's area and toggles back; changing the question ends it.
+  Neither acts on a text or diff entry.
 - Help closes on any key.
 - The session list (`L`) lists every waiting session in queue order
   (section 3.4): `↑`/`↓` or `k`/`j` move, `enter` switches to the
@@ -661,17 +712,25 @@ Elements in the subset (section 4) are styled. Every other element is
 shown once as written in the source, also when it is nested inside a
 supported element (a heading marker in a list item).
 
-### 7.7 Images
+### 7.7 Context
 
-Images appear only when a question or one of its options has one.
+Context appears only when a question or one of its options has some.
 
-- The option under the cursor shows its own image, so the person can
+- The option under the cursor shows its own context, so the person can
   browse the options before picking; this holds for `single` and
-  `multi`. Every other row, and an option without an image, shows the
-  question's image, or nothing when the question has none.
-- The room for the image stays while the cursor moves, also when the
+  `multi`. Every other row, and an option without context, shows the
+  question's context, or nothing when the question has none.
+- The room for the context stays while the cursor moves, also when the
   current row shows none, so the layout does not jump.
-- The review shows no images.
+- Placement adapts: beside the question, taking two fifths of the
+  width, from 100 columns of content on; below the options otherwise,
+  in a strip of a third of the height, at most 12 rows.
+- The review shows no context.
+- Text and diff entries show a placeholder that names the entry by its
+  `title` (a text entry's `path` or a diff's `name` without one) and
+  says that this asqr cannot show them yet.
+
+Images:
 
 - Terminals that support the Kitty graphics protocol (Ghostty, kitty,
   WezTerm), the iTerm2 protocol or Sixel show images inline. Terminals
@@ -682,9 +741,6 @@ Images appear only when a question or one of its options has one.
   not match a known signature. SVG and AVIF are not decoded. The set follows
   the features of the `image` crate, and a test fails when it changes.
 - The protocol is detected once at start, by querying the terminal.
-- Placement adapts: beside the question, taking two fifths of the
-  width, from 100 columns of content on; below the options otherwise,
-  in a strip of a third of the height, at most 12 rows.
 - An image is read once and kept until asqr's terminal gains the focus
   again. asqr asks the terminal for focus reports; on regaining the
   focus it reads and sends every image again as it is next shown.
@@ -712,7 +768,7 @@ inside tmux go out in tmux's passthrough wrapper.
 |---|---|
 | `asqr` / `asqr watch [--no-notify] [--no-bell]` | the TUI (section 7) |
 | `asqr new` | prints a session skeleton with a fresh ULID as its id |
-| `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes image paths absolute, drops the file (section 3.5), prints the id |
+| `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file (section 3.5), prints the id |
 | `asqr wait <id> [--timeout <secs>]` | waits for the result and prints it; blocks without `--timeout` |
 | `asqr result <id>` | prints the result if it is there, like `wait --timeout 0` |
 | `asqr status [--json] [--limit <count> \| --all] [--since <age>]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
@@ -776,7 +832,7 @@ Exit codes, the same for every command:
 
 ## 9. Agents
 
-Agents are the main askers. Version 1 ships a skill, and an MCP server
+Agents are the main askers. asqr ships a skill, and an MCP server
 comes later as a thin layer on the same library.
 
 The skill lives in the repo at `skills/asqr/SKILL.md` in the Agent Skills
@@ -815,7 +871,7 @@ asqr itself has no loop. A follow-up is a new session, and its optional
 `follows` field names the previous one. The header shows it. asqr does
 not count or match carried-over questions.
 
-## 11. Not in version 1
+## 11. Not in asqr yet
 
 - Networking, several people on one queue, sockets, queues on network or
   synced filesystems.

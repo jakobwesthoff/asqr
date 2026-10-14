@@ -1,5 +1,5 @@
 {
-  "asqr": 1,
+  "asqr": 2,
   "id": "alt-rework-3-batch-01",
   "title": "Alt rework 3, batch 1",
   "intro": "Pick the best line per mascot. **More** sends it back with new variations.",
@@ -10,7 +10,7 @@
       "id": "301-holly-crown-green-robe-feast-ghost",
       "header": "301",
       "text": "holly-crown-green-robe-feast-ghost: Ghost of Christmas Present (A Christmas Carol)",
-      "image": "/tmp/asqr-example/301-holly-crown-green-robe-feast-ghost.png",
+      "context": [{ "type": "image", "path": "/tmp/asqr-example/301-holly-crown-green-robe-feast-ghost.png" }],
       "kind": "single",
       "options": [
         { "id": "old", "label": "Old", "description": "Snappy in holly -- the old line." },

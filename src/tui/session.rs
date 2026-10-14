@@ -17,7 +17,9 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui_textarea::{CursorMove, TextArea};
 
 pub use crate::format::Length;
-use crate::format::{Answer, Kind, Question, Session, SessionResult, is_answered, result_answers};
+use crate::format::{
+    Answer, ContextEntry, Kind, Question, Session, SessionResult, is_answered, result_answers,
+};
 
 /// The two ends of a field's text.
 #[derive(Clone, Copy)]
@@ -244,33 +246,38 @@ impl SessionState {
         self.session.questions.get(self.tab)
     }
 
-    /// The image shown on the current tab; `o` and `z` act on it. The
-    /// option under the cursor shows its own image, so the person can
-    /// browse the options before picking; every other row shows the
-    /// question's image (spec section 7.7).
-    pub fn shown_image(&self) -> Option<&str> {
+    /// The context entry shown on the current tab. The option under the
+    /// cursor shows its own context, so the person can browse the options
+    /// before picking; every other row shows the question's (spec section
+    /// 7.7).
+    pub fn shown_context(&self) -> Option<&ContextEntry> {
         let question = self.question()?;
-        let option_image = match self.current_row() {
+        let option_context = match self.current_row() {
             Some(Row::Option(index)) => question
                 .options
                 .as_ref()
-                .and_then(|options| options[index].image.as_deref()),
+                .and_then(|options| options[index].context.first()),
             _ => None,
         };
-        option_image.or(question.image.as_deref())
+        option_context.or(question.context.first())
     }
 
-    /// Whether the current tab keeps room for an image: when the question
-    /// or any of its options has one, even while the row under the cursor
+    /// The image shown on the current tab; `o` and `z` act on it.
+    pub fn shown_image(&self) -> Option<&str> {
+        self.shown_context().and_then(ContextEntry::image_path)
+    }
+
+    /// Whether the current tab keeps room for context: when the question
+    /// or any of its options has some, even while the row under the cursor
     /// shows none, so the layout does not jump while browsing.
-    pub fn has_image_area(&self) -> bool {
+    pub fn has_context_area(&self) -> bool {
         self.question().is_some_and(|question| {
-            question.image.is_some()
+            !question.context.is_empty()
                 || question
                     .options
                     .iter()
                     .flatten()
-                    .any(|option| option.image.is_some())
+                    .any(|option| !option.context.is_empty())
         })
     }
 
@@ -785,13 +792,13 @@ mod tests {
     use super::*;
     use crate::format::{Answer, SessionResult};
 
-    const SESSION: &str = r#"{"asqr": 1, "questions": [
+    const SESSION: &str = r#"{"asqr": 2, "questions": [
         {"id": "single", "text": "?", "kind": "single", "custom": true,
          "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B", "default": true}]},
         {"id": "multi", "text": "?", "kind": "multi", "max": 2, "custom": true,
          "options": [{"id": "x", "label": "X"}, {"id": "y", "label": "Y"}, {"id": "z", "label": "Z"}]},
         {"id": "text", "text": "?", "kind": "text", "length": {"warn": 5}},
-        {"id": "plain", "text": "?", "kind": "single", "note": false, "image": "/pictures/p.png",
+        {"id": "plain", "text": "?", "kind": "single", "note": false, "context": [{"type": "image", "path": "/pictures/p.png"}],
          "options": [{"id": "only", "label": "Only"}]}
     ]}"#;
 
@@ -1438,13 +1445,13 @@ mod tests {
     }
 
     #[test]
-    fn the_image_follows_the_option_under_the_cursor() {
-        let session = r#"{"asqr": 1, "questions": [
+    fn the_context_follows_the_option_under_the_cursor() {
+        let session = r#"{"asqr": 2, "questions": [
             {"id": "pictured", "text": "?", "kind": "single", "custom": true,
-             "image": "/pictures/question.png",
-             "options": [{"id": "a", "label": "A", "image": "/pictures/a.png"}, {"id": "b", "label": "B"}]},
+             "context": [{"type": "image", "path": "/pictures/question.png"}],
+             "options": [{"id": "a", "label": "A", "context": [{"type": "image", "path": "/pictures/a.png"}]}, {"id": "b", "label": "B"}]},
             {"id": "bare", "text": "?", "kind": "multi",
-             "options": [{"id": "x", "label": "X", "image": "/pictures/x.png"}, {"id": "y", "label": "Y"}]}
+             "options": [{"id": "x", "label": "X", "context": [{"type": "image", "path": "/pictures/x.png"}]}, {"id": "y", "label": "Y"}]}
         ]}"#;
         let mut state = SessionState::new(
             "batch",
@@ -1470,16 +1477,42 @@ mod tests {
         state.handle(code(KeyCode::Esc));
         go_to_tab(&mut state, 1);
         assert_eq!(state.shown_image(), Some("/pictures/x.png"));
-        assert!(state.has_image_area());
+        assert!(state.has_context_area());
         press(&mut state, "j");
-        assert_eq!(state.shown_image(), None);
+        assert_eq!(state.shown_context(), None);
         assert!(
-            state.has_image_area(),
+            state.has_context_area(),
             "the area stays, so the layout does not jump between options"
         );
 
         go_to_tab(&mut state, 2);
-        assert_eq!((state.shown_image(), state.has_image_area()), (None, false));
+        assert_eq!(
+            (state.shown_context(), state.has_context_area()),
+            (None, false)
+        );
+    }
+
+    #[test]
+    fn only_an_image_entry_opens_or_fills_the_screen() {
+        let session = r#"{"asqr": 2, "questions": [
+            {"id": "q", "text": "?", "kind": "single",
+             "context": [{"type": "text", "title": "Log", "text": "ok"}],
+             "options": [{"id": "a", "label": "A"}]}]}"#;
+        let mut state = SessionState::new(
+            "batch",
+            serde_json::from_str(session).expect("test session parses"),
+            None,
+        );
+
+        assert_eq!(
+            state.shown_context().and_then(ContextEntry::title),
+            Some("Log")
+        );
+        assert!(state.has_context_area());
+        assert_eq!(state.shown_image(), None);
+        assert_eq!(press(&mut state, "o"), Effect::None);
+        press(&mut state, "z");
+        assert!(!state.image_full_screen());
     }
 
     #[test]

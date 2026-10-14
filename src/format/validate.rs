@@ -13,11 +13,17 @@ use std::fmt;
 use thiserror::Error;
 
 use super::{
-    Kind, Length, MAX_SESSION_ID_BYTES, Question, Session, is_valid_session_id, same_session_id,
+    ContextEntry, DiffSide, Kind, Length, MAX_SESSION_ID_BYTES, Question, Session,
+    is_valid_session_id, same_session_id,
 };
 
 /// The only format version this asqr reads and writes.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
+
+/// The context entries one question or option may carry. The format
+/// allows a list, so showing several entries later needs no new format
+/// version (spec section 4).
+pub const MAX_CONTEXT_ENTRIES: usize = 1;
 
 /// One problem in a session file, with the path of the field it is about,
 /// such as `questions[2].options[0].id`.
@@ -32,6 +38,14 @@ pub struct ValidationError {
 pub enum Problem {
     #[error("unsupported format version {0}")]
     UnsupportedVersion(u32),
+
+    /// A version that an earlier asqr read. The skill compiled into this
+    /// asqr describes the current format, so an agent learns there what to
+    /// write instead.
+    #[error(
+        "this asqr no longer supports format version {0}; `asqr skill` describes the current format (version {FORMAT_VERSION})"
+    )]
+    DroppedVersion(u32),
 
     #[error(
         "invalid session id {0:?} (letters, digits, '-', '_' and '.', not starting with '.', at most {MAX_SESSION_ID_BYTES} bytes)"
@@ -76,6 +90,34 @@ pub enum Problem {
 
     #[error("{value} is below the end of the target range {target_end}")]
     BelowTarget { value: u32, target_end: u32 },
+
+    #[error("{0} entries, but this asqr shows one per question or option")]
+    TooManyContextEntries(usize),
+
+    #[error("needs path or text")]
+    SourceMissing,
+
+    #[error("takes path or text, not both")]
+    SourceTwice,
+
+    #[error("a diff needs old, new or both")]
+    DiffWithoutSides,
+}
+
+/// The problem with format version `version`, if it is not the one this
+/// asqr reads.
+pub(crate) fn version_problem(version: u64) -> Option<Problem> {
+    let current = u64::from(FORMAT_VERSION);
+    // A version too large for `u32` is no version anyone wrote; it is
+    // reported at its largest representable value.
+    let reported = u32::try_from(version).unwrap_or(u32::MAX);
+    if version == current {
+        None
+    } else if (1..current).contains(&version) {
+        Some(Problem::DroppedVersion(reported))
+    } else {
+        Some(Problem::UnsupportedVersion(reported))
+    }
 }
 
 /// A question kind as it is written in the file, for messages.
@@ -128,11 +170,8 @@ pub fn validate(session: &Session, file_stem: Option<&str>) -> Result<(), Vec<Va
     let mut report =
         |path: FieldPath, problem: Problem| errors.push(ValidationError { path, problem });
 
-    if session.asqr != FORMAT_VERSION {
-        report(
-            FieldPath::root("asqr"),
-            Problem::UnsupportedVersion(session.asqr),
-        );
+    if let Some(problem) = version_problem(u64::from(session.asqr)) {
+        report(FieldPath::root("asqr"), problem);
     }
 
     if let Some(id) = &session.id {
@@ -213,14 +252,18 @@ fn validate_question(
         report(path.field("length"), Problem::LengthNotAllowed);
     }
 
+    validate_context(&question.context, &path.field("context"), report);
+
     let mut option_ids = HashSet::new();
     for (index, option) in options.iter().enumerate() {
+        let option_path = path.field("options").index(index);
         if !option_ids.insert(option.id.as_str()) {
             report(
-                path.field("options").index(index).field("id"),
+                option_path.field("id"),
                 Problem::DuplicateId(option.id.clone()),
             );
         }
+        validate_context(&option.context, &option_path.field("context"), report);
     }
 
     if question.kind == Kind::Multi {
@@ -280,6 +323,53 @@ fn validate_bounds(
     }
 }
 
+fn validate_context(
+    context: &[ContextEntry],
+    path: &FieldPath,
+    report: &mut impl FnMut(FieldPath, Problem),
+) {
+    if context.len() > MAX_CONTEXT_ENTRIES {
+        report(path.clone(), Problem::TooManyContextEntries(context.len()));
+    }
+    for (index, entry) in context.iter().enumerate() {
+        let path = path.index(index);
+        match entry {
+            ContextEntry::Image(_) => {}
+            ContextEntry::Text(text) => {
+                validate_source(text.path.is_some(), text.text.is_some(), &path, report);
+            }
+            ContextEntry::Diff(diff) => {
+                // One missing side is a new or a deleted file; with both
+                // missing there is nothing to compare.
+                if diff.old.is_none() && diff.new.is_none() {
+                    report(path.clone(), Problem::DiffWithoutSides);
+                }
+                let sides = [("old", &diff.old), ("new", &diff.new)];
+                for (field, side) in sides {
+                    if let Some(DiffSide { path: file, text }) = side {
+                        validate_source(file.is_some(), text.is_some(), &path.field(field), report);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Text comes from a file or is written inline, and exactly one of the two
+/// says where.
+fn validate_source(
+    has_path: bool,
+    has_text: bool,
+    path: &FieldPath,
+    report: &mut impl FnMut(FieldPath, Problem),
+) {
+    match (has_path, has_text) {
+        (false, false) => report(path.clone(), Problem::SourceMissing),
+        (true, true) => report(path.clone(), Problem::SourceTwice),
+        _ => {}
+    }
+}
+
 /// The warning threshold must not lie inside the target range. Each check
 /// only applies to the parts that are present.
 fn validate_length(length: &Length, path: &FieldPath, report: &mut impl FnMut(FieldPath, Problem)) {
@@ -331,7 +421,7 @@ mod tests {
     /// A one-question session around `question`, so each test shows only
     /// the part it is about.
     fn with_question(question: &str) -> String {
-        format!(r#"{{"asqr": 1, "questions": [{question}]}}"#)
+        format!(r#"{{"asqr": 2, "questions": [{question}]}}"#)
     }
 
     #[test]
@@ -342,8 +432,8 @@ mod tests {
     #[test]
     fn rejects_other_format_versions() {
         assert_eq!(
-            errors(r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#),
-            ["asqr: unsupported format version 2"]
+            errors(r#"{"asqr": 3, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#),
+            ["asqr: unsupported format version 3"]
         );
     }
 
@@ -351,7 +441,7 @@ mod tests {
     fn rejects_invalid_session_ids() {
         assert_eq!(
             errors(
-                r#"{"asqr": 1, "id": ".hidden", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#
+                r#"{"asqr": 2, "id": ".hidden", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#
             ),
             [
                 "id: invalid session id \".hidden\" (letters, digits, '-', '_' and '.', not starting with '.', at most 200 bytes)"
@@ -361,7 +451,7 @@ mod tests {
 
     #[test]
     fn the_id_must_match_the_file_stem_ignoring_case() {
-        let session = r#"{"asqr": 1, "id": "Batch-01", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#;
+        let session = r#"{"asqr": 2, "id": "Batch-01", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#;
 
         assert_eq!(
             errors_for_stem(session, Some("batch-01")),
@@ -376,7 +466,7 @@ mod tests {
     #[test]
     fn needs_at_least_one_question() {
         assert_eq!(
-            errors(r#"{"asqr": 1, "questions": []}"#),
+            errors(r#"{"asqr": 2, "questions": []}"#),
             ["questions: a session needs at least one question"]
         );
     }
@@ -385,7 +475,7 @@ mod tests {
     fn rejects_duplicate_question_ids() {
         assert_eq!(
             errors(
-                r#"{"asqr": 1, "questions": [
+                r#"{"asqr": 2, "questions": [
                     {"id": "q", "text": "?", "kind": "text"},
                     {"id": "q", "text": "?", "kind": "text"}]}"#
             ),
@@ -558,6 +648,92 @@ mod tests {
         assert_eq!(KindName(Kind::Single).to_string(), "single");
         assert_eq!(KindName(Kind::Multi).to_string(), "multi");
         assert_eq!(KindName(Kind::Text).to_string(), "text");
+    }
+
+    #[test]
+    fn refuses_older_format_versions_with_a_pointer_to_the_skill() {
+        assert_eq!(
+            errors(r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#),
+            [
+                "asqr: this asqr no longer supports format version 1; `asqr skill` describes the current format (version 2)"
+            ]
+        );
+        // Version 0 never existed, so there is nothing this asqr dropped.
+        assert_eq!(
+            errors(r#"{"asqr": 0, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#),
+            ["asqr: unsupported format version 0"]
+        );
+    }
+
+    #[test]
+    fn every_kind_of_context_entry_is_valid_on_questions_and_options() {
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "single",
+                    "context": [{"type": "text", "path": "/notes.md", "language": "markdown", "render": false}],
+                    "options": [
+                        {"id": "a", "label": "A", "context": [{"type": "image", "title": "A", "path": "/a.png"}]},
+                        {"id": "b", "label": "B", "context": [{"type": "diff", "name": "b.rs",
+                            "old": {"path": "/old.rs"}, "new": {"text": "fn b() {}"}}]},
+                        {"id": "c", "label": "C", "context": [{"type": "diff", "new": {"text": "new file"}}]},
+                        {"id": "d", "label": "D", "context": [{"type": "text", "text": "inline"}]},
+                        {"id": "e", "label": "E", "context": []}]}"#
+            )),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn this_asqr_shows_one_context_entry_per_question_or_option() {
+        let two = r#"[{"type": "image", "path": "/a.png"}, {"type": "image", "path": "/b.png"}]"#;
+
+        assert_eq!(
+            errors(&with_question(&format!(
+                r#"{{"id": "q", "text": "?", "kind": "single", "context": {two},
+                    "options": [{{"id": "a", "label": "A", "context": {two}}}]}}"#
+            ))),
+            [
+                "questions[0].context: 2 entries, but this asqr shows one per question or option",
+                "questions[0].options[0].context: 2 entries, but this asqr shows one per question or option",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_text_entry_names_a_file_or_holds_the_text() {
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "text", "context": [{"type": "text", "title": "Log"}]}"#
+            )),
+            ["questions[0].context[0]: needs path or text"]
+        );
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "text",
+                    "context": [{"type": "text", "path": "/log.txt", "text": "ok"}]}"#
+            )),
+            ["questions[0].context[0]: takes path or text, not both"]
+        );
+    }
+
+    #[test]
+    fn a_diff_has_at_least_one_side_and_each_side_one_source() {
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "text", "context": [{"type": "diff", "name": "a.rs"}]}"#
+            )),
+            ["questions[0].context[0]: a diff needs old, new or both"]
+        );
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "text",
+                    "context": [{"type": "diff", "old": {}, "new": {"path": "/a.rs", "text": "x"}}]}"#
+            )),
+            [
+                "questions[0].context[0].old: needs path or text",
+                "questions[0].context[0].new: takes path or text, not both",
+            ]
+        );
     }
 
     #[test]

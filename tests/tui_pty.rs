@@ -24,7 +24,7 @@ use asqr::format::{SessionResult, Status};
 use common::Sandbox;
 use portable_pty::{Child, CommandBuilder, PtySize, native_pty_system};
 
-const SESSION: &str = r#"{"asqr": 1, "id": "pty-test", "questions": [{"id": "q",
+const SESSION: &str = r#"{"asqr": 2, "id": "pty-test", "questions": [{"id": "q",
     "text": "Pick a fruit", "kind": "single",
     "options": [{"id": "a", "label": "Apples"}, {"id": "b", "label": "Bananas"}]}]}"#;
 
@@ -260,7 +260,7 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
         "pictured.json",
         &SESSION.replace(
             r#""kind": "single","#,
-            r#""kind": "single", "image": "/pictures/fruit.png","#,
+            r#""kind": "single", "context": [{"type": "image", "path": "/pictures/fruit.png"}],"#,
         ),
     );
     sandbox

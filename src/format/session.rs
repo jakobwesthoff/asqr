@@ -11,11 +11,44 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use thiserror::Error;
+
+use super::{ContextEntry, FieldPath, ValidationError, version_problem};
+
+/// Why a file could not be read as a session.
+#[derive(Debug, Error)]
+pub enum ParseError {
+    /// The file names a format version other than this asqr's.
+    #[error("{0}")]
+    Version(ValidationError),
+
+    #[error("not a session file: {0}")]
+    NotASession(serde_json::Error),
+}
+
+/// Reads a session from `bytes`, returning the raw JSON too, which keeps
+/// the unknown fields the typed session drops.
+///
+/// The format version is checked before the shape: a file of another
+/// version has the rules of that version, so its shape errors would only
+/// mislead, and the version error says what to do instead.
+pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
+    let raw: Value = serde_json::from_slice(bytes).map_err(ParseError::NotASession)?;
+    if let Some(problem) = raw["asqr"].as_u64().and_then(version_problem) {
+        return Err(ParseError::Version(ValidationError {
+            path: FieldPath::root("asqr"),
+            problem,
+        }));
+    }
+    let session = serde_json::from_value(raw.clone()).map_err(ParseError::NotASession)?;
+    Ok((raw, session))
+}
 
 /// One session: a list of questions answered and submitted as a whole.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Session {
-    /// The format version. Only `1` is supported.
+    /// The format version. Only `2` is supported.
     // Any number parses; validation rejects the others, so the error names
     // the field instead of failing in the parser.
     pub asqr: u32,
@@ -69,12 +102,10 @@ pub struct Question {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length: Option<Length>,
 
-    /// An image shown next to the question. Most questions have none.
-    /// PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM,
-    /// QOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and AVIF are
-    /// not.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
+    /// Material shown next to the question that helps to answer it. Most
+    /// questions have none. A list, of which this asqr shows one entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<ContextEntry>,
 
     /// Whether the person may add a note to this question.
     #[serde(default = "note_allowed_by_default")]
@@ -118,10 +149,10 @@ pub struct Choice {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub default: bool,
 
-    /// An image shown in place of the question's image while the cursor
-    /// is on this option. The formats are those of the question's image.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
+    /// Shown in place of the question's context while the cursor is on
+    /// this option, so the person can compare options before picking.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<ContextEntry>,
 }
 
 /// The `custom` field: either a plain switch or a configured entry.
@@ -190,7 +221,7 @@ mod tests {
     fn parses_the_example_session() {
         let session: Session = serde_json::from_str(EXAMPLE).expect("example parses");
 
-        assert_eq!(session.asqr, 1);
+        assert_eq!(session.asqr, 2);
         assert_eq!(session.id.as_deref(), Some("alt-rework-3-batch-01"));
         assert_eq!(session.follows.as_deref(), Some("alt-rework-3-batch-00"));
         assert_eq!(session.questions.len(), 3);
@@ -201,6 +232,10 @@ mod tests {
         let options = single.options.as_ref().expect("single has options");
         assert_eq!(options.len(), 4);
         assert_eq!(options[1].id, "new1");
+        assert_eq!(
+            single.context[0].image_path(),
+            Some("/tmp/asqr-example/301-holly-crown-green-robe-feast-ghost.png")
+        );
         let custom = single.custom.as_ref().expect("single allows custom");
         assert_eq!(custom.label(), Some("Own line"));
         let length = custom.length().expect("custom has a length");
@@ -223,7 +258,7 @@ mod tests {
     #[test]
     fn optional_fields_take_their_defaults() {
         let session: Session = serde_json::from_str(
-            r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
         )
         .expect("minimal session parses");
 
@@ -233,39 +268,90 @@ mod tests {
         // section 4).
         assert!(question.note);
         assert_eq!(question.custom, None);
-        assert_eq!(question.image, None);
+        assert!(question.context.is_empty());
     }
 
     #[test]
-    fn an_option_may_carry_an_image_and_writes_it_back() {
-        let json = r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "single",
-            "options": [{"id": "a", "label": "A", "image": "/pictures/a.png"}, {"id": "b", "label": "B"}]}]}"#;
+    fn an_option_may_carry_context_and_writes_it_back() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "options": [{"id": "a", "label": "A", "context": [{"type": "image", "path": "/pictures/a.png"}]},
+                        {"id": "b", "label": "B"}]}]}"#;
 
         let session: Session = serde_json::from_str(json).expect("parses");
 
         let options = session.questions[0].options.as_ref().expect("options");
-        assert_eq!(options[0].image.as_deref(), Some("/pictures/a.png"));
-        assert_eq!(options[1].image, None);
+        assert_eq!(options[0].context[0].image_path(), Some("/pictures/a.png"));
+        assert!(options[1].context.is_empty());
         let written = serde_json::to_value(&session).expect("serializes");
         assert_eq!(
-            written["questions"][0]["options"][0]["image"],
-            "/pictures/a.png"
+            written["questions"][0]["options"][0]["context"],
+            serde_json::json!([{"type": "image", "path": "/pictures/a.png"}])
         );
-        assert!(written["questions"][0]["options"][1].get("image").is_none());
+        assert!(
+            written["questions"][0]["options"][1]
+                .get("context")
+                .is_none()
+        );
     }
 
     #[test]
     fn unknown_fields_are_ignored_when_parsing() {
-        // Later format versions may add optional fields, so version 1
+        // Later format versions may add optional fields, so version 2
         // readers must not reject them (spec section 4); warnings about them
         // come from validation.
         let session: Session = serde_json::from_str(
-            r#"{"asqr": 1, "future": 1,
+            r#"{"asqr": 2, "future": 1,
                 "questions": [{"id": "q", "text": "?", "kind": "text", "requred": true}]}"#,
         )
         .expect("unknown fields do not fail parsing");
 
         assert_eq!(session.questions[0].id, "q");
+    }
+
+    #[test]
+    fn parsing_keeps_the_raw_json_next_to_the_session() {
+        let (raw, session) = parse_session(
+            br#"{"asqr": 2, "later": 1, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+        )
+        .expect("parses");
+
+        assert_eq!(raw["later"], 1);
+        assert_eq!(session.questions[0].id, "q");
+    }
+
+    #[test]
+    fn another_format_version_is_reported_before_the_shape() {
+        // A version 1 file whose shape no longer parses still learns that
+        // its version is the problem.
+        let error = parse_session(br#"{"asqr": 1, "questions": [{"id": "q", "image": 3}]}"#)
+            .expect_err("version 1 is refused");
+
+        assert_eq!(
+            error.to_string(),
+            "asqr: this asqr no longer supports format version 1; `asqr skill` describes the current format (version 2)"
+        );
+        assert_eq!(
+            parse_session(br#"{"asqr": 3}"#)
+                .expect_err("version 3 is refused")
+                .to_string(),
+            "asqr: unsupported format version 3"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_no_session_says_so() {
+        for bytes in [
+            &b"[1, 2"[..],
+            br#"{"asqr": 2, "questions": [{"id": "q"}]}"#,
+            b"{}",
+        ] {
+            let error = parse_session(bytes).expect_err("not a session");
+
+            assert!(
+                error.to_string().starts_with("not a session file: "),
+                "{error}"
+            );
+        }
     }
 
     #[test]

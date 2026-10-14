@@ -20,7 +20,7 @@ fn location(sandbox: &Sandbox) -> QueueLocation {
 fn ask(sandbox: &Sandbox, id: &str) {
     let file = sandbox.file(
         &format!("{id}.json"),
-        &format!(r#"{{"asqr": 1, "id": "{id}", "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#),
+        &format!(r#"{{"asqr": 2, "id": "{id}", "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#),
     );
     sandbox
         .asqr_in_queue(&["ask"])
@@ -103,6 +103,34 @@ fn result_fails_on_a_file_that_is_not_a_result() {
         "{}",
         stderr(&output)
     );
+}
+
+#[test]
+fn a_result_of_format_version_1_is_printed_as_it_is() {
+    // An earlier asqr wrote it before the upgrade; the agent waiting for it
+    // still gets its answers. Only session files of version 1 are refused.
+    let sandbox = Sandbox::new();
+    location(&sandbox).create_layout().expect("layout");
+    let written = r#"{"asqr": 1, "id": "before", "status": "submitted",
+  "submitted_at": "2026-10-01T09:00:00+02:00", "session_sha256": "9f2c",
+  "answers": [{"question": "q", "custom": "yes"}]}
+"#;
+    std::fs::write(sandbox.queue_dir().join("outbox/before.json"), written).expect("written");
+
+    for command in ["result", "wait"] {
+        let output = sandbox
+            .asqr_in_queue(&[command, "before"])
+            .output()
+            .expect("runs");
+
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{command}: {}",
+            stderr(&output)
+        );
+        assert_eq!(stdout(&output), written, "{command}");
+    }
 }
 
 #[test]

@@ -3,6 +3,13 @@
     "Choice": {
       "description": "One option of a `single` or `multi` question.",
       "properties": {
+        "context": {
+          "description": "Shown in place of the question's context while the cursor is on\nthis option, so the person can compare options before picking.",
+          "items": {
+            "$ref": "#/$defs/ContextEntry"
+          },
+          "type": "array"
+        },
         "default": {
           "description": "Preselects the option.",
           "type": "boolean"
@@ -17,13 +24,6 @@
         "id": {
           "type": "string"
         },
-        "image": {
-          "description": "An image shown in place of the question's image while the cursor\nis on this option. The formats are those of the question's image.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "label": {
           "type": "string"
         }
@@ -33,6 +33,50 @@
         "label"
       ],
       "type": "object"
+    },
+    "ContextEntry": {
+      "description": "One entry of a `context` list. The `type` field picks the kind.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ImageEntry",
+          "properties": {
+            "type": {
+              "const": "image",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/TextEntry",
+          "properties": {
+            "type": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/DiffEntry",
+          "properties": {
+            "type": {
+              "const": "diff",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "Custom": {
       "anyOf": [
@@ -64,6 +108,91 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "DiffEntry": {
+      "description": "A change between two versions of a text, which asqr diffs itself. A\nmissing `old` is a new file, a missing `new` a deleted one.",
+      "properties": {
+        "language": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The file name the diff is about, shown in the header. Its\nextension picks the language when `language` is not given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "new": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DiffSide"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "old": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DiffSide"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "description": "A name for the entry, such as a file name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "DiffSide": {
+      "description": "One side of a diff: a file or inline text. Exactly one of the two is\ngiven.",
+      "properties": {
+        "path": {
+          "description": "An absolute path; `asqr ask` makes a relative one absolute.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ImageEntry": {
+      "description": "An image file. PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF,\nICO, TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and\nAVIF are not.",
+      "properties": {
+        "path": {
+          "description": "An absolute path; `asqr ask` makes a relative one absolute.",
+          "type": "string"
+        },
+        "title": {
+          "description": "A name for the entry, such as a file name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
       "type": "object"
     },
     "Kind": {
@@ -124,6 +253,13 @@
     "Question": {
       "description": "One thing for the person to decide.",
       "properties": {
+        "context": {
+          "description": "Material shown next to the question that helps to answer it. Most\nquestions have none. A list, of which this asqr shows one entry.",
+          "items": {
+            "$ref": "#/$defs/ContextEntry"
+          },
+          "type": "array"
+        },
         "custom": {
           "anyOf": [
             {
@@ -144,13 +280,6 @@
         },
         "id": {
           "type": "string"
-        },
-        "image": {
-          "description": "An image shown next to the question. Most questions have none.\nPNG, JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM,\nQOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and AVIF are\nnot.",
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "kind": {
           "$ref": "#/$defs/Kind"
@@ -208,13 +337,52 @@
         "kind"
       ],
       "type": "object"
+    },
+    "TextEntry": {
+      "description": "Longer text: source code, plain text or Markdown, from a file or\ninline. Exactly one of `path` and `text` is given.",
+      "properties": {
+        "language": {
+          "description": "The language for highlighting, such as `rust` or `markdown`.\nWithout it, the extension of `path`, then of `title`, decides.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "An absolute path to the file to show; `asqr ask` makes a relative\none absolute.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "render": {
+          "default": true,
+          "description": "`false` shows Markdown as its source instead of rendering it.",
+          "type": "boolean"
+        },
+        "text": {
+          "description": "The text itself, in place of a file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "A name for the entry, such as a file name. Its extension picks the\nlanguage when neither `language` nor `path` does.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "One session: a list of questions answered and submitted as a whole.",
   "properties": {
     "asqr": {
-      "description": "The format version. Only `1` is supported.",
+      "description": "The format version. Only `2` is supported.",
       "format": "uint32",
       "minimum": 0,
       "type": "integer"

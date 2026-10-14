@@ -4,8 +4,8 @@
 
 //! The JSON Schema of the format, derived from the same Rust types that
 //! read and write the files, so the published schema cannot drift from what
-//! asqr accepts. The repo ships it as `schema/session.v1.json` and
-//! `schema/result.v1.json`, and `asqr schema` prints it.
+//! asqr accepts. The repo ships it as `schema/session.v2.json` and
+//! `schema/result.v2.json`, and `asqr schema` prints it.
 //!
 //! The schema describes the shape. The rules that span fields (ids,
 //! option counts, length bounds) are checked by validation and noted in the
@@ -28,6 +28,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+    use crate::format::FORMAT_VERSION;
 
     /// Compares a derived schema with the checked-in file. With
     /// `ASQR_UPDATE_SCHEMA=1` the file is rewritten instead, which is how a
@@ -54,12 +55,15 @@ mod tests {
 
     #[test]
     fn the_session_schema_file_matches_the_types() {
-        assert_matches_file(&session_schema(), "session.v1.json");
+        assert_matches_file(
+            &session_schema(),
+            &format!("session.v{FORMAT_VERSION}.json"),
+        );
     }
 
     #[test]
     fn the_result_schema_file_matches_the_types() {
-        assert_matches_file(&result_schema(), "result.v1.json");
+        assert_matches_file(&result_schema(), &format!("result.v{FORMAT_VERSION}.json"));
     }
 
     #[test]
@@ -70,5 +74,7 @@ mod tests {
         assert!(schema["properties"]["questions"].is_object());
         assert!(schema["$defs"]["Question"]["properties"]["options"].is_object());
         assert!(schema["$defs"]["Choice"]["properties"]["default"].is_object());
+        assert!(schema["$defs"]["Choice"]["properties"]["context"].is_object());
+        assert!(schema["$defs"]["ContextEntry"]["oneOf"].is_array());
     }
 }

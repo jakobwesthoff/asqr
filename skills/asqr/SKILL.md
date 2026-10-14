@@ -23,7 +23,7 @@ Once asked, asqr fits best when:
 - there are more than a handful of questions, or more options per
   question than a chat question offers
 - each question needs context to decide: a longer description per
-  option, an image, a suggested default
+  option, an image, a file, a diff, a suggested default
 - the person should be able to skip, add a note, or type their own
   answer
 - the answers feed straight into your next step as data
@@ -32,7 +32,7 @@ Once asked, asqr fits best when:
 
 ```json
 {
-  "asqr": 1,
+  "asqr": 2,
   "title": "Release 0.3.0",
   "intro": "Three decisions before the release. Skip what you **cannot** decide yet.",
   "from": "your-agent, project name",
@@ -42,6 +42,9 @@ Once asked, asqr fits best when:
       "header": "Go?",
       "text": "All checks passed. Publish 0.3.0 now?",
       "kind": "single",
+      "context": [
+        { "type": "text", "title": "CHANGELOG.md", "text": "## 0.3.0\n\n- Faster startup\n- A `--quiet` flag\n" }
+      ],
       "options": [
         { "id": "yes", "label": "Publish now" },
         { "id": "later", "label": "Later", "description": "Keep the tag, publish after the weekend." }
@@ -83,15 +86,34 @@ Once asked, asqr fits best when:
 - `min` and `max` count the picked options; the own answer of a `multi`
   comes on top of them.
 - `default: true` on an option preselects it.
-- `image` takes an absolute path to an image shown next to the question.
-  An option can have its own `image`, shown instead while the cursor is
-  on that option, so the person can flip through variants in one
-  question and pick one. `asqr ask` turns relative paths into absolute
-  ones, resolved against the session file. asqr shows PNG, JPEG, GIF
-  (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM, QOI, DDS, OpenEXR,
-  HDR and farbfeld. It cannot show SVG or AVIF, so convert those to PNG
-  first. The person only sees a placeholder for an image asqr cannot
-  show, and `validate` and `ask` warn about it.
+- `context` holds material that helps to decide, shown next to the
+  question: a list with one entry, since asqr shows one per question or
+  option. An option can have its own `context`, shown instead while the
+  cursor is on that option, so the person can flip through variants in
+  one question and pick one. Every entry has a `type` and an optional
+  `title`:
+  - `{ "type": "image", "path": "..." }`: an image file. asqr shows PNG,
+    JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM, QOI,
+    DDS, OpenEXR, HDR and farbfeld. It cannot show SVG or AVIF, so
+    convert those to PNG first. The person only sees a placeholder for an
+    image asqr cannot show, and `validate` and `ask` warn about it.
+  - `{ "type": "text", "path": "..." }` or `{ "type": "text", "text":
+    "..." }`: source code, a log, notes or Markdown, from a file or
+    inline. `language`, such as `rust`, picks the highlighting; without
+    it the extension of `path`, then of `title`, decides. Markdown is
+    rendered unless the entry says `"render": false`.
+  - `{ "type": "diff", "old": {...}, "new": {...} }`: a change, which asqr
+    diffs itself. `old` and `new` are each `{ "path": "..." }` or
+    `{ "text": "..." }`. Leave out `old` for a new file and `new` for a
+    deleted one. `name` is the file name shown with the diff. Give the
+    two versions, never a unified diff of your own.
+  - This version of asqr shows text and diff entries as a placeholder
+    that names them; their viewers come in a later version.
+  - Paths are absolute. `asqr ask` turns relative paths into absolute
+    ones, resolved against the session file. asqr reads a file when it
+    shows it, so leave it in place until the person has answered.
+  - Questions and options have no `image` field. A file that still uses
+    one gets a warning, and the image does not show.
 - `intro`, question `text` and option `description` may use bold,
   italic, inline code, lists and line breaks. Any other Markdown, such
   as quotes, headings, links and code blocks, shows as its literal
@@ -110,7 +132,9 @@ Once asked, asqr fits best when:
 `asqr new` prints a skeleton to start from, `asqr validate <file>` checks
 a file (warnings go to stderr), and `asqr schema` prints the JSON
 Schema. `asqr ask` refuses an invalid file with exit code 11 and lists the
-errors on stderr, so nothing broken reaches the person.
+errors on stderr, so nothing broken reaches the person. Files of an
+earlier format version, such as `"asqr": 1`, are refused as well: write
+them in the format shown here.
 
 ## Asking and waiting
 
@@ -164,7 +188,7 @@ refuses while an unread result with the same id is in the outbox.
 
 ```json
 {
-  "asqr": 1,
+  "asqr": 2,
   "id": "01K...",
   "status": "submitted",
   "submitted_at": "2026-09-27T17:05:12+02:00",

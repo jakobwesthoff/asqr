@@ -29,13 +29,13 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
         Err(error) => return error.report(file),
     };
 
-    // `ask` turns relative image paths into absolute ones itself, so only
-    // the other warnings concern the asker.
+    // `ask` turns relative paths into absolute ones itself, so only the
+    // other warnings concern the asker.
     let found = warnings(&session_file.raw, &session_file.session, file.parent());
     print_warnings(
         found
             .iter()
-            .filter(|warning| warning.kind != WarningKind::RelativeImagePath),
+            .filter(|warning| warning.kind != WarningKind::RelativePath),
     );
     if let Err(errors) = validate(&session_file.session, None) {
         print_errors(&errors);
@@ -49,7 +49,7 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
         .unwrap_or_else(|| ulid::Ulid::generate().to_string());
     let raw = &mut session_file.raw;
     raw["id"] = Value::from(id.as_str());
-    make_images_absolute(raw, file);
+    make_paths_absolute(raw, file);
     let mut bytes = serde_json::to_vec_pretty(raw).expect("a serde_json Value always serializes");
     bytes.push(b'\n');
 
@@ -72,32 +72,54 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
     }
 }
 
-/// Rewrites relative image paths against the directory of `file`, since a
-/// relative path means nothing once the session sits in an inbox. The raw
-/// JSON is edited, not the typed session, so unknown fields survive.
-fn make_images_absolute(raw: &mut Value, file: &Path) {
+/// Rewrites the relative paths of context entries against the directory
+/// of `file`, since a relative path means nothing once the session sits in
+/// an inbox. The raw JSON is edited, not the typed session, so unknown
+/// fields survive.
+fn make_paths_absolute(raw: &mut Value, file: &Path) {
     let base = file.parent().unwrap_or(Path::new(""));
-    let questions = raw["questions"].as_array_mut().into_iter().flatten();
-    for question in questions {
-        make_image_absolute(question, base);
-        let options = question["options"].as_array_mut().into_iter().flatten();
-        for option in options {
-            make_image_absolute(option, base);
+    for question in array_mut(raw, "questions") {
+        make_context_absolute(question, base);
+        for option in array_mut(question, "options") {
+            make_context_absolute(option, base);
         }
     }
 }
 
-/// Rewrites the `image` field of a question or an option, if it is there
-/// and relative.
-fn make_image_absolute(holder: &mut Value, base: &Path) {
-    let Some(image) = holder["image"].as_str() else {
+/// The elements of the array in `field` of `object`, none when it is
+/// missing. Indexing a `Value` mutably would insert a `null` for a missing
+/// field, which the dropped file would then carry.
+fn array_mut<'a>(object: &'a mut Value, field: &str) -> impl Iterator<Item = &'a mut Value> {
+    object
+        .get_mut(field)
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+}
+
+/// Rewrites every path in the `context` of a question or an option: the
+/// `path` of an image or text entry and the paths of a diff's sides.
+fn make_context_absolute(holder: &mut Value, base: &Path) {
+    for entry in array_mut(holder, "context") {
+        make_path_absolute(entry, base);
+        for side in ["old", "new"] {
+            if let Some(side) = entry.get_mut(side) {
+                make_path_absolute(side, base);
+            }
+        }
+    }
+}
+
+/// Rewrites the `path` field of `object`, if it is there and relative.
+fn make_path_absolute(object: &mut Value, base: &Path) {
+    let Some(path) = object.get("path").and_then(Value::as_str) else {
         return;
     };
-    let image = Path::new(image);
-    if image.is_relative()
-        && let Ok(absolute) = std::path::absolute(base.join(image))
+    let path = Path::new(path);
+    if path.is_relative()
+        && let Ok(absolute) = std::path::absolute(base.join(path))
     {
-        holder["image"] = Value::from(absolute.to_string_lossy().into_owned());
+        object["path"] = Value::from(absolute.to_string_lossy().into_owned());
     }
 }
 

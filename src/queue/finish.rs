@@ -384,13 +384,13 @@ mod tests {
     #[test]
     fn an_invalid_session_gets_an_error_result_and_is_archived() {
         let (_scratch, location) = queue();
-        let session = dropped(&location, "broken", b"{\"asqr\": 2}");
+        let session = dropped(&location, "broken", b"{\"asqr\": 3}");
 
         let outcome = reject_invalid(
             &location,
             &session,
-            b"{\"asqr\": 2}",
-            "asqr: unsupported format version 2",
+            b"{\"asqr\": 3}",
+            "asqr: unsupported format version 3",
             AT,
         )
         .expect("rejected");
@@ -402,11 +402,11 @@ mod tests {
         .expect("parses");
         assert_eq!(
             result.error.as_deref(),
-            Some("asqr: unsupported format version 2")
+            Some("asqr: unsupported format version 3")
         );
         assert_eq!(
             result.session_sha256,
-            Some(session_sha256(b"{\"asqr\": 2}"))
+            Some(session_sha256(b"{\"asqr\": 3}"))
         );
         assert_eq!(names(&location.inbox()), Vec::<String>::new());
         assert_eq!(names(&location.archive()).len(), 1);

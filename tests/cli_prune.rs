@@ -13,7 +13,7 @@ use common::{Sandbox, stdout};
 fn asked_and_answered(sandbox: &Sandbox, id: &str) {
     let file = sandbox.file(
         &format!("{id}.json"),
-        &format!(r#"{{"asqr": 1, "id": "{id}", "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#),
+        &format!(r#"{{"asqr": 2, "id": "{id}", "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#),
     );
     sandbox
         .asqr_in_queue(&["ask"])

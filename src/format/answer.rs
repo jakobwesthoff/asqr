@@ -86,7 +86,7 @@ mod tests {
     use super::*;
 
     fn session(questions: &str) -> Session {
-        serde_json::from_str(&format!(r#"{{"asqr": 1, "questions": [{questions}]}}"#))
+        serde_json::from_str(&format!(r#"{{"asqr": 2, "questions": [{questions}]}}"#))
             .expect("test session parses")
     }
 

@@ -6,7 +6,7 @@
 
 mod common;
 
-use asqr::format::{Session, validate};
+use asqr::format::{FORMAT_VERSION, Session, validate};
 use common::{Sandbox, stderr, stdout};
 
 const EXAMPLE: &str = include_str!("../examples/sessions/release-checklist.json");
@@ -23,6 +23,11 @@ fn new_prints_a_valid_skeleton_with_a_fresh_ulid() {
     let id = session.id.clone().expect("the skeleton has an id");
     assert!(ulid::Ulid::from_string(&id).is_ok(), "{id} is a ULID");
     assert_eq!(validate(&session, None), Ok(()));
+    assert_eq!(session.asqr, FORMAT_VERSION);
+    assert!(
+        session.questions[0].context[0].title().is_some(),
+        "the skeleton shows a context entry"
+    );
 
     let other: Session = serde_json::from_str(&stdout(&second)).expect("parses");
     assert_ne!(other.id, session.id, "every skeleton gets its own id");
@@ -48,7 +53,10 @@ fn validate_accepts_a_valid_file() {
 #[test]
 fn validate_lists_every_error_and_exits_with_the_error_code() {
     let sandbox = Sandbox::new();
-    let file = sandbox.file("bad.json", r#"{"asqr": 2, "id": ".x", "questions": []}"#);
+    let file = sandbox.file(
+        "bad.json",
+        r#"{"asqr": 2, "id": ".x", "questions": [{"id": "q", "text": "?", "kind": "text", "max": 1}]}"#,
+    );
 
     let output = sandbox
         .asqr()
@@ -59,21 +67,41 @@ fn validate_lists_every_error_and_exits_with_the_error_code() {
 
     assert_eq!(output.status.code(), Some(11));
     let errors = stderr(&output);
-    assert!(
-        errors.contains("error: asqr: unsupported format version 2\n"),
-        "{errors}"
-    );
     assert!(errors.contains("error: id: invalid session id"), "{errors}");
     assert!(
-        errors.contains("error: questions: a session needs at least one question\n"),
+        errors.contains("error: questions[0].max: only a multi question takes min and max\n"),
         "{errors}"
+    );
+}
+
+#[test]
+fn validate_names_only_the_version_of_a_file_in_another_format_version() {
+    let sandbox = Sandbox::new();
+    // Under the rules of version 2 this file has more problems, but they
+    // are not the asker's to fix: the format version is.
+    let file = sandbox.file(
+        "old.json",
+        r#"{"asqr": 1, "id": ".x", "questions": [{"id": "q", "text": "?", "kind": "text", "image": "/q.png"}]}"#,
+    );
+
+    let output = sandbox
+        .asqr()
+        .arg("validate")
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(11));
+    assert_eq!(
+        stderr(&output),
+        "error: asqr: this asqr no longer supports format version 1; `asqr skill` describes the current format (version 2)\n"
     );
 }
 
 #[test]
 fn validate_reports_a_file_that_is_not_a_session() {
     let sandbox = Sandbox::new();
-    let file = sandbox.file("broken.json", r#"{"asqr": 1, "questions": [{"id": "q"}]}"#);
+    let file = sandbox.file("broken.json", r#"{"asqr": 2, "questions": [{"id": "q"}]}"#);
 
     let output = sandbox
         .asqr()
@@ -95,7 +123,8 @@ fn validate_warns_without_failing() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(
         "typo.json",
-        r#"{"asqr": 1, "questions": [{"id": "q", "text": "?", "kind": "text", "requred": true, "image": "missing.png"}]}"#,
+        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "requred": true,
+            "image": "/q.png", "context": [{"type": "image", "path": "missing.png"}]}]}"#,
     );
 
     let output = sandbox
@@ -112,11 +141,15 @@ fn validate_warns_without_failing() {
         "{warnings}"
     );
     assert!(
-        warnings.contains("warning: questions[0].image: relative path"),
+        warnings.contains("warning: questions[0].image: ignored; since format version 2 an image is a context entry"),
         "{warnings}"
     );
     assert!(
-        warnings.contains("warning: questions[0].image: file not found"),
+        warnings.contains("warning: questions[0].context[0].path: relative path"),
+        "{warnings}"
+    );
+    assert!(
+        warnings.contains("warning: questions[0].context[0].path: file not found"),
         "{warnings}"
     );
 }
@@ -151,6 +184,6 @@ fn schema_prints_the_shipped_schema_files() {
         .output()
         .expect("runs");
 
-    assert_eq!(stdout(&session), include_str!("../schema/session.v1.json"));
-    assert_eq!(stdout(&result), include_str!("../schema/result.v1.json"));
+    assert_eq!(stdout(&session), include_str!("../schema/session.v2.json"));
+    assert_eq!(stdout(&result), include_str!("../schema/result.v2.json"));
 }

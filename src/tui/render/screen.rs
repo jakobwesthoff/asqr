@@ -18,16 +18,16 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use super::Images;
 use super::markdown;
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
-use crate::format::{Kind, Question};
+use crate::format::{ContextEntry, Kind, Question};
 use crate::tui::{AnswerState, App, Focus, Row, SessionState};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
 pub const MIN_HEIGHT: u16 = 15;
 
-/// From this width of the content on, an image goes beside the question
-/// instead of below it.
-const IMAGE_BESIDE_WIDTH: u16 = 100;
+/// From this width of the content on, the context goes beside the
+/// question instead of below it.
+const CONTEXT_BESIDE_WIDTH: u16 = 100;
 
 /// Descriptions start on the label's line only while that leaves them at
 /// least this much room; otherwise they move to their own lines.
@@ -295,26 +295,58 @@ impl Content {
     }
 }
 
+/// What stands in for a text or diff entry, which this asqr has no viewer
+/// for yet. It names the entry the way an image placeholder names its file.
+// TODO: replace with the text and diff viewers (context pane plan, steps 4
+// and 5).
+fn viewerless_placeholder(
+    heading: &'static str,
+    name: Option<&String>,
+    reason: &'static str,
+) -> Paragraph<'static> {
+    let mut lines = vec![Line::from(heading).dim()];
+    lines.extend(name.map(|name| Line::from(name.clone())));
+    lines.push(Line::from(reason).dim());
+    Paragraph::new(lines).wrap(Wrap { trim: false })
+}
+
 fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, images: &mut Images) {
     let mut text_area = area;
-    if state.has_image_area() {
-        let image = if area.width >= IMAGE_BESIDE_WIDTH {
-            let [text, image] = Layout::horizontal([Constraint::Fill(3), Constraint::Fill(2)])
+    if state.has_context_area() {
+        let context = if area.width >= CONTEXT_BESIDE_WIDTH {
+            let [text, context] = Layout::horizontal([Constraint::Fill(3), Constraint::Fill(2)])
                 .spacing(1)
                 .areas(area);
             text_area = text;
-            image
+            context
         } else {
-            let [text, image] = Layout::vertical([
+            let [text, context] = Layout::vertical([
                 Constraint::Fill(1),
                 Constraint::Length((area.height / 3).min(12)),
             ])
             .areas(area);
             text_area = text;
-            image
+            context
         };
-        if let Some(path) = state.shown_image() {
-            images.draw(frame, path, image);
+        match state.shown_context() {
+            Some(ContextEntry::Image(image)) => images.draw(frame, &image.path, context),
+            Some(ContextEntry::Text(text)) => frame.render_widget(
+                viewerless_placeholder(
+                    "text not shown",
+                    text.title.as_ref().or(text.path.as_ref()),
+                    "this asqr cannot show text entries yet",
+                ),
+                context,
+            ),
+            Some(ContextEntry::Diff(diff)) => frame.render_widget(
+                viewerless_placeholder(
+                    "diff not shown",
+                    diff.title.as_ref().or(diff.name.as_ref()),
+                    "this asqr cannot show diffs yet",
+                ),
+                context,
+            ),
+            None => {}
         }
     }
 
@@ -1102,7 +1134,7 @@ mod tests {
             .map(|n| format!(r#"{{"id": "o{n}", "label": "Option {n}", "description": "What option {n} means."}}"#))
             .collect();
         let json = format!(
-            r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "Which one?", "kind": "single", "custom": true,
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Which one?", "kind": "single", "custom": true,
                 "options": [{}]}}]}}"#,
             options.join(",")
         );
@@ -1124,7 +1156,7 @@ mod tests {
         let questions: Vec<String> = (1..=40)
             .map(|n| format!(r#"{{"id": "q{n}", "text": "Question {n}?", "kind": "single", "options": [{{"id": "a", "label": "A"}}]}}"#))
             .collect();
-        let json = format!(r#"{{"asqr": 1, "questions": [{}]}}"#, questions.join(","));
+        let json = format!(r#"{{"asqr": 2, "questions": [{}]}}"#, questions.join(","));
         let mut app = app(&[("long", &json)]);
         for _ in 0..30 {
             special(&mut app, KeyCode::Right);
@@ -1134,7 +1166,7 @@ mod tests {
 
     #[test]
     fn narrow_screens_put_descriptions_below_the_label() {
-        let json = r#"{"asqr": 1, "questions": [{"id": "q", "text": "Which approach?", "kind": "single",
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Which approach?", "kind": "single",
             "options": [
                 {"id": "a", "label": "Rewrite the parser from scratch", "description": "Cleanest result, takes the longest."},
                 {"id": "b", "label": "Patch the tokenizer", "description": "Quick, but the grammar stays odd."}]}]}"#;
@@ -1146,7 +1178,7 @@ mod tests {
 
     #[test]
     fn an_option_with_an_empty_description_still_shows() {
-        let json = r#"{"asqr": 1, "questions": [{"id": "q", "text": "Which one?", "kind": "single",
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Which one?", "kind": "single",
             "options": [
                 {"id": "a", "label": "Alpha option", "description": ""},
                 {"id": "b", "label": "Beta option", "description": "   "},
@@ -1287,7 +1319,7 @@ mod tests {
     /// typed `LONG_OWN_ANSWER`, the field still focused.
     fn own_answer_labelled(label: &str) -> App {
         let json = format!(
-            r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "Name it", "kind": "single",
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Name it", "kind": "single",
                 "custom": {{"label": {label:?}}}, "options": [{{"id": "a", "label": "asqr"}}]}}]}}"#
         );
         let mut app = app(&[("name", &json)]);
@@ -1435,8 +1467,8 @@ mod tests {
         app(&[(
             "pictured",
             &format!(
-                r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "Which one?", "kind": "single",
-                    "image": {image:?}, "options": [{{"id": "a", "label": "This one"}}]}}]}}"#
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Which one?", "kind": "single",
+                    "context": [{{"type": "image", "path": {image:?}}}], "options": [{{"id": "a", "label": "This one"}}]}}]}}"#
             ),
         )])
     }
@@ -1557,8 +1589,8 @@ mod tests {
         let mut app = app(&[(
             "browsing",
             &format!(
-                r#"{{"asqr": 1, "questions": [{{"id": "q", "text": "Which one?", "kind": "single",
-                    "options": [{{"id": "a", "label": "Pictured", "image": {image:?}}},
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Which one?", "kind": "single",
+                    "options": [{{"id": "a", "label": "Pictured", "context": [{{"type": "image", "path": {image:?}}}]}},
                                 {{"id": "b", "label": "Plain", "description": {long:?}}}]}}]}}"#,
                 image = file.path().to_str().expect("UTF-8 path"),
             ),
@@ -1643,7 +1675,7 @@ mod tests {
 
     #[test]
     fn a_left_own_answer_row_stays_highlighted_without_notes() {
-        let json = r#"{"asqr": 1, "questions": [{"id": "q", "text": "Name it", "kind": "single",
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Name it", "kind": "single",
             "note": false, "custom": true, "options": [{"id": "a", "label": "asqr"}]}]}"#;
         let mut app = app(&[("name", json)]);
         keys(&mut app, "jmine");
@@ -1673,6 +1705,28 @@ mod tests {
         special(&mut app, KeyCode::Esc);
         keys(&mut app, "ljout of date");
         insta::assert_snapshot!(screen(&app, 80, 24));
+    }
+
+    #[test]
+    fn text_and_diff_entries_show_a_placeholder_naming_them() {
+        let review = include_str!("../../../examples/sessions/retry-review.json");
+        let mut titled = app(&[("review", review)]);
+
+        insta::assert_snapshot!("diff_placeholder", screen(&titled, 120, 20));
+        keys(&mut titled, "l");
+        insta::assert_snapshot!("text_placeholder", screen(&titled, 80, 24));
+
+        // Without a title the placeholder names the file, or nothing for
+        // inline text.
+        let without_titles = review
+            .replace(r#""title": "Retry with backoff","#, "")
+            .replace(r#""title": "short.md", "#, "");
+        let mut untitled = app(&[("review", &without_titles)]);
+        let text = screen(&untitled, 120, 20).to_string();
+        assert!(text.contains("src/fetch.rs"), "{text}");
+        keys(&mut untitled, "l");
+        let text = screen(&untitled, 120, 20).to_string();
+        assert!(text.contains("text not shown"), "{text}");
     }
 
     #[test]

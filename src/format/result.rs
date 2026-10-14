@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&result).expect("result serializes"),
             json!({
-                "asqr": 1,
+                "asqr": 2,
                 "id": "batch-01",
                 "status": "submitted",
                 "submitted_at": AT,
@@ -242,7 +242,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&result).expect("result serializes"),
             json!({
-                "asqr": 1,
+                "asqr": 2,
                 "id": "batch-01",
                 "status": "cancelled",
                 "submitted_at": AT,
@@ -256,17 +256,17 @@ mod tests {
     #[test]
     fn an_error_result_carries_the_message() {
         let result =
-            SessionResult::error("batch-01", "9f2c", AT, "asqr: unsupported format version 2");
+            SessionResult::error("batch-01", "9f2c", AT, "asqr: unsupported format version 3");
 
         assert_eq!(
             serde_json::to_value(&result).expect("result serializes"),
             json!({
-                "asqr": 1,
+                "asqr": 2,
                 "id": "batch-01",
                 "status": "error",
                 "submitted_at": AT,
                 "session_sha256": "9f2c",
-                "error": "asqr: unsupported format version 2",
+                "error": "asqr: unsupported format version 3",
                 "answers": []
             })
         );
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&draft).expect("draft serializes"),
             json!({
-                "asqr": 1,
+                "asqr": 2,
                 "id": "batch-01",
                 "status": "draft",
                 "current": "q2",

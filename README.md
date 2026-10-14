@@ -93,7 +93,7 @@ which it only learns from tmux with `set -g focus-events on`.
 
 ## Documentation
 
-The full design is in [`docs/spec-1.0.0.md`](docs/spec-1.0.0.md), the
+The full design is in [`docs/spec.md`](docs/spec.md), the
 JSON Schemas are in [`schema/`](schema/), and example sessions are in
 [`examples/sessions/`](examples/sessions/).
 

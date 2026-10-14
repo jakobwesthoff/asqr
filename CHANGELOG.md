@@ -7,8 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Questions and options take `context`: material shown next to the
+  question that helps to answer it. An entry is an image, a text (a
+  file or inline, such as source code, a log or Markdown) or a diff,
+  which asqr computes from the old and the new text. A question or
+  option holds one entry. This version shows text and diff entries as a
+  placeholder that names them.
+- `asqr validate` and `asqr ask` warn about a relative or missing file
+  in any context entry, and about an `image` field left over from format
+  version 1, saying that an image is a context entry of type `image`.
+- An example session with a diff and text entries in
+  `examples/sessions/retry-review.json`.
+
 ### Changed
 
+- **Breaking:** session and result files use format version 2
+  (`"asqr": 2`). asqr refuses a version 1 session with a message that
+  points to `asqr skill`, which describes the new format. A version 1
+  session still waiting in a queue gets an error result with that
+  message. `wait` and `result` still print a version 1 result that is
+  already in the outbox.
+- `asqr ask` makes every path in a context entry absolute, as it did
+  for images.
+- `asqr new` writes format version 2 with a context entry.
+- The agent skill describes format version 2 and context entries.
 - A long own answer and a long reject reason wrap onto further lines
   under their start, like a note, instead of scrolling sideways while
   typed and being cut with `…` otherwise. The counter of a focused own
@@ -18,8 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and only identifies the session, and that everything needed to answer
   belongs in the question text.
 
+### Removed
+
+- **Breaking:** the `image` field of questions and options. An image is
+  a context entry: `"context": [{"type": "image", "path": ...}]`.
+- The JSON Schemas of format version 1, `schema/session.v1.json` and
+  `schema/result.v1.json`. `asqr schema` prints the version 2 schemas,
+  which ship as `schema/session.v2.json` and `schema/result.v2.json`.
+
 ### Fixed
 
+- `asqr ask` no longer adds `"options": null` to a `text` question in
+  the copy it drops into the inbox.
 - The text cursor of a note or a `text` answer stays visible when the
   text fills its line exactly or the cursor sits on the space where a
   line breaks. Before, the cursor's cell fell past the end of the line
