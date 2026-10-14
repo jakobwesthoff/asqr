@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pane: headings, emphasis, inline code, lists, quotes, tables and
   highlighted code blocks. A line patine leaves wider than the pane,
   such as a long line of code, wraps, and each further row starts with a
-  dim `↪`.
+  dim `↪`, indented like the line's quote bars, code block or list item
+  text.
 - A diff entry shows as a unified diff: hunks with 3 lines of context, a
   separator between hunks, the old and the new line number in a dim
   gutter, removed lines red and added lines green, and the changed words

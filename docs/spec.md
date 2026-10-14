@@ -973,8 +973,11 @@ Code and Markdown (ADR 34):
   fence names a language.
 - A line patine leaves wider than the pane, such as a line of a code
   block, a long URL or a table that cannot shrink, wraps: each further
-  row repeats the blanks and quote bars the line starts with, then a dim
-  `↪`, then the rest. A wide character that would cross the end of a row
+  row repeats the blanks and quote bars the line starts with, then
+  blanks in place of a list item's `•` or number, then a dim `↪`, then
+  the rest. A number counts as an item's only at the start of the line,
+  after quote bars, so a line of code such as `1. x` in a code block
+  stays code. A wide character that would cross the end of a row
   starts the next one. This holds wherever asqr renders Markdown with
   patine. Tabs in code blocks expand to stops of 4 columns.
 - Both are read when the entry is first shown. A relative path, a

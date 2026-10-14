@@ -65,7 +65,11 @@ Settled with the user in the review of this step's plan:
   wraps such a line at the body's width. Each further row repeats the
   line's indent, the blanks and blockquote bars it starts with, so a
   code block's continuation stays inside the block, and then shows a dim
-  `↪` before the rest. Nothing is lost, and the pane never scrolls
+  `↪` before the rest. A list item's marker counts as indent too, as
+  blanks: a `• ` after any blanks and bars, and a number such as `1. `
+  or `10. ` only right after the bars, since a code block's line starts
+  with blanks and may itself begin with `1. `. A nested numbered item,
+  which patine indents with blanks, continues under its number. Nothing is lost, and the pane never scrolls
   sideways for Markdown. Sideways scrolling would move the wrapped prose
   out of view as well whenever one line of code is wide, and cutting
   would lose content.

@@ -11,7 +11,7 @@
 use patine::{StyledLine, TextStyle, Underline};
 use ratatui::style::{Color, Modifier, Style};
 
-use super::source_line::SourceLine;
+use super::source_line::{SourceLine, columns};
 
 /// What starts a row that continues a line too wide for its space.
 const CONTINUATION: &str = "↪ ";
@@ -59,9 +59,10 @@ pub fn source_line(line: &StyledLine) -> SourceLine {
 /// patine wraps prose, but leaves some lines wider: code blocks and
 /// frontmatter, a word or URL longer than the width, a table that cannot
 /// shrink further. Such a line wraps here: each further row repeats the
-/// line's indent, the blanks and blockquote bars it starts with, so a
-/// code block's lines stay inside the block, then a dim `↪` and the next
-/// part. Where the indent leaves no room, the rows start with the marker
+/// line's indent, the blanks and blockquote bars it starts with and a list
+/// item's marker as blanks (see [`indent`]), so a code block's lines stay
+/// inside the block and an item's text inside the item, then a dim `↪`
+/// and the next part. Where the indent leaves no room, the rows start with the marker
 /// alone, and where not even that fits, the line breaks without one.
 pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
     let marker = Style::new().dim();
@@ -95,26 +96,66 @@ pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
     rows
 }
 
-/// The blanks and blockquote bars `line` starts with, in their styles,
-/// and their width.
+/// What the continuation rows of `line` repeat before their marker, in
+/// its styles, and its width: the blanks and blockquote bars the line
+/// starts with, then the marker of a list item turned into blanks, so the
+/// rest of an item lines up under its text rather than under its marker.
+///
+/// A bullet, `• `, counts after any blanks and bars, as patine indents a
+/// nested item with blanks. A number, such as `1. ` or `10. `, counts
+/// only where the line starts, quote bars aside: there patine starts an
+/// ordered item, while a line of a code block starts with blanks, and
+/// its `1. ` is code. A nested numbered item therefore continues under
+/// its number.
 fn indent(line: &SourceLine) -> (Vec<(String, Style)>, usize) {
     let mut indent = Vec::new();
-    let mut width = 0;
+    let mut lead = String::new();
+    let mut rest = String::new();
     for (text, style) in line.pieces() {
-        let lead: String = text
+        if !rest.is_empty() {
+            rest.push_str(text);
+            continue;
+        }
+        let blanks_and_bars: String = text
             .chars()
             .take_while(|c| matches!(c, ' ' | '│'))
             .collect();
-        width += lead.chars().count();
-        let whole = lead.len() == text.len();
-        if !lead.is_empty() {
-            indent.push((lead, style));
-        }
-        if !whole {
-            break;
+        rest.push_str(&text[blanks_and_bars.len()..]);
+        lead.push_str(&blanks_and_bars);
+        if !blanks_and_bars.is_empty() {
+            indent.push((blanks_and_bars, style));
         }
     }
+    let mut width = lead.chars().count();
+
+    let marker = if rest.starts_with("• ") {
+        columns("• ")
+    } else if only_quote_bars(&lead) {
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if digits > 0 && rest[digits..].starts_with(". ") {
+            digits + 2
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    if marker > 0 {
+        indent.push((" ".repeat(marker), Style::new()));
+        width += marker;
+    }
     (indent, width)
+}
+
+/// Whether `lead` is nothing but blockquote bars, each followed by at most
+/// the one blank patine puts after it.
+fn only_quote_bars(lead: &str) -> bool {
+    let mut previous = None;
+    lead.chars().all(|c| {
+        let bar_or_its_blank = c == '│' || previous == Some('│');
+        previous = Some(c);
+        bar_or_its_blank
+    })
 }
 
 #[cfg(test)]
@@ -211,6 +252,92 @@ mod tests {
             ]
         );
         assert_eq!(line.width(), 9);
+    }
+
+    /// The rows of one patine line of plain spans at `width` columns.
+    fn rows_of(spans: &[&str], width: usize) -> Vec<String> {
+        let spans: Vec<_> = spans
+            .iter()
+            .map(|text| (*text, TextStyle::default()))
+            .collect();
+        texts(&markdown_rows(&[line(&spans)], width))
+    }
+
+    #[test]
+    fn a_continuation_of_a_bullet_item_lines_up_under_its_text() {
+        let word = "a".repeat(50);
+
+        assert_eq!(
+            rows_of(&["• ", &word], 40),
+            [
+                format!("• {}", "a".repeat(38)),
+                format!("  ↪ {}", "a".repeat(12))
+            ]
+        );
+        assert_eq!(
+            rows_of(&["  • ", &word], 40),
+            [
+                format!("  • {}", "a".repeat(36)),
+                format!("    ↪ {}", "a".repeat(14))
+            ],
+            "a nested item"
+        );
+        assert_eq!(
+            rows_of(&["│ ", "• ", &word], 40),
+            [
+                format!("│ • {}", "a".repeat(36)),
+                format!("│   ↪ {}", "a".repeat(14))
+            ],
+            "an item in a quote"
+        );
+    }
+
+    #[test]
+    fn a_continuation_of_a_numbered_item_lines_up_under_its_text() {
+        let word = "a".repeat(50);
+
+        assert_eq!(
+            rows_of(&["1. ", &word], 40),
+            [
+                format!("1. {}", "a".repeat(37)),
+                format!("   ↪ {}", "a".repeat(13))
+            ]
+        );
+        assert_eq!(
+            rows_of(&["10. ", &word], 40),
+            [
+                format!("10. {}", "a".repeat(36)),
+                format!("    ↪ {}", "a".repeat(14))
+            ]
+        );
+        assert_eq!(
+            rows_of(&["│ ", "3. ", &word], 40),
+            [
+                format!("│ 3. {}", "a".repeat(35)),
+                format!("│    ↪ {}", "a".repeat(15))
+            ],
+            "an item in a quote"
+        );
+    }
+
+    #[test]
+    fn a_number_after_blanks_is_no_item() {
+        let word = "a".repeat(50);
+        let lines = patine::render_lines(&format!("```\n1. {word}\n```\n"), 40);
+
+        assert_eq!(
+            texts(&markdown_rows(&lines, 40)),
+            [
+                format!("  1. {}", "a".repeat(35)),
+                format!("  ↪ {}", "a".repeat(15))
+            ],
+            "a line of a code block that starts with a number"
+        );
+        assert_eq!(
+            rows_of(&["1.", &word], 40)[1],
+            format!("↪ {}", "a".repeat(12)),
+            "a number without its blank is no marker either"
+        );
     }
 
     #[test]
