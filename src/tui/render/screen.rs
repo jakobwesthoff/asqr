@@ -210,8 +210,11 @@ impl<'a> View<'a> {
         self.intro_page
     }
 
-    /// What the context pane showed in the last draw, for
-    /// [`App::set_pane_page`]; nothing when no pane showed.
+    /// What the context pane showed in the last draw that drew a tab, for
+    /// [`App::set_pane_page`]; nothing when that tab showed no pane. A
+    /// frame without a tab, as below the minimum size or with an empty
+    /// queue, leaves it as it was, so a moment at a small size keeps the
+    /// pane's focus and the full-screen view.
     pub fn pane_page(&self) -> Option<Page> {
         self.pane_page
     }
@@ -229,8 +232,9 @@ impl<'a> View<'a> {
 }
 
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
-    // Whatever returns early draws no pane and no overlay.
-    view.pane_page = None;
+    // Whatever returns early draws no pane and no overlay. It draws no tab
+    // either, so it says nothing about the pane, and `pane_page` keeps what
+    // the last tab showed.
     view.field_shape = None;
     view.overlay_shown = false;
     view.image_shown = false;
@@ -2837,6 +2841,33 @@ mod tests {
 
         keys(&mut app, "?");
         insta::assert_snapshot!("pane_help", drawn(&mut app));
+    }
+
+    #[test]
+    fn a_frame_too_small_for_asqr_keeps_the_pane_focus_and_the_full_screen() {
+        let mut app = long_context();
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+        // What the run loop does after each frame.
+        let mut drawn = |app: &mut App, width: u16, height: u16| {
+            screen_in(app, &mut view, width, height);
+            app.set_pane_page(view.pane_page());
+        };
+        drawn(&mut app, 80, 24);
+        special(&mut app, KeyCode::Tab);
+        drawn(&mut app, 80, 24);
+
+        drawn(&mut app, 40, 10);
+        drawn(&mut app, 80, 24);
+        let state = app.active().expect("a session");
+        assert!(state.pane_focused(), "the pane keeps the focus");
+
+        keys(&mut app, "z");
+        drawn(&mut app, 80, 24);
+        drawn(&mut app, 40, 10);
+        drawn(&mut app, 80, 24);
+        let state = app.active().expect("a session");
+        assert!(state.full_screen(), "the full-screen view stays");
+        assert!(state.pane_focused());
     }
 
     #[test]

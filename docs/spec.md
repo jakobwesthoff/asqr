@@ -694,7 +694,8 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
 - Everything adapts to the terminal: the question scrolls so the row
   under the cursor stays visible, dialogs never exceed the screen, and
   below 60×15 asqr shows "asqr needs at least 60×15; this terminal is
-  W×H." instead of the layout.
+  W×H." instead of the layout. Back at a larger size, the context
+  pane's focus and the full-screen view are as they were.
 - When the question or the review does not show all its rows, a dim
   `↑ more` on its first row says that rows are cut off above, and a dim
   `↓ more` on its last row that rows are cut off below. The marker

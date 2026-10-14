@@ -158,7 +158,10 @@ Agent's choices within that design:
   current tab is, and a field's text cursor hides, so only one place
   looks like it takes the keys.
 - A pane that goes away while it has the focus, as after a resize down
-  to the hint, gives the focus back.
+  to the hint, gives the focus back. Only a drawn tab without a pane
+  counts: a frame below the minimum size draws no tab and says nothing
+  about the pane, so the focus and the full-screen view outlast a
+  resize that passes through it.
 - The full-screen view reads like a pager too: it takes the focus,
   remembering where it was, and scrolls with the pane's keys, with `o`
   and `?` as in the pane. `z`, `esc`, `tab` and `q` leave it and give

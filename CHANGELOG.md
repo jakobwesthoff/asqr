@@ -146,7 +146,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scrolls with the pane's keys, the question's keys no longer act
   behind it, and `z`, `esc`, `tab` or `q` go back to where the focus
   was. Its key bar shows the pane's keys, and its help lists them with
-  `z/tab/esc/q` to leave the full screen.
+  `z/tab/esc/q` to leave the full screen. A resize that passes through
+  a size too small for asqr keeps the full-screen view and the pane's
+  focus.
 - `o` on a code, Markdown or diff entry, or where no entry shows, says
   why it opens nothing.
 - `tab` no longer types a tab character into a field. While a context
