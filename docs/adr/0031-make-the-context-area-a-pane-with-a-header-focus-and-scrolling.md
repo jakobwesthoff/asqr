@@ -178,7 +178,11 @@ Agent's choices within that design:
   and the page keys. While the pane or the full-screen view has the
   focus, `?` lists the pane's keys instead, and the key bar shows them
   with `? help` and the keys that go back: `tab/esc/q back` in the pane,
-  `z/esc/q back` in the full-screen view.
+  `z/esc/q back` in the full-screen view. The full-screen view's help
+  has a title and a line of its own for the way out, `z/tab/esc/q
+  leave the full screen`, as it goes back to the pane when it was
+  entered from there, where the pane's "back to the question" would be
+  wrong.
 
 ## Consequences
 

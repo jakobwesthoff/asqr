@@ -761,6 +761,9 @@ On an option row (vim style plus arrows):
   their meaning, and `z`, `esc`, `tab` and `q` leave it for where the
   focus was before: the question, a field being typed in, or the
   focused pane. The key bar shows the pane's keys with `z/esc/q back`.
+  The help is titled "Keys of the full-screen view" and lists the
+  pane's scroll keys, `o`, `ctrl-c`, `?` and `z/tab/esc/q  leave the
+  full screen`.
 - `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the context pane by a page
   from anywhere, also from inside a field, while a pane shows. These
   are the intro overlay's keys and conventions.

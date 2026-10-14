@@ -332,7 +332,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
 
     // These overlays use the whole screen, so they fit the smallest one.
     if state.help() {
-        draw_help(frame, area, state.pane_focused());
+        draw_help(frame, area, state);
     }
     if let Some(cursor) = app.list_cursor() {
         draw_session_list(frame, app, cursor, area);
@@ -1192,7 +1192,7 @@ const HELP: &[(&str, &str)] = &[
     ("?, i", "this help; the whole intro"),
 ];
 
-/// The keys of the focused context pane and the full-screen view.
+/// The keys of the focused context pane.
 const PANE_HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "scroll by line"),
     ("←/→, h/l", "scroll sideways where lines are cut"),
@@ -1205,10 +1205,25 @@ const PANE_HELP: &[(&str, &str)] = &[
     ("?", "this help"),
 ];
 
-/// The keys that work where the focus is: the pane's while it has the
-/// focus, every key otherwise.
-fn draw_help(frame: &mut Frame, area: Rect, pane: bool) {
-    let (keys, title) = if pane {
+/// The keys of the full-screen view. It goes back to where it was entered
+/// from, the pane or the question, so its way out names no place.
+const FULL_SCREEN_HELP: &[(&str, &str)] = &[
+    ("↑/↓, k/j", "scroll by line"),
+    ("←/→, h/l", "scroll sideways where lines are cut"),
+    ("pgup/pgdn", "scroll by page, also ctrl-u/ctrl-d"),
+    ("g/G", "to the top and the bottom, also home/end"),
+    ("o", "open an image in the system viewer"),
+    ("z/tab/esc/q", "leave the full screen"),
+    ("ctrl-c", "quit, keeping the draft"),
+    ("?", "this help"),
+];
+
+/// The keys that work where the focus is: the full-screen view's, the
+/// pane's while it has the focus, every key otherwise.
+fn draw_help(frame: &mut Frame, area: Rect, state: &SessionState) {
+    let (keys, title) = if state.full_screen() {
+        (FULL_SCREEN_HELP, " Keys of the full-screen view ")
+    } else if state.pane_focused() {
         (PANE_HELP, " Keys of the context pane ")
     } else {
         (HELP, " Keys ")
@@ -1216,11 +1231,19 @@ fn draw_help(frame: &mut Frame, area: Rect, pane: bool) {
     let height = u16::try_from(keys.len() + 2).expect("a short list");
     let area = center(area, 70, height);
     frame.render_widget(Clear, area);
+    // `format!` pads by characters, and every key is one column per
+    // character, so the longest key plus one blank sets the column.
+    let key_column = keys
+        .iter()
+        .map(|(keys, _)| keys.chars().count() + 1)
+        .max()
+        .unwrap_or_default()
+        .max(11);
     let lines: Vec<Line> = keys
         .iter()
         .map(|(keys, what)| {
             Line::from(vec![
-                Span::from(format!("{keys:<11}")).bold(),
+                Span::from(format!("{keys:<key_column$}")).bold(),
                 Span::from(*what),
             ])
         })
@@ -2814,6 +2837,18 @@ mod tests {
 
         keys(&mut app, "?");
         insta::assert_snapshot!("pane_help", drawn(&mut app));
+    }
+
+    #[test]
+    fn the_full_screen_help_says_how_to_leave_the_full_screen() {
+        let mut app = long_context();
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+        screen_in(&app, &mut view, 80, 24);
+        app.set_pane_page(view.pane_page());
+        // Entered from the pane, where "back to the question" would be wrong.
+        special(&mut app, KeyCode::Tab);
+        keys(&mut app, "z?");
+        insta::assert_snapshot!("full_screen_help", screen_in(&app, &mut view, 80, 24));
     }
 
     #[test]
