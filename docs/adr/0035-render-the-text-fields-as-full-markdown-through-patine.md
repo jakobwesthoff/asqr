@@ -91,8 +91,10 @@ plan:
   once, for syntect's grammars.
 - A list item wraps at the full width of its field, and a link whose
   text is its URL, such as an autolink, shows the URL once (patine
-  1.6.2).
-- asqr depends on patine 1.6.2 and no longer on `pulldown-cmark`.
+  1.6.2), also when dropped raw HTML wraps the URL (1.6.3). A block
+  that opens a list item follows its bullet without a blank line
+  (1.6.3).
+- asqr depends on patine 1.6.3 and no longer on `pulldown-cmark`.
 
 ## Amendment (2026-10-14, no render cache)
 
