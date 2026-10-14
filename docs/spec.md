@@ -332,8 +332,8 @@ Question fields:
   the question's context while the cursor is on the option (section
   7.7).
 - `custom` (optional, only on `single` and `multi`): allows a typed
-  answer, always one line. `true`, or an object with `label` and
-  `length`.
+  answer, which may span several lines like every typed field (ADR 36).
+  `true`, or an object with `label` and `length`.
 - `length` (optional, on `custom` and on `text` questions): `target` (a
   range) and `warn` (above it the counter warns). Both are optional, and
   `warn` must not be below the end of `target`. There is no hard limit:
@@ -526,7 +526,8 @@ Otherwise it is **skipped**.
   answer of a `multi` comes on top of them (ADR 23).
 - Nothing blocks a submit: every question is optional.
 - Typed text and notes go into the result as typed; only the check
-  whether they are empty trims them.
+  whether they are empty trims them. Every typed field takes line
+  breaks, so `custom`, `note` and `reason` may contain `\n` (ADR 36).
 
 Answer shape per kind:
 
@@ -781,11 +782,12 @@ a frame (user, 2026-09-27):
   to the previous question, `→` at its end to the next one (ADR 23). After `esc`, `↑`/`↓` move on as usual; where the move
   cannot leave the row (the single row of a `text` question, `↓` on the
   last row), they focus the field again. `enter` picks the own answer
-  and moves on, like an option. It is one line: `ctrl-j` adds no line
-  break. A text longer than the line wraps onto further lines under its
-  start, after the row's head, focused or not, and is never cut with `…`.
-  When the head leaves the text less than 20 columns, the further lines
-  start 4 columns in (ADR 27). On a `multi` question the own answer
+  and moves on, like an option. `ctrl-j` adds a line, as in every
+  field (ADR 36). A text longer than the line wraps onto further lines
+  under its start, after the row's head, focused or not, and is never
+  cut with `…`. Every line after the first starts there too. When the
+  head leaves the text less than 20 columns, the further lines start 4
+  columns in (ADR 27). On a `multi` question the own answer
   counts once it has text.
 - **A `text` question's answer** is a field that is active when the
   question is shown. It grows with its lines; `ctrl-j` adds a line, and
@@ -794,7 +796,8 @@ a frame (user, 2026-09-27):
 - **The note** is edited in its line under the options after `n`. It is
   multi-line (`ctrl-j` adds a line); `enter` or `esc` leave it.
 - **The session note** and **the reject reason** on the review tab are
-  one-line fields like the own answer and wrap the same way.
+  fields like the own answer: `ctrl-j` adds a line, `enter` submits or
+  rejects, and they wrap the same way.
 - **Moving in a field:** in every field and the note, `↑`/`↓` move the
   text cursor to the row above or below as the field shows it, that is
   the wrapped rows, not the text's lines, at the same display column or
@@ -809,9 +812,8 @@ a frame (user, 2026-09-27):
 - Pasted text goes in at the text cursor of the focused field or note
   as a whole. asqr asks the terminal for bracketed paste, so a line
   break in a paste is never an `enter` that picks, submits or rejects.
-  The own answer, the session note and the reject reason, which are one
-  line, take each pasted line break as a blank; a `text` answer and a
-  question's note keep them. Where no field or note has the keys, and
+  Every field keeps the pasted line breaks; `\r` and `\r\n` become
+  `\n` (ADR 36). Where no field or note has the keys, and
   while the context pane, the intro, the help or the session list has
   them, a paste does nothing.
 - `tab` never types into a field: it moves the focus into the context

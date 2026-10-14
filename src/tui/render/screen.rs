@@ -1176,16 +1176,13 @@ pub(crate) fn styled_line(indent: usize, glyphs: &[Glyph]) -> Line<'static> {
 const HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "move between the rows"),
     ("←/→, h/l", "previous and next question"),
-    ("", "in fields: ↑/↓ past the rows, ←/→ past the text"),
+    ("", "in a field, arrows leave it at its edges"),
     ("enter", "pick and go on; open or submit on the review"),
     (
         "space, 1-9",
         "toggle an option; pick or toggle one directly",
     ),
-    (
-        "n, ctrl-j",
-        "write a note; a new line in an answer or a note",
-    ),
+    ("n, ctrl-j", "write a note; a new line in any field"),
     ("esc", "stop typing in a field"),
     ("tab", "move into the context pane and back"),
     ("pgup/pgdn", "scroll the context pane, also ctrl-u/ctrl-d"),
@@ -1349,9 +1346,21 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<(&'static str, &'stati
             ("enter", "next"),
             ("esc", "stop typing"),
         ],
-        (Focus::Field, Some(Row::Note)) => vec![("enter", "submit"), ("esc", "stop typing")],
-        (Focus::Field, Some(Row::Reject)) => vec![("enter", "reject"), ("esc", "stop typing")],
-        (Focus::Field, _) => vec![("enter", "pick"), ("esc", "stop typing")],
+        (Focus::Field, Some(Row::Note)) => vec![
+            ("ctrl-j", "new line"),
+            ("enter", "submit"),
+            ("esc", "stop typing"),
+        ],
+        (Focus::Field, Some(Row::Reject)) => vec![
+            ("ctrl-j", "new line"),
+            ("enter", "reject"),
+            ("esc", "stop typing"),
+        ],
+        (Focus::Field, _) => vec![
+            ("ctrl-j", "new line"),
+            ("enter", "pick"),
+            ("esc", "stop typing"),
+        ],
         (Focus::None, _) if state.on_review() => vec![
             ("↑/↓", "move"),
             ("enter", "open/submit"),
@@ -2240,6 +2249,35 @@ mod tests {
         special(&mut app, KeyCode::Up);
         special(&mut app, KeyCode::Up);
         insta::assert_snapshot!("reject_reason_left_60x24", screen(&app, 60, 24));
+    }
+
+    #[test]
+    fn the_session_note_and_the_reject_reason_show_their_lines() {
+        let mut app = review_row_below_submit(1);
+        keys(&mut app, "fine to ship");
+        ctrl_j(&mut app);
+        keys(&mut app, "once the changelog names the new format");
+        special(&mut app, KeyCode::Down);
+        keys(&mut app, "stale");
+        ctrl_j(&mut app);
+        keys(&mut app, "ask again");
+        insta::assert_snapshot!(screen(&app, 60, 24));
+    }
+
+    #[test]
+    fn line_breaks_in_an_own_answer_show_as_marks_in_the_review() {
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "ljjjblog");
+        ctrl_j(&mut app);
+        keys(&mut app, "post");
+        special(&mut app, KeyCode::Esc);
+        keys(&mut app, "l");
+        special(&mut app, KeyCode::Esc);
+        keys(&mut app, "l");
+
+        let backend = screen(&app, 80, 24);
+
+        find(&backend, "\"blog ⏎ post\"");
     }
 
     #[test]

@@ -75,8 +75,8 @@ Once asked, asqr fits best when:
 
 - `kind` is `single` (pick one), `multi` (pick several, optional `min`
   and `max`) or `text` (typed answer, no options).
-- `custom: true`, or `{ "label": ..., "length": ... }`, adds a one-line
-  own answer to a `single` or `multi` question.
+- `custom: true`, or `{ "label": ..., "length": ... }`, adds an own
+  answer to a `single` or `multi` question.
 - `length` gives a target range and a `warn` limit for typed text. It
   guides with a counter; nothing the person types is refused.
 - `note` (default `true`) lets the person add a note to any question;
@@ -268,6 +268,9 @@ refuses while an unread result with the same id is in the outbox.
 - `selected` holds option ids, `custom` the typed text, `note` the
   person's note. A skipped question has `skipped: true` and may still
   carry a note: read it, it often says why.
+- Every typed text may span several lines: `custom`, both kinds of
+  `note` and `reason` can contain `\n`, for example when the person
+  pasted a list.
 - `defaulted: true` means the person left your default untouched.
 
 ## Finding sessions again

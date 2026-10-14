@@ -74,8 +74,6 @@ pub struct FieldShape {
 #[derive(Debug, Clone)]
 pub struct TextField {
     editor: TextArea<'static>,
-    /// Whether the text may hold line breaks.
-    multiline: bool,
     /// Where the field was last drawn, which `↑`/`↓` move through, as a
     /// key acts on what is on screen.
     shape: Option<FieldShape>,
@@ -87,14 +85,13 @@ pub struct TextField {
 impl TextField {
     /// A field holding `text`, its text cursor at the end, so typing
     /// goes on where the person left off.
-    pub fn new(text: &str, multiline: bool) -> Self {
+    pub fn new(text: &str) -> Self {
         let mut editor = TextArea::new(text.split('\n').map(str::to_owned).collect());
         editor.set_hard_tab_indent(true);
         editor.move_cursor(CursorMove::Bottom);
         editor.move_cursor(CursorMove::End);
         TextField {
             editor,
-            multiline,
             shape: None,
             wanted: None,
         }
@@ -145,35 +142,23 @@ impl TextField {
     }
 
     /// Hands `key` to the editor as it is and says whether the text
-    /// changed. `ctrl-j` adds a line where the field is
-    /// multi-line; any other way to a second line in a one-line field,
-    /// such as `ctrl-m`, is undone.
+    /// changed. `ctrl-j` adds a line, as `enter` is the field's action
+    /// (ADR 36).
     fn input(&mut self, key: KeyEvent) -> bool {
         let before = self.editor.lines().to_vec();
         if key.code == KeyCode::Char('j') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            if self.multiline {
-                self.editor.insert_newline();
-            }
+            self.editor.insert_newline();
         } else {
-            let previous = self.editor.clone();
             self.editor.input(key);
-            if !self.multiline && self.editor.lines().len() > 1 {
-                self.editor = previous;
-            }
         }
         self.editor.lines() != before.as_slice()
     }
 
     /// Inserts pasted `text` at the text cursor and says whether the text
     /// changed. Terminals send a line break as `\r`, some as `\r\n`; both
-    /// become `\n`, which a one-line field takes as a blank.
+    /// become `\n`, so a pasted text keeps its lines.
     pub fn paste(&mut self, text: &str) -> bool {
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
-        let text = if self.multiline {
-            text
-        } else {
-            text.replace('\n', " ")
-        };
         self.editor.insert_str(text)
     }
 
@@ -640,17 +625,17 @@ mod tests {
 
     #[test]
     fn a_field_starts_with_its_text_and_the_cursor_at_the_end() {
-        let field = TextField::new("one\ntwo", true);
+        let field = TextField::new("one\ntwo");
 
         assert_eq!(field.text(), "one\ntwo");
         assert_eq!(field.cursor(), (1, 3));
         assert_eq!(field.length(), 7, "a line break counts as one");
-        assert_eq!(TextField::new("", false).length(), 0);
+        assert_eq!(TextField::new("").length(), 0);
     }
 
     #[test]
     fn keys_that_type_change_the_text_and_others_do_not() {
-        let mut field = TextField::new("ab", false);
+        let mut field = TextField::new("ab");
 
         assert_eq!(field.key(code(KeyCode::Char('c'))), FieldKey::Changed);
         assert_eq!(field.key(code(KeyCode::Backspace)), FieldKey::Changed);
@@ -660,7 +645,7 @@ mod tests {
 
     #[test]
     fn enter_and_esc_are_left_to_the_fields_context() {
-        let mut field = TextField::new("ab", true);
+        let mut field = TextField::new("ab");
 
         assert_eq!(field.key(code(KeyCode::Enter)), FieldKey::Enter);
         assert_eq!(field.key(code(KeyCode::Esc)), FieldKey::Escape);
@@ -670,7 +655,7 @@ mod tests {
     /// `text` in a field drawn after the head `> ` in `width` columns, the
     /// text cursor at `cursor`.
     fn shaped(text: &str, width: usize, cursor: (usize, usize)) -> TextField {
-        let mut field = TextField::new(text, true);
+        let mut field = TextField::new(text);
         field.set_shape(FieldShape {
             head: Span::from("> "),
             width,
@@ -835,7 +820,7 @@ mod tests {
 
     #[test]
     fn before_the_first_draw_up_and_down_go_by_the_texts_lines() {
-        let mut field = TextField::new("one\n\nthree", true);
+        let mut field = TextField::new("one\n\nthree");
 
         assert_eq!(step(&mut field, KeyCode::Up), Ok((1, 0)));
         assert_eq!(
@@ -868,7 +853,7 @@ mod tests {
 
     #[test]
     fn left_and_right_leave_only_at_the_edges_of_the_text() {
-        let mut field = TextField::new("ab", false);
+        let mut field = TextField::new("ab");
 
         assert_eq!(
             field.key(code(KeyCode::Right)),
@@ -880,7 +865,7 @@ mod tests {
         field.key(code(KeyCode::Home));
         assert_eq!(field.key(code(KeyCode::Left)), FieldKey::Leave(Leave::Left));
 
-        let mut empty = TextField::new("", false);
+        let mut empty = TextField::new("");
         assert_eq!(empty.key(code(KeyCode::Left)), FieldKey::Leave(Leave::Left));
         assert_eq!(
             empty.key(code(KeyCode::Right)),
@@ -890,7 +875,7 @@ mod tests {
 
     #[test]
     fn an_arrow_with_a_modifier_never_leaves() {
-        let mut field = TextField::new("ab cd", false);
+        let mut field = TextField::new("ab cd");
 
         let word_left = KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL);
         assert_eq!(field.key(word_left), FieldKey::Unchanged);
@@ -902,7 +887,7 @@ mod tests {
 
     #[test]
     fn the_end_of_a_multi_line_text_is_the_end_of_its_last_line() {
-        let mut field = TextField::new("one\ntwo", true);
+        let mut field = TextField::new("one\ntwo");
         field.jump((0, 3));
 
         assert_eq!(field.key(code(KeyCode::Right)), FieldKey::Unchanged);
@@ -910,22 +895,18 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_j_adds_a_line_only_in_a_multi_line_field() {
-        let mut multi = TextField::new("a", true);
-        assert_eq!(multi.key(ctrl('j')), FieldKey::Changed);
-        typed(&mut multi, "b");
-        assert_eq!(multi.text(), "a\nb");
+    fn ctrl_j_adds_a_line() {
+        let mut field = TextField::new("a");
 
-        let mut one = TextField::new("a", false);
-        assert_eq!(one.key(ctrl('j')), FieldKey::Unchanged);
-        assert_eq!(one.key(ctrl('m')), FieldKey::Unchanged, "nor ctrl-m");
-        typed(&mut one, "b");
-        assert_eq!(one.text(), "ab");
+        assert_eq!(field.key(ctrl('j')), FieldKey::Changed);
+        typed(&mut field, "b");
+
+        assert_eq!(field.text(), "a\nb");
     }
 
     #[test]
     fn a_paste_turns_every_line_break_into_a_newline() {
-        let mut field = TextField::new("", true);
+        let mut field = TextField::new("");
 
         assert!(field.paste("one\r\ntwo\rthree\nfour"));
 
@@ -934,13 +915,13 @@ mod tests {
     }
 
     #[test]
-    fn a_paste_into_a_one_line_field_puts_blanks_for_its_line_breaks() {
-        let mut field = TextField::new("ab", false);
+    fn a_paste_goes_in_at_the_text_cursor() {
+        let mut field = TextField::new("ab");
         field.key(code(KeyCode::Left));
 
-        assert!(field.paste("x\ny\r\nz\rw"));
+        assert!(field.paste("x\ny"));
 
-        assert_eq!(field.text(), "ax y z wb");
+        assert_eq!(field.text(), "ax\nyb");
         assert!(!field.paste(""), "an empty paste changes nothing");
     }
 
@@ -1031,7 +1012,7 @@ mod tests {
 
     #[test]
     fn a_field_with_the_keys_shows_its_cursor_and_its_counter() {
-        let mut field = TextField::new("ab", true);
+        let mut field = TextField::new("ab");
         field.key(code(KeyCode::Left));
         let warn = limits(None, Some(10));
 
@@ -1047,7 +1028,7 @@ mod tests {
 
     #[test]
     fn the_counter_takes_the_colour_of_its_level() {
-        let field = TextField::new(&"x".repeat(12), false);
+        let field = TextField::new(&"x".repeat(12));
 
         let lines = field.lines(&shape_of(40), true, Some(&limits(None, Some(10))));
 
@@ -1058,7 +1039,7 @@ mod tests {
 
     #[test]
     fn a_field_with_the_keys_but_without_its_cursor_shows_no_dash() {
-        let field = TextField::new("", false);
+        let field = TextField::new("");
 
         let lines = field.lines(&shape_of(40), false, None);
 
@@ -1074,7 +1055,7 @@ mod tests {
         // A full line of 4 columns: the cursor's blank would take a row of
         // its own, which counting leaves out.
         assert_eq!(counted_lines(head(), "abcd", 6, false).len(), 1);
-        let field = TextField::new("abcd", false);
+        let field = TextField::new("abcd");
         assert_eq!(
             field
                 .lines(

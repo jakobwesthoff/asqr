@@ -634,7 +634,7 @@ impl SessionState {
             return Some(effect);
         }
         match key.code {
-            // A tab never types: a tab character in a one-line answer is a
+            // A tab never types: a tab character in an answer is a
             // mistake, and on a text question, whose field has the focus
             // from the start, the pane would otherwise take `esc` first.
             KeyCode::Tab => {
@@ -816,9 +816,7 @@ impl SessionState {
                     Row::Reject => &self.reject_reason,
                     _ => &self.working[self.tab].custom,
                 };
-                // Only a text answer spans several lines; own answers, the
-                // session note and the reject reason are one line (ADR 22).
-                self.field = Some(TextField::new(text, row == Row::Answer));
+                self.field = Some(TextField::new(text));
                 self.focus = Focus::Field;
             }
             _ => {
@@ -879,7 +877,7 @@ impl SessionState {
 
     /// Every question is optional (user, 2026-09-28), so a submit always
     /// goes through; unanswered questions come back as skipped. The session
-    /// note is trimmed like the reject reason, as both are one-line fields.
+    /// note is trimmed like the reject reason (ADR 29).
     fn submit(&mut self) -> Effect {
         let note = self.session_note.trim();
         Effect::Submit {
@@ -896,7 +894,7 @@ impl SessionState {
             self.message = Some("this question takes no note".to_owned());
             return Effect::None;
         }
-        self.field = Some(TextField::new(&self.working[self.tab].note, true));
+        self.field = Some(TextField::new(&self.working[self.tab].note));
         self.focus = Focus::Note;
         Effect::None
     }
@@ -947,11 +945,10 @@ impl SessionState {
     /// Inserts `text` the person pasted at the text cursor of the focused
     /// field or note (spec section 7.3). The terminal sends a paste as one
     /// event, so a line break in it never reaches `enter`, which would
-    /// pick, submit or reject. A one-line field takes each line break as a
-    /// blank; the text answer and a question's note keep them. Without a
-    /// focused field or note, and while the pane has the keys, the paste
-    /// goes nowhere. The help shows only over the question's keys or the
-    /// pane's, so it never has a field under it.
+    /// pick, submit or reject; every field keeps the line breaks (ADR 36).
+    /// Without a focused field or note, and while the pane has the keys,
+    /// the paste goes nowhere. The help shows only over the question's keys
+    /// or the pane's, so it never has a field under it.
     pub fn paste(&mut self, text: &str) -> Effect {
         self.message = None;
         if self.focus == Focus::None || self.pane_focus {
@@ -1443,14 +1440,21 @@ mod tests {
     }
 
     #[test]
-    fn the_own_answer_is_one_line() {
+    fn ctrl_j_adds_a_line_to_the_own_answer_and_enter_still_picks_it() {
         let mut state = state();
         press(&mut state, "jja");
 
-        state.handle(ctrl('j'));
+        assert_eq!(state.handle(ctrl('j')), Effect::DraftChanged);
         press(&mut state, "b");
+        assert_eq!(state.field_text().as_deref(), Some("a\nb"));
+        state.handle(code(KeyCode::Enter));
 
-        assert_eq!(state.field_text().as_deref(), Some("ab"));
+        let single = answer(&state, "single");
+        assert_eq!(
+            (single.selected.is_empty(), single.custom.as_deref()),
+            (true, Some("a\nb"))
+        );
+        assert_eq!(state.tab(), 1, "enter picked the own answer and moved on");
     }
 
     #[test]
@@ -1717,6 +1721,35 @@ mod tests {
 
         assert_eq!(answers.len(), 4);
         assert_eq!(note.as_deref(), Some("only if the tests pass"), "trimmed");
+    }
+
+    #[test]
+    fn the_session_note_takes_new_lines_and_enter_still_submits() {
+        let mut state = state();
+        review_row(&mut state, Row::Note);
+        press(&mut state, "ship it");
+        state.handle(ctrl('j'));
+        press(&mut state, "after the tests ");
+
+        let Effect::Submit { note, .. } = state.handle(code(KeyCode::Enter)) else {
+            panic!("enter on the note submits");
+        };
+
+        assert_eq!(note.as_deref(), Some("ship it\nafter the tests"));
+    }
+
+    #[test]
+    fn the_reject_reason_takes_new_lines_and_enter_still_rejects() {
+        let mut state = state();
+        review_row(&mut state, Row::Reject);
+        press(&mut state, "stale");
+        state.handle(ctrl('j'));
+        press(&mut state, "ask again");
+
+        assert_eq!(
+            state.handle(code(KeyCode::Enter)),
+            Effect::Reject(Some("stale\nask again".into()))
+        );
     }
 
     #[test]
@@ -2414,29 +2447,29 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn a_paste_into_a_one_line_field_puts_blanks_for_its_line_breaks() {
+    fn a_paste_into_the_own_answer_keeps_its_lines() {
         let mut state = state();
         press(&mut state, "jjab");
         state.handle(code(KeyCode::Left));
 
         assert_eq!(state.paste("x\ny\r\nz\rw"), Effect::DraftChanged);
 
-        assert_eq!(state.field_text().as_deref(), Some("ax y z wb"));
+        assert_eq!(state.field_text().as_deref(), Some("ax\ny\nz\nwb"));
         let single = answer(&state, "single");
-        assert_eq!(single.custom.as_deref(), Some("ax y z wb"));
+        assert_eq!(single.custom.as_deref(), Some("ax\ny\nz\nwb"));
         assert!(!single.defaulted, "a paste is an edit");
     }
 
     #[test]
-    fn a_paste_into_the_session_note_or_the_reject_reason_stays_one_line() {
+    fn a_paste_into_the_session_note_or_the_reject_reason_keeps_its_lines() {
         let mut state = state();
         review_row(&mut state, Row::Note);
         state.paste("only if\nthe tests pass");
-        assert_eq!(state.session_note(), "only if the tests pass");
+        assert_eq!(state.session_note(), "only if\nthe tests pass");
 
         state.handle(code(KeyCode::Down));
         state.paste("out\r\nof date");
-        assert_eq!(state.reject_reason(), "out of date");
+        assert_eq!(state.reject_reason(), "out\nof date");
     }
 
     #[test]
@@ -2707,8 +2740,6 @@ mod tests {
         press(&mut state, "jja");
 
         assert_eq!(state.handle(code(KeyCode::F(5))), Effect::None);
-        // ctrl-m is another way to a line break, refused in a one-line field.
-        assert_eq!(state.handle(ctrl('m')), Effect::None);
         assert_eq!(state.field_text().as_deref(), Some("a"));
     }
 

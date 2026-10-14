@@ -119,8 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A long own answer and a long reject reason wrap onto further lines
   under their start, like a note, instead of scrolling sideways while
   typed and being cut with `…` otherwise. The counter of a focused own
-  answer moves to a line of its own after the text. The answer itself
-  stays one line.
+  answer moves to a line of its own after the text.
 - The question and the review keep to a reading width of 100 columns
   on wide terminals. Beside the question, context takes the rest of the
   width from a terminal of 103 columns on; below it, context takes at
@@ -150,6 +149,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tab` no longer types a tab character into a field. While a context
   pane shows, `ctrl-u` and `ctrl-d` scroll it instead of undoing and
   deleting in a field.
+- Every typed field takes several lines: the own answer, the session
+  note and the reject reason now accept `ctrl-j` like a `text` answer
+  and a question's note, and `enter` still picks, submits or rejects. A
+  paste keeps its line breaks in every field instead of turning them
+  into blanks. In results, `custom`, the session `note` and `reason` may
+  contain `\n`; the format stays version 2. The review shows a line
+  break in an own answer as `⏎`. The key bars of these fields show
+  `ctrl-j new line`, and the agent skill says that these fields may
+  span several lines.
 - `↑`/`↓` in a typed field move the text cursor through the rows the
   field shows, wrapped rows included, and leave the field only from its
   first or last row. Before, they left the own answer, the `text`

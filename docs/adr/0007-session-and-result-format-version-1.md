@@ -12,6 +12,8 @@ Amended by [25. Show an image per option](0025-show-an-image-per-option.md)
 
 Markdown subset superseded by [35. Render the text fields as full Markdown through patine](0035-render-the-text-fields-as-full-markdown-through-patine.md)
 
+One-line own answer superseded by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

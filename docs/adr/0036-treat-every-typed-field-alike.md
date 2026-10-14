@@ -10,11 +10,26 @@ Amends [22. Answer in place with a tab bar and a review step](0022-answer-in-pla
 
 Amends [27. Wrap the own answer and the reject reason](0027-wrap-the-own-answer-and-the-reject-reason.md)
 
+Supersedes the one-line own answer of [7. Session and result format version 1](0007-session-and-result-format-version-1.md)
+
+Supersedes the one-line own answer of [22. Answer in place with a tab bar and a review step](0022-answer-in-place-with-a-tab-bar-and-a-review-step.md)
+
+Supersedes the one-line value of [27. Wrap the own answer and the reject reason](0027-wrap-the-own-answer-and-the-reject-reason.md)
+
+Supersedes the one-line session note of [29. Let the person add a note to the whole session](0029-let-the-person-add-a-note-to-the-whole-session.md)
+
 ## Context
 
 asqr has five typed fields: the own answer, the answer of a `text`
 question, a question's note, the note to the whole session and the
-reject reason. They followed different rules for `↑`/`↓`:
+reject reason. They followed different rules.
+
+Two of them took several lines: the `text` answer and the question's
+note, where `ctrl-j` added a line. The own answer, the session note and
+the reject reason were one line (ADRs 7, 22, 27 and 29). There, `ctrl-j`
+did nothing, and a pasted line break became a blank.
+
+They also differed in `↑`/`↓`:
 
 - In the own answer, the `text` answer, the session note and the reject
   reason, `↑`/`↓` left the row at once (ADR 22), from any of the rows a
@@ -25,10 +40,33 @@ reject reason. They followed different rules for `↑`/`↓`:
   note's lines, as the editor does.
 
 The user decided on 2026-10-14 that one rule holds for every typed
-field.
+field, for three reasons:
+
+- There is no reason for a field to refuse line breaks.
+- One rule for every typed field: `enter` acts, `ctrl-j` adds a line.
+- A pasted structured answer, such as a list, kept its structure only in
+  some fields and lost it in the others.
 
 ## Decision
 
+- **Several lines everywhere:** the own answer, the session note and the
+  reject reason take line breaks like the `text` answer and the
+  question's note. `ctrl-j` adds a line in every typed field, and every
+  key bar of a field shows it.
+- **`enter` keeps its action:** on the own answer it picks the own answer
+  and moves on, in the session note it submits, in the reject reason it
+  rejects, in a `text` answer it moves on, and in a question's note it
+  returns to the row.
+- **Paste:** a pasted text keeps its line breaks in every field. `\r`
+  and `\r\n` still become `\n`.
+- **Results:** `custom`, the session `note` and `reason` may contain
+  `\n`, as `custom` of a `text` answer and a question's `note` already
+  could. The format stays version 2: the fields keep their names and
+  types, and validation never checked them for line breaks.
+- **Review tab:** the summary line of a question shows a line break in
+  the own answer as `⏎`, as it does for a `text` answer (spec section
+  7.4). The session note and the reject reason show their lines in their
+  fields.
 - **Rows as drawn:** `↑`/`↓` move the text cursor to the row above or
   below as the field shows it, which is the wrapped output, not the
   text's lines. A long text without line breaks is one line but several
@@ -47,6 +85,10 @@ field.
 
 Agent's choices within that design:
 
+- **One component:** every typed field is the same component,
+  `src/tui/text_field.rs`, for editing, measuring and drawing. What
+  depends on the field, such as where its text is kept and what `enter`
+  means, stays with the session state.
 - **One layout:** drawing a field, counting its rows for the layout
   below a context pane (ADR 30), placing its text cursor and moving
   with `↑`/`↓` go through one function in `src/tui/text_field.rs`,
@@ -69,6 +111,11 @@ Agent's choices within that design:
   2026-10-14).
 
 ## Consequences
+
+- A person can paste or type a structured answer into any field, and the
+  asker gets it with its lines.
+- An agent reading `custom`, `note` or `reason` has to expect line
+  breaks in each of them. The skill says so.
 
 - The cursor reaches every line of a multi-line `text` answer and every
   row of a long own answer with the arrows.

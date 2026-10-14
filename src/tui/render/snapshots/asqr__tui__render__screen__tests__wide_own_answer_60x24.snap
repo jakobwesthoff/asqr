@@ -25,4 +25,4 @@ expression: backend
 "                                                            "
 "                                                            "
 "                                                            "
-" enter  pick   esc  stop typing                             "
+" ctrl-j  new line   enter  pick   esc  stop typing          "

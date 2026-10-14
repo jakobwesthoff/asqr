@@ -22,6 +22,8 @@ Amended by [31. Make the context area a pane with a header, focus and scrolling]
 
 Amended by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md)
 
+One-line own answer superseded by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md)
+
 ## Context
 
 The user looked at the first screens and the key model of ADR 8 and

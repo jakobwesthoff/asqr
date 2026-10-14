@@ -355,7 +355,7 @@ mod tests {
         let draft = crate::queue::load_draft(&harness.location, "batch-01")
             .expect("readable")
             .expect("a draft");
-        assert_eq!(draft.note.as_deref(), Some("a b"));
+        assert_eq!(draft.note.as_deref(), Some("a\nb"));
     }
 
     #[test]

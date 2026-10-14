@@ -10,6 +10,8 @@ Amends [22. Answer in place with a tab bar and a review step](0022-answer-in-pla
 
 Amends [28. Session and result format version 2 with a context field](0028-session-and-result-format-version-2-with-a-context-field.md)
 
+One-line session note superseded by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md)
+
 ## Context
 
 Every question takes a note, but the session as a whole did not. The

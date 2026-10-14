@@ -10,6 +10,8 @@ Amends [22. Answer in place with a tab bar and a review step](0022-answer-in-pla
 
 Amended by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md)
 
+One-line value superseded by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md)
+
 ## Context
 
 ADR 22 made the own answer one line that scrolls sideways, and the

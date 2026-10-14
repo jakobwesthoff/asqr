@@ -235,14 +235,13 @@ fn answers_a_session_that_arrives_while_it_runs() {
     tui.wait_for("Own answer: xy");
 
     // asqr asks for bracketed paste, so a pasted line break is no enter
-    // that would pick the own answer; in this one-line field it is a
-    // blank.
+    // that would pick the own answer, but a line break in it.
     assert!(
         tui.output().contains("\x1b[?2004h"),
         "bracketed paste is on"
     );
     tui.send("\x1b[200~ z\nw\x1b[201~");
-    tui.wait_for("Own answer: xy z w");
+    tui.wait_for("Own answer: xy z");
 
     // Pick the own answer, which moves on to the review, where the cursor
     // rests on Submit.
@@ -270,7 +269,7 @@ fn answers_a_session_that_arrives_while_it_runs() {
     )
     .expect("parses");
     assert_eq!(result.status, Status::Submitted);
-    assert_eq!(result.answers[0].custom.as_deref(), Some("xy z w"));
+    assert_eq!(result.answers[0].custom.as_deref(), Some("xy z\nw"));
 }
 
 #[test]
