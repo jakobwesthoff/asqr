@@ -38,8 +38,8 @@ like patine"):
   a line of a code block or frontmatter, a word longer than the width or
   a table that cannot shrink, wraps behind a dim `↪` through the
   adapter's `markdown_rows` (ADR 34). Nothing scrolls sideways.
-- **The width in use:** a text renders again for each new width, and
-  asqr caches what it rendered per width.
+- **The width in use:** a text renders for the width it gets in the
+  frame being drawn.
 - **Single newlines break the line:** the subset broke the line at a
   single newline, and the fields keep that. CommonMark joins such lines
   into one paragraph.
@@ -71,11 +71,8 @@ plan:
 - **The review tab** shows question headers, option labels and typed
   answers, none of the three fields, so it renders no Markdown. Headers
   and labels stay plain text.
-- **The cache** belongs to the screen's `View` and is keyed by the text
-  and the width. What a frame used stays for the next one, and the rest
-  is dropped when the next frame starts, so it holds what is on screen.
 - **The module** `src/tui/render/text.rs` holds the one call to patine
-  for the three fields, with their options in a constant, and the cache.
+  for the three fields, with their options in a constant.
 
 ## Consequences
 
@@ -87,9 +84,24 @@ plan:
 - Text and HTML glued together without a blank, such as `Vec` and
   `<String>`, are two elements to patine and can wrap apart at the end
   of a line.
-- A redraw renders no text again until its width changes. On a
-  120×40 screen with a list, a Rust code block and four described
-  options, a frame took 87 µs with the subset, 70 to 73 µs with the
-  cache and 244 to 251 µs without it, in a release build. patine's first
-  rendering takes 34 ms once, for syntect's grammars.
+- Every frame renders the three fields again. On a 120×40 screen with a
+  list, a Rust code block and four described options, a frame took
+  87 µs with the subset and about 244 µs through patine in a release
+  build, 3.1 ms in a debug build. patine's first rendering takes 34 ms
+  once, for syntect's grammars.
 - asqr depends on patine 1.6 and no longer on `pulldown-cmark`.
+
+## Amendment (2026-10-14, no render cache)
+
+The first version of this decision kept the rendered rows of each text
+per width in the screen's `View`, from one frame to the next. The user
+decided the same day to remove that cache, so a text renders through a
+plain function from the text and a width to its rows. The reasons:
+
+- asqr draws once per event: the loop in `src/tui/run.rs` blocks until
+  a key, a resize, a change in the inbox or regained focus arrives, and
+  has no tick.
+- An uncached frame of the screen above takes about 244 µs in a release
+  build and 3.1 ms in a debug build, far below what a person notices.
+- Large content belongs in the context pane, whose viewers keep their
+  own layout per size (ADR 31).

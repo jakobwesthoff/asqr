@@ -21,7 +21,7 @@ use super::context::{context_hint, draw_pane};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
 use super::source_line::{columns, fitting};
-use super::text::MarkdownCache;
+use super::text::field_lines;
 use super::viewer::Viewers;
 use crate::format::{Kind, Question};
 use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState};
@@ -91,9 +91,6 @@ pub struct View<'a> {
     viewers: Viewers,
     /// What the context pane showed in the last draw.
     pane_page: Option<Page>,
-    /// The intro, question texts and option descriptions as rendered for
-    /// the last frames.
-    markdown: MarkdownCache,
 }
 
 impl<'a> View<'a> {
@@ -107,7 +104,6 @@ impl<'a> View<'a> {
             intro_page: Extent::default(),
             viewers: Viewers::new(picker),
             pane_page: None,
-            markdown: MarkdownCache::default(),
         }
     }
 
@@ -132,7 +128,6 @@ impl<'a> View<'a> {
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     // Whatever returns early draws no pane.
     view.pane_page = None;
-    view.markdown.begin_frame();
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let text = format!(
@@ -148,7 +143,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     let header_width = usize::from(area.width.min(READING_WIDTH + 2));
     let header_lines = app
         .active()
-        .map(|state| header_lines(state, header_width, area.height, &mut view.markdown))
+        .map(|state| header_lines(state, header_width, area.height))
         .unwrap_or_default();
     let header_height = u16::try_from(header_lines.len()).expect("at most five header lines");
 
@@ -210,7 +205,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
                 height: area.height - 1,
                 ..area
             };
-            draw_intro(frame, intro, scroll, above_keys, &mut view.markdown)
+            draw_intro(frame, intro, scroll, above_keys)
         }
         _ => Extent::default(),
     };
@@ -243,19 +238,12 @@ fn session_intro(state: &SessionState) -> Option<&str> {
 /// what of it fits. An intro longer than the frame scrolls, and the frame's
 /// bottom edge says which lines show. The intro shows in patine's styles
 /// without the header's dim.
-fn draw_intro(
-    frame: &mut Frame,
-    intro: &str,
-    scroll: usize,
-    area: Rect,
-    markdown: &mut MarkdownCache,
-) -> Extent {
+fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> Extent {
     // The text keeps to the reading width, with a blank column inside each
     // border.
     let width = area.width.saturating_sub(4).min(READING_WIDTH + 4);
     let inner = usize::from(width.saturating_sub(2));
-    let lines: Vec<Line<'static>> = markdown
-        .lines(intro, inner.saturating_sub(2))
+    let lines: Vec<Line<'static>> = field_lines(intro, inner.saturating_sub(2))
         .into_iter()
         .map(|line| indented(line, 1))
         .collect();
@@ -287,12 +275,7 @@ fn draw_intro(
 /// one each on short terminals, so the question keeps its room. A cut
 /// title ends in `…`; a cut intro ends in `… i: more`, as `i` shows all
 /// of it.
-fn header_lines(
-    state: &SessionState,
-    width: usize,
-    height: u16,
-    markdown: &mut MarkdownCache,
-) -> Vec<Line<'static>> {
+fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'static>> {
     let short = height < 24;
     let session = state.session();
     let title = session
@@ -319,8 +302,7 @@ fn header_lines(
         return lines;
     };
     // Dim comes on top of patine's styles, which still show underneath.
-    let intro: Vec<Line<'static>> = markdown
-        .lines(intro, room.saturating_sub(1))
+    let intro: Vec<Line<'static>> = field_lines(intro, room.saturating_sub(1))
         .into_iter()
         .map(|line| indented(line, 1).dim())
         .collect();
@@ -486,8 +468,8 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
         arrangement
     });
 
-    let mut content_at = |width: u16| match state.question() {
-        Some(question) => question_content(state, question, usize::from(width), &mut view.markdown),
+    let content_at = |width: u16| match state.question() {
+        Some(question) => question_content(state, question, usize::from(width)),
         None => review_content(state, usize::from(width)),
     };
     // Without a context area, above one and above a hint, the question
@@ -533,14 +515,9 @@ fn mark(kind: Kind, chosen: bool) -> &'static str {
     }
 }
 
-fn question_content(
-    state: &SessionState,
-    question: &Question,
-    width: usize,
-    markdown: &mut MarkdownCache,
-) -> Content {
+fn question_content(state: &SessionState, question: &Question, width: usize) -> Content {
     let mut content = Content {
-        lines: markdown.lines(&question.text, width),
+        lines: field_lines(&question.text, width),
         cursor: (0, 0),
     };
     content
@@ -582,7 +559,6 @@ fn question_content(
                     option.description.as_deref(),
                     width,
                     current,
-                    markdown,
                 )
             }
             Row::Own => {
@@ -651,7 +627,6 @@ fn option_lines(
     description: Option<&str>,
     width: usize,
     current: bool,
-    markdown: &mut MarkdownCache,
 ) -> Vec<Line<'static>> {
     let head_width: usize = head.iter().map(|span| columns(&span.content)).sum();
     let head = if current {
@@ -668,7 +643,7 @@ fn option_lines(
         DESCRIPTION_INDENT
     };
     let mut rows = description
-        .map(|description| markdown.lines(description, width.saturating_sub(indent)))
+        .map(|description| field_lines(description, width.saturating_sub(indent)))
         .unwrap_or_default()
         .into_iter();
     let mut lines = Vec::new();
@@ -1901,20 +1876,6 @@ mod tests {
         let app = markdown_session("One\ntwo", text, "Alpha", description);
 
         insta::assert_snapshot!("newlines_and_html_80x24", screen(&app, 80, 24));
-    }
-
-    #[test]
-    fn a_redraw_renders_no_markdown_again_until_the_width_changes() {
-        let app = markdown_session("Round **two**.", PLAN, "Alpha", STEPS);
-        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
-
-        screen_in(&app, &mut view, 120, 30);
-        let first = view.markdown.renders();
-        assert!(first > 0);
-        screen_in(&app, &mut view, 120, 30);
-        assert_eq!(view.markdown.renders(), first, "the same frame again");
-        screen_in(&app, &mut view, 90, 30);
-        assert!(view.markdown.renders() > first, "a new width");
     }
 
     #[test]
