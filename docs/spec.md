@@ -682,6 +682,13 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   under the cursor stays visible, dialogs never exceed the screen, and
   below 60×15 asqr shows "asqr needs at least 60×15; this terminal is
   W×H." instead of the layout.
+- When the question or the review does not show all its rows, a dim
+  `↑ more` on its first row says that rows are cut off above, and a dim
+  `↓ more` on its last row that rows are cut off below. The marker
+  takes no row of its own: it goes over the right end of that row where
+  it is blank, else over the start where that is blank, else over the
+  right end anyway, so the pointer and the option's number stay
+  visible.
 - With nothing waiting, the screen says "Nothing to answer. New sessions
   show up here as soon as they arrive." Notices still show.
 

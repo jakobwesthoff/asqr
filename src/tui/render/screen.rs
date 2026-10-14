@@ -577,11 +577,59 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, view: &mut View
     let height = text_area.height as usize;
     let (start, end) = content.cursor;
     let scroll = end.saturating_sub(height.saturating_sub(1)).min(start);
+    let total = content.lines.len();
     frame.render_widget(
         Paragraph::new(content.lines).scroll((scroll as u16, 0)),
         text_area,
     );
+
+    // Rows cut off above or below the area are marked on its first and
+    // last row, so the person knows to move on to see them.
+    if height > 0 {
+        if scroll > 0 {
+            mark_cut(frame, text_area, 0, "↑ more");
+        }
+        if scroll + height < total {
+            mark_cut(frame, text_area, height - 1, "↓ more");
+        }
+    }
     pane
+}
+
+/// Draws `marker` dim over row `row` of `area`, which takes no row of its
+/// own. It goes to the right edge where that part of the row is blank,
+/// else to the left edge where that part is, else to the right edge
+/// anyway: the start of a row holds the pointer and the option's number,
+/// which matter more than the end of a line of text. A blank keeps it
+/// apart from the text beside it.
+fn mark_cut(frame: &mut Frame, area: Rect, row: usize, marker: &str) {
+    let width = u16::try_from(columns(marker) + 1)
+        .expect("a short marker")
+        .min(area.width);
+    let y = area.y + u16::try_from(row).expect("a row inside the area");
+    let at = |x: u16| Rect {
+        x,
+        y,
+        width,
+        height: 1,
+    };
+    let (left, right) = (at(area.x), at(area.right() - width));
+    // A reversed blank is the text cursor, so it counts as text.
+    let blank = |frame: &mut Frame, cells: Rect| {
+        cells.positions().all(|position| {
+            let cell = &frame.buffer_mut()[position];
+            cell.symbol() == " " && !cell.modifier.contains(Modifier::REVERSED)
+        })
+    };
+    let (marked, text) = if blank(frame, right) || !blank(frame, left) {
+        (right, format!(" {marker}"))
+    } else {
+        (left, format!("{marker} "))
+    };
+    // The cells lose the styles of the text under them first, so a marker
+    // over a highlighted row never shows reversed.
+    frame.render_widget(Clear, marked);
+    frame.render_widget(Line::from(text).dim(), marked);
 }
 
 /// The mark in front of an option or the own answer.
@@ -2578,7 +2626,15 @@ mod tests {
     fn a_one_line_field_with_a_length_shows_its_counter() {
         let mut app = app(&[("batch", EXAMPLE)]);
         keys(&mut app, "jjjjSnappy in holly");
-        insta::assert_snapshot!(screen(&app, 100, 24));
+        let backend = screen(&app, 100, 24);
+        insta::assert_snapshot!(backend);
+
+        // The counter ends the question's rows above the image and the
+        // note is cut off. The marker keeps clear of the counter on the
+        // right and goes to the blank start of its line.
+        let (counter, row) = find(&backend, "15/125");
+        assert_eq!(counter, 93, "{backend}");
+        assert_eq!(find(&backend, "↓ more"), (1, row), "{backend}");
     }
 
     #[test]
@@ -3222,6 +3278,131 @@ mod tests {
         assert_eq!(pane_row(&screen_in(&app, &mut view, 60, 40)), top);
         ctrl_j(&mut app);
         assert_eq!(pane_row(&screen_in(&app, &mut view, 60, 40)), top + 1);
+    }
+
+    // -----------------------------------------------------------------
+    // Marks of rows cut off
+    // -----------------------------------------------------------------
+
+    /// A session with an intro and one question with context, five
+    /// options, an own answer and a note: 11 rows, more than the 8 the
+    /// question gets above its context on a 60×24 or 80×24 terminal.
+    fn five_options() -> App {
+        let options: Vec<_> = ["Holly", "Snow", "Bells", "Candles", "Stars"]
+            .iter()
+            .enumerate()
+            .map(|(index, label)| {
+                serde_json::json!({"id": format!("o{index}"), "label": label,
+                                   "description": format!("Snappy in {} again.", label.to_lowercase())})
+            })
+            .collect();
+        let json = serde_json::json!({
+            "asqr": 2,
+            "title": "Mascot lines",
+            "intro": "Pick the line the mascot says.",
+            "questions": [{"id": "line", "text": "Which line fits the winter mascot?",
+                           "kind": "single", "custom": {"label": "Own line"},
+                           "context": code_entry(), "options": options}]
+        });
+        app(&[("mascot", &json.to_string())])
+    }
+
+    /// Whether every cell of `text` on the screen is dim and none reversed,
+    /// so a marker never looks like the cursor.
+    fn dim_only(backend: &TestBackend, text: &str) -> bool {
+        let (x, y) = find(backend, text);
+        let width = u16::try_from(columns(text)).expect("a short text");
+        (x..x + width).all(|x| {
+            let modifier = backend.buffer()[(x, y)].modifier;
+            modifier.contains(Modifier::DIM) && !modifier.contains(Modifier::REVERSED)
+        })
+    }
+
+    #[test]
+    fn rows_cut_off_above_or_below_the_question_are_marked() {
+        for width in [60, 80] {
+            let mut app = five_options();
+            // The title, the intro and the tab bar leave the question rows
+            // 5 to 12, the context starting below them.
+            let backend = screen(&app, width, 24);
+            insta::assert_snapshot!(format!("cut_below_{width}x24"), backend);
+            // The marker ends at the right edge of the question's area,
+            // which is the screen's but for the margin.
+            let right = width - 1 - 6;
+            assert_eq!(find(&backend, "ctx.rs").1, 13, "{backend}");
+            assert_eq!(
+                find(&backend, "↓ more"),
+                (right, 12),
+                "over the blank end of the last row:\n{backend}"
+            );
+            assert!(dim_only(&backend, "↓ more"), "{backend}");
+            assert!(!backend.to_string().contains("↑ more"), "{backend}");
+
+            // On the own answer the question scrolls by a row.
+            keys(&mut app, "jjjjj");
+            let backend = screen(&app, width, 24);
+            insta::assert_snapshot!(format!("cut_both_{width}x24"), backend);
+            assert_eq!(find(&backend, "↑ more"), (right, 5), "{backend}");
+            assert_eq!(find(&backend, "↓ more"), (right, 12), "{backend}");
+            assert!(find(&backend, "❯ ( ) ✎ Own line:").1 == 12, "{backend}");
+            assert!(dim_only(&backend, "↑ more") && dim_only(&backend, "↓ more"));
+        }
+    }
+
+    #[test]
+    fn a_row_full_of_text_keeps_its_start_and_the_marker_covers_its_end() {
+        let json = serde_json::json!({
+            "asqr": 2,
+            "questions": [{"id": "q", "text": "x".repeat(600), "kind": "single",
+                           "options": [{"id": "a", "label": "A"}]}]
+        });
+        let app = app(&[("full", &json.to_string())]);
+
+        // The text fills whole lines of 58 columns, each further one
+        // behind `↪`. The option under the cursor ends the 9 rows of the
+        // tab on a 60×15 terminal, so the text's first lines are cut off
+        // above, under a full line.
+        let backend = screen(&app, 60, 15);
+        let rows = visible_rows(&backend);
+        assert_eq!(find(&backend, "↑ more"), (53, 4), "{backend}");
+        assert_eq!(rows[4], format!(" ↪ {} ↑ more ", "x".repeat(49)));
+        assert_eq!(find(&backend, "↓ more"), (53, 12), "{backend}");
+    }
+
+    #[test]
+    fn the_review_marks_its_cut_rows_too() {
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "ll");
+        special(&mut app, KeyCode::Esc);
+        keys(&mut app, "l");
+
+        // The review opens on Submit, whose button ends the 8 rows a 60×15
+        // terminal leaves it: its first line and the note and reject rows
+        // are cut off.
+        let backend = screen(&app, 60, 15);
+        assert_eq!(find(&backend, "[ Submit ]").1, 12, "{backend}");
+        assert_eq!(find(&backend, "↑ more"), (53, 5), "{backend}");
+        assert_eq!(
+            find(&backend, "↓ more"),
+            (53, 12),
+            "beside the button under the cursor:\n{backend}"
+        );
+
+        special(&mut app, KeyCode::Down);
+        special(&mut app, KeyCode::Down);
+        let backend = screen(&app, 60, 15);
+        assert_eq!(find(&backend, "↑ more"), (53, 5), "{backend}");
+        assert!(!backend.to_string().contains("↓ more"), "{backend}");
+    }
+
+    #[test]
+    fn a_question_that_fits_has_no_marks() {
+        let backend = screen(&five_options(), 120, 40);
+        let text = backend.to_string();
+        assert!(
+            !text.contains("↑ more") && !text.contains("↓ more"),
+            "{text}"
+        );
     }
 
     #[test]

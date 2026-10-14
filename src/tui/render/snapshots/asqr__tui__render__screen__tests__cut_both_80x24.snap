@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr · queue: default · 1 session waiting                                      "
+" Mascot lines                                                                   "
+" Pick the line the mascot says.                                                 "
+"   ☐ line  ✔ Review                                                             "
+"────────────────────────────────────────────────────────────────────────────────"
+" pick one, or type your own                                              ↑ more "
+"                                                                                "
+"   ( ) 1. Holly    Snappy in holly again.                                       "
+"   ( ) 2. Snow     Snappy in snow again.                                        "
+"   ( ) 3. Bells    Snappy in bells again.                                       "
+"   ( ) 4. Candles  Snappy in candles again.                                     "
+"   ( ) 5. Stars    Snappy in stars again.                                       "
+" ❯ ( ) ✎ Own line:                                                       ↓ more "
+" ctx.rs                                                                         "
+" 1 fn main() {}                                                                 "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" enter  pick   ↑/↓  leave   esc  stop typing   tab  context                     "

@@ -114,7 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session needs, so the context stays in place between questions, and
   typing moves it only when that question gains a line. Where neither
   fits, context shrinks to a line that names it, and `z` still shows an
-  image full screen.
+  image full screen. A dim `↑ more` or `↓ more` on the first or last row
+  of the question and the review says that rows are cut off there.
 - Context shows in a pane whose first line names the entry by its
   title or file name and, when the entry is taller than the pane, says
   which of its lines show. Beside or below the question, an image gets
