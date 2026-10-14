@@ -82,8 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `esc`, `q` and `i` close it.
 - `tab` moves into the context pane, which then scrolls with `↑`/`↓`,
   `j`/`k`, `←`/`→`, `h`/`l`, `g`/`G`, `home`/`end`, `pgup`/`pgdn` and
-  `ctrl-u`/`ctrl-d`; `tab` or `esc` move back to the question or the
-  field being typed in. `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the
+  `ctrl-u`/`ctrl-d`; `tab`, `esc` or `q` move back to the question or
+  the field being typed in, so a word typed after `tab` never quits. `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the
   pane from anywhere, also while typing in a field. Each entry keeps its
   scroll position while the person moves between options and
   questions. The key bar and the help show the pane's keys while it has
@@ -131,7 +131,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one row less for that line, and an image smaller than the pane grows
   to fill it.
 - `z` shows any context entry full screen, not only an image, and the
-  one-line hint on small terminals offers it for every entry.
+  one-line hint on small terminals offers it for every entry. The
+  full-screen view takes every key, as the focused pane does: it
+  scrolls with the pane's keys, the question's keys no longer act
+  behind it, and `z`, `esc`, `tab` or `q` go back to where the focus
+  was. Its key bar shows the pane's keys.
+- `o` on a code, Markdown or diff entry, or where no entry shows, says
+  why it opens nothing.
 - `tab` no longer types a tab character into a field. While a context
   pane shows, `ctrl-u` and `ctrl-d` scroll it instead of undoing and
   deleting in a field.

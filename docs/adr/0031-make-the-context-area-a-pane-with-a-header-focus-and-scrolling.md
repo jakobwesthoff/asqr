@@ -137,22 +137,38 @@ Agent's choices within that design:
   is the pane's height, and an offset a larger terminal left past the
   end is brought back before a key applies. `←`/`→` move 4 columns.
 - The focused pane reads like a pager, as the intro overlay does: it
-  takes every key, and only `q`, `?`, `z`, `o` and `ctrl-c` keep their
-  meaning from the question. The pane's focus is kept apart from a
-  field's, so `tab` or `esc` return to the field or note being typed in
-  with its text cursor where it was.
+  takes every key, and only `?`, `z`, `o` and `ctrl-c` keep their
+  meaning from the question. `q` goes back like `tab` and `esc`, as it
+  closes the intro overlay: a person who moved into the pane from a
+  field and goes on typing would otherwise quit asqr with the first `q`
+  of a word. The pane's focus is kept apart from a field's, so `tab`,
+  `esc` or `q` return to the field or note being typed in with its text
+  cursor where it was.
 - While the pane has the focus, its header is highlighted the way the
   current tab is, and a field's text cursor hides, so only one place
   looks like it takes the keys.
 - A pane that goes away while it has the focus, as after a resize down
   to the hint, gives the focus back.
-- The full-screen view keeps the focus as it was, and the scroll keys
-  work in it as in the pane.
+- The full-screen view reads like a pager too: it takes the focus,
+  remembering where it was, and scrolls with the pane's keys, with `o`
+  and `?` as in the pane. `z`, `esc`, `tab` and `q` leave it and give
+  the focus back to the question, the field being typed in or the
+  focused pane. The question is hidden behind the view, so a key that
+  picked an option or opened a note there would act where the person
+  cannot see it. As no key moves the cursor while it shows, only a
+  replaced session file can change the entry under it, and the view
+  ends when that happens.
+- `o` on a code, Markdown or diff entry says that it opens images only
+  and that `z` shows the entry full screen, and where no entry shows it
+  says there is nothing to open, so the key never does nothing without
+  a word.
 - The key bar names `tab` before `?` wherever a pane shows. The general
   help keeps its 13 lines, which fill the smallest screen: `space` and
   `1`-`9` share a line, as do `n` and `ctrl-j`, to make room for `tab`
-  and the page keys. While the pane has the focus, `?` lists the pane's
-  keys instead.
+  and the page keys. While the pane or the full-screen view has the
+  focus, `?` lists the pane's keys instead, and the key bar shows them
+  with `? help` and the keys that go back: `tab/esc/q back` in the pane,
+  `z/esc/q back` in the full-screen view.
 
 ## Consequences
 

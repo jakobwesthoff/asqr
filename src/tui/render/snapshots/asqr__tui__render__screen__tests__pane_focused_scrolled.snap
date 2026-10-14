@@ -25,4 +25,4 @@ expression: backend
 "    18 + line 18                                                                "
 "    19 + line 19                                                                "
 "                                                                                "
-" ↑/↓  scroll   pgup/pgdn  page   z  full screen   tab/esc  back                 "
+" ↑/↓  scroll   pgup/pgdn  page   z  full screen   ?  help   tab/esc/q  back     "

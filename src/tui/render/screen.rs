@@ -1263,7 +1263,7 @@ const HELP: &[(&str, &str)] = &[
     ("?, i", "this help; the whole intro"),
 ];
 
-/// The keys of the focused context pane.
+/// The keys of the focused context pane and the full-screen view.
 const PANE_HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "scroll by line"),
     ("←/→, h/l", "scroll sideways where lines are cut"),
@@ -1271,8 +1271,8 @@ const PANE_HELP: &[(&str, &str)] = &[
     ("g/G", "to the top and the bottom, also home/end"),
     ("z", "show the context full screen and back"),
     ("o", "open an image in the system viewer"),
-    ("tab, esc", "back to the question"),
-    ("q, ctrl-c", "quit, keeping the draft"),
+    ("tab/esc/q", "back to the question"),
+    ("ctrl-c", "quit, keeping the draft"),
     ("?", "this help"),
 ];
 
@@ -1377,7 +1377,8 @@ fn key_hints(
     hints
 }
 
-/// The keys of the focused pane. Sideways and `o` only show where they do
+/// The keys of the focused pane and the full-screen view, where `z` is
+/// one of the keys that go back. Sideways and `o` only show where they do
 /// something.
 fn pane_key_hints(state: &SessionState, page: Page) -> Vec<(&'static str, &'static str)> {
     let mut hints = vec![("↑/↓", "scroll")];
@@ -1385,11 +1386,18 @@ fn pane_key_hints(state: &SessionState, page: Page) -> Vec<(&'static str, &'stat
         hints.push(("←/→", "sideways"));
     }
     hints.push(("pgup/pgdn", "page"));
-    hints.push(("z", "full screen"));
+    if !state.full_screen() {
+        hints.push(("z", "full screen"));
+    }
     if state.shown_image().is_some() {
         hints.push(("o", "open"));
     }
-    hints.push(("tab/esc", "back"));
+    hints.push(("?", "help"));
+    hints.push(if state.full_screen() {
+        ("z/esc/q", "back")
+    } else {
+        ("tab/esc/q", "back")
+    });
     hints
 }
 
@@ -1486,14 +1494,14 @@ fn key_line(keys: &[(&str, &str)], width: u16) -> Line<'static> {
 
 /// How long a hint stays in a key bar too narrow for all of them; higher
 /// stays longer. `?` and `q` stay longest, as the help names every other
-/// key and quitting is what a lost person looks for. The keys that act
-/// where the cursor is come next, then switching questions, then the
-/// context pane's `tab`, and a note last, which is optional on every
-/// question.
+/// key and quitting, or going back from the context pane, is what a lost
+/// person looks for. The keys that act where the cursor is come next, then
+/// switching questions, then the context pane's `tab`, and a note last,
+/// which is optional on every question.
 fn hint_rank(key: &str) -> u8 {
     match key {
         "?" => 6,
-        "q" => 5,
+        "q" | "tab/esc/q" | "z/esc/q" => 5,
         "←/→" => 3,
         "tab" => 2,
         "n" => 1,
@@ -2864,11 +2872,23 @@ mod tests {
 
         assert_eq!(
             keys_of(key_hints(&state, false, Some(page(20)))),
-            ["↑/↓", "pgup/pgdn", "z", "o", "tab/esc"]
+            ["↑/↓", "pgup/pgdn", "z", "o", "?", "tab/esc/q"]
         );
         assert_eq!(
             keys_of(key_hints(&state, false, Some(page(50)))),
-            ["↑/↓", "←/→", "pgup/pgdn", "z", "o", "tab/esc"]
+            ["↑/↓", "←/→", "pgup/pgdn", "z", "o", "?", "tab/esc/q"]
+        );
+        state.handle(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert_eq!(
+            key_hints(&state, false, Some(page(20))),
+            [
+                ("↑/↓", "scroll"),
+                ("pgup/pgdn", "page"),
+                ("o", "open"),
+                ("?", "help"),
+                ("z/esc/q", "back")
+            ],
+            "the full-screen view"
         );
 
         let text = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
@@ -2879,7 +2899,7 @@ mod tests {
         state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(
             keys_of(key_hints(&state, false, Some(page(20)))),
-            ["↑/↓", "pgup/pgdn", "z", "tab/esc"],
+            ["↑/↓", "pgup/pgdn", "z", "?", "tab/esc/q"],
             "o opens images only"
         );
     }

@@ -91,6 +91,13 @@ pub struct EntryKey {
     pub option: Option<usize>,
 }
 
+/// The full-screen view of the entry shown (`z`): whether the pane had
+/// the focus before, which leaving the view gives back.
+#[derive(Debug, Clone, Copy)]
+struct FullScreen {
+    pane_focus: bool,
+}
+
 /// Where typed keys go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -155,8 +162,9 @@ pub struct SessionState {
     reject_reason: String,
     help: bool,
     message: Option<String>,
-    /// The context entry shown, drawn over the question's area (`z`).
-    full_screen: bool,
+    /// The context entry shown, drawn over the question's area (`z`). It
+    /// reads like a pager, so the pane has the focus while it shows.
+    full_screen: Option<FullScreen>,
     /// The context pane takes the keys. Kept apart from `focus`, so the
     /// field or note being typed in has its text and cursor again when the
     /// pane gives the focus back.
@@ -234,7 +242,7 @@ impl SessionState {
                 .unwrap_or_default(),
             help: false,
             message: None,
-            full_screen: false,
+            full_screen: None,
             pane_focus: false,
             pane_page: None,
             offsets: HashMap::new(),
@@ -299,7 +307,7 @@ impl SessionState {
     }
 
     pub fn full_screen(&self) -> bool {
-        self.full_screen
+        self.full_screen.is_some()
     }
 
     /// Whether the context pane takes the keys.
@@ -316,11 +324,12 @@ impl SessionState {
 
     /// Takes what the last draw of the context pane showed, which depends
     /// on the size of the terminal. Without a pane there is nothing to
-    /// focus, so a focused pane gives the focus back.
+    /// focus or show full screen, so the question gets the keys back.
     pub fn set_pane_page(&mut self, page: Option<Page>) {
         self.pane_page = page;
         if page.is_none() {
             self.pane_focus = false;
+            self.full_screen = None;
         }
     }
 
@@ -554,18 +563,25 @@ impl SessionState {
     /// The keys that belong to the context pane, before a field or the
     /// question sees them; `None` leaves `key` to them.
     ///
-    /// The focused pane reads like a pager: it takes every key, and only
-    /// `q`, `?`, `z` and `o` keep their meaning from the question. Without
-    /// the focus, `tab` and the page keys still reach it, also from a field,
-    /// as none of them types text (plan, *Keys*).
+    /// The focused pane and the full-screen view read like a pager: they
+    /// take every key, and only `?`, `z` and `o` keep their meaning from the
+    /// question. `tab`, `esc` and `q` go back, a typed word that starts with
+    /// `q` included, so no word quits asqr; `ctrl-c` still does. Without the
+    /// focus, `tab` and the page keys still reach the pane, also from a
+    /// field, as none of them types text (plan, *Keys*).
     fn pane_key(&mut self, key: KeyEvent) -> Option<Effect> {
         if self.pane_focus {
+            let control = key.modifiers.contains(KeyModifiers::CONTROL);
             let effect = match key.code {
-                KeyCode::Tab | KeyCode::Esc => {
-                    self.pane_focus = false;
+                KeyCode::Tab | KeyCode::Esc => self.leave_pane(),
+                KeyCode::Char('q') if !control => self.leave_pane(),
+                KeyCode::Char('z') if !control && self.full_screen.is_some() => self.leave_pane(),
+                KeyCode::Char('z') if !control => self.show_full_screen(),
+                KeyCode::Char('?') if !control => {
+                    self.help = true;
                     Effect::None
                 }
-                KeyCode::Char('q' | '?' | 'z' | 'o') => self.command(key),
+                KeyCode::Char('o') if !control => self.open(),
                 _ => {
                     self.scroll_pane(key, true);
                     Effect::None
@@ -585,6 +601,46 @@ impl SessionState {
             // field's editor gives them.
             _ if self.scroll_pane(key, false) => Some(Effect::None),
             _ => None,
+        }
+    }
+
+    /// Leaves the full-screen view for where the focus was before it, or
+    /// the focused pane for the question.
+    fn leave_pane(&mut self) -> Effect {
+        self.pane_focus = self
+            .full_screen
+            .take()
+            .is_some_and(|full_screen| full_screen.pane_focus);
+        Effect::None
+    }
+
+    /// Shows the entry shown full screen, which then takes the keys, so
+    /// none of them can move the cursor to another entry while it shows.
+    fn show_full_screen(&mut self) -> Effect {
+        if self.shown_entry().is_some() {
+            self.full_screen = Some(FullScreen {
+                pane_focus: self.pane_focus,
+            });
+            self.pane_focus = true;
+        }
+        Effect::None
+    }
+
+    /// `o`: opens the image shown, or says why it cannot.
+    fn open(&mut self) -> Effect {
+        match self.shown_context() {
+            Some(entry) => match entry.image_path() {
+                Some(image) => Effect::OpenImage(image.to_owned()),
+                None => {
+                    self.message =
+                        Some("o opens images only; z shows this entry full screen".to_owned());
+                    Effect::None
+                }
+            },
+            None => {
+                self.message = Some("nothing to open here".to_owned());
+                Effect::None
+            }
         }
     }
 
@@ -644,14 +700,8 @@ impl SessionState {
             }
             KeyCode::Char('L') => Effect::OpenSessionList,
             KeyCode::Char('i') if self.session.intro.is_some() => Effect::ShowIntro,
-            KeyCode::Char('o') => match self.shown_image() {
-                Some(image) => Effect::OpenImage(image.to_owned()),
-                None => Effect::None,
-            },
-            KeyCode::Char('z') => {
-                self.full_screen = self.shown_context().is_some() && !self.full_screen;
-                Effect::None
-            }
+            KeyCode::Char('o') => self.open(),
+            KeyCode::Char('z') => self.show_full_screen(),
             _ => Effect::None,
         }
     }
@@ -703,7 +753,6 @@ impl SessionState {
         } else {
             0
         };
-        self.full_screen = false;
         self.arrive();
         Effect::DraftChanged
     }
@@ -1754,10 +1803,29 @@ mod tests {
         press(&mut state, "z");
         assert!(state.full_screen());
         press(&mut state, "l");
-        assert!(
-            !state.full_screen(),
-            "another tab ends the full-screen view"
+        assert_eq!(
+            (state.full_screen(), state.tab()),
+            (true, 3),
+            "the full-screen view takes the keys"
         );
+    }
+
+    #[test]
+    fn o_says_why_it_does_nothing() {
+        let mut state = state();
+        assert_eq!(press(&mut state, "o"), Effect::None);
+        assert_eq!(state.message(), Some("nothing to open here"));
+
+        let mut state = with_pane();
+        let code_entry = "o opens images only; z shows this entry full screen";
+        assert_eq!(press(&mut state, "o"), Effect::None);
+        assert_eq!(state.message(), Some(code_entry));
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(press(&mut state, "o"), Effect::None);
+        assert_eq!(state.message(), Some(code_entry), "from the focused pane");
+        press(&mut state, "z");
+        assert_eq!(press(&mut state, "o"), Effect::None);
+        assert_eq!(state.message(), Some(code_entry), "from the full screen");
     }
 
     #[test]
@@ -1871,6 +1939,7 @@ mod tests {
         assert!(state.has_context_area());
         assert_eq!(state.shown_image(), None);
         assert_eq!(press(&mut state, "o"), Effect::None);
+        assert!(state.message().is_some(), "o says why");
         press(&mut state, "z");
         assert!(state.full_screen());
         press(&mut state, "z");
@@ -2014,7 +2083,7 @@ mod tests {
     }
 
     #[test]
-    fn the_focused_pane_takes_every_other_key_but_quit_help_z_and_o() {
+    fn the_focused_pane_takes_every_other_key_but_help_z_and_o() {
         let mut state = with_pane();
         state.handle(code(KeyCode::Tab));
 
@@ -2033,7 +2102,105 @@ mod tests {
         press(&mut state, "?");
         assert!(state.help());
         press(&mut state, "x");
-        assert_eq!(press(&mut state, "q"), Effect::Quit);
+        assert!(
+            state.pane_focused(),
+            "a key that closes the help does no more"
+        );
+    }
+
+    #[test]
+    fn q_in_the_focused_pane_gives_the_focus_back_and_ctrl_c_quits() {
+        let mut state = with_pane();
+        press(&mut state, "jjown");
+        state.handle(code(KeyCode::Tab));
+
+        assert_eq!(press(&mut state, "q"), Effect::None);
+        assert!(!state.pane_focused());
+        assert_eq!(
+            state.field_text().as_deref(),
+            Some("own"),
+            "back in the field, without a q typed"
+        );
+
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(state.handle(ctrl('c')), Effect::Quit);
+    }
+
+    #[test]
+    fn the_full_screen_view_takes_every_key_like_a_pager() {
+        let mut state = with_pane();
+        press(&mut state, "z");
+        assert!(state.full_screen());
+        assert!(state.pane_focused(), "the keys go to the entry shown");
+
+        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::None);
+        for ignored in ["1", "n", " ", "L", "i"] {
+            assert_eq!(press(&mut state, ignored), Effect::None, "{ignored}");
+        }
+        assert_eq!(press(&mut state, "j"), Effect::None);
+
+        assert_eq!(top(&state), 1, "j scrolls the entry");
+        assert_eq!((state.tab(), state.row()), (0, 0), "the cursor stays");
+        assert_eq!(state.focus(), Focus::None, "no note was opened");
+        assert_eq!(state.answers()[0].selected, Vec::<String>::new());
+        assert!(state.full_screen());
+        press(&mut state, "?");
+        assert!(state.help());
+    }
+
+    #[test]
+    fn z_esc_tab_and_q_leave_the_full_screen_view_for_where_the_focus_was() {
+        for back in [
+            code(KeyCode::Char('z')),
+            code(KeyCode::Esc),
+            code(KeyCode::Tab),
+            code(KeyCode::Char('q')),
+        ] {
+            let mut state = with_pane();
+            press(&mut state, "z");
+            assert_eq!(state.handle(back), Effect::None, "{back:?} does not quit");
+            assert_eq!(
+                (state.full_screen(), state.pane_focused()),
+                (false, false),
+                "{back:?} returns to the question"
+            );
+
+            state.handle(code(KeyCode::Tab));
+            press(&mut state, "z");
+            state.handle(back);
+            assert_eq!(
+                (state.full_screen(), state.pane_focused()),
+                (false, true),
+                "{back:?} returns to the pane"
+            );
+        }
+    }
+
+    #[test]
+    fn the_full_screen_view_returns_to_the_field_it_was_reached_from() {
+        let mut state = with_pane();
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Tab));
+        press(&mut state, "z");
+
+        state.handle(code(KeyCode::Esc));
+        state.handle(code(KeyCode::Esc));
+
+        assert_eq!(state.focus(), Focus::Field);
+        press(&mut state, "c");
+        assert_eq!(state.field_text().as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn a_pane_that_goes_away_ends_the_full_screen_view() {
+        let mut state = with_pane();
+        press(&mut state, "z");
+
+        state.set_pane_page(None);
+
+        assert_eq!((state.full_screen(), state.pane_focused()), (false, false));
+        press(&mut state, "j");
+        assert_eq!(state.row(), 1, "keys move the cursor again");
     }
 
     #[test]

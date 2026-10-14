@@ -707,9 +707,9 @@ On an option row (vim style plus arrows):
 | `L` | the list of waiting sessions |
 | `i` | the whole intro |
 | `o`, `z` | open the image shown in the system viewer; show the context shown full screen |
-| `tab` | move into the context pane; `tab` or `esc` move back |
+| `tab` | move into the context pane; `tab`, `esc` or `q` move back |
 | `pgup`/`pgdn`, `ctrl-u`/`ctrl-d` | scroll the context pane by a page, also while typing in a field |
-| `q`, `ctrl-c` | quit, keeping the draft |
+| `q`, `ctrl-c` | quit, keeping the draft; in the context pane `q` goes back |
 | `?` | help |
 
 - A selection beyond `max` in a `multi` is refused with the message "at
@@ -722,23 +722,33 @@ On an option row (vim style plus arrows):
   over the help, which it closes like any other key.
 - `o` opens the image shown (section 7.7) with the system's opener
   (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
-  started, a notice says why. It does not act on a code, Markdown or
-  diff entry.
-- `z` shows the context pane of the entry shown over the question's
-  area, header included, and toggles back; changing the question ends
-  it. It acts on every kind of entry (ADR 31).
+  started, a notice says why. On a code, Markdown or diff entry it
+  opens nothing and says "o opens images only; z shows this entry full
+  screen", and where no entry shows it says "nothing to open here".
+  Both hold from the question, the focused pane and the full-screen
+  view.
 - `tab` moves the focus into the context pane (section 7.7) wherever one
   shows, also from a field, and does nothing otherwise, such as next to
   the one-line hint. The focused pane takes every key: `↑`/`↓` and
   `k`/`j` scroll by line, `←`/`→` and `h`/`l` by 4 columns sideways
   where the entry's lines are cut at the pane's edge, `pgup`/`pgdn` and
   `ctrl-u`/`ctrl-d` by page, `g`/`G` and `home`/`end` to the ends. `z`,
-  `o`, `q` and `?` keep their meaning and `ctrl-c` quits. `tab` and
-  `esc` give the focus back to where it was, a field being typed in
-  included, and every other key does nothing. While the pane has the
-  focus, its header is highlighted, a field's text cursor hides, and the
-  key bar and the help show the pane's keys. A pane that goes away, as
-  after a resize down to the hint, gives the focus back.
+  `o` and `?` keep their meaning and `ctrl-c` quits. `tab`, `esc` and
+  `q` give the focus back to where it was, a field being typed in
+  included, so a word typed after `tab` never quits asqr. Every other
+  key does nothing. While the pane has the focus, its header is
+  highlighted, a field's text cursor hides, and the key bar and the
+  help show the pane's keys, with `? help` and `tab/esc/q back`. A pane
+  that goes away, as after a resize down to the hint, gives the focus
+  back.
+- `z` shows the context pane of the entry shown over the question's
+  area, header included. It acts on every kind of entry (ADR 31). The
+  full-screen view reads like the focused pane: it takes every key, so
+  `enter`, the digits, `n` and the others cannot act on the question
+  hidden behind it. It scrolls with the pane's keys, `o` and `?` keep
+  their meaning, and `z`, `esc`, `tab` and `q` leave it for where the
+  focus was before: the question, a field being typed in, or the
+  focused pane. The key bar shows the pane's keys with `z/esc/q back`.
 - `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the context pane by a page
   from anywhere, also from inside a field, while a pane shows. These
   are the intro overlay's keys and conventions.
