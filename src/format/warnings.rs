@@ -361,20 +361,47 @@ fn check_unified_diff(
     }
 }
 
-/// A hunk header (`@@ -`) at the start of a line, after a file header
-/// (`--- `, `+++ `) or the `diff --git` line that `git diff` starts with.
-/// Both must be there, so a text that only mentions a hunk header, such as
+/// A text counts as a unified diff when a line is a full hunk header, or
+/// starts with `@@ -` after a file header (`--- `, `+++ `) or the
+/// `diff --git` line that `git diff` starts with. The full header alone
+/// catches a hunk copied out of `git diff` without its file headers. A
+/// text that only mentions a hunk header inside a line, such as
 /// documentation about diffs, does not count.
 fn looks_like_unified_diff(text: &str) -> bool {
     let mut after_header = false;
     for line in text.lines() {
         if line.starts_with("--- ") || line.starts_with("+++ ") || line.starts_with("diff --git") {
             after_header = true;
-        } else if after_header && line.starts_with("@@ -") {
+        } else if is_hunk_header(line) || (after_header && line.starts_with("@@ -")) {
             return true;
         }
     }
     false
+}
+
+/// Whether `line` is a hunk header, `@@ -N[,N] +N[,N] @@`, optionally
+/// followed by a blank and the section text that `git diff` adds, such as
+/// the enclosing function.
+fn is_hunk_header(line: &str) -> bool {
+    fn strip_number(text: &str) -> Option<&str> {
+        let rest = text.trim_start_matches(|c: char| c.is_ascii_digit());
+        (rest.len() < text.len()).then_some(rest)
+    }
+    // A range is a line number with an optional count: `12` or `12,3`.
+    fn strip_range(text: &str) -> Option<&str> {
+        let rest = strip_number(text)?;
+        match rest.strip_prefix(',') {
+            Some(count) => strip_number(count),
+            None => Some(rest),
+        }
+    }
+    let rest = line
+        .strip_prefix("@@ -")
+        .and_then(strip_range)
+        .and_then(|rest| rest.strip_prefix(" +"))
+        .and_then(strip_range)
+        .and_then(|rest| rest.strip_prefix(" @@"));
+    rest.is_some_and(|section| section.is_empty() || section.starts_with(' '))
 }
 
 /// Above this size a code, Markdown or diff entry gets a warning (user, 2026-10-14).
@@ -802,15 +829,40 @@ mod tests {
     }
 
     #[test]
+    fn a_bare_hunk_is_a_unified_diff() {
+        // A hunk copied out of `git diff` has no file headers. A full hunk
+        // header at a line start is rare enough in other text to count on
+        // its own.
+        for text in [
+            "@@ -1,2 +1,2 @@\n-a\n+b\n",
+            "@@ -12 +12,3 @@ fn fetch() {\n-    get(url)\n+    get(uri)\n",
+            "Before the change:\n@@ -0,0 +1 @@\n+a\n",
+            "@@ -1 +1 @@\n--- a.rs\n+++ b.rs\n",
+        ] {
+            assert_eq!(
+                warn(
+                    &with_context(&serde_json::json!({"type": "diff", "new": {"content": text}})),
+                    None
+                ),
+                [format!("questions[0].context[0].new: {UNIFIED}")],
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_text_that_only_mentions_a_hunk_header_is_no_unified_diff() {
         for text in [
-            // A hunk header without file headers before it.
-            "@@ -1,2 +1,2 @@\n-a\n+b\n",
             // File headers, but the hunk header is not at a line start.
             "--- a.rs\n+++ b.rs\nsee @@ -1 +1 @@ in the patch\n",
-            // A hunk header before the file headers.
-            "@@ -1 +1 @@\n--- a.rs\n+++ b.rs\n",
             "Markdown uses `--- ` for a rule; `@@ -1 +1 @@` is a hunk header.",
+            "`@@ -1 +1 @@` starts a hunk.\n",
+            // Lines that start like a hunk header but are none.
+            "@@ -foo\n",
+            "@@ -1 +1\n",
+            "@@ -1,x +1 @@\n",
+            "@@ -1 +1 @@section\n",
+            "@@ - +1 @@\n",
         ] {
             assert_eq!(
                 warn(

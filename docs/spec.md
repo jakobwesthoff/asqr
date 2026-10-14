@@ -394,10 +394,13 @@ Paths in context entries, for every type:
   directory of the session file, so the warning names the file by an
   absolute path even when the session file was given by its bare name.
 - `asqr validate` and `asqr ask` warn when a side of a `diff`, inline or
-  in a file of at most 1 MiB, looks like a unified diff: a line starting
-  with `@@ -` after a line starting with `--- `, `+++ ` or `diff --git`.
-  The warning says to give the text before and after the change as `old`
-  and `new`, since asqr computes the diff.
+  in a file of at most 1 MiB, looks like a unified diff: a line that is
+  a full hunk header, `@@ -N[,N] +N[,N] @@` with optional text after a
+  blank, so a hunk copied without its file headers counts, or a line
+  starting with `@@ -` after a line starting with `--- `, `+++ ` or
+  `diff --git`. A hunk header inside a line, as in prose about diffs,
+  does not count. The warning says to give the text before and after the
+  change as `old` and `new`, since asqr computes the diff.
 - `asqr validate` and `asqr ask` warn about a `code`, `markdown` or
   `diff` entry above 1 MiB, from its file or inline; for a diff, both sides count
   together. asqr still shows it. Image entries get no such warning:
