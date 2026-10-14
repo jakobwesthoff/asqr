@@ -10,7 +10,7 @@
 use super::{Answer, Kind, Question, Session};
 
 /// Typed text counts only when it is more than whitespace.
-fn has_text(answer: &Answer) -> bool {
+pub fn has_text(answer: &Answer) -> bool {
     answer
         .custom
         .as_deref()

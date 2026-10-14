@@ -289,6 +289,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sends a status request through tmux's passthrough and asks for the
   graphics protocol only when the answer comes within 300 ms, so tmux
   with passthrough on still shows images inline.
+- An own answer of nothing but blanks or line breaks no longer shows
+  as chosen. The tab bar, the review and the result already treated it
+  as no answer.
 - In a field, `pgup`/`pgdn`, `ctrl-v` and `alt-v` do nothing without a
   context pane. Before, they moved the text cursor to the start of the
   text.

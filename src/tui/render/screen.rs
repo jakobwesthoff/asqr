@@ -26,7 +26,7 @@ use super::parts::{answer_summary, cut, kind_hint, question_key};
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::viewer::Viewers;
-use crate::format::{ContextEntry, Kind};
+use crate::format::{ContextEntry, Kind, has_text};
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
 use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState, has_context};
 
@@ -853,8 +853,9 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
                     .unwrap_or("Own answer")
                     .to_owned();
                 // On a single question the own answer is chosen when it
-                // counts: it has text and no option is chosen.
-                let chosen = answer.custom.is_some()
+                // counts: it has text and no option is chosen. Blanks and
+                // line breaks alone are no text, as in the result.
+                let chosen = has_text(answer)
                     && (question.kind == Kind::Multi || answer.selected.is_empty());
                 let head = format!("{pointer}{} ✎ {label}: ", mark(question.kind, chosen));
                 let text = answer.custom.as_deref().unwrap_or_default();
@@ -1606,7 +1607,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::*;
-    use crate::format::Session;
+    use crate::format::{Session, result_answers};
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
     const RELEASE: &str = include_str!("../../../examples/sessions/release-checklist.json");
@@ -2793,6 +2794,38 @@ mod tests {
         keys(&mut app, "jmine");
         special(&mut app, KeyCode::Esc);
         insta::assert_snapshot!(screen(&app, 60, 15));
+    }
+
+    #[test]
+    fn an_own_answer_of_blanks_is_no_answer_anywhere() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Name it", "kind": "single",
+            "custom": true, "options": [{"id": "a", "label": "asqr"}]}]}"#;
+        for (name, blank) in [("blanks", "  "), ("a line break", "\n")] {
+            let mut app = app(&[("name", json)]);
+            keys(&mut app, "j");
+            app.paste(blank);
+
+            let state = app.active().expect("the session");
+            assert_eq!(
+                state.answers()[0].custom.as_deref(),
+                Some(blank),
+                "{name}: the draft keeps the text as typed"
+            );
+            let backend = screen(&app, 60, 15);
+            let rows = visible_rows(&backend);
+            let own = rows
+                .iter()
+                .find(|row| row.contains('✎'))
+                .expect("the own answer shows");
+            assert!(own.contains("( ) ✎"), "{name}: not chosen\n{backend}");
+            assert!(rows[2].contains("☐ q"), "{name}: the tab\n{backend}");
+            assert_eq!(state.counts().answered, 0, "{name}");
+            assert_eq!(state.counts().skipped, 1, "{name}");
+            assert!(
+                result_answers(state.session(), &state.answers())[0].skipped,
+                "{name}"
+            );
+        }
     }
 
     #[test]
