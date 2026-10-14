@@ -60,3 +60,10 @@ it parses from a `Value`, and a session is parsed from one because
 `parse_session` checks the version and the context entry types on the
 raw JSON first. In a file with several questions, an agent could not
 tell which question held the wrong value.
+
+## Amendment (2026-10-15, spec section 7.7)
+
+`rustix` with its `event` feature, on Unix only, waits for the answer to
+the passthrough probe with `poll` on stdin. crossterm already depends on
+the same version, so it adds no crate to the build; `poll` gives a
+timeout without leaving a thread blocked in a read.

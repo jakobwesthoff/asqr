@@ -10,7 +10,11 @@
 //! and never becomes an error.
 
 use std::fs;
+#[cfg(unix)]
+use std::io::{self, Write};
 use std::path::Path;
+#[cfg(unix)]
+use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -222,18 +226,20 @@ pub struct TerminalNames<'a> {
 /// A `TERM` that starts with `tmux` or `screen`, or a `TERM_PROGRAM` of
 /// `tmux`, without `TMUX` means a tmux or screen that asqr cannot ask, as
 /// after ssh from a tmux pane, which carries `TERM` along but not `TMUX`.
-/// Whether the query would be answered is unknowable then, so it is
-/// skipped too.
+/// There `probe` finds out whether a sequence sent through tmux's
+/// passthrough is answered, as [`passthrough_answers`] does, and the
+/// terminal is queried only when it is.
 pub fn may_query_protocol(
     names: &TerminalNames<'_>,
     tmux_state: impl FnOnce() -> Option<String>,
+    probe: impl FnOnce() -> bool,
 ) -> bool {
     if names.tmux.is_none_or(str::is_empty) {
         let multiplexed = names
             .term
             .is_some_and(|term| term.starts_with("tmux") || term.starts_with("screen"))
             || names.term_program == Some("tmux");
-        return !multiplexed;
+        return !multiplexed || probe();
     }
     let Some(state) = tmux_state() else {
         return false;
@@ -246,6 +252,62 @@ pub fn may_query_protocol(
         .and_then(|clients| clients.parse::<u32>().ok())
         .is_some_and(|clients| clients > 0);
     passthrough && attached
+}
+
+/// A device status report request, `ESC [5n`, wrapped for tmux's
+/// passthrough, which doubles every escape inside the wrapper. The
+/// terminal outside answers `ESC [0n` only when the pane passes the
+/// sequence through to it.
+#[cfg(unix)]
+const PASSTHROUGH_PROBE: &[u8] = b"\x1bPtmux;\x1b\x1b[5n\x1b\\";
+
+/// The answer to [`PASSTHROUGH_PROBE`]: the terminal is fine.
+#[cfg(unix)]
+const PROBE_ANSWER: &[u8] = b"\x1b[0n";
+
+/// Writes [`PASSTHROUGH_PROBE`] to `out` and whether `input` brings the
+/// answer within `patience`. It waits with `poll` and reads a byte at a
+/// time only once one is there, so no read is left blocked when the answer
+/// never comes, and the bytes after the answer stay for the next reader.
+/// Bytes before the answer, such as keys typed in the meantime, are lost.
+/// `input` must be in raw mode, or a terminal hands the answer over only
+/// with a line.
+#[cfg(unix)]
+pub fn passthrough_answers(
+    out: &mut impl Write,
+    input: impl std::os::fd::AsFd,
+    patience: Duration,
+) -> io::Result<bool> {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+    out.write_all(PASSTHROUGH_PROBE)?;
+    out.flush()?;
+    let deadline = Instant::now() + patience;
+    let mut seen = Vec::new();
+    while !seen.ends_with(PROBE_ANSWER) {
+        // Input that keeps coming, such as a paste, must not keep the
+        // probe reading past its deadline.
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(false);
+        }
+        let left = Timespec::try_from(left).map_err(io::Error::other)?;
+        let mut fds = [PollFd::new(&input, PollFlags::IN)];
+        match poll(&mut fds, Some(&left)) {
+            Ok(0) => return Ok(false),
+            Ok(_) => {}
+            // A signal, such as a resize, ends the wait early; the
+            // deadline still holds.
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
+        let mut byte = [0];
+        if rustix::io::read(&input, &mut byte)? == 0 {
+            return Ok(false);
+        }
+        seen.push(byte[0]);
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -338,10 +400,33 @@ mod tests {
     /// `TERM` and `TERM_PROGRAM` of a terminal that is not tmux or screen.
     const PLAIN: (Option<&str>, Option<&str>) = (Some("xterm-ghostty"), Some("ghostty"));
 
+    /// The decision where asqr asks tmux and never probes.
     fn may_query(
+        tmux: Option<&str>,
+        names: (Option<&str>, Option<&str>),
+        tmux_state: impl FnOnce() -> Option<String>,
+    ) -> bool {
+        decided(tmux, names, tmux_state, || {
+            unreachable!("no probe where tmux can be asked or is not there")
+        })
+    }
+
+    /// The decision without `TMUX`, where the probe gets the `answered`
+    /// it is given, if it runs.
+    fn probed(names: (Option<&str>, Option<&str>), answered: bool) -> bool {
+        decided(
+            None,
+            names,
+            || unreachable!("tmux cannot be asked without TMUX"),
+            || answered,
+        )
+    }
+
+    fn decided(
         tmux: Option<&str>,
         (term, term_program): (Option<&str>, Option<&str>),
         tmux_state: impl FnOnce() -> Option<String>,
+        probe: impl FnOnce() -> bool,
     ) -> bool {
         may_query_protocol(
             &TerminalNames {
@@ -350,6 +435,7 @@ mod tests {
                 term_program,
             },
             tmux_state,
+            probe,
         )
     }
 
@@ -366,24 +452,78 @@ mod tests {
         )));
     }
 
+    /// `TERM` and `TERM_PROGRAM` of a tmux or screen that asqr cannot ask
+    /// without `TMUX`: ssh from a tmux pane carries `TERM` along but not
+    /// `TMUX`, and GNU screen sets `STY` instead.
+    const MULTIPLEXED: [(Option<&str>, Option<&str>); 4] = [
+        (Some("tmux-256color"), None),
+        (Some("xterm-256color"), Some("tmux")),
+        (Some("screen.xterm-256color"), None),
+        (Some("screen"), Some("")),
+    ];
+
     #[test]
-    fn a_tmux_or_screen_without_its_variable_is_not_asked() {
-        let unknowable = || unreachable!("tmux cannot be asked without TMUX");
-        // ssh from a tmux pane carries TERM along, but not TMUX.
-        assert!(!may_query(None, (Some("tmux-256color"), None), unknowable));
-        assert!(!may_query(Some(""), (Some("tmux"), None), unknowable));
-        assert!(!may_query(
-            None,
-            (Some("xterm-256color"), Some("tmux")),
-            unknowable
-        ));
-        // GNU screen sets STY, not TMUX, and forwards no graphics query.
-        assert!(!may_query(
-            None,
-            (Some("screen.xterm-256color"), None),
-            unknowable
-        ));
-        assert!(!may_query(None, (Some("screen"), Some("")), unknowable));
+    fn a_tmux_or_screen_without_its_variable_is_asked_once_the_probe_is_answered() {
+        for names in MULTIPLEXED {
+            assert!(probed(names, true), "{names:?}");
+        }
+        assert!(
+            decided(Some(""), (Some("tmux"), None), || unreachable!(), || true),
+            "an empty TMUX is unset"
+        );
+    }
+
+    #[test]
+    fn a_tmux_or_screen_without_its_variable_is_not_asked_without_an_answer() {
+        for names in MULTIPLEXED {
+            assert!(!probed(names, false), "{names:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_probe_asks_through_tmux_passthrough_and_reads_only_up_to_the_answer() {
+        use std::io::Read;
+
+        let (mut input, mut terminal) = std::io::pipe().expect("a pipe");
+        terminal
+            .write_all(b"typed\x1b[0nafter")
+            .expect("the pipe takes it");
+        drop(terminal);
+        let mut sent = Vec::new();
+
+        let answered = passthrough_answers(&mut sent, &input, Duration::from_secs(5));
+
+        assert!(answered.expect("the probe runs"));
+        assert_eq!(sent, b"\x1bPtmux;\x1b\x1b[5n\x1b\\");
+        let mut rest = String::new();
+        input.read_to_string(&mut rest).expect("the pipe reads");
+        assert_eq!(rest, "after", "what comes after the answer stays");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_probe_gives_up_without_an_answer() {
+        let (input, mut terminal) = std::io::pipe().expect("a pipe");
+        terminal.write_all(b"typed").expect("the pipe takes it");
+
+        let answered = passthrough_answers(&mut Vec::new(), &input, Duration::from_millis(50));
+        assert!(!answered.expect("the probe runs"), "silence");
+
+        drop(terminal);
+        let answered = passthrough_answers(&mut Vec::new(), &input, Duration::from_secs(5));
+        assert!(!answered.expect("the probe runs"), "the input ended");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_probe_reads_nothing_past_its_deadline() {
+        let (input, mut terminal) = std::io::pipe().expect("a pipe");
+        terminal.write_all(b"\x1b[0n").expect("the pipe takes it");
+
+        let answered = passthrough_answers(&mut Vec::new(), &input, Duration::ZERO);
+
+        assert!(!answered.expect("the probe runs"));
     }
 
     #[test]

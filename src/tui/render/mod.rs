@@ -18,6 +18,8 @@ mod source_line;
 mod text;
 mod viewer;
 
+#[cfg(unix)]
+pub use images::passthrough_answers;
 pub use images::{TerminalNames, may_query_protocol};
 pub use panes::PaneLayout;
 pub(crate) use screen::{Glyph, styled_line, wrap_rows};

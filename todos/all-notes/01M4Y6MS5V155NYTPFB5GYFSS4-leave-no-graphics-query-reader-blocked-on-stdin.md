@@ -25,11 +25,14 @@ comes.
 
 asqr avoids the known cases in `may_query_protocol`
 (`src/tui/render/images.rs`): inside tmux it asks tmux for passthrough
-and an attached client first, and without `TMUX` it skips the query when
-`TERM` starts with `tmux` or `screen` or `TERM_PROGRAM` is `tmux`, as
-after ssh from a tmux pane. Any other terminal that leaves the query
-unanswered still hits the bug, and the heuristic gives up inline images
-behind a tmux or screen that would have answered.
+and an attached client first. Without `TMUX`, when `TERM` starts with
+`tmux` or `screen` or `TERM_PROGRAM` is `tmux`, as after ssh from a tmux
+pane, it sends a passthrough-wrapped device status request and waits up
+to 300 ms with `poll` for the answer (`passthrough_answers`), and
+queries only when it came. Any other terminal that leaves the query
+unanswered still hits the bug. The probe loses keys typed during its
+wait, and an answer slower than 300 ms gives up inline images that
+would have worked.
 
 A second effect of the same detection: whenever `TERM` starts with
 `tmux` or `TERM_PROGRAM` is `tmux`, ratatui-image runs
@@ -49,6 +52,6 @@ option of a pane that has nothing to do with asqr.
 - Get a cancellable reader into ratatui-image upstream, such as a read
   with a poll timeout that ends the thread with the query.
 
-Either way, decide whether asqr keeps the `TERM` heuristic afterwards,
-and whether to avoid `detect_tmux_and_outer_protocol_from_env` when
+Either way, decide whether asqr keeps the `TERM` check and the
+passthrough probe afterwards, and whether to avoid `detect_tmux_and_outer_protocol_from_env` when
 `TMUX` is unset, which may need an upstream option as well.

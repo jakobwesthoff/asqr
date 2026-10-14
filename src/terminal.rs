@@ -13,6 +13,8 @@ use std::sync::mpsc;
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
+#[cfg(unix)]
+use asqr::tui::render::passthrough_answers;
 use asqr::tui::render::{TerminalNames, View, may_query_protocol};
 use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
@@ -70,7 +72,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         term: term.as_deref(),
         term_program: term_program.as_deref(),
     };
-    let picker = if may_query_protocol(&names, tmux_state) {
+    let picker = if may_query_protocol(&names, tmux_state, probe_passthrough) {
         Picker::from_query_stdio().unwrap_or_else(|error| {
             tracing::info!(%error, "no graphics protocol detected; using half blocks");
             Picker::halfblocks()
@@ -210,6 +212,29 @@ fn tmux_state() -> Option<String> {
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// How long [`probe_passthrough`] waits for the answer: long enough for a
+/// round trip over ssh, short enough not to hold up the start noticeably.
+#[cfg(unix)]
+const PROBE_PATIENCE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Whether a sequence sent through tmux's passthrough gets an answer, for
+/// [`may_query_protocol`] in a tmux or screen it cannot ask. Raw mode is
+/// on, as `ratatui::try_init` turned it on.
+#[cfg(unix)]
+fn probe_passthrough() -> bool {
+    passthrough_answers(&mut io::stdout(), io::stdin(), PROBE_PATIENCE).unwrap_or_else(|error| {
+        tracing::warn!(%error, "could not probe tmux passthrough");
+        false
+    })
+}
+
+/// Without `poll` on stdin, a probe could leave a read blocked, so the
+/// query is skipped.
+#[cfg(not(unix))]
+fn probe_passthrough() -> bool {
+    false
 }
 
 struct TerminalHost {

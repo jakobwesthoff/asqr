@@ -271,14 +271,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refuses bracketed paste, runs asqr without them. Before, asqr ended
   with an error and left the terminal in raw mode on its alternate
   screen.
-- Run over ssh from a tmux pane, or in GNU screen, asqr no longer asks
-  the terminal for its graphics protocol and shows images as blocks.
-  The question got no answer there, and the thread waiting for it took
-  the first input that came. A first paste then lost its start marker,
-  and its line breaks arrived as `enter`, which could pick an option or
-  submit the session. asqr recognises the case by a `TERM`
-  that starts with `tmux` or `screen`, or a `TERM_PROGRAM` of `tmux`,
-  without `TMUX`.
+- Run over ssh from a tmux pane without passthrough, asqr no longer
+  asks the terminal for its graphics protocol and shows images as
+  blocks. The question got no answer there, and the thread waiting for
+  it took the first input that came. A first paste then lost its start
+  marker, and its line breaks arrived as `enter`, which could pick an
+  option or submit the session. Where `TERM` starts with `tmux` or
+  `screen`, or `TERM_PROGRAM` is `tmux`, without `TMUX`, asqr first
+  sends a status request through tmux's passthrough and asks for the
+  graphics protocol only when the answer comes within 300 ms, so tmux
+  with passthrough on still shows images inline.
 
 ## [0.10.1] - 2026-10-14
 
