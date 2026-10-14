@@ -234,6 +234,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sits on, an emoji with its skin tone included. In the context pane, a
   halfwidth sound mark such as `ﾞ` takes a column of its own, as
   terminals draw it.
+- The `—` of an empty `text` answer and an empty note is dim, as it is
+  in an empty own answer. Before, it showed in full brightness.
 
 ## [0.10.1] - 2026-10-14
 

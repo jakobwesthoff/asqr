@@ -790,7 +790,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, drawn: Dra
             None => answer
                 .note
                 .as_deref()
-                .map_or_else(|| vec![Line::from("—").dim()], plain_lines),
+                .map_or_else(|| vec![Line::from(Span::from("—").dim())], plain_lines),
         };
         let mut note_lines = Vec::new();
         for (index, line) in note.into_iter().enumerate() {
@@ -922,7 +922,7 @@ fn text_field(
 ) -> Vec<Line<'static>> {
     let lines = match state.field_text().filter(|_| live) {
         Some(typed) => with_cursor(&typed, text_cursor(state)),
-        None if text.is_empty() => vec![Line::from("—").dim()],
+        None if text.is_empty() => vec![Line::from(Span::from("—").dim())],
         None => plain_lines(text),
     };
     let mut out = Vec::new();
@@ -2667,6 +2667,23 @@ mod tests {
         keys(&mut app, "ll");
         special(&mut app, KeyCode::Esc);
         insta::assert_snapshot!(screen(&app, 80, 24));
+    }
+
+    #[test]
+    fn the_dash_of_an_empty_field_or_note_is_dim() {
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "ll");
+        special(&mut app, KeyCode::Esc);
+        let backend = screen(&app, 80, 24);
+
+        for head in ["❯ ✎ ", "Notes: "] {
+            let (x, y) = find(&backend, &format!("{head}—"));
+            let dash = x + u16::try_from(columns(head)).expect("a short head");
+            assert!(
+                backend.buffer()[(dash, y)].modifier.contains(Modifier::DIM),
+                "after {head:?}:\n{backend}"
+            );
+        }
     }
 
     #[test]
