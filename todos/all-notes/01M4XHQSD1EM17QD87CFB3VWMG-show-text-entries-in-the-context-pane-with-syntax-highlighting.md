@@ -36,3 +36,4 @@ The plan's Design section, *Viewers*, has the full design. In short:
 - Part of: [Split the TUI into a question pane and a context pane](01M4XEGTAZ69KV9Y0ZTNYQJJ4X-split-the-tui-into-a-question-pane-and-a-context-pane.md)
 - Depends on: [Make the context area a pane of its own with focus and scrolling](01M4XHQSC7Y60Y5PPZ3W52YAXW-make-the-context-area-a-pane-of-its-own-with-focus-and-scrolling.md)
 - Depends on: patine todo 01M4XHNXXNJNV57SNBYH88EFAN (Render to style-neutral lines so other tools can share the renderer)
+- Blocked by: patine 1.5.0 published on crates.io (the user publishes; no path or git dependency in between, user, 2026-10-14)

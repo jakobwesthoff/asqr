@@ -211,6 +211,11 @@ wide, so the visible shape is W ÷ 2H.
   01M4XHNXXNJNV57SNBYH88EFAN.
 - 2026-10-14, user: 0.11.0 carries phase 1, the wrapped own answer, the
   session note on the review tab, and full Markdown in question texts.
+- 2026-10-14, user (asqr session `01M4XJX6BJADVKKXNXXFNVVC8Q`): the
+  steps that need patine 1.5.0 wait until the user has published it to
+  crates.io, without a path or git dependency in between. The work ends
+  with a release commit for 0.11.0 (version bump, dated CHANGELOG) but
+  no tag, push or publish.
 
 ## Relations
 

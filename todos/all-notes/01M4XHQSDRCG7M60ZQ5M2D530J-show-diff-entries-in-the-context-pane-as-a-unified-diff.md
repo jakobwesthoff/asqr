@@ -26,11 +26,11 @@ The plan's Design section, *Viewers*, has the full design. In short:
 - Long lines scroll sideways like code in the text viewer. No syntax
   highlighting inside the diff and no whole-file view in this phase.
 
-## Open questions
+## Decisions
 
-- The diff crate. `similar` is the obvious candidate (line diffs with
-  hunks, and inline changes for the word emphasis); check its fit and
-  maintenance first.
+- 2026-10-14, user: the diff crate is `similar` 3.x (by the author of
+  `insta`, which asqr already uses); its `inline` feature gives the word
+  emphasis.
 
 ## Relations
 

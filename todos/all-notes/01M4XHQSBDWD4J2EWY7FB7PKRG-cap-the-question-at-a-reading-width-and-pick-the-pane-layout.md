@@ -39,11 +39,11 @@ The plan's Design section, *Layout*, has the full rules. In short:
 - Spec section 7.1, the help overlay, an ADR, and the skill's
   description of the intro (`i`).
 
-## Open questions
+## Decisions
 
-- The environment variable's name (`ASQR_LAYOUT` fits the others).
-- Where the hysteresis state lives so that a redraw without a resize
-  keeps the current layout.
+- 2026-10-14, user: the environment variable is `ASQR_LAYOUT`.
+- 2026-10-14, user: the agent decides where the hysteresis state lives,
+  as long as a redraw without a resize keeps the current layout.
 
 ## Relations
 

@@ -82,17 +82,21 @@ On asqr's side:
 - It replaces `src/tui/render/markdown.rs` and `pulldown-cmark` for the
   intro, question texts and option descriptions. asqr renders again at
   the new width on resize and caches per width.
+- Full Markdown everywhere: the intro, question texts and option
+  descriptions follow one rule (user, 2026-10-14). patine wraps tables
+  to the width it gets; the skill advises keeping descriptions short.
+- A code block line longer than the question pane wraps and is marked
+  as a continuation, so nothing is lost (user, 2026-10-14). patine
+  itself never wraps code, so asqr wraps its lines after rendering.
 - The spec (section 7.6's subset rule), the skill (which tells agents
-  what they may use) and an ADR.
-
-## Open questions
-
-- Which elements make sense in an option description, which is narrow;
-  code blocks and tables need width, and the question pane is capped at
-  a reading width of about 100 to 110 columns (context pane plan).
-- Code blocks are never wrapped in patine; in asqr they scroll sideways
-  like code in the context pane, or are cut with a marker.
+  what they may use, and that long code belongs in a text entry of the
+  context pane) and an ADR.
+- asqr depends on patine 1.5.0 from crates.io. Work on this todo starts
+  once the user has published patine 1.5.0 (user, 2026-10-14, asqr
+  session `01M4XJX6BJADVKKXNXXFNVVC8Q`): no path or git dependency in
+  between.
 
 ## Relations
 
 - Depends on: patine todo 01M4XHNXXNJNV57SNBYH88EFAN (Render to style-neutral lines so other tools can share the renderer)
+- Blocked by: patine 1.5.0 published on crates.io (the user publishes)

@@ -40,10 +40,8 @@ short:
   skeleton, the example sessions in `examples/sessions/` (tests include
   them), the spec, the skill, and an ADR that supersedes ADR 0007 and
   ADR 0025's format part.
-
-## Open questions
-
-- Whether `schema/*.v1.json` stay in the repository for reference.
+- `schema/session.v1.json` and `schema/result.v1.json` are deleted; git
+  history keeps them (user, 2026-10-14).
 
 ## Relations
 

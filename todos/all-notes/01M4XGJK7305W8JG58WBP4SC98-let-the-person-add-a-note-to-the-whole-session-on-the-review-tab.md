@@ -26,10 +26,15 @@ questions.
 
 ## Proposal
 
-- `n` on the review tab edits a session note, shown and edited like a
-  question's note, in its own row above the submit row.
-- The result carries it as a top-level `note` on a submitted session.
-  On a rejected session the reject reason already covers it.
+- The submit row on the review tab gets an optional live field, like
+  the reject row's reason field: the person types into it when the
+  cursor is on the row, and `enter` submits (user, 2026-10-14, asqr
+  session `01M4XJX6BJADVKKXNXXFNVVC8Q`). It wraps like the reject reason
+  once the own-answer wrapping todo has landed. No `n` key on the review
+  tab.
+- The result carries it as a top-level `note` on a submitted session
+  only. A rejected result carries `reason` as today and no `note`
+  (user, 2026-10-14).
 - The field belongs to result format version 2, which the context pane
   plan introduces in 0.11.0 together with session format version 2
   (user, 2026-10-14). It ships in the same release, and the format step
@@ -37,8 +42,3 @@ questions.
 - The draft keeps it like every other edit.
 - Spec, schema, ADR and the agent skill (how to read the result) are
   updated with it.
-
-## Open questions
-
-- Whether a rejected session also returns the note next to its reason,
-  or the two merge.
