@@ -82,8 +82,9 @@ pub struct View<'a> {
     intro_page: Extent,
     /// The viewers of the context entries shown so far.
     viewers: Viewers,
-    /// What the context pane showed in the last draw.
-    pane_page: Option<Page>,
+    /// What the context pane showed in the last draw; see
+    /// [`View::pane_page`].
+    pane_page: Option<Option<Page>>,
     /// Where the field or note that has the keys was last drawn.
     field_shape: Option<FieldShape>,
     question_height: QuestionHeight,
@@ -210,12 +211,13 @@ impl<'a> View<'a> {
         self.intro_page
     }
 
-    /// What the context pane showed in the last draw that drew a tab, for
-    /// [`App::set_pane_page`]; nothing when that tab showed no pane. A
-    /// frame without a tab, as below the minimum size or with an empty
-    /// queue, leaves it as it was, so a moment at a small size keeps the
-    /// pane's focus and the full-screen view.
-    pub fn pane_page(&self) -> Option<Page> {
+    /// What the context pane showed in the last draw, for
+    /// [`App::set_pane_page`]: `Some(None)` when the draw showed a tab
+    /// without a pane, and `None` when it showed no tab at all, as below
+    /// the minimum size or with an empty queue. Such a frame says nothing
+    /// about the pane, so it is not handed on, and a moment at a small size
+    /// keeps the pane's focus and the full-screen view.
+    pub fn pane_page(&self) -> Option<Option<Page>> {
         self.pane_page
     }
 
@@ -232,9 +234,8 @@ impl<'a> View<'a> {
 }
 
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
-    // Whatever returns early draws no pane and no overlay. It draws no tab
-    // either, so it says nothing about the pane, and `pane_page` keeps what
-    // the last tab showed.
+    // Whatever returns early draws no tab, no pane and no overlay.
+    view.pane_page = None;
     view.field_shape = None;
     view.overlay_shown = false;
     view.image_shown = false;
@@ -298,13 +299,14 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
         .retain_sessions(|id| app.sessions().iter().any(|waiting| waiting.id() == id));
     view.question_height.retain(app.sessions());
     let main = main.inner(ratatui::layout::Margin::new(1, 0));
-    view.pane_page = if state.full_screen() && state.shown_context().is_some() {
+    let pane_page = if state.full_screen() && state.shown_context().is_some() {
         draw_pane(frame, state, main, &mut view.viewers)
     } else {
         draw_tab(frame, state, main, view)
     };
-    view.image_shown = view.pane_page.is_some()
-        && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
+    view.pane_page = Some(pane_page);
+    view.image_shown =
+        pane_page.is_some() && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
 
     let feedback = app.current_notice().or(state.message()).unwrap_or_default();
     frame.render_widget(Line::from(feedback).fg(Color::Yellow), status);
@@ -330,7 +332,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
             ("esc/q/i", "close"),
         ],
         Some(_) => vec![("esc/q/i", "close")],
-        None => key_hints(state, app.list_cursor().is_some(), view.pane_page),
+        None => key_hints(state, app.list_cursor().is_some(), pane_page),
     };
     frame.render_widget(key_line(&hints, keys.width), keys);
 
@@ -1525,6 +1527,14 @@ mod tests {
             width,
             height,
         )
+    }
+
+    /// Hands `app` what the last draw with `view` showed of the pane, as the
+    /// run loop does after each frame.
+    fn hand_on_pane(app: &mut App, view: &View) {
+        if let Some(page) = view.pane_page() {
+            app.set_pane_page(page);
+        }
     }
 
     /// The screen drawn with `view`, which keeps what it remembers for the
@@ -2822,7 +2832,7 @@ mod tests {
         let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
         let mut drawn = |app: &mut App| {
             let backend = screen_in(app, &mut view, 80, 24);
-            app.set_pane_page(view.pane_page());
+            hand_on_pane(app, &view);
             backend
         };
         insta::assert_snapshot!("pane_unfocused", drawn(&mut app));
@@ -2850,7 +2860,7 @@ mod tests {
         // What the run loop does after each frame.
         let mut drawn = |app: &mut App, width: u16, height: u16| {
             screen_in(app, &mut view, width, height);
-            app.set_pane_page(view.pane_page());
+            hand_on_pane(app, &view);
         };
         drawn(&mut app, 80, 24);
         special(&mut app, KeyCode::Tab);
@@ -2875,7 +2885,7 @@ mod tests {
         let mut app = long_context();
         let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
         screen_in(&app, &mut view, 80, 24);
-        app.set_pane_page(view.pane_page());
+        hand_on_pane(&mut app, &view);
         // Entered from the pane, where "back to the question" would be wrong.
         special(&mut app, KeyCode::Tab);
         keys(&mut app, "z?");
@@ -2887,7 +2897,7 @@ mod tests {
         let mut app = long_context();
         let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
         screen_in(&app, &mut view, 80, 24);
-        app.set_pane_page(view.pane_page());
+        hand_on_pane(&mut app, &view);
         keys(&mut app, "jmine");
 
         let typing = screen_in(&app, &mut view, 80, 24);
@@ -3334,7 +3344,7 @@ mod tests {
         assert_eq!(need(&app, &mut view, 58), 9);
 
         screen_in(&app, &mut view, 60, 30);
-        app.set_pane_page(view.pane_page());
+        hand_on_pane(&mut app, &view);
         special(&mut app, KeyCode::Tab);
         assert!(app.active().is_some_and(SessionState::pane_focused));
         assert_eq!(need(&app, &mut view, 58), 8);

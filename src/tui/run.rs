@@ -75,9 +75,14 @@ where
             .context("drawing the screen")?;
         // How far the intro overlay and the context pane can scroll depends
         // on the size they were drawn at, and where `↑`/`↓` go in a field
-        // on where its rows break.
+        // on where its rows break. A frame without a tab, as below the
+        // minimum size, says nothing about the pane: handing it on would
+        // end the pane's focus and the full-screen view, and the session
+        // shown at the next tab may be another one.
         app.set_intro_page(view.intro_page());
-        app.set_pane_page(view.pane_page());
+        if let Some(page) = view.pane_page() {
+            app.set_pane_page(page);
+        }
         app.set_field_shape(view.field_shape());
         let Ok(event) = events.recv() else {
             return Ok(());
@@ -386,6 +391,53 @@ mod tests {
             .expect("runs");
 
         assert_eq!(harness.result("batch-01").answers[0].selected, ["a"]);
+    }
+
+    #[test]
+    fn a_frame_too_small_hands_no_pane_to_the_next_session() {
+        let mut harness = Harness::new();
+        harness.put("a-with-context");
+        let without_context = SESSION.replace(
+            r#""context": [{"type": "image", "path": "/nowhere/cat.png"}],"#,
+            "",
+        );
+        fs::write(
+            harness.location.inbox().join("b-without-context.json"),
+            without_context,
+        )
+        .expect("written");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+        harness
+            .run_with_view(&mut app, &mut inbox, &mut view, vec![])
+            .expect("runs");
+
+        // The session with the pane goes while the screen is too small.
+        // `tab` then finds no pane in the one that takes its place, and
+        // `2` picks there instead of going to a pane.
+        harness.terminal.backend_mut().resize(40, 10);
+        fs::remove_file(harness.location.inbox().join("a-with-context.json")).expect("removed");
+        harness
+            .run_with_view(
+                &mut app,
+                &mut inbox,
+                &mut view,
+                vec![
+                    Event::InboxChanged,
+                    key(KeyCode::Tab),
+                    key(KeyCode::Char('2')),
+                ],
+            )
+            .expect("runs");
+        harness.terminal.backend_mut().resize(80, 24);
+        harness
+            .run_with_view(&mut app, &mut inbox, &mut view, vec![key(KeyCode::Enter)])
+            .expect("runs");
+
+        assert_eq!(
+            harness.result("b-without-context").answers[0].selected,
+            ["b"]
+        );
     }
 
     #[test]
