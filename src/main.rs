@@ -10,10 +10,5 @@ use clap::Parser;
 
 fn main() -> ExitCode {
     let cli = asqr::cli::Cli::parse();
-    asqr::cli::run(
-        cli,
-        asqr::cli::environment_selection(),
-        terminal::run_terminal_ui,
-    )
-    .into()
+    asqr::cli::run(cli, asqr::cli::environment(), terminal::run_terminal_ui).into()
 }

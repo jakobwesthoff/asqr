@@ -117,7 +117,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         &mut app,
         &mut inbox,
         &mut images,
-        &View { queue: &queue },
+        &mut View::new(&queue, watch.layout()),
         &events,
         &mut host,
     );

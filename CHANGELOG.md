@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The agent skill tells agents to read the session note.
 - An example session with a diff and text entries in
   `examples/sessions/retry-review.json`.
+- `--layout auto|beside|below` and `ASQR_LAYOUT` choose where a
+  question's context goes. `auto`, the default, puts it beside the
+  question when the terminal's area looks landscape and below it when
+  it looks portrait, and keeps what it shows while a resize stays near
+  a square shape.
 
 ### Changed
 
@@ -46,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   typed and being cut with `…` otherwise. The counter of a focused own
   answer moves to a line of its own after the text. The answer itself
   stays one line.
+- The question and the review keep to a reading width of 100 columns
+  on wide terminals. Beside the question, context takes the rest of the
+  width from a terminal of 103 columns on; below it, context takes at
+  least 8 rows and the question at most half the height. Where neither
+  fits, context shrinks to a line that names it, and `z` still shows an
+  image full screen.
 - The agent skill explains that the intro shows in at most three lines
   and only identifies the session, and that everything needed to answer
   belongs in the question text.

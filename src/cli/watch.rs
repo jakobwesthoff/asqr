@@ -8,6 +8,7 @@
 use super::{Exit, WatchArgs};
 use crate::queue::{LockError, QueueLocation, QueueLock, lock_queue};
 use crate::tui::Alerts;
+use crate::tui::render::PaneLayout;
 
 /// A queue ready to be answered: its layout exists and this process holds
 /// its lock, until the value is dropped.
@@ -15,6 +16,7 @@ use crate::tui::Alerts;
 pub struct Watch {
     location: QueueLocation,
     alerts: Alerts,
+    layout: PaneLayout,
     _lock: QueueLock,
 }
 
@@ -25,6 +27,10 @@ impl Watch {
 
     pub fn alerts(&self) -> Alerts {
         self.alerts
+    }
+
+    pub fn layout(&self) -> PaneLayout {
+        self.layout
     }
 }
 
@@ -58,6 +64,7 @@ pub(super) fn run(
             notify: !args.no_notify,
             bell: !args.no_bell,
         },
+        layout: args.layout.unwrap_or_default(),
         _lock: lock,
     })
 }

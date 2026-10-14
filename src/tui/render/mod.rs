@@ -6,8 +6,10 @@
 
 mod images;
 pub mod markdown;
+mod panes;
 mod parts;
 mod screen;
 
 pub use images::{Images, may_query_protocol};
+pub use panes::PaneLayout;
 pub use screen::{MIN_HEIGHT, MIN_WIDTH, View, draw};

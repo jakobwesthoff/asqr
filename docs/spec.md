@@ -12,7 +12,7 @@ history.
 Status: reviewed with the user and in an adversarial review on
 2026-09-27, with the findings F1 to F12 worked in, and revised with the
 decisions made while building it. The decisions behind it are recorded
-as ADRs 2 to 29 in `docs/adr/`.
+as ADRs 2 to 30 in `docs/adr/`.
 
 ## 1. Purpose
 
@@ -541,7 +541,9 @@ the terminal back as it was, also after a crash.
 
 ### 7.1 Layout
 
-One column over the full width (user, 2026-09-27):
+A stack of rows over the full width (user, 2026-09-27), with the
+question kept to a reading width and a context area beside or below it
+when the question has context (user, 2026-10-14; ADR 30):
 
 ```
  asqr · queue: default · 2 sessions waiting
@@ -562,7 +564,7 @@ One column over the full width (user, 2026-09-27):
 
  Notes: —
 
- [context, if the question or one of its options has some]
+ [context below, or beside the question on a landscape terminal]
  [notices and messages]
  ↑/↓ move  enter pick  ←/→ question  n note  ? help  q quit
 ```
@@ -594,6 +596,34 @@ One column over the full width (user, 2026-09-27):
   messages (about the last key) until the next key.
 - The key bar shows the keys that work where the cursor is; they change
   inside a field.
+- **Reading width:** the question and the review take at most 100
+  columns and start at the left, with or without a context area. The
+  tab's area, W×H, is the area under the tab bar inside a margin of one
+  column on each side.
+- **Context area:** a question that has context, or has an option with
+  context, shares the tab's area with a context area (section 7.7):
+  - Beside: the question takes half of W after the blank separator
+    column, at least 60 and at most 100 columns, and the context area
+    takes the rest. Beside fits from W = 101, a terminal of 103 columns.
+  - Below: the question keeps its width and takes the rows its content
+    needs, at most half of H, and the context area takes the rest over
+    the whole of W. Below fits when the context area gets at least 8
+    rows with the question at half of H, that is from H = 15.
+  - `--layout auto`, the default: when both fit, the context goes
+    beside on a landscape area, where W ÷ 2H is at least 1 (cells are
+    about twice as tall as wide), and below on a portrait one. After a
+    resize, beside stays until W ÷ 2H drops under 0.9 and below stays
+    until it reaches 1.1, so a redraw at the same size keeps what is
+    shown. When only one fits, that one is used. A 120×40 or 230×60
+    terminal gets beside, 110×70 and 90×50 get below.
+  - `--layout beside` or `--layout below` (or `ASQR_LAYOUT`, section 8)
+    is used when it fits, and the other one when only that fits.
+  - When neither fits, the context area shrinks to one line at the
+    bottom of the tab that names the entry shown; for an image it adds
+    `z: full screen`.
+  - A question without context takes the width it can get up to the
+    reading width, so its text reflows when moving to a question with
+    context beside.
 - Everything adapts to the terminal: the question scrolls so the row
   under the cursor stays visible, dialogs never exceed the screen, and
   below 60×15 asqr shows "asqr needs at least 60×15; this terminal is
@@ -734,9 +764,8 @@ Context appears only when a question or one of its options has some.
   question's context, or nothing when the question has none.
 - The room for the context stays while the cursor moves, also when the
   current row shows none, so the layout does not jump.
-- Placement adapts: beside the question, taking two fifths of the
-  width, from 100 columns of content on; below the options otherwise,
-  in a strip of a third of the height, at most 12 rows.
+- The context area goes beside or below the question, or shrinks to a
+  one-line hint, by the terminal's size and `--layout` (section 7.1).
 - The review shows no context.
 - Text and diff entries show a placeholder that names the entry by its
   `title` (a text entry's `path` or a diff's `name` without one) and
@@ -778,7 +807,7 @@ inside tmux go out in tmux's passthrough wrapper.
 
 | Command | What it does |
 |---|---|
-| `asqr` / `asqr watch [--no-notify] [--no-bell]` | the TUI (section 7) |
+| `asqr` / `asqr watch [--no-notify] [--no-bell] [--layout auto\|beside\|below]` | the TUI (section 7) |
 | `asqr new` | prints a session skeleton with a fresh ULID as its id |
 | `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file (section 3.5), prints the id |
 | `asqr wait <id> [--timeout <secs>]` | waits for the result and prints it; blocks without `--timeout` |
@@ -789,9 +818,16 @@ inside tmux go out in tmux's passthrough wrapper.
 | `asqr prune --older-than <duration> [--results]` | section 3.9 |
 | `asqr skill [--install <dir>]` | prints the skill, or writes it to `<dir>/asqr/SKILL.md` (section 9) |
 
-Every command takes `--queue` or `--dir` (section 3.2). `--no-notify`
-and `--no-bell` may also stand before `watch` or alone (`asqr
+Every command takes `--queue` or `--dir` (section 3.2). `--no-notify`,
+`--no-bell` and `--layout` may also stand before `watch` or alone (`asqr
 --no-bell`); next to any other command they are a usage error.
+
+`--layout` places the context area (section 7.1). Without it,
+`ASQR_LAYOUT` sets the layout, and without either it is `auto`. A
+`--layout` after `watch` wins over one before it. An empty
+`ASQR_LAYOUT` counts as unset. Any other value than `auto`, `beside` or
+`below` is a usage error when asqr watches the queue; the other
+commands ignore the variable.
 
 `ask`:
 

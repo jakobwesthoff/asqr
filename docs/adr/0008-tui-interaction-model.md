@@ -10,6 +10,8 @@ Amended by [22. Answer in place with a tab bar and a review step](0022-answer-in
 
 Amended by [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md)
 
+Amended by [30. Cap the question at a reading width and place context by the terminal's shape](0030-cap-the-question-at-a-reading-width-and-place-context-by-the-terminals-shape.md)
+
 ## Context
 
 The person answering has to get through many questions fast, often with

@@ -20,12 +20,13 @@ mod watch;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 pub use exit::Exit;
 pub use watch::Watch;
 
 use crate::queue::{QueueLocation, Selection, platform_data_dir};
+use crate::tui::render::PaneLayout;
 
 /// Answer questions an AI agent or a script prepared for you, right in your
 /// terminal.
@@ -57,6 +58,11 @@ struct WatchArgs {
     /// Do not ring the terminal bell when sessions arrive.
     #[arg(long)]
     no_bell: bool,
+
+    /// Show context beside or below the question; auto, the default,
+    /// picks by the terminal's shape. ASQR_LAYOUT sets it too.
+    #[arg(long, value_enum, value_name = "LAYOUT")]
+    layout: Option<PaneLayout>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -159,31 +165,43 @@ enum Command {
     },
 }
 
-/// The queue the environment chooses: `ASQR_QUEUE` or `ASQR_DIR`. Empty
-/// values count as unset.
-pub fn environment_selection() -> Selection {
+/// The settings the environment makes. Empty values count as unset.
+#[derive(Debug, Default)]
+pub struct Environment {
+    /// The queue: `ASQR_QUEUE` or `ASQR_DIR`.
+    pub selection: Selection,
+    /// `ASQR_LAYOUT` as it is set. It is checked only when asqr watches,
+    /// so a bad value never stands in the way of the other commands.
+    pub layout: Option<String>,
+}
+
+/// Reads the [`Environment`] of this process.
+pub fn environment() -> Environment {
     let variable = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
-    Selection {
-        queue: variable("ASQR_QUEUE"),
-        dir: variable("ASQR_DIR").map(PathBuf::from),
+    Environment {
+        selection: Selection {
+            queue: variable("ASQR_QUEUE"),
+            dir: variable("ASQR_DIR").map(PathBuf::from),
+        },
+        layout: variable("ASQR_LAYOUT"),
     }
 }
 
-/// Runs the parsed command line. `environment` is what
-/// [`environment_selection`] read, passed in so the precedence of flags
-/// over the environment is decided in one place. `terminal_ui` runs the
-/// TUI; only the binary has a terminal to hand it.
-pub fn run(cli: Cli, environment: Selection, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
+/// Runs the parsed command line. `environment` is what [`environment`]
+/// read, passed in so the precedence of flags over the environment is
+/// decided in one place. `terminal_ui` runs the TUI; only the binary has a
+/// terminal to hand it.
+pub fn run(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
     log::init();
     dispatch(cli, environment, terminal_ui)
 }
 
-fn dispatch(cli: Cli, environment: Selection, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
+fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
     let flags = Selection {
         queue: cli.queue,
         dir: cli.dir,
     };
-    let location = match QueueLocation::resolve(flags, environment, platform_data_dir()) {
+    let location = match QueueLocation::resolve(flags, environment.selection, platform_data_dir()) {
         Ok(location) => location,
         Err(error) => {
             eprintln!("error: {error}");
@@ -195,16 +213,36 @@ fn dispatch(cli: Cli, environment: Selection, terminal_ui: impl FnOnce(Watch) ->
     // `watch` too; next to any other command they would do nothing.
     let before = cli.watch;
     let command = cli.command.unwrap_or(Command::Watch(WatchArgs::default()));
-    if !matches!(command, Command::Watch(_)) && (before.no_notify || before.no_bell) {
-        eprintln!("error: --no-notify and --no-bell only apply to watching the queue");
+    if !matches!(command, Command::Watch(_))
+        && (before.no_notify || before.no_bell || before.layout.is_some())
+    {
+        eprintln!("error: --no-notify, --no-bell and --layout only apply to watching the queue");
         return Exit::Usage;
     }
 
     match command {
         Command::Watch(after) => {
+            // The flag closest to `watch` wins, and any flag wins over the
+            // environment.
+            let variable = match environment
+                .layout
+                .as_deref()
+                .map(|value| PaneLayout::from_str(value, false))
+            {
+                None => None,
+                Some(Ok(layout)) => Some(layout),
+                Some(Err(_)) => {
+                    eprintln!(
+                        "error: ASQR_LAYOUT must be auto, beside or below, not {:?}",
+                        environment.layout.unwrap_or_default()
+                    );
+                    return Exit::Usage;
+                }
+            };
             let args = WatchArgs {
                 no_notify: before.no_notify || after.no_notify,
                 no_bell: before.no_bell || after.no_bell,
+                layout: after.layout.or(before.layout).or(variable),
             };
             watch::run(location, &args, terminal_ui)
         }
@@ -259,24 +297,101 @@ mod tests {
     use crate::queue::{lock_holder, lock_queue};
     use crate::tui::Alerts;
 
-    /// Runs `args` against a queue in `dir` and returns the exit and what
-    /// the terminal UI was started with, if it was.
+    /// Runs `args` against a queue in `dir` and returns the exit and the
+    /// alerts the terminal UI was started with, if it was.
     fn watched(dir: &Path, args: &[&str]) -> (Exit, Option<Alerts>) {
+        let (exit, started) = watched_in(dir, args, Environment::default());
+        (exit, started.map(|(alerts, _)| alerts))
+    }
+
+    /// Like [`watched`], with `environment` set, returning the layout too.
+    fn watched_in(
+        dir: &Path,
+        args: &[&str],
+        environment: Environment,
+    ) -> (Exit, Option<(Alerts, PaneLayout)>) {
         let mut argv = vec!["asqr", "--dir", dir.to_str().expect("UTF-8 temp path")];
         argv.extend(args);
         let cli = Cli::try_parse_from(argv).expect("parses");
         let mut started = None;
-        let exit = dispatch(cli, Selection::default(), |watch| {
+        let exit = dispatch(cli, environment, |watch| {
             let location = watch.location();
             assert!(location.inbox().is_dir(), "the layout exists");
             assert!(
                 lock_holder(location).expect("readable").is_some(),
                 "the TUI runs with the queue locked"
             );
-            started = Some(watch.alerts());
+            started = Some((watch.alerts(), watch.layout()));
             Exit::Success
         });
         (exit, started)
+    }
+
+    /// The layout `args` start the TUI with under `ASQR_LAYOUT=variable`.
+    fn layout(args: &[&str], variable: Option<&str>) -> (Exit, Option<PaneLayout>) {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let environment = Environment {
+            layout: variable.map(str::to_owned),
+            ..Environment::default()
+        };
+        let (exit, started) = watched_in(scratch.path(), args, environment);
+        (exit, started.map(|(_, layout)| layout))
+    }
+
+    #[test]
+    fn the_layout_is_auto_unless_a_flag_or_the_environment_says_otherwise() {
+        assert_eq!(layout(&[], None), (Exit::Success, Some(PaneLayout::Auto)));
+        assert_eq!(
+            layout(&["--layout", "below"], None),
+            (Exit::Success, Some(PaneLayout::Below))
+        );
+        assert_eq!(
+            layout(&["watch", "--layout", "beside"], None),
+            (Exit::Success, Some(PaneLayout::Beside))
+        );
+        assert_eq!(
+            layout(&[], Some("beside")),
+            (Exit::Success, Some(PaneLayout::Beside))
+        );
+    }
+
+    #[test]
+    fn a_layout_flag_wins_over_the_environment_and_after_watch_over_before() {
+        assert_eq!(
+            layout(&["--layout", "auto"], Some("below")),
+            (Exit::Success, Some(PaneLayout::Auto))
+        );
+        assert_eq!(
+            layout(&["--layout", "below", "watch", "--layout", "beside"], None),
+            (Exit::Success, Some(PaneLayout::Beside))
+        );
+    }
+
+    #[test]
+    fn an_unknown_layout_is_a_usage_error() {
+        assert_eq!(layout(&[], Some("sideways")), (Exit::Usage, None));
+        assert!(Cli::try_parse_from(["asqr", "--layout", "sideways"]).is_err());
+    }
+
+    #[test]
+    fn the_layout_variable_only_matters_to_watching() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let cli = Cli::try_parse_from([
+            "asqr",
+            "--dir",
+            scratch.path().to_str().expect("UTF-8 temp path"),
+            "paths",
+        ])
+        .expect("parses");
+        let environment = Environment {
+            layout: Some("sideways".into()),
+            ..Environment::default()
+        };
+
+        assert_eq!(
+            dispatch(cli, environment, |_| unreachable!("no TUI for paths")),
+            Exit::Success
+        );
     }
 
     const ALL: Alerts = Alerts {
@@ -323,6 +438,10 @@ mod tests {
 
         assert_eq!(
             watched(scratch.path(), &["--no-bell", "status"]),
+            (Exit::Usage, None)
+        );
+        assert_eq!(
+            watched(scratch.path(), &["--layout", "below", "status"]),
             (Exit::Usage, None)
         );
     }

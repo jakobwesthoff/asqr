@@ -17,6 +17,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use super::Images;
 use super::markdown;
+use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
 use crate::format::{ContextEntry, Kind, Question};
 use crate::tui::{AnswerState, App, Focus, Row, SessionState};
@@ -24,10 +25,6 @@ use crate::tui::{AnswerState, App, Focus, Row, SessionState};
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
 pub const MIN_HEIGHT: u16 = 15;
-
-/// From this width of the content on, the context goes beside the
-/// question instead of below it.
-const CONTEXT_BESIDE_WIDTH: u16 = 100;
 
 /// Descriptions start on the label's line only while that leaves them at
 /// least this much room; otherwise they move to their own lines.
@@ -61,13 +58,29 @@ fn shorten_from_left(text: &str, room: usize) -> String {
     format!("…{tail}")
 }
 
-/// What the screen shows besides the state.
+/// What the screen shows besides the state, and what it keeps from one
+/// draw to the next.
 pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
-    pub queue: &'a str,
+    queue: &'a str,
+    layout: PaneLayout,
+    /// The last arrangement with a context area shown, beside or below;
+    /// [`panes::choose`] keeps it while a resize stays near a square
+    /// shape. A hint leaves it as it is.
+    shown: Option<Arrangement>,
 }
 
-pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
+impl<'a> View<'a> {
+    pub fn new(queue: &'a str, layout: PaneLayout) -> Self {
+        View {
+            queue,
+            layout,
+            shown: None,
+        }
+    }
+}
+
+pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) {
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let text = format!(
@@ -130,6 +143,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &View, images: &mut Images) {
             frame,
             state,
             main.inner(ratatui::layout::Margin::new(1, 0)),
+            view,
             images,
         );
     }
@@ -310,51 +324,47 @@ fn viewerless_placeholder(
     Paragraph::new(lines).wrap(Wrap { trim: false })
 }
 
-fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, images: &mut Images) {
-    let mut text_area = area;
-    if state.has_context_area() {
-        let context = if area.width >= CONTEXT_BESIDE_WIDTH {
-            let [text, context] = Layout::horizontal([Constraint::Fill(3), Constraint::Fill(2)])
-                .spacing(1)
-                .areas(area);
-            text_area = text;
-            context
+/// Draws the current tab into `area`: the question, or the review, at no
+/// more than the reading width, and the context area where
+/// [`panes::choose`] puts it.
+fn draw_tab(
+    frame: &mut Frame,
+    state: &SessionState,
+    area: Rect,
+    view: &mut View,
+    images: &mut Images,
+) {
+    let arrangement = state.has_context_area().then(|| {
+        let arrangement = panes::choose(area.width, area.height, view.layout, view.shown);
+        if arrangement != Arrangement::Hint {
+            view.shown = Some(arrangement);
+        }
+        arrangement
+    });
+
+    let content_at = |width: u16| match state.question() {
+        Some(question) => question_content(state, question, usize::from(width)),
+        None => review_content(state, usize::from(width)),
+    };
+    // Without a context area, above one and above a hint, the question
+    // has the capped width, at which `panes::areas` counts its rows;
+    // beside a context area it is narrower.
+    let capped_width = area.width.min(READING_WIDTH);
+    let capped = content_at(capped_width);
+    let (text_area, context_area) = panes::areas(area, arrangement, capped.lines.len());
+    let content = if text_area.width == capped_width {
+        capped
+    } else {
+        content_at(text_area.width)
+    };
+
+    if let Some(context) = context_area {
+        if arrangement == Some(Arrangement::Hint) {
+            frame.render_widget(context_hint(state.shown_context(), context.width), context);
         } else {
-            let [text, context] = Layout::vertical([
-                Constraint::Fill(1),
-                Constraint::Length((area.height / 3).min(12)),
-            ])
-            .areas(area);
-            text_area = text;
-            context
-        };
-        match state.shown_context() {
-            Some(ContextEntry::Image(image)) => images.draw(frame, &image.path, context),
-            Some(ContextEntry::Text(text)) => frame.render_widget(
-                viewerless_placeholder(
-                    "text not shown",
-                    text.title.as_ref().or(text.path.as_ref()),
-                    "this asqr cannot show text entries yet",
-                ),
-                context,
-            ),
-            Some(ContextEntry::Diff(diff)) => frame.render_widget(
-                viewerless_placeholder(
-                    "diff not shown",
-                    diff.title.as_ref().or(diff.name.as_ref()),
-                    "this asqr cannot show diffs yet",
-                ),
-                context,
-            ),
-            None => {}
+            draw_context(frame, state.shown_context(), context, images);
         }
     }
-
-    let width = text_area.width as usize;
-    let content = match state.question() {
-        Some(question) => question_content(state, question, width),
-        None => review_content(state, width),
-    };
 
     // Scroll so the whole current row is visible, its start winning when
     // it is taller than the area.
@@ -365,6 +375,74 @@ fn draw_tab(frame: &mut Frame, state: &SessionState, area: Rect, images: &mut Im
         Paragraph::new(content.lines).scroll((scroll as u16, 0)),
         text_area,
     );
+}
+
+/// The entry shown on the current row, drawn into the context area. A row
+/// without one leaves the area empty, so it keeps its place.
+fn draw_context(frame: &mut Frame, entry: Option<&ContextEntry>, area: Rect, images: &mut Images) {
+    match entry {
+        Some(ContextEntry::Image(image)) => images.draw(frame, &image.path, area),
+        Some(ContextEntry::Text(text)) => frame.render_widget(
+            viewerless_placeholder(
+                "text not shown",
+                text.title.as_ref().or(text.path.as_ref()),
+                "this asqr cannot show text entries yet",
+            ),
+            area,
+        ),
+        Some(ContextEntry::Diff(diff)) => frame.render_widget(
+            viewerless_placeholder(
+                "diff not shown",
+                diff.title.as_ref().or(diff.name.as_ref()),
+                "this asqr cannot show diffs yet",
+            ),
+            area,
+        ),
+        None => {}
+    }
+}
+
+/// The one line that stands in for the context area when the terminal has
+/// room for it neither beside nor below the question: what the entry is,
+/// and for an image that `z` shows it.
+// TODO: `z` for text and diff entries comes with the context pane (plan
+// step 3), and the hint names it for every entry then.
+fn context_hint(entry: Option<&ContextEntry>, width: u16) -> Line<'static> {
+    let Some(entry) = entry else {
+        return Line::default();
+    };
+    // A path names the entry by its file name, which fits the one line
+    // where the whole path often does not.
+    let file_name = |path: &str| {
+        std::path::Path::new(path).file_name().map_or_else(
+            || path.to_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        )
+    };
+    let (kind, name, tail) = match entry {
+        ContextEntry::Image(image) => (
+            "image",
+            image.title.clone().or_else(|| Some(file_name(&image.path))),
+            " · z: full screen",
+        ),
+        ContextEntry::Text(text) => (
+            "text",
+            text.title
+                .clone()
+                .or_else(|| text.path.as_deref().map(file_name)),
+            " · not shown in this asqr yet",
+        ),
+        ContextEntry::Diff(diff) => (
+            "diff",
+            diff.title.clone().or_else(|| diff.name.clone()),
+            " · not shown in this asqr yet",
+        ),
+    };
+    let text = match name {
+        Some(name) => format!("▸ {kind}: {name}{tail}"),
+        None => format!("▸ {kind}{tail}"),
+    };
+    Line::from(cut(&text, usize::from(width))).dim()
 }
 
 /// The mark in front of an option or the own answer.
@@ -1063,10 +1141,16 @@ mod tests {
     }
 
     fn screen_of_queue(app: &App, queue: &str, width: u16, height: u16) -> TestBackend {
+        screen_in(app, &mut View::new(queue, PaneLayout::Auto), width, height)
+    }
+
+    /// The screen drawn with `view`, which keeps what it remembers for the
+    /// next draw.
+    fn screen_in(app: &App, view: &mut View, width: u16, height: u16) -> TestBackend {
         let mut images = Images::new(ratatui_image::picker::Picker::halfblocks());
         let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
         terminal
-            .draw(|frame| draw(frame, app, &View { queue }, &mut images))
+            .draw(|frame| draw(frame, app, view, &mut images))
             .expect("draws");
         terminal.backend().clone()
     }
@@ -1560,8 +1644,11 @@ mod tests {
 
         let (columns, rows) = image_cells(&screen(&app, 140, 20));
 
-        assert!(
-            *columns.start() > 80,
+        // The 138 columns inside the margins split into 68 for the
+        // question, the separator and the rest for the image.
+        assert_eq!(
+            *columns.start(),
+            70,
             "right of the question text: {columns:?}"
         );
         assert_eq!(*rows.start(), 4, "from the top of the tab: {rows:?}");
@@ -1581,7 +1668,14 @@ mod tests {
         let mut images = Images::new(picker);
         let mut terminal = Terminal::new(TestBackend::new(140, 24)).expect("test terminal");
         terminal
-            .draw(|frame| draw(frame, &app, &View { queue: "q" }, &mut images))
+            .draw(|frame| {
+                draw(
+                    frame,
+                    &app,
+                    &mut View::new("q", PaneLayout::Auto),
+                    &mut images,
+                )
+            })
             .expect("draws");
 
         let buffer = terminal.backend().buffer();
@@ -1617,7 +1711,8 @@ mod tests {
 
         let (_, rows) = image_cells(&screen(&app, 80, 24));
 
-        assert!(*rows.start() > 10, "below the question text: {rows:?}");
+        // The question takes the six rows it needs, from row 4 on.
+        assert_eq!(*rows.start(), 10, "below the question text: {rows:?}");
     }
 
     #[test]
@@ -1636,13 +1731,13 @@ mod tests {
         )]);
 
         let (columns, _) = image_cells(&screen(&app, 140, 20));
-        assert!(*columns.start() > 80, "beside the options: {columns:?}");
+        assert_eq!(*columns.start(), 70, "beside the options: {columns:?}");
 
         keys(&mut app, "j");
         let backend = screen(&app, 140, 20);
         let buffer = backend.buffer();
-        let right_side_used = (4..buffer.area.height)
-            .flat_map(|y| (85..buffer.area.width).map(move |x| (x, y)))
+        let right_side_used = (4..buffer.area.height - 2)
+            .flat_map(|y| (69..buffer.area.width).map(move |x| (x, y)))
             .any(|position| buffer[position].symbol() != " ");
         assert!(
             !right_side_used,
@@ -1673,7 +1768,7 @@ mod tests {
     fn a_missing_or_unreadable_image_shows_a_placeholder() {
         insta::assert_snapshot!(
             "missing_image",
-            screen(&with_image("/nonexistent/x.png"), 80, 20)
+            screen(&with_image("/nonexistent/x.png"), 80, 24)
         );
 
         let file = tempfile::Builder::new()
@@ -1681,7 +1776,7 @@ mod tests {
             .tempfile()
             .expect("temp file");
         std::fs::write(file.path(), "not a picture").expect("written");
-        let text = screen(&with_image(file.path().to_str().expect("UTF-8")), 80, 20).to_string();
+        let text = screen(&with_image(file.path().to_str().expect("UTF-8")), 80, 24).to_string();
         assert!(text.contains("image not shown"), "{text}");
     }
 
@@ -1775,8 +1870,204 @@ mod tests {
 
     #[test]
     fn a_relative_image_path_shows_a_placeholder() {
-        let text = screen(&with_image("images/x.png"), 80, 20).to_string();
+        let text = screen(&with_image("images/x.png"), 80, 24).to_string();
         assert!(text.contains("relative path"), "{text}");
+    }
+
+    // -----------------------------------------------------------------
+    // The reading width and the context layout
+    // -----------------------------------------------------------------
+
+    /// A question whose text and first option's description run far past
+    /// the reading width, with `context` (a JSON member and its comma, or
+    /// nothing) and an own answer.
+    fn long_question(context: &str) -> App {
+        let text = "A question text that goes on and on, ".repeat(8);
+        let description = "a description that would fill a very wide line ".repeat(5);
+        app(&[(
+            "long",
+            &format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": {text:?}, "kind": "single", "custom": true, {context}
+                    "options": [{{"id": "a", "label": "First", "description": {description:?}}}, {{"id": "b", "label": "Second"}}]}}]}}"#
+            ),
+        )])
+    }
+
+    /// The rightmost column with text in the rows of the tab, between the
+    /// tab bar and the status line.
+    fn rightmost_text_column(backend: &TestBackend) -> u16 {
+        let buffer = backend.buffer();
+        (4..buffer.area.height - 2)
+            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
+            .filter(|&position| buffer[position].symbol() != " ")
+            .map(|(x, _)| x)
+            .max()
+            .expect("the tab has text")
+    }
+
+    #[test]
+    fn a_question_without_context_stays_within_the_reading_width() {
+        let app = long_question("");
+        // The text starts after the one-column margin, so its last column
+        // is the reading width itself.
+        for width in [104, 120, 160, 230] {
+            let backend = screen(&app, width, 30);
+            let rightmost = rightmost_text_column(&backend);
+            assert!(
+                (95..=READING_WIDTH).contains(&rightmost),
+                "{width} columns end at {rightmost}:\n{backend}"
+            );
+        }
+        insta::assert_snapshot!("reading_width_160x30", screen(&app, 160, 30));
+    }
+
+    #[test]
+    fn the_review_stays_within_the_reading_width() {
+        let mut app = long_question("");
+        keys(&mut app, "jj");
+        keys(
+            &mut app,
+            &"an own answer much longer than any line ".repeat(6),
+        );
+        special(&mut app, KeyCode::Esc);
+        keys(&mut app, "l");
+
+        let backend = screen(&app, 200, 24);
+        assert_eq!(rightmost_text_column(&backend), READING_WIDTH, "{backend}");
+    }
+
+    #[test]
+    fn a_question_with_context_beside_is_narrower_than_one_without() {
+        let file = png();
+        let image = file.path().to_str().expect("UTF-8 path");
+        let with_context = long_question(&format!(
+            r#""context": [{{"type": "image", "path": {image:?}}}],"#
+        ));
+
+        // 160 columns leave 158 inside the margins: 78 for the question,
+        // the separator and 79 for the image.
+        let backend = screen(&with_context, 160, 30);
+        let (columns, _) = image_cells(&backend);
+        assert_eq!(*columns.start(), 80, "{backend}");
+        let text_columns = (4..28)
+            .flat_map(|y| (0..79).map(move |x| (x, y)))
+            .filter(|&position| backend.buffer()[position].symbol() != " ")
+            .map(|(x, _)| x)
+            .max();
+        assert!(
+            text_columns.is_some_and(|column| (70..=78).contains(&column)),
+            "the question wraps within its 78 columns: {text_columns:?}"
+        );
+    }
+
+    #[test]
+    fn a_terminal_too_small_for_the_context_shows_a_hint() {
+        // 80×20 leaves 78×14 for the tab: beside needs 101 columns, below
+        // 8 rows for the context with the question at half the height.
+        insta::assert_snapshot!(
+            "context_hint_80x20",
+            screen(&with_image("/pictures/x.png"), 80, 20)
+        );
+    }
+
+    #[test]
+    fn the_hint_names_the_entry_shown() {
+        let entry =
+            |json: &str| -> ContextEntry { serde_json::from_str(json).expect("entry parses") };
+        let hint = |entry: Option<&ContextEntry>, width: u16| -> String {
+            context_hint(entry, width)
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect()
+        };
+
+        let cases = [
+            (
+                r#"{"type": "image", "path": "/pictures/cat.png"}"#,
+                "▸ image: cat.png · z: full screen",
+            ),
+            (
+                r#"{"type": "image", "title": "The cat", "path": "/pictures/cat.png"}"#,
+                "▸ image: The cat · z: full screen",
+            ),
+            (
+                r#"{"type": "image", "path": "/"}"#,
+                "▸ image: / · z: full screen",
+            ),
+            (
+                r#"{"type": "text", "path": "/src/fetch.rs"}"#,
+                "▸ text: fetch.rs · not shown in this asqr yet",
+            ),
+            (
+                r#"{"type": "text", "text": "inline"}"#,
+                "▸ text · not shown in this asqr yet",
+            ),
+            (
+                r#"{"type": "diff", "name": "src/fetch.rs", "new": {"text": "x"}}"#,
+                "▸ diff: src/fetch.rs · not shown in this asqr yet",
+            ),
+            (
+                r#"{"type": "diff", "new": {"text": "x"}}"#,
+                "▸ diff · not shown in this asqr yet",
+            ),
+        ];
+        for (json, expected) in cases {
+            assert_eq!(hint(Some(&entry(json)), 78), expected, "{json}");
+        }
+        assert_eq!(
+            hint(
+                Some(&entry(r#"{"type": "image", "path": "/pictures/cat.png"}"#)),
+                20
+            ),
+            "▸ image: cat.png · …",
+            "cut to the line"
+        );
+        assert_eq!(hint(None, 78), "", "a row without context leaves it empty");
+    }
+
+    #[test]
+    fn a_layout_asked_for_wins_while_it_fits() {
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+
+        // 140×40 is landscape, where auto puts the image beside.
+        let backend = screen_in(&app, &mut View::new("q", PaneLayout::Below), 140, 40);
+        let (columns, rows) = image_cells(&backend);
+        assert_eq!(
+            (*columns.start(), *rows.start()),
+            (1, 10),
+            "under the question's six rows:\n{backend}"
+        );
+
+        // 110×70 is portrait, where auto puts the image below; 108 columns
+        // inside the margins give the question its 60 and the image the
+        // rest after the separator.
+        let backend = screen_in(&app, &mut View::new("q", PaneLayout::Beside), 110, 70);
+        let (columns, rows) = image_cells(&backend);
+        assert_eq!((*columns.start(), *rows.start()), (62, 4), "{backend}");
+    }
+
+    #[test]
+    fn a_resize_to_a_nearly_square_shape_keeps_the_arrangement_shown() {
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+        // 192×106 leaves 190×100 for the tab, a shape of 0.95.
+        let (columns, rows) = image_cells(&screen(&app, 192, 106));
+        assert_eq!(
+            (*columns.start(), *rows.start()),
+            (1, 10),
+            "shown fresh, it is below"
+        );
+
+        let mut view = View::new("q", PaneLayout::Auto);
+        screen_in(&app, &mut view, 230, 60);
+        let (columns, rows) = image_cells(&screen_in(&app, &mut view, 192, 106));
+        assert_eq!(
+            (*columns.start(), *rows.start()),
+            (96, 4),
+            "after beside, it stays beside"
+        );
     }
 
     #[test]

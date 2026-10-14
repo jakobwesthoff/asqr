@@ -55,7 +55,7 @@ pub fn run<B: Backend>(
     app: &mut App,
     inbox: &mut Inbox,
     images: &mut Images,
-    view: &View,
+    view: &mut View,
     events: &Receiver<Event>,
     host: &mut impl Host,
 ) -> anyhow::Result<()>
@@ -116,6 +116,7 @@ mod tests {
 
     use super::*;
     use crate::format::{SessionResult, Status};
+    use crate::tui::render::PaneLayout;
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
         "context": [{"type": "image", "path": "/nowhere/cat.png"}],
@@ -203,7 +204,7 @@ mod tests {
                 app,
                 inbox,
                 images,
-                &View { queue: "test" },
+                &mut View::new("test", PaneLayout::Auto),
                 &receiver,
                 &mut self.host,
             )
