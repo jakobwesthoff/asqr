@@ -51,8 +51,14 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     let (mut app, mut inbox) = start(location.clone())?;
 
     // `try_init` also installs the panic hook that gives the terminal back
-    // before a panic message is printed.
+    // before a panic message is printed. That hook knows nothing of focus
+    // reports and bracketed paste, so the guard turns those off too, on
+    // every way out of this function from here on.
     let mut terminal = ratatui::try_init().context("setting up the terminal")?;
+    let _guard = TerminalGuard {
+        out: io::stdout(),
+        restore: ratatui::restore,
+    };
 
     // The protocol query reads the terminal's answers from stdin, so it
     // runs before the thread that reads key events starts.
@@ -80,10 +86,16 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // Focus reports tell asqr when it comes back into view, so it can send
     // images again whose transfer tmux dropped while it was hidden (spec
     // section 7.7). tmux forwards them with its `focus-events` option.
-    execute!(io::stdout(), EnableFocusChange).context("asking for focus reports")?;
     // Bracketed paste sends a paste as one event, so a line break in it is
-    // no `enter` that picks, submits or rejects (spec section 7.3).
-    execute!(io::stdout(), EnableBracketedPaste).context("asking for bracketed paste")?;
+    // no `enter` that picks, submits or rejects (spec section 7.3). The TUI
+    // works without either, and a legacy Windows console refuses bracketed
+    // paste, so a refusal is logged and the run goes on.
+    if let Err(error) = execute!(io::stdout(), EnableFocusChange) {
+        tracing::warn!(%error, "could not ask for focus reports");
+    }
+    if let Err(error) = execute!(io::stdout(), EnableBracketedPaste) {
+        tracing::warn!(%error, "could not ask for bracketed paste");
+    }
 
     // The thread blocks in `read` for the life of the process; it ends
     // with it.
@@ -116,24 +128,41 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
             tmux: tmux.is_some_and(|tmux| !tmux.is_empty()),
         },
     };
-    let result = run(
+    run(
         &mut terminal,
         &mut app,
         &mut inbox,
         &mut View::new(&queue, watch.layout(), picker),
         &events,
         &mut host,
-    );
-    // Left on, the shell would receive the reports as typed text, and its
-    // pastes wrapped in the markers.
-    if let Err(error) = execute!(io::stdout(), DisableFocusChange) {
-        tracing::warn!(%error, "could not turn focus reports off");
+    )
+}
+
+/// Gives the terminal back when dropped: turns focus reports and bracketed
+/// paste off, then calls `restore`, which leaves raw mode and the
+/// alternate screen.
+///
+/// The guard covers a panic only because a panic unwinds and drops it. A
+/// build with `panic = "abort"` would skip the drop and leave both modes
+/// on in the shell.
+struct TerminalGuard<W: Write> {
+    out: W,
+    /// [`ratatui::restore`]; tests pass a function that only notes the call.
+    restore: fn(),
+}
+
+impl<W: Write> Drop for TerminalGuard<W> {
+    fn drop(&mut self) {
+        // Left on, the shell would receive the reports as typed text, and
+        // its pastes wrapped in the markers.
+        if let Err(error) = execute!(self.out, DisableFocusChange) {
+            tracing::warn!(%error, "could not turn focus reports off");
+        }
+        if let Err(error) = execute!(self.out, DisableBracketedPaste) {
+            tracing::warn!(%error, "could not turn bracketed paste off");
+        }
+        (self.restore)();
     }
-    if let Err(error) = execute!(io::stdout(), DisableBracketedPaste) {
-        tracing::warn!(%error, "could not turn bracketed paste off");
-    }
-    ratatui::restore();
-    result
 }
 
 /// Logs the terminal's size in cells and pixels, and the cell size they
@@ -204,5 +233,63 @@ impl Host for TerminalHost {
             .stderr(Stdio::null())
             .spawn()
             .map(drop)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    thread_local! {
+        static RESTORED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn note_restore() {
+        RESTORED.set(true);
+    }
+
+    // The panic path itself is not run here: it needs a real terminal and
+    // a panicking TUI. What it relies on is that unwinding drops the guard,
+    // and the drop is what this test runs.
+    #[test]
+    fn dropping_the_guard_turns_paste_and_focus_reports_off_and_restores() {
+        let mut written = Vec::new();
+        drop(TerminalGuard {
+            out: &mut written,
+            restore: note_restore,
+        });
+        let written = String::from_utf8(written).expect("escape sequences are ASCII");
+        assert!(
+            written.contains("\x1b[?2004l"),
+            "bracketed paste off: {written:?}"
+        );
+        assert!(
+            written.contains("\x1b[?1004l"),
+            "focus reports off: {written:?}"
+        );
+        assert!(RESTORED.get());
+    }
+
+    struct BrokenTerminal;
+
+    impl Write for BrokenTerminal {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("the terminal is gone"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::other("the terminal is gone"))
+        }
+    }
+
+    #[test]
+    fn a_terminal_that_refuses_the_sequences_is_still_restored() {
+        drop(TerminalGuard {
+            out: BrokenTerminal,
+            restore: note_restore,
+        });
+        assert!(RESTORED.get());
     }
 }

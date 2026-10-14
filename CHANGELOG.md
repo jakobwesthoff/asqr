@@ -261,6 +261,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The session schema requires at least one question, as validation
   does. Before, it accepted `"questions": []`, which `asqr validate`
   refuses.
+- A crash of asqr turns the terminal's focus reports off before asqr
+  ends. Before, they stayed on, and the shell received them as typed
+  text whenever its window gained or lost the focus. A terminal that
+  refuses focus reports or bracketed paste, as a legacy Windows console
+  refuses bracketed paste, runs asqr without them. Before, asqr ended
+  with an error and left the terminal in raw mode on its alternate
+  screen.
 
 ## [0.10.1] - 2026-10-14
 

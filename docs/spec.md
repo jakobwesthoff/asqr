@@ -821,6 +821,8 @@ a frame (user, 2026-09-27):
 - Pasted text goes in at the text cursor of the focused field or note
   as a whole. asqr asks the terminal for bracketed paste, so a line
   break in a paste is never an `enter` that picks, submits or rejects.
+  It turns bracketed paste and focus reports off again when it ends, a
+  crash included. A terminal that refuses either runs asqr without it.
   Every field keeps the pasted line breaks; `\r` and `\r\n` become
   `\n` (ADR 36). Where no field or note has the keys, and
   while the context pane, the intro, the help or the session list has
