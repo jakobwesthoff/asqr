@@ -529,12 +529,18 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_probe_reads_nothing_past_its_deadline() {
-        let (input, mut terminal) = std::io::pipe().expect("a pipe");
+        use std::io::Read;
+
+        let (mut input, mut terminal) = std::io::pipe().expect("a pipe");
         terminal.write_all(b"\x1b[0n").expect("the pipe takes it");
+        drop(terminal);
 
         let answered = passthrough_answers(&mut Vec::new(), &input, Duration::ZERO);
 
         assert!(!answered.expect("the probe runs"));
+        let mut rest = Vec::new();
+        input.read_to_end(&mut rest).expect("the pipe reads");
+        assert_eq!(rest, b"\x1b[0n", "the answer stays unread");
     }
 
     #[test]
