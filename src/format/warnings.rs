@@ -30,13 +30,6 @@ pub enum WarningKind {
     /// An agent working from an older skill writes it, and the generic
     /// unknown-field warning would not tell it where the image goes.
     ImageField,
-    /// A `text` key where the inline text of an entry or a diff side
-    /// goes into `content`. Written from an older skill, where the key
-    /// was `text`; the generic warning would not say where the text goes.
-    TextKey,
-    /// A `render` key on a code or Markdown entry, from an older skill
-    /// where one entry type held both and the flag picked one.
-    RenderKey,
     RelativePath,
     FileNotFound(PathBuf),
     /// A code, Markdown or diff entry above [`LARGE_ENTRY_BYTES`]. Carries its size
@@ -54,12 +47,6 @@ impl fmt::Display for Warning {
             WarningKind::UnknownField => formatter.write_str("unknown field"),
             WarningKind::ImageField => formatter.write_str(
                 r#"ignored; since format version 2 an image is a context entry: "context": [{"type": "image", "path": ...}]"#,
-            ),
-            WarningKind::TextKey => {
-                formatter.write_str(r#"ignored; inline text goes into "content""#)
-            }
-            WarningKind::RenderKey => formatter.write_str(
-                r#"ignored; the type decides: "markdown" renders Markdown, "code" shows it as written"#,
             ),
             WarningKind::RelativePath => formatter.write_str(
                 "relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
@@ -89,7 +76,6 @@ pub fn warnings(raw: &Value, session: &Session, base_dir: Option<&Path>) -> Vec<
     let mut found = Vec::new();
     unknown_fields(raw, &mut found);
     image_fields(raw, &mut found);
-    retired_entry_keys(raw, &mut found);
     context_files(session, base_dir, &mut found);
     found
 }
@@ -130,13 +116,6 @@ impl KnownFields {
                 let name = reference.rsplit('/').next()?;
                 let mut fields = definition(name);
                 fields.insert("type".to_owned());
-                // `text` and `render` get warnings of their own
-                // (`retired_entry_keys`), so they do not count as unknown
-                // as well.
-                if fields.contains("content") {
-                    fields.insert("text".to_owned());
-                    fields.insert("render".to_owned());
-                }
                 Some((kind.to_owned(), fields))
             })
             .collect();
@@ -153,11 +132,7 @@ impl KnownFields {
             custom: definition("CustomConfig"),
             length: definition("Length"),
             context,
-            diff_side: {
-                let mut fields = definition("DiffSide");
-                fields.insert("text".to_owned());
-                fields
-            },
+            diff_side: definition("DiffSide"),
         }
     }
 }
@@ -231,57 +206,6 @@ fn image_fields(raw: &Value, found: &mut Vec<Warning>) {
         let options = question["options"].as_array().into_iter().flatten();
         for (index, option) in options.enumerate() {
             report(option, path.field("options").index(index));
-        }
-    }
-}
-
-/// Reports the `text` and `render` keys that code and Markdown entries
-/// and diff sides had before `content` replaced `text` and the two entry
-/// types replaced one with a `render` flag.
-fn retired_entry_keys(raw: &Value, found: &mut Vec<Warning>) {
-    let mut report = |object: &Value, path: FieldPath, keys: &[(&str, WarningKind)]| {
-        for (key, kind) in keys {
-            if object.get(key).is_some() {
-                found.push(Warning {
-                    path: path.field(key),
-                    kind: kind.clone(),
-                });
-            }
-        }
-    };
-    let mut check = |holder: &Value, path: FieldPath| {
-        let entries = holder["context"].as_array().into_iter().flatten();
-        for (index, entry) in entries.enumerate() {
-            let path = path.field("context").index(index);
-            match entry["type"].as_str() {
-                Some("code" | "markdown") => report(
-                    entry,
-                    path,
-                    &[
-                        ("text", WarningKind::TextKey),
-                        ("render", WarningKind::RenderKey),
-                    ],
-                ),
-                Some("diff") => {
-                    for side in ["old", "new"] {
-                        report(
-                            &entry[side],
-                            path.field(side),
-                            &[("text", WarningKind::TextKey)],
-                        );
-                    }
-                }
-                _ => {}
-            }
-        }
-    };
-    let questions = raw["questions"].as_array().into_iter().flatten();
-    for (index, question) in questions.enumerate() {
-        let path = FieldPath::root("questions").index(index);
-        check(question, path.clone());
-        let options = question["options"].as_array().into_iter().flatten();
-        for (index, option) in options.enumerate() {
-            check(option, path.field("options").index(index));
         }
     }
 }
@@ -746,28 +670,21 @@ mod tests {
     }
 
     #[test]
-    fn the_former_text_and_render_keys_say_what_replaced_them() {
+    fn render_and_an_inline_text_key_are_unknown_fields() {
         let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
             "context": [{"type": "code", "text": "fn main() {}", "content": "fn main() {}"}],
             "options": [
                 {"id": "a", "label": "A", "context": [{"type": "markdown", "content": "*a*", "render": false}]},
                 {"id": "b", "label": "B", "context": [{"type": "diff",
-                    "old": {"text": "a", "content": "a"}, "new": {"content": "b"}}]},
-                {"id": "c", "label": "C", "context": [{"type": "image", "path": "/c.png", "text": "x"}]}]}]}"#;
+                    "old": {"text": "a", "content": "a"}, "new": {"content": "b"}}]}]}]}"#;
 
-        let text = r#"ignored; inline text goes into "content""#;
-        let render =
-            r#"ignored; the type decides: "markdown" renders Markdown, "code" shows it as written"#;
         assert_eq!(
             warn(json, None),
             [
-                "questions[0].options[2].context[0].text: unknown field".to_owned(),
-                format!("questions[0].context[0].text: {text}"),
-                format!("questions[0].options[0].context[0].render: {render}"),
-                format!("questions[0].options[1].context[0].old.text: {text}"),
-                "questions[0].options[2].context[0].path: file not found: /c.png".to_owned(),
-            ],
-            "an image never had inline text, so there it is just unknown"
+                "questions[0].context[0].text: unknown field",
+                "questions[0].options[0].context[0].render: unknown field",
+                "questions[0].options[1].context[0].old.text: unknown field",
+            ]
         );
     }
 

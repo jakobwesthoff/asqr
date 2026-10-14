@@ -35,9 +35,9 @@ pub enum ParseError {
 /// Some problems are checked on the raw JSON before the shape, because
 /// the parser's message would name the wrong cause. A file of another
 /// format version has the rules of that version, so its shape errors would
-/// only mislead. An entry of `type: "text"`, written from an older skill,
-/// would only be an unknown variant, while the error here names the two
-/// types that replace it.
+/// only mislead. An entry of `type: "text"`, a natural guess for an agent
+/// that wants to show text, would only be an unknown variant, while the
+/// error here says which of the two text types to pick.
 pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
     let raw: Value = serde_json::from_slice(bytes).map_err(ParseError::NotASession)?;
     if let Some(problem) = raw["asqr"].as_u64().and_then(version_problem) {

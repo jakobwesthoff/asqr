@@ -100,9 +100,9 @@ pub enum Problem {
     #[error("takes path or content, not both")]
     SourceTwice,
 
-    /// A context entry of `type: "text"`, which a draft of format
-    /// version 2 had. Agents working from an older skill write it, and
-    /// the parser's own message would only list the types.
+    /// A context entry of `type: "text"`, a natural guess for an agent
+    /// that wants to show text. The parser's own message would only list
+    /// the types; this one says which to pick.
     #[error(
         r#""text" is no entry type; use "code" for text shown as written (source, a log, a Markdown file's source) or "markdown" for Markdown to render, with "path" or "content""#
     )]

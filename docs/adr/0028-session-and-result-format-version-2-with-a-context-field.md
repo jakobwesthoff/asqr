@@ -134,8 +134,10 @@ Agent's choices within that design:
 - An entry of type `text` is refused before the rest of the file is
   parsed, as another format version is, with an error that names `code`
   and `markdown`. The parser would only report an unknown variant.
-  Every such entry is listed.
-- The keys `text` and `render` get warnings of their own, as the
-  `image` field does, instead of the warning about an unknown field.
+  Every such entry is listed. `text` is a natural guess for an agent
+  that wants to show text, so the hint saves it a round trip.
+- The keys `render` and an inline `text` are unknown fields like any
+  other: format version 2 was never released with them, so no file
+  carries them (user, 2026-10-14).
 - Until their viewers land, code and Markdown entries show the
   placeholder that text entries showed.

@@ -34,10 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asqr validate` and `asqr ask` warn about a relative or missing file
   in any context entry, and about an `image` field left over from format
   version 1, saying that an image is a context entry of type `image`.
-  They also warn about a `text` key where inline text goes into
-  `content`, and a `render` key, since the entry's type decides whether
-  Markdown is rendered. An entry of type `text` is an error that names
-  `code` and `markdown`.
+  An entry of type `text` is an error that names `code` and `markdown`.
 - `asqr validate` and `asqr ask` warn about a code, Markdown or diff
   entry above 1 MiB. asqr still shows it.
 - A note to the whole session: the review tab has a field for it below

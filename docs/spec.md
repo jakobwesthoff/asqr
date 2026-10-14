@@ -419,10 +419,7 @@ comparing the keys against the schema, so a typo like `requred` is
 reported. Context entries are compared against the fields of their
 `type`. The `image` field of format version 1 on a question or an option
 gets a warning of its own, saying that an image is a context entry of
-type `image`. So do the key `text` on a `code` or `markdown` entry or
-on a side of a diff, saying that inline text goes into `content`, and
-the key `render` on a `code` or `markdown` entry, saying that the type
-decides whether Markdown is rendered.
+type `image`.
 
 `asqr validate <file>` prints `<file>: valid` and exits with 0, or lists
 every error and exits with 11. Warnings go to stderr and never fail it.
