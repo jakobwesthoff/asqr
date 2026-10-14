@@ -62,6 +62,11 @@ where
     B::Error: Send + Sync + 'static,
 {
     loop {
+        // An overlay closed over an image leaves its text on the image
+        // unless the whole screen is drawn afresh (ADR 31).
+        if view.must_clear(app) {
+            terminal.clear().context("clearing the screen")?;
+        }
         terminal
             .draw(|frame| draw(frame, app, view))
             .context("drawing the screen")?;
@@ -467,5 +472,135 @@ mod tests {
             "{}",
             harness.screen()
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Clearing the screen after an overlay over an image
+    // -----------------------------------------------------------------
+
+    /// A test backend that logs each clear of the screen and each frame
+    /// flushed, so a test sees which frame a clear came before.
+    struct Logging {
+        backend: TestBackend,
+        log: Vec<&'static str>,
+    }
+
+    impl Backend for Logging {
+        type Error = <TestBackend as Backend>::Error;
+
+        fn draw<'a, I>(&mut self, content: I) -> Result<(), Self::Error>
+        where
+            I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
+        {
+            self.backend.draw(content)
+        }
+
+        fn hide_cursor(&mut self) -> Result<(), Self::Error> {
+            self.backend.hide_cursor()
+        }
+
+        fn show_cursor(&mut self) -> Result<(), Self::Error> {
+            self.backend.show_cursor()
+        }
+
+        fn get_cursor_position(&mut self) -> Result<ratatui::layout::Position, Self::Error> {
+            self.backend.get_cursor_position()
+        }
+
+        fn set_cursor_position<P: Into<ratatui::layout::Position>>(
+            &mut self,
+            position: P,
+        ) -> Result<(), Self::Error> {
+            self.backend.set_cursor_position(position)
+        }
+
+        fn clear(&mut self) -> Result<(), Self::Error> {
+            self.log.push("clear");
+            self.backend.clear()
+        }
+
+        fn clear_region(
+            &mut self,
+            clear_type: ratatui::backend::ClearType,
+        ) -> Result<(), Self::Error> {
+            self.log.push("clear");
+            self.backend.clear_region(clear_type)
+        }
+
+        fn size(&self) -> Result<ratatui::layout::Size, Self::Error> {
+            self.backend.size()
+        }
+
+        fn window_size(&mut self) -> Result<ratatui::backend::WindowSize, Self::Error> {
+            self.backend.window_size()
+        }
+
+        fn flush(&mut self) -> Result<(), Self::Error> {
+            self.log.push("frame");
+            self.backend.flush()
+        }
+    }
+
+    /// The clears and frames of a run over `events` with `session` waiting.
+    fn logged(session: &str, events: Vec<Event>) -> Vec<&'static str> {
+        let harness = Harness::new();
+        fs::write(harness.location.inbox().join("s.json"), session).expect("written");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+        let mut terminal = Terminal::new(Logging {
+            backend: TestBackend::new(80, 24),
+            log: Vec::new(),
+        })
+        .expect("test terminal");
+        let (sender, receiver) = mpsc::channel();
+        for event in events {
+            sender.send(event).expect("sent");
+        }
+        drop(sender);
+        run(
+            &mut terminal,
+            &mut app,
+            &mut inbox,
+            &mut view,
+            &receiver,
+            &mut Recorder::default(),
+        )
+        .expect("runs");
+        terminal.backend().log.clone()
+    }
+
+    #[test]
+    fn closing_an_overlay_over_an_image_clears_the_screen_before_the_next_frame() {
+        let session = SESSION.replacen(r#"{"asqr": 2,"#, r#"{"asqr": 2, "intro": "Fruit","#, 1);
+        let overlays = [
+            ("help", key(KeyCode::Char('?')), key(KeyCode::Char('x'))),
+            ("intro", key(KeyCode::Char('i')), key(KeyCode::Esc)),
+            ("session list", key(KeyCode::Char('L')), key(KeyCode::Esc)),
+        ];
+
+        for (overlay, open, close) in overlays {
+            let log = logged(&session, vec![open, close, Event::Resize]);
+
+            assert_eq!(
+                log,
+                ["frame", "frame", "clear", "frame", "frame"],
+                "{overlay}: the first frame without it is drawn afresh, and only that one"
+            );
+        }
+    }
+
+    #[test]
+    fn closing_an_overlay_without_an_image_on_screen_keeps_the_screen() {
+        let session = SESSION.replace(
+            r#"{"type": "image", "path": "/nowhere/cat.png"}"#,
+            r#"{"type": "code", "content": "fn main() {}"}"#,
+        );
+
+        let log = logged(
+            &session,
+            vec![key(KeyCode::Char('?')), key(KeyCode::Char('x'))],
+        );
+
+        assert_eq!(log, ["frame", "frame", "frame"]);
     }
 }

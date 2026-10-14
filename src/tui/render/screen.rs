@@ -25,7 +25,7 @@ use super::parts::{Level, answer_summary, counter, cut, kind_hint};
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::viewer::Viewers;
-use crate::format::Kind;
+use crate::format::{ContextEntry, Kind};
 use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState, has_context};
 
 /// Below this size the layout does not fit; a message says so instead.
@@ -94,6 +94,11 @@ pub struct View<'a> {
     /// What the context pane showed in the last draw.
     pane_page: Option<Page>,
     question_height: QuestionHeight,
+    /// Whether the last draw showed the help, the intro or the session
+    /// list over the screen.
+    overlay_shown: bool,
+    /// Whether the last draw showed an image entry in the context pane.
+    image_shown: bool,
 }
 
 /// What a question's rows are kept by: the session, the revision of its
@@ -187,7 +192,22 @@ impl<'a> View<'a> {
             viewers: Viewers::new(picker),
             pane_page: None,
             question_height: QuestionHeight::default(),
+            overlay_shown: false,
+            image_shown: false,
         }
+    }
+
+    /// Whether the terminal must be cleared before `app` is drawn: an
+    /// overlay that the last draw showed over an image entry is closed.
+    ///
+    /// The Sixel and iTerm2 protocols of `ratatui-image` mark the cells an
+    /// image covers as skipped, so ratatui never writes them again, also
+    /// not where an overlay's text stood over the image. A cleared terminal
+    /// is drawn whole, image included. The image entry is the one the last
+    /// draw showed under the overlay; a session picked in the list may
+    /// have none, and then the clear only costs a full redraw.
+    pub fn must_clear(&self, app: &App) -> bool {
+        self.overlay_shown && self.image_shown && !overlay_open(app)
     }
 
     /// What the intro overlay showed in the last draw, for
@@ -209,8 +229,10 @@ impl<'a> View<'a> {
 }
 
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
-    // Whatever returns early draws no pane.
+    // Whatever returns early draws no pane and no overlay.
     view.pane_page = None;
+    view.overlay_shown = false;
+    view.image_shown = false;
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let text = format!(
@@ -276,6 +298,8 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     } else {
         draw_tab(frame, state, main, view)
     };
+    view.image_shown = view.pane_page.is_some()
+        && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
 
     let feedback = app.current_notice().or(state.message()).unwrap_or_default();
     frame.render_widget(Line::from(feedback).fg(Color::Yellow), status);
@@ -312,6 +336,18 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     if let Some(cursor) = app.list_cursor() {
         draw_session_list(frame, app, cursor, area);
     }
+    view.overlay_shown = overlay_open(app);
+}
+
+/// Whether `app` shows an overlay over the screen: the help, the intro or
+/// the session list. A screen too small for asqr shows none of them, and
+/// neither does an empty queue.
+fn overlay_open(app: &App) -> bool {
+    app.active().is_some_and(|state| {
+        state.help()
+            || app.list_cursor().is_some()
+            || (app.intro_scroll().is_some() && session_intro(state).is_some())
+    })
 }
 
 fn session_intro(state: &SessionState) -> Option<&str> {

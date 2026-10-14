@@ -175,3 +175,7 @@ Agent's choices within that design:
   the question's bar drops `n note`; on 60 columns it also drops
   `tab context`, where before it showed a cut `tab  co` and no
   `? help`.
+- ratatui never rewrites the cells under a Sixel or iTerm2 image, which
+  `ratatui-image` marks as skipped, so the first frame after the help,
+  the intro or the session list closes over an image entry clears the
+  terminal and draws the whole screen afresh.

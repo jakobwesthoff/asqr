@@ -177,6 +177,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- When the help, the intro or the session list closes while an image
+  shows, asqr clears the terminal and draws the whole screen again.
+  With Sixel and the iTerm2 protocol, ratatui never rewrites the cells
+  an image covers, so text of the overlay could stay on the image.
 - The warnings of `asqr ask` and `asqr validate` name a missing context
   file by its absolute path when the session file was given by its bare
   name. Before, they printed the path as the session file wrote it.
