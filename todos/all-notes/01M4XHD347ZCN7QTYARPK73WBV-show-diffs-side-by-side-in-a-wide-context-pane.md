@@ -2,7 +2,6 @@
 title: "Show diffs side by side in a wide context pane"
 kind: feature
 component: tui
-status: blocked
 origin: discussion
 tags: [ux]
 ---
@@ -23,14 +22,10 @@ changed lines aligned.
 - Unified below the width threshold, side by side above it; the
   threshold is tuned by trying it.
 - Hunks, context lines, line numbers and word emphasis work as in the
-  unified view.
+  unified view, which `src/tui/render/diff.rs` draws (ADR 33).
 
 ## Open questions
 
 - Whether the person can switch between the two views with a key.
 - How removed and added runs of different lengths are aligned (blank
   filler rows on the shorter side).
-
-## Relations
-
-- Depends on: [Show diff entries in the context pane as a unified diff](01M4XHQSDRCG7M60ZQ5M2D530J-show-diff-entries-in-the-context-pane-as-a-unified-diff.md)

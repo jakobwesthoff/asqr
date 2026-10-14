@@ -367,6 +367,7 @@ a name for the entry such as a file name:
   shown with it and the source of the language; `language` (optional)
   as for `text`. A unified diff written by the asker is not accepted:
   every hunk header needs exact line counts, which goes wrong easily.
+  asqr shows the change as a unified diff (section 7.7).
 
 Paths in context entries, for every type:
 
@@ -824,9 +825,46 @@ Context appears only when a question or one of its options has some.
   another entry shows that entry where the person left it, or at its top
   the first time, and coming back restores the first one's. Rows that
   show the question's entry share its position.
-- Text and diff entries show a placeholder that names the entry by its
-  `title` (a text entry's `path` or a diff's `name` without one) and
-  says that this asqr cannot show them yet.
+- Text entries show a placeholder that names the entry by its `title`
+  (its `path` without one) and says that this asqr cannot show them yet.
+
+Diffs (ADR 33):
+
+- asqr computes the diff from the old and the new text, line by line,
+  and shows it unified: hunks with 3 unchanged lines of context around
+  each change, and a dim line of `┈` between two hunks. A dim gutter
+  holds the old and the new line number, followed by the sign: `-` for
+  a removed line, `+` for an added one, a blank for an unchanged one.
+- Removed lines are red and added lines green, in the terminal's
+  palette, so its theme decides the shades. Inside a changed line the
+  changed words show reversed on top of the colour. Words end at blanks
+  and punctuation, so `get(url)` changed to `get(uri)` marks only `url`
+  and `uri`. A line that changed too much to pair with its old version
+  shows without marked words.
+- A diff without `old` starts with a dim "new file", one without `new`
+  with "deleted file"; when that file is empty, "empty file" follows.
+  Two sides with the same text show "no changes".
+- A last line without a newline gets a dim "no newline at end of file"
+  below it, but only when the other side ends with one: the removed and
+  the added line would look the same otherwise.
+- Lines do not wrap. A line wider than the pane ends in a dim `›`, and
+  the pane scrolls sideways (section 7.2) while the gutter and the sign
+  stay in place.
+- Tabs expand to the next stop of 4 columns, counted from the start of
+  the line. Any other control character shows as its picture from
+  Unicode's Control Pictures block, such as `␛` for escape; the C1
+  controls, which have none, show as `�`. This holds for every viewer
+  that shows lines of source.
+- Diffs have no syntax highlighting, and the pane shows the hunks only,
+  never the whole file.
+- Both sides are read when the entry is first shown. A relative path, a
+  missing or unreadable file, or a binary file (one with a NUL byte)
+  shows a placeholder saying "diff not shown" with the path and the
+  reason, for the first side that fails. Bytes that are not UTF-8 show
+  as `�`.
+- Computing a diff may take up to a second. Past that, asqr shows a
+  diff that is still correct but may mark more lines as changed than
+  needed.
 
 Images:
 
@@ -988,6 +1026,7 @@ not count or match carried-over questions.
 - Partial submits.
 - Question kinds beyond `single`, `multi` and `text`.
 - A tmux passthrough hint in the TUI (todo).
+- Diffs side by side in a wide pane (todo).
 - Editing a field in `$EDITOR` with `ctrl-g` (todo).
 - Windows support (it may work, but it is not tested).
 - Formats other than JSON.
@@ -1016,6 +1055,8 @@ MPL-2.0.
 | Timestamps | `jiff` (RFC 3339 with the offset) |
 | Logging | `tracing` and `tracing-subscriber`, into a file in the platform cache directory |
 | Markdown subset | `pulldown-cmark` |
+| Diffs | `similar` with its `inline` and `unicode` features |
+| Columns of source lines | `unicode-segmentation` and `unicode-width` |
 | Session ids | `ulid` |
 | Tests | `insta` for snapshots of rendered screens, `assert_cmd` for the CLI, `portable-pty` and `vt100` for the TUI in a pseudo-terminal |
 

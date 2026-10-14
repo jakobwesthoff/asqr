@@ -2183,22 +2183,30 @@ mod tests {
     }
 
     #[test]
-    fn text_and_diff_entries_show_a_placeholder_naming_them() {
+    fn a_diff_entry_shows_its_diff_under_its_title() {
+        let review = include_str!("../../../examples/sessions/retry-review.json");
+        let titled = app(&[("review", review)]);
+
+        insta::assert_snapshot!("diff_in_pane", screen(&titled, 120, 20));
+
+        // Without a title the header names the file.
+        let without_title = review.replace(r#""title": "Retry with backoff","#, "");
+        let untitled = app(&[("review", &without_title)]);
+        let text = screen(&untitled, 120, 20).to_string();
+        assert!(text.contains("fetch.rs"), "{text}");
+    }
+
+    #[test]
+    fn text_entries_show_a_placeholder_naming_them() {
         let review = include_str!("../../../examples/sessions/retry-review.json");
         let mut titled = app(&[("review", review)]);
-
-        insta::assert_snapshot!("diff_placeholder", screen(&titled, 120, 20));
         keys(&mut titled, "l");
         insta::assert_snapshot!("text_placeholder", screen(&titled, 80, 24));
 
         // Without a title the placeholder names the file, or nothing for
         // inline text.
-        let without_titles = review
-            .replace(r#""title": "Retry with backoff","#, "")
-            .replace(r#""title": "short.md", "#, "");
-        let mut untitled = app(&[("review", &without_titles)]);
-        let text = screen(&untitled, 120, 20).to_string();
-        assert!(text.contains("src/fetch.rs"), "{text}");
+        let without_title = review.replace(r#""title": "short.md", "#, "");
+        let mut untitled = app(&[("review", &without_title)]);
         keys(&mut untitled, "l");
         let text = screen(&untitled, 120, 20).to_string();
         assert!(text.contains("text not shown"), "{text}");
@@ -2216,15 +2224,15 @@ mod tests {
         assert!(text.contains("pick one"), "z goes back:\n{text}");
     }
 
-    /// A question with an own answer and a diff whose title takes more
-    /// lines than the pane below the question has at 80×24.
+    /// A question with an own answer and a new file of more lines than
+    /// the pane below the question has at 80×24.
     fn long_context() -> App {
-        let title = "a title long enough to wrap onto many lines of the pane ".repeat(14);
+        let lines: String = (1..=30).map(|line| format!("line {line}\\n")).collect();
         app(&[(
             "long",
             &format!(
                 r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Merge it?", "kind": "single", "custom": true,
-                    "context": [{{"type": "diff", "title": {title:?}, "new": {{"text": "x"}}}}],
+                    "context": [{{"type": "diff", "title": "Thirty lines", "new": {{"text": "{lines}"}}}}],
                     "options": [{{"id": "a", "label": "Yes"}}]}}]}}"#
             ),
         )])
@@ -2255,7 +2263,7 @@ mod tests {
         special(&mut app, KeyCode::PageDown);
         let backend = drawn(&mut app);
         insta::assert_snapshot!("pane_focused_scrolled", backend);
-        let header = row_starting_with(&backend, "a title");
+        let header = row_starting_with(&backend, "Thirty lines");
         assert!(
             backend.buffer()[(1, header)]
                 .modifier

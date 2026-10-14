@@ -1,0 +1,8 @@
+---
+source: src/tui/render/diff.rs
+expression: "shown(&mut viewer, 40, 0)"
+---
+"1 1   one                               "
+"2   - two                               "
+"no newline at end of file               "
+"  2 + two                               "

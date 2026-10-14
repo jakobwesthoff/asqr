@@ -13,8 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   question that helps to answer it. An entry is an image, a text (a
   file or inline, such as source code, a log or Markdown) or a diff,
   which asqr computes from the old and the new text. A question or
-  option holds one entry. This version shows text and diff entries as a
+  option holds one entry. This version shows text entries as a
   placeholder that names them.
+- A diff entry shows as a unified diff: hunks with 3 lines of context, a
+  separator between hunks, the old and the new line number in a dim
+  gutter, removed lines red and added lines green, and the changed words
+  of a changed line marked. A diff without old text is a new file, one
+  without new text a deleted one. Long lines do not wrap; the pane
+  scrolls sideways and a `›` marks a cut line. Tabs expand to stops of 4
+  columns, and other control characters show as their pictures, such as
+  `␛`. The agent skill describes what to put into `old`, `new`, `name`
+  and `title`.
 - An image entry takes `"enlarge": false` to keep the image at its
   natural size where it fits, in the pane and full screen, instead of
   scaling it up to fill the space. A larger image still shrinks. The

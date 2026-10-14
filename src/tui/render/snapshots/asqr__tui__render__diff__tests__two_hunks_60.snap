@@ -1,0 +1,20 @@
+---
+source: src/tui/render/diff.rs
+expression: "shown(&mut viewer, 60, 0)"
+---
+" 2  2                                                       "
+" 3  3   pub struct Fetcher {                                "
+" 4  4       client: Client,                                 "
+"    5 +     retries: u32,                                   "
+" 5  6   }                                                   "
+" 6  7                                                       "
+" 7  8   impl Fetcher {                                      "
+"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+"10 11       }                                               "
+"11 12                                                       "
+"12 13       pub fn fetch(&self, url: &str) -> Result<Respon›"
+"13    -         self.client.get(url)                        "
+"   14 +         self.client.get(url).retry(self.retries)    "
+"14 15       }                                               "
+"15 16                                                       "
+"16 17       pub fn close(self) {                            "

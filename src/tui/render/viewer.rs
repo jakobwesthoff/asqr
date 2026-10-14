@@ -16,6 +16,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Widget};
 use ratatui_image::picker::Picker;
 
+use super::diff::DiffViewer;
 use super::images::Image;
 use super::screen::wrap;
 use crate::format::ContextEntry;
@@ -177,19 +178,14 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
             picker: picker.clone(),
             image: None,
         }),
-        // TODO: replace with the text and diff viewers, see the todos
-        // `01M4XHQSD1EM17QD87CFB3VWMG-show-text-entries-in-the-context-pane-with-syntax-highlighting.md`
-        // and `01M4XHQSDRCG7M60ZQ5M2D530J-show-diff-entries-in-the-context-pane-as-a-unified-diff.md`.
+        // TODO: replace with the text viewer, see the todo
+        // `01M4XHQSD1EM17QD87CFB3VWMG-show-text-entries-in-the-context-pane-with-syntax-highlighting.md`.
         ContextEntry::Text(text) => Box::new(Placeholder::new(
             "text not shown",
             text.title.as_ref().or(text.path.as_ref()),
             "this asqr cannot show text entries yet",
         )),
-        ContextEntry::Diff(diff) => Box::new(Placeholder::new(
-            "diff not shown",
-            diff.title.as_ref().or(diff.name.as_ref()),
-            "this asqr cannot show diffs yet",
-        )),
+        ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff)),
     }
 }
 
@@ -231,21 +227,26 @@ impl Viewer for ImageViewer {
 }
 
 // ---------------------------------------------------------------------
-// Entries without a viewer of their own
+// Placeholders
 // ---------------------------------------------------------------------
 
-/// Three lines that name an entry this asqr cannot show, the way an image
-/// placeholder names its file, wrapped to the body.
-struct Placeholder {
+/// Up to three lines that name an entry this asqr cannot show, or a file
+/// it cannot read, and say why, the way an image placeholder names its
+/// file, wrapped to the body.
+pub(super) struct Placeholder {
     lines: Vec<Line<'static>>,
     wrapped: Vec<Line<'static>>,
 }
 
 impl Placeholder {
-    fn new(heading: &'static str, name: Option<&String>, reason: &'static str) -> Self {
+    pub(super) fn new(
+        heading: &'static str,
+        name: Option<&String>,
+        reason: impl Into<String>,
+    ) -> Self {
         let mut lines = vec![Line::from(heading).dim()];
         lines.extend(name.map(|name| Line::from(name.clone())));
-        lines.push(Line::from(reason).dim());
+        lines.push(Line::from(reason.into()).dim());
         Placeholder {
             lines,
             wrapped: Vec::new(),
@@ -506,46 +507,63 @@ mod tests {
 
     #[test]
     fn a_placeholder_wraps_to_the_body_and_counts_its_lines() {
-        let diff = entry(r#"{"type": "diff", "name": "src/fetch.rs", "new": {"text": "x"}}"#);
+        let text = entry(r#"{"type": "text", "path": "/src/fetch.rs"}"#);
         let mut viewers = viewers();
 
-        let (_, size) = viewers.laid_out("s", QUESTION, &diff, 40, 10);
+        let (_, size) = viewers.laid_out("s", QUESTION, &text, 40, 10);
         assert_eq!(
             size,
             ContentSize {
                 lines: 3,
-                columns: 31
+                columns: 38
             },
             "as wide as its widest line"
         );
-        let (_, size) = viewers.laid_out("s", QUESTION, &diff, 20, 10);
+        let (_, size) = viewers.laid_out("s", QUESTION, &text, 20, 10);
         assert_eq!(
             size,
             ContentSize {
-                lines: 4,
-                columns: 17
+                lines: 5,
+                columns: 18
             },
-            "the reason takes two lines at 20 columns"
+            "the reason takes three lines at 20 columns"
         );
-        let (_, size) = viewers.laid_out("s", QUESTION, &diff, 16, 10);
+        let (_, size) = viewers.laid_out("s", QUESTION, &text, 9, 10);
         assert_eq!(
-            size.columns, 16,
-            "the blank after `cannot`, hanging past the edge, does not count"
+            size.columns, 9,
+            "the blank after `asqr`, hanging past the edge, does not count"
         );
 
         assert_eq!(
-            drawn(&diff, 40, 3, 0),
+            drawn(&text, 40, 3, 0),
             [
-                "diff not shown",
-                "src/fetch.rs",
-                "this asqr cannot show diffs yet"
+                "text not shown",
+                "/src/fetch.rs",
+                "this asqr cannot show text entries yet"
             ]
         );
         assert_eq!(
-            drawn(&diff, 40, 3, 1),
-            ["src/fetch.rs", "this asqr cannot show diffs yet", ""],
+            drawn(&text, 40, 3, 1),
+            [
+                "/src/fetch.rs",
+                "this asqr cannot show text entries yet",
+                ""
+            ],
             "it starts at the offset"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Diffs
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn a_diff_entry_shows_its_diff() {
+        let diff = entry(
+            r#"{"type": "diff", "name": "src/fetch.rs", "old": {"text": "get(url)\n"}, "new": {"text": "get(uri)\n"}}"#,
+        );
+
+        assert_eq!(drawn(&diff, 40, 2, 0), ["1   - get(url)", "  1 + get(uri)"]);
     }
 
     #[test]

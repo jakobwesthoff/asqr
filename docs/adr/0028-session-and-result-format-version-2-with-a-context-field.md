@@ -16,6 +16,8 @@ Amended by [31. Make the context area a pane with a header, focus and scrolling]
 
 Amended by [32. Let an image entry opt out of enlarging](0032-let-an-image-entry-opt-out-of-enlarging.md)
 
+Amended by [33. Show diffs as a unified diff computed with similar](0033-show-diffs-as-a-unified-diff-computed-with-similar.md)
+
 ## Context
 
 The user asked on 2026-10-14 for a context pane next to the question:
@@ -84,8 +86,9 @@ Agent's choices within that design:
 - The version is checked on the raw JSON before the file is parsed into
   a session. A version 1 file whose shape does not parse under version 2
   still gets the refusal with the hint, not a parser error.
-- Until the viewers land, text and diff entries show a placeholder that
-  names them, and `o` and `z` act on image entries only.
+- Until the text viewer lands, text entries show a placeholder that
+  names them, and `o` and `z` act on image entries only. Diff entries
+  show as a unified diff (ADR 33).
 
 ## Consequences
 

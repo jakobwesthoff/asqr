@@ -32,4 +32,3 @@ configured app for the file type opens it.
 ## Relations
 
 - Depends on: [Show text entries in the context pane with syntax highlighting](01M4XHQSD1EM17QD87CFB3VWMG-show-text-entries-in-the-context-pane-with-syntax-highlighting.md)
-- Depends on: [Show diff entries in the context pane as a unified diff](01M4XHQSDRCG7M60ZQ5M2D530J-show-diff-entries-in-the-context-pane-as-a-unified-diff.md)

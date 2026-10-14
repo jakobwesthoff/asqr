@@ -1,0 +1,5 @@
+---
+source: src/tui/render/diff.rs
+expression: "shown(&mut viewer, 30, 0)"
+---
+"no changes                    "

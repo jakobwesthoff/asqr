@@ -30,13 +30,15 @@ and skill changes for its part.
 The format step, session and result files in format version 2 with a
 `context` field, has landed (ADR 28), and so have the layout step, which
 caps the question at a reading width and places the context area
-beside or below it (ADR 30), and the pane step, which made that area a
-pane with a header, viewers, focus and scrolling (ADR 31). "Show text
-entries in the context pane with syntax highlighting" and "Show diff
-entries in the context pane as a unified diff" come next; each
+beside or below it (ADR 30), the pane step, which made that area a
+pane with a header, viewers, focus and scrolling (ADR 31), and the diff
+step, which shows diff entries as a unified diff (ADR 33). "Show text
+entries in the context pane with syntax highlighting" comes next; it
 implements the pane's `Viewer` trait (`src/tui/render/viewer.rs`) in
-place of the placeholder viewer there. The text viewer uses the shared
-line renderer of patine 1.5.0, published 2026-10-14.
+place of the placeholder viewer there, and draws source lines through
+`src/tui/render/source_line.rs` as the diff viewer does. The text
+viewer uses the shared line renderer of patine 1.5.0, published
+2026-10-14.
 
 Full Markdown in question texts ships in the same release as its own
 todo; the wrapped own answer (ADR 27) and the session note on the review
@@ -64,7 +66,8 @@ first builds it.
   own, otherwise the question's (`shown_entry`). The context pane
   (ADR 31, `src/tui/render/context.rs`) shows a header that names the
   entry and the entry's viewer below it. Image entries show as images,
-  text and diff entries as a placeholder viewer that names them. `tab`
+  diff entries as a unified diff (ADR 33, `src/tui/render/diff.rs`),
+  and text entries as a placeholder viewer that names them. `tab`
   focuses the pane, the page keys scroll it from anywhere, and each
   entry keeps its scroll position. `o` opens the shown image in the
   system viewer and ignores text and diff entries; `z` shows any entry

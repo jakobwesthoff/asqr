@@ -43,6 +43,17 @@ still builds the placeholder for this kind of entry, with a TODO naming
 this todo. `Viewers` keeps a text or diff viewer, and what it derived,
 while its session waits, also when the terminal regains the focus.
 
+The diff viewer (ADR 33, `src/tui/render/diff.rs`) draws its lines
+through `SourceLine` in `src/tui/render/source_line.rs`: tabs expanded
+to stops of 4 columns, control characters shown as their pictures,
+widths in terminal columns, and a column window that turns a wide
+character cut by an edge into blanks and ends a line cut at the right
+in a dim `›`. ADR 33 makes these rules hold for every viewer of source
+lines, so this viewer draws through the same module; highlighted runs
+become its styled pieces. The line number gutter is each viewer's own.
+A file that cannot be read shows through `Placeholder` in `viewer.rs`,
+as in the diff viewer.
+
 ## Relations
 
 - Part of: [Split the TUI into a question pane and a context pane](01M4XEGTAZ69KV9Y0ZTNYQJJ4X-split-the-tui-into-a-question-pane-and-a-context-pane.md)

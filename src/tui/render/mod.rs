@@ -5,11 +5,13 @@
 //! Drawing the TUI (spec section 7) from the state in [`super::App`].
 
 mod context;
+mod diff;
 mod images;
 pub mod markdown;
 mod panes;
 mod parts;
 mod screen;
+mod source_line;
 mod viewer;
 
 pub use images::may_query_protocol;

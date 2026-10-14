@@ -14,6 +14,8 @@ Amends [30. Cap the question at a reading width and place context by the termina
 
 Amended by [32. Let an image entry opt out of enlarging](0032-let-an-image-entry-opt-out-of-enlarging.md)
 
+Amended by [33. Show diffs as a unified diff computed with similar](0033-show-diffs-as-a-unified-diff-computed-with-similar.md)
+
 ## Context
 
 ADR 30 placed the context area beside or below the question. It drew an

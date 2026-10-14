@@ -116,12 +116,24 @@ Once asked, asqr fits best when:
     it the extension of `path`, then of `title`, decides. Markdown is
     rendered unless the entry says `"render": false`.
   - `{ "type": "diff", "old": {...}, "new": {...} }`: a change, which asqr
-    diffs itself. `old` and `new` are each `{ "path": "..." }` or
-    `{ "text": "..." }`. Leave out `old` for a new file and `new` for a
-    deleted one. `name` is the file name shown with the diff. Give the
-    two versions, never a unified diff of your own.
-  - This version of asqr shows text and diff entries as a placeholder
-    that names them; their viewers come in a later version.
+    diffs itself. `old` is the text before the change and `new` the text
+    after it, each `{ "path": "..." }` or `{ "text": "..." }`: two
+    versions of the same text, never a unified diff of your own, which
+    asqr would show as a changed file of `+` and `-` lines. The two
+    versions can be whole files or the same excerpt of both; the line
+    numbers then count from the excerpt's first line. Leave out
+    `old` for a new file and `new` for a deleted one. `name` is the
+    file's name, such as `src/fetch.rs`, shown in the header when there
+    is no `title`. Give a `title` that says what the change does, such
+    as "Retry with backoff".
+  - asqr shows a diff unified: only the changed lines with 3 unchanged
+    lines around each change, a separator between such hunks, the old
+    and the new line number of every line, removed lines red and added
+    lines green, and the changed words inside a changed line marked. A
+    long line does not wrap; the person scrolls sideways. There is no
+    syntax highlighting in a diff. Identical versions show "no changes".
+  - This version of asqr shows text entries as a placeholder that names
+    them; their viewer comes in a later version.
   - Keep a text or diff entry under 1 MiB (both sides of a diff
     together); `validate` and `ask` warn above that. Show an excerpt
     instead of a whole large file.
