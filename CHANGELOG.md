@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other optional field.
   asqr reads only regular files, so a directory or a FIFO shows a
   placeholder instead of stalling the screen, and of a text file at
-  most its first 8 MiB, under a dim "first 8 MiB shown".
+  most its first 8 MiB, under a dim "first 8 MiB shown" and above a dim
+  "… the rest is cut after 8 MiB".
 - A code entry shows highlighted in its language, through the Markdown
   renderer patine and the 8 colours of the terminal's palette, with line
   numbers in a dim gutter. The language comes from `language`,

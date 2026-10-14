@@ -91,7 +91,9 @@ Agent's choices within that design:
   writer, and a device such as `/dev/zero` would never end, so a path
   that is not a regular file is refused before it is opened, with "not
   a regular file". A file is read up to 8 MiB, and a longer one shows
-  its start under a dim "first 8 MiB shown". Reading off the drawing
+  its start under a dim "first 8 MiB shown" and above a dim "… the rest
+  is cut after 8 MiB", as the last hunk would otherwise look like the
+  end of the file to someone who scrolled there. Reading off the drawing
   thread would keep a large file from stalling the screen at all; it is
   not part of this decision.
 

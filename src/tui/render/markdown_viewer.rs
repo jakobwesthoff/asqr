@@ -12,7 +12,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 
 use super::patine_adapter::markdown_rows;
-use super::source_file::{CUT_NOTE, Source, Unreadable, read_source};
+use super::source_file::{CUT_NOTE, END_NOTE, Source, Unreadable, read_source};
 use super::source_line::SourceLine;
 use super::viewer::{ContentSize, Placeholder, Viewer};
 use crate::format::MarkdownEntry;
@@ -108,17 +108,20 @@ impl Viewer for MarkdownViewer {
                     self.renders += 1;
                 }
                 let columns = usize::from(width);
+                let note =
+                    |text| SourceLine::new([(text, Style::new().dim())]).wrap(columns, columns);
                 // The note of a cut file comes first, so it shows before
-                // the person scrolls to where the text stops.
-                *rows = if *cut {
-                    SourceLine::new([(CUT_NOTE, Style::new().dim())]).wrap(columns, columns)
-                } else {
-                    Vec::new()
-                };
+                // the person scrolls to where the text stops, and another
+                // one ends the text, so its end does not pass for the
+                // file's.
+                *rows = if *cut { note(CUT_NOTE) } else { Vec::new() };
                 rows.extend(markdown_rows(
                     &patine::render_lines(source, columns),
                     columns,
                 ));
+                if *cut {
+                    rows.extend(note(END_NOTE));
+                }
                 // Only a character wider than the whole body is wider than
                 // a row, and it shows cut.
                 let widest = rows.iter().map(SourceLine::width).max().unwrap_or(0);
@@ -324,22 +327,24 @@ mod tests {
     }
 
     #[test]
-    fn the_start_of_a_file_too_long_to_read_whole_says_so_first() {
+    fn the_start_of_a_file_too_long_to_read_whole_says_so_first_and_last() {
         let mut viewer = inline("unused");
         viewer.content = Some(content_of(Ok(Source {
             text: "**Plan**\n".into(),
             cut: true,
         })));
 
-        let buf = drawn(&mut viewer, 20, 2, Offset::default());
+        let buf = drawn(&mut viewer, 40, 3, Offset::default());
         assert_eq!(row(&buf, 0), "first 8 MiB shown");
         assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
         assert_eq!(row(&buf, 1), "Plan");
+        assert_eq!(row(&buf, 2), "… the rest is cut after 8 MiB");
+        assert!(buf[(0, 2)].modifier.contains(Modifier::DIM));
 
         assert_eq!(
             shown(&mut viewer, 10),
-            "\"first 8 Mi\"\n\"B shown   \"\n\"Plan      \"",
-            "the note breaks like a wide line, without a marker"
+            "\"first 8 Mi\"\n\"B shown   \"\n\"Plan      \"\n\"… the rest\"\n\" is cut af\"\n\"ter 8 MiB \"",
+            "the notes break like a wide line, without a marker"
         );
     }
 

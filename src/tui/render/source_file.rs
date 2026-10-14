@@ -18,9 +18,13 @@ use super::viewer::Placeholder;
 /// to gigabytes must not stall asqr or fill its memory.
 pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
-/// What a viewer shows, as a dim note, when it got only the first
-/// [`MAX_BYTES`] of a file.
+/// What a viewer shows, as a dim note above the text, when it got only
+/// the first [`MAX_BYTES`] of a file.
 pub const CUT_NOTE: &str = "first 8 MiB shown";
+
+/// The dim note after the text of such a file, so its end does not look
+/// like the end of the file.
+pub const END_NOTE: &str = "… the rest is cut after 8 MiB";
 
 /// The text of a source, and whether it is only the start of its file.
 #[derive(Debug, PartialEq, Eq)]

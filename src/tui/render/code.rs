@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 
 use super::patine_adapter::source_line;
-use super::source_file::{CUT_NOTE, Source, Unreadable, read_source};
+use super::source_file::{CUT_NOTE, END_NOTE, Source, Unreadable, read_source};
 use super::source_line::{SourceLine, columns};
 use super::viewer::{ContentSize, Placeholder, Viewer};
 use crate::format::CodeEntry;
@@ -129,21 +129,22 @@ impl Lines {
     }
 
     /// The rows above the lines: the note of a cut file, which says so
-    /// before the person scrolls to where the text stops.
+    /// before the person scrolls to where the text stops. The same number
+    /// of rows follows the lines, with the note that the rest is cut.
     fn notes(&self) -> usize {
         usize::from(self.cut)
     }
 
     fn size(&self, width: usize) -> ContentSize {
         let widest = self.lines.iter().map(SourceLine::width).max().unwrap_or(0);
-        // The note never scrolls, so it counts no wider than the body.
+        // The notes never scroll, so they count no wider than the body.
         let note = if self.cut {
-            columns(CUT_NOTE).min(width)
+            columns(CUT_NOTE).max(columns(END_NOTE)).min(width)
         } else {
             0
         };
         ContentSize {
-            lines: self.notes() + self.lines.len(),
+            lines: self.notes() + self.lines.len() + self.notes(),
             columns: (self.gutter_width() + widest).max(note),
         }
     }
@@ -161,6 +162,9 @@ impl Lines {
                 continue;
             };
             let Some(line) = self.lines.get(index) else {
+                if self.cut && index == self.lines.len() {
+                    buf.set_stringn(area.x, y, END_NOTE, usize::from(area.width), dim);
+                }
                 break;
             };
             let number = format!("{:>digits$} ", index + 1);
@@ -434,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn the_start_of_a_file_too_long_to_read_whole_says_so_above_its_lines() {
+    fn the_start_of_a_file_too_long_to_read_whole_says_so_above_and_below_its_lines() {
         let mut viewer = CodeViewer::new(&entry(r#"{"type": "code", "path": "/var/log/big.log"}"#));
         viewer.content = Some(viewer.content_of(Ok(Source {
             text: "one\ntwo\n".into(),
@@ -444,20 +448,30 @@ mod tests {
         assert_eq!(
             viewer.lay_out(12, 3),
             ContentSize {
-                lines: 3,
+                lines: 4,
                 columns: 12
             },
-            "the note counts no wider than the body"
+            "the notes count no wider than the body"
         );
-        let buf = drawn(&mut viewer, 20, 3, Offset::default());
+        let buf = drawn(&mut viewer, 40, 4, Offset::default());
         assert_eq!(row(&buf, 0), "first 8 MiB shown");
         assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
         assert_eq!(row(&buf, 1), "1 one");
         assert_eq!(row(&buf, 2), "2 two");
+        assert_eq!(row(&buf, 3), "… the rest is cut after 8 MiB");
+        assert!(buf[(0, 3)].modifier.contains(Modifier::DIM));
 
-        let buf = drawn(&mut viewer, 20, 3, Offset { top: 1, left: 0 });
+        let buf = drawn(&mut viewer, 40, 4, Offset { top: 1, left: 0 });
         assert_eq!(row(&buf, 0), "1 one", "the note scrolls away with the rows");
-        assert_eq!(row(&buf, 2), "", "nothing after the last line");
+        assert_eq!(row(&buf, 2), "… the rest is cut after 8 MiB");
+        assert_eq!(row(&buf, 3), "", "nothing after the note at the end");
+
+        let buf = drawn(&mut viewer, 40, 1, Offset { top: 3, left: 4 });
+        assert_eq!(
+            row(&buf, 0),
+            "… the rest is cut after 8 MiB",
+            "the note does not scroll sideways"
+        );
     }
 
     #[test]

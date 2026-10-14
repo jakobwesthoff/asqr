@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use similar::{Algorithm, ChangeTag, InlineChange, InlineChangeOptions, TextDiff};
 
-use super::source_file::{CUT_NOTE, Source, Unreadable, read_source};
+use super::source_file::{CUT_NOTE, END_NOTE, Source, Unreadable, read_source};
 use super::source_line::{SourceLine, columns};
 use super::viewer::{ContentSize, Placeholder, Viewer};
 use crate::format::{DiffEntry, DiffSide};
@@ -171,6 +171,9 @@ impl Rows {
             if endings_differ {
                 rows.push(Row::Note(ENDINGS_DIFFER));
             }
+            if cut {
+                rows.push(Row::Note(END_NOTE));
+            }
             return Rows { rows, digits: 0 };
         }
         if endings_differ {
@@ -206,6 +209,11 @@ impl Rows {
                     }
                 }
             }
+        }
+        // The last hunk ends where the cut side stops, which is not where
+        // its file ends.
+        if cut {
+            rows.push(Row::Note(END_NOTE));
         }
         let longest = diff.old_len().max(diff.new_len());
         Rows {
@@ -848,15 +856,32 @@ impl Fetcher {
     }
 
     #[test]
-    fn a_side_too_long_to_read_whole_says_so_above_the_hunks() {
+    fn a_side_too_long_to_read_whole_says_so_above_and_below_the_hunks() {
         let mut viewer = inline(None, None);
         viewer.content = Some(Content::Rows(Rows::of(Some("a\n"), Some("b\n"), true)));
 
-        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+        let buf = drawn(&mut viewer, 30, 4, Offset::default());
 
         assert_eq!(row(&buf, 0), "first 8 MiB shown");
         assert_eq!(with_modifier(&buf, 0, Modifier::DIM), "first 8 MiB shown");
         assert_eq!(row(&buf, 1), "1   - a");
+        assert_eq!(row(&buf, 3), "… the rest is cut after 8 MiB");
+        assert_eq!(
+            with_modifier(&buf, 3, Modifier::DIM),
+            "… the rest is cut after 8 MiB"
+        );
+    }
+
+    #[test]
+    fn sides_cut_alike_say_so_after_no_changes() {
+        let rows = Rows::of(Some("a\n"), Some("a\n"), true);
+        let mut viewer = inline(None, None);
+        viewer.content = Some(Content::Rows(rows));
+
+        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "no changes");
+        assert_eq!(row(&buf, 2), "… the rest is cut after 8 MiB");
     }
 
     #[test]

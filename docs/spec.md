@@ -1007,9 +1007,11 @@ Diffs (ADR 33):
   a directory or a FIFO, or a binary file (one with a NUL byte) shows a
   placeholder saying "diff not shown" with the path and the reason, for
   the first side that fails. Bytes that are not UTF-8 show as `�`.
-- Of a file longer than 8 MiB, only the first 8 MiB are read, and a dim
-  "first 8 MiB shown" heads the content. In a diff, the rest of the
-  other side then shows as removed or added.
+- Of a file longer than 8 MiB, only the first 8 MiB are read. A dim
+  "first 8 MiB shown" heads the content and a dim "… the rest is cut
+  after 8 MiB" ends it, so the end of what shows does not pass for the
+  end of the file. In a diff, the rest of the other side then shows as
+  removed or added.
 - Computing a diff may take up to a second. Past that, asqr shows a
   diff that is still correct but may mark more lines as changed than
   needed.
@@ -1046,8 +1048,8 @@ Code and Markdown (ADR 34):
   binary file shows a placeholder saying "code not shown" or "markdown
   not shown" with the path and the reason. Bytes that are not UTF-8 show
   as `�`, and an entry without any text shows a dim "empty". A file
-  longer than 8 MiB shows its first 8 MiB under a dim "first 8 MiB
-  shown", as in a diff.
+  longer than 8 MiB shows its first 8 MiB between a dim "first 8 MiB
+  shown" and a dim "… the rest is cut after 8 MiB", as in a diff.
 
 Images:
 
