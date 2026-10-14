@@ -66,9 +66,10 @@ where
         terminal
             .draw(|frame| draw(frame, app, view, images))
             .context("drawing the screen")?;
-        // How far the intro overlay can scroll depends on the size it was
-        // drawn at.
+        // How far the intro overlay and the context pane can scroll depends
+        // on the size they were drawn at.
         app.set_intro_page(view.intro_page());
+        app.set_pane_page(view.pane_page());
         let Ok(event) = events.recv() else {
             return Ok(());
         };
@@ -327,6 +328,26 @@ mod tests {
         harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
 
         assert_eq!(harness.host.opened, ["/nowhere/cat.png"]);
+    }
+
+    #[test]
+    fn tab_focuses_the_pane_the_last_draw_showed() {
+        let mut harness = Harness::new();
+        harness.put("batch-01");
+
+        // The focused pane takes the `2`; back on the question, enter
+        // picks the first option.
+        harness
+            .run(vec![
+                key(KeyCode::Tab),
+                key(KeyCode::Char('2')),
+                key(KeyCode::Esc),
+                key(KeyCode::Enter),
+                key(KeyCode::Enter),
+            ])
+            .expect("runs");
+
+        assert_eq!(harness.result("batch-01").answers[0].selected, ["a"]);
     }
 
     #[test]

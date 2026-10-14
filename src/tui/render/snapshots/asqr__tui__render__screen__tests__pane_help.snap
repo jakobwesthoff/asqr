@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: drawn(&mut app)
+---
+" asqr · queue: default · 1 session waiting                                      "
+" long                                                                           "
+"   ☐ q  ✔ Review                                                                "
+"────────────────────────────────────────────────────────────────────────────────"
+" Merge it?                                                                      "
+" pick one, or type your own                                                     "
+"                                                                                "
+" ❯ ( ┌ Keys of the context pane ──────────────────────────────────────────┐     "
+"   ( │↑/↓, k/j   scroll by line                                           │     "
+"     │←/→, h/l   scroll sideways where lines are cut                      │     "
+" Note│pgup/pgdn  scroll by page, also ctrl-u/ctrl-d                       │     "
+" a ti│g/G        to the top and the bottom, also home/end                 │f 13 "
+" of t│z          show the context full screen and back                    │e    "
+" long│o          open an image in the system viewer                       │p    "
+" onto│tab, esc   back to the question                                     │ the "
+" pane│q, ctrl-c  quit, keeping the draft                                  │     "
+" enou│?          this help                                                │o    "
+" many└──────────────────────────────────────────────────── any key closes ┘pane "
+" a title long enough to wrap onto many lines of the pane a title long enough to "
+" wrap onto many lines of the pane a title long enough to wrap onto many lines   "
+" of the pane                                                                    "
+" this asqr cannot show diffs yet                                                "
+"                                                                                "
+" any key  close                                                                 "

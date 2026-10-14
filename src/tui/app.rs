@@ -119,6 +119,14 @@ impl App {
         self.intro_page = page;
     }
 
+    /// Hands the active session what its context pane showed in the last
+    /// draw, which is how far the pane's keys can scroll it.
+    pub fn set_pane_page(&mut self, page: Option<Page>) {
+        if let Some(state) = self.sessions.get_mut(self.active) {
+            state.set_pane_page(page);
+        }
+    }
+
     /// A key while the intro overlay is open. It reads like a pager, so
     /// only `esc`, `q` and `i` close it and other keys do nothing: a key
     /// meant to scroll never closes it by accident.
@@ -518,6 +526,31 @@ mod tests {
         let mut app = intro_open(10, 40);
         app.remove("intro");
         assert_eq!(app.intro_scroll(), None);
+    }
+
+    #[test]
+    fn the_pane_scrolls_as_far_as_the_last_draw_showed() {
+        let mut app = App::default();
+        app.set_pane_page(None);
+        let with_text: Session = serde_json::from_str(
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                "context": [{"type": "text", "text": "long"}], "options": [{"id": "a", "label": "A"}]}]}"#,
+        )
+        .expect("parses");
+        app.add(SessionState::new("text", with_text, None));
+        let page = Page {
+            rows: Extent {
+                shown: 10,
+                total: 15,
+            },
+            columns: Extent::default(),
+        };
+
+        app.set_pane_page(Some(page));
+        app.handle(code(KeyCode::PageDown));
+
+        let state = app.active().expect("active");
+        assert_eq!(state.pane_offset().top, 5, "the last line is at the bottom");
     }
 
     #[test]

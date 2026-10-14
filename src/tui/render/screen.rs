@@ -16,13 +16,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use super::Images;
-use super::context::{Shown, context_hint, draw_pane};
+use super::context::{context_hint, draw_pane};
 use super::markdown;
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
 use super::viewer::{DrawContext, Viewers};
 use crate::format::{Kind, Question};
-use crate::tui::{AnswerState, App, Extent, Focus, Offset, Row, SessionState};
+use crate::tui::{AnswerState, App, Extent, Focus, Page, Row, SessionState};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -74,6 +74,8 @@ pub struct View<'a> {
     intro_page: Extent,
     /// The viewers of the context entries shown so far.
     viewers: Viewers,
+    /// What the context pane showed in the last draw.
+    pane_page: Option<Page>,
 }
 
 impl<'a> View<'a> {
@@ -84,6 +86,7 @@ impl<'a> View<'a> {
             shown: None,
             intro_page: Extent::default(),
             viewers: Viewers::default(),
+            pane_page: None,
         }
     }
 
@@ -92,9 +95,17 @@ impl<'a> View<'a> {
     pub fn intro_page(&self) -> Extent {
         self.intro_page
     }
+
+    /// What the context pane showed in the last draw, for
+    /// [`App::set_pane_page`]; nothing when no pane showed.
+    pub fn pane_page(&self) -> Option<Page> {
+        self.pane_page
+    }
 }
 
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) {
+    // Whatever returns early draws no pane.
+    view.pane_page = None;
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let text = format!(
@@ -155,28 +166,15 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
     view.viewers
         .retain_sessions(|id| app.sessions().iter().any(|waiting| waiting.id() == id));
     let main = main.inner(ratatui::layout::Margin::new(1, 0));
-    let full_screen = state.shown_entry().filter(|_| state.full_screen());
-    if let Some((key, entry)) = full_screen {
-        let shown = Shown {
-            session: state.id(),
-            key,
-            entry,
-        };
+    view.pane_page = if state.full_screen() && state.shown_context().is_some() {
         let mut cx = DrawContext {
             images,
             full_screen: true,
         };
-        draw_pane(
-            frame,
-            &shown,
-            main,
-            Offset::default(),
-            &mut view.viewers,
-            &mut cx,
-        );
+        draw_pane(frame, state, main, &mut view.viewers, &mut cx)
     } else {
-        draw_tab(frame, state, main, view, images);
-    }
+        draw_tab(frame, state, main, view, images)
+    };
 
     let feedback = app.current_notice().or(state.message()).unwrap_or_default();
     frame.render_widget(Line::from(feedback).fg(Color::Yellow), status);
@@ -202,13 +200,13 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
             ("esc/q/i", "close"),
         ],
         Some(_) => vec![("esc/q/i", "close")],
-        None => key_hints(state, app.list_cursor().is_some()),
+        None => key_hints(state, app.list_cursor().is_some(), view.pane_page),
     };
     frame.render_widget(key_line(&hints), keys);
 
     // These overlays use the whole screen, so they fit the smallest one.
     if state.help() {
-        draw_help(frame, area);
+        draw_help(frame, area, state.pane_focused());
     }
     if let Some(cursor) = app.list_cursor() {
         draw_session_list(frame, app, cursor, area);
@@ -439,15 +437,15 @@ impl Content {
 }
 
 /// Draws the current tab into `area`: the question, or the review, at no
-/// more than the reading width, and the context area where
-/// [`panes::choose`] puts it.
+/// more than the reading width, and the context pane where
+/// [`panes::choose`] puts it. Says what the pane showed, if one did.
 fn draw_tab(
     frame: &mut Frame,
     state: &SessionState,
     area: Rect,
     view: &mut View,
     images: &mut Images,
-) {
+) -> Option<Page> {
     let arrangement = state.has_context_area().then(|| {
         let arrangement = panes::choose(area.width, area.height, view.layout, view.shown);
         if arrangement != Arrangement::Hint {
@@ -472,34 +470,20 @@ fn draw_tab(
         content_at(text_area.width)
     };
 
-    match (context_area, state.shown_entry()) {
-        (Some(area), shown) if arrangement == Some(Arrangement::Hint) => {
-            let entry = shown.map(|(_, entry)| entry);
-            frame.render_widget(context_hint(entry, area.width), area);
+    let pane = match context_area {
+        Some(area) if arrangement == Some(Arrangement::Hint) => {
+            frame.render_widget(context_hint(state.shown_context(), area.width), area);
+            None
         }
-        // A row without context leaves the pane empty, so it keeps its
-        // place while the cursor moves on.
-        (Some(area), Some((key, entry))) => {
-            let shown = Shown {
-                session: state.id(),
-                key,
-                entry,
-            };
+        Some(area) => {
             let mut cx = DrawContext {
                 images,
                 full_screen: false,
             };
-            draw_pane(
-                frame,
-                &shown,
-                area,
-                Offset::default(),
-                &mut view.viewers,
-                &mut cx,
-            );
+            draw_pane(frame, state, area, &mut view.viewers, &mut cx)
         }
-        _ => {}
-    }
+        None => None,
+    };
 
     // Scroll so the whole current row is visible, its start winning when
     // it is taller than the area.
@@ -510,6 +494,7 @@ fn draw_tab(
         Paragraph::new(content.lines).scroll((scroll as u16, 0)),
         text_area,
     );
+    pane
 }
 
 /// The mark in front of an option or the own answer.
@@ -603,7 +588,7 @@ fn question_content(state: &SessionState, question: &Question, width: usize) -> 
         content.lines.push(Line::default());
         let editing = state.focus() == Focus::Note;
         let note = match state.note_text() {
-            Some(text) => with_cursor(&text, state.field_cursor()),
+            Some(text) => with_cursor(&text, text_cursor(state)),
             None => answer
                 .note
                 .as_deref()
@@ -703,10 +688,8 @@ fn one_line_field(
         Span::from(head)
     }];
     if focused {
-        let cursor = state
-            .field_cursor()
-            .map_or(text.chars().count(), |(_, column)| column);
-        spans.extend(with_cursor(text, Some((0, cursor))).remove(0).spans);
+        let cursor = text_cursor(state).map(|(_, column)| (0, column));
+        spans.extend(with_cursor(text, cursor).remove(0).spans);
     } else if text.is_empty() {
         spans.push(Span::from("—").dim());
     } else {
@@ -725,7 +708,7 @@ fn one_line_field(
 /// with the counter after the last one.
 fn text_field(state: &SessionState, pointer: &str, text: &str, width: usize) -> Vec<Line<'static>> {
     let lines = match state.field_text() {
-        Some(typed) => with_cursor(&typed, state.field_cursor()),
+        Some(typed) => with_cursor(&typed, text_cursor(state)),
         None if text.is_empty() => vec![Line::from("—").dim()],
         None => plain_lines(text),
     };
@@ -845,6 +828,13 @@ fn level_colour(level: Level) -> Color {
 // ---------------------------------------------------------------------
 // Text helpers
 // ---------------------------------------------------------------------
+
+/// Where the text cursor of the field or note being typed in shows. It
+/// hides while the context pane has the focus, so only one place on the
+/// screen looks like it takes the keys.
+fn text_cursor(state: &SessionState) -> Option<(usize, usize)> {
+    state.field_cursor().filter(|_| !state.pane_focused())
+}
 
 fn plain_lines(text: &str) -> Vec<Line<'static>> {
     text.split('\n')
@@ -1000,26 +990,54 @@ impl Wrapped {
 // Overlays and the key bar
 // ---------------------------------------------------------------------
 
+/// Every key, in the 13 lines the help has on the smallest screen.
 const HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "move between the rows"),
     ("←/→, h/l", "previous and next question"),
     ("", "in a field: at the start or end of its text"),
     ("enter", "pick and go on; open or submit on the review"),
-    ("space", "toggle an option of a multi question"),
-    ("1-9", "pick or toggle an option directly"),
-    ("n", "write a note"),
-    ("ctrl-j", "new line in an answer or a note"),
+    (
+        "space, 1-9",
+        "toggle an option; pick or toggle one directly",
+    ),
+    (
+        "n, ctrl-j",
+        "write a note; a new line in an answer or a note",
+    ),
     ("esc", "stop typing in a field"),
-    ("L", "the list of waiting sessions"),
+    ("tab", "move into the context pane and back"),
+    ("pgup/pgdn", "scroll the context pane, also ctrl-u/ctrl-d"),
     ("o, z", "open the image; show the context full screen"),
+    ("L", "the list of waiting sessions"),
     ("q, ctrl-c", "quit, keeping the draft"),
     ("?, i", "this help; the whole intro"),
 ];
 
-fn draw_help(frame: &mut Frame, area: Rect) {
-    let area = center(area, 70, HELP.len() as u16 + 2);
+/// The keys of the focused context pane.
+const PANE_HELP: &[(&str, &str)] = &[
+    ("↑/↓, k/j", "scroll by line"),
+    ("←/→, h/l", "scroll sideways where lines are cut"),
+    ("pgup/pgdn", "scroll by page, also ctrl-u/ctrl-d"),
+    ("g/G", "to the top and the bottom, also home/end"),
+    ("z", "show the context full screen and back"),
+    ("o", "open an image in the system viewer"),
+    ("tab, esc", "back to the question"),
+    ("q, ctrl-c", "quit, keeping the draft"),
+    ("?", "this help"),
+];
+
+/// The keys that work where the focus is: the pane's while it has the
+/// focus, every key otherwise.
+fn draw_help(frame: &mut Frame, area: Rect, pane: bool) {
+    let (keys, title) = if pane {
+        (PANE_HELP, " Keys of the context pane ")
+    } else {
+        (HELP, " Keys ")
+    };
+    let height = u16::try_from(keys.len() + 2).expect("a short list");
+    let area = center(area, 70, height);
     frame.render_widget(Clear, area);
-    let lines: Vec<Line> = HELP
+    let lines: Vec<Line> = keys
         .iter()
         .map(|(keys, what)| {
             Line::from(vec![
@@ -1029,7 +1047,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         })
         .collect();
     let block = Block::bordered()
-        .title(" Keys ")
+        .title(title)
         .title_bottom(Line::from(" any key closes ").right_aligned());
     frame.render_widget(
         Paragraph::new(lines)
@@ -1084,11 +1102,44 @@ fn draw_session_list(frame: &mut Frame, app: &App, cursor: usize, area: Rect) {
 }
 
 /// The keys worth showing right now, without `n` where no note is taken.
-fn key_hints(state: &SessionState, list: bool) -> Vec<(&'static str, &'static str)> {
+/// `pane` is what the context pane showed in this draw: where one shows,
+/// `tab` leads into it, and while it has the focus its own keys show.
+fn key_hints(
+    state: &SessionState,
+    list: bool,
+    pane: Option<Page>,
+) -> Vec<(&'static str, &'static str)> {
+    if let Some(page) = pane.filter(|_| state.pane_focused() && !list && !state.help()) {
+        return pane_key_hints(state, page);
+    }
     let mut hints = all_key_hints(state, list);
     if state.question().is_some_and(|question| !question.note) {
         hints.retain(|(key, _)| *key != "n");
     }
+    if pane.is_some() && !list && !state.help() {
+        // Before the help, or last in a field, whose keys have no help.
+        let at = hints
+            .iter()
+            .position(|(key, _)| *key == "?")
+            .unwrap_or(hints.len());
+        hints.insert(at, ("tab", "context"));
+    }
+    hints
+}
+
+/// The keys of the focused pane. Sideways and `o` only show where they do
+/// something.
+fn pane_key_hints(state: &SessionState, page: Page) -> Vec<(&'static str, &'static str)> {
+    let mut hints = vec![("↑/↓", "scroll")];
+    if page.columns.total > page.columns.shown {
+        hints.push(("←/→", "sideways"));
+    }
+    hints.push(("pgup/pgdn", "page"));
+    hints.push(("z", "full screen"));
+    if state.shown_image().is_some() {
+        hints.push(("o", "open"));
+    }
+    hints.push(("tab/esc", "back"));
     hints
 }
 
@@ -2079,6 +2130,136 @@ mod tests {
         keys(&mut app, "z");
         let text = screen(&app, 80, 24).to_string();
         assert!(text.contains("pick one"), "z goes back:\n{text}");
+    }
+
+    /// A question with an own answer and a diff whose title takes more
+    /// lines than the pane below the question has at 80×24.
+    fn long_context() -> App {
+        let title = "a title long enough to wrap onto many lines of the pane ".repeat(14);
+        app(&[(
+            "long",
+            &format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Merge it?", "kind": "single", "custom": true,
+                    "context": [{{"type": "diff", "title": {title:?}, "new": {{"text": "x"}}}}],
+                    "options": [{{"id": "a", "label": "Yes"}}]}}]}}"#
+            ),
+        )])
+    }
+
+    /// The row of the screen whose text starts with `start` after the
+    /// margin.
+    fn row_starting_with(backend: &TestBackend, start: &str) -> u16 {
+        let row = screen_lines(backend)
+            .iter()
+            .position(|line| line.chars().skip(1).collect::<String>().starts_with(start))
+            .unwrap_or_else(|| panic!("no row starts with {start}:\n{backend}"));
+        u16::try_from(row).expect("a short screen")
+    }
+
+    #[test]
+    fn the_focused_pane_scrolls_and_shows_its_keys() {
+        let mut app = long_context();
+        let mut view = View::new("default", PaneLayout::Auto);
+        let mut drawn = |app: &mut App| {
+            let backend = screen_in(app, &mut view, 80, 24);
+            app.set_pane_page(view.pane_page());
+            backend
+        };
+        insta::assert_snapshot!("pane_unfocused", drawn(&mut app));
+
+        special(&mut app, KeyCode::Tab);
+        special(&mut app, KeyCode::PageDown);
+        let backend = drawn(&mut app);
+        insta::assert_snapshot!("pane_focused_scrolled", backend);
+        let header = row_starting_with(&backend, "a title");
+        assert!(
+            backend.buffer()[(1, header)]
+                .modifier
+                .contains(Modifier::REVERSED),
+            "the focused pane's header stands out:\n{backend}"
+        );
+
+        keys(&mut app, "?");
+        insta::assert_snapshot!("pane_help", drawn(&mut app));
+    }
+
+    #[test]
+    fn the_text_cursor_hides_while_the_pane_has_the_focus() {
+        let mut app = long_context();
+        let mut view = View::new("default", PaneLayout::Auto);
+        screen_in(&app, &mut view, 80, 24);
+        app.set_pane_page(view.pane_page());
+        keys(&mut app, "jmine");
+
+        let typing = screen_in(&app, &mut view, 80, 24);
+        let own = row_starting_with(&typing, "❯ (•) ✎");
+        let reversed_in = |backend: &TestBackend, row: u16| {
+            (0..80)
+                .filter(|&x| {
+                    backend.buffer()[(x, row)]
+                        .modifier
+                        .contains(Modifier::REVERSED)
+                })
+                .count()
+        };
+        assert_eq!(reversed_in(&typing, own), 1, "the cursor:\n{typing}");
+
+        special(&mut app, KeyCode::Tab);
+        let focused = screen_in(&app, &mut view, 80, 24);
+        assert_eq!(reversed_in(&focused, own), 0, "no cursor:\n{focused}");
+        assert!(focused.to_string().contains("mine"), "{focused}");
+    }
+
+    #[test]
+    fn the_focused_pane_names_sideways_and_open_only_where_they_work() {
+        let mut state = SessionState::new(
+            "pictured",
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                    "context": [{"type": "image", "path": "/pictures/cat.png"}], "options": [{"id": "a", "label": "A"}]}]}"#,
+            )
+            .expect("parses"),
+            None,
+        );
+        let page = |columns: usize| Page {
+            rows: Extent {
+                shown: 10,
+                total: 10,
+            },
+            columns: Extent {
+                shown: 20,
+                total: columns,
+            },
+        };
+        state.set_pane_page(Some(page(20)));
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let keys_of = |hints: Vec<(&str, &str)>| {
+            hints
+                .iter()
+                .map(|(key, _)| key.to_string())
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            keys_of(key_hints(&state, false, Some(page(20)))),
+            ["↑/↓", "pgup/pgdn", "z", "o", "tab/esc"]
+        );
+        assert_eq!(
+            keys_of(key_hints(&state, false, Some(page(50)))),
+            ["↑/↓", "←/→", "pgup/pgdn", "z", "o", "tab/esc"]
+        );
+
+        let text = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "context": [{"type": "text", "text": "x"}], "options": [{"id": "a", "label": "A"}]}]}"#;
+        let mut state =
+            SessionState::new("text", serde_json::from_str(text).expect("parses"), None);
+        state.set_pane_page(Some(page(20)));
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(
+            keys_of(key_hints(&state, false, Some(page(20)))),
+            ["↑/↓", "pgup/pgdn", "z", "tab/esc"],
+            "o opens images only"
+        );
     }
 
     #[test]

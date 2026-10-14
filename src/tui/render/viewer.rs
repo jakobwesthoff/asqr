@@ -74,6 +74,7 @@ pub struct Viewers {
     /// viewer of its own.
     viewers: HashMap<ViewerKey, (ContextEntry, Box<dyn Viewer>)>,
     /// How many viewers were built, so tests see that one is reused.
+    #[cfg(test)]
     built: usize,
 }
 
@@ -94,7 +95,10 @@ impl Viewers {
             .get(&key)
             .is_some_and(|(built_from, _)| built_from == entry);
         if !current {
-            self.built += 1;
+            #[cfg(test)]
+            {
+                self.built += 1;
+            }
             self.viewers
                 .insert(key.clone(), (entry.clone(), viewer_for(entry)));
         }

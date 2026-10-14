@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr · queue: default · 1 session waiting                                      "
+" long                                                                           "
+"   ☐ q  ✔ Review                                                                "
+"────────────────────────────────────────────────────────────────────────────────"
+" Merge it?                                                                      "
+" pick one, or type your own                                                     "
+"                                                                                "
+" ❯ ( ) 1. Yes                                                                   "
+"   ( ) ✎ Own answer: —                                                          "
+"                                                                                "
+" Notes: —                                                                       "
+" a title long enough to wrap onto many lines of the pane a title lo… 4–13 of 13 "
+" of the pane a title long enough to wrap onto many lines of the pane a title    "
+" long enough to wrap onto many lines of the pane a title long enough to wrap    "
+" onto many lines of the pane a title long enough to wrap onto many lines of the "
+" pane a title long enough to wrap onto many lines of the pane a title long      "
+" enough to wrap onto many lines of the pane a title long enough to wrap onto    "
+" many lines of the pane a title long enough to wrap onto many lines of the pane "
+" a title long enough to wrap onto many lines of the pane a title long enough to "
+" wrap onto many lines of the pane a title long enough to wrap onto many lines   "
+" of the pane                                                                    "
+" this asqr cannot show diffs yet                                                "
+"                                                                                "
+" ↑/↓  scroll   pgup/pgdn  page   z  full screen   tab/esc  back                 "

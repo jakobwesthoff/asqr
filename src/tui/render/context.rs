@@ -17,26 +17,20 @@ use ratatui::text::{Line, Span};
 use super::parts::cut;
 use super::viewer::{DrawContext, Viewers};
 use crate::format::ContextEntry;
-use crate::tui::{EntryKey, Extent, Offset, Page};
+use crate::tui::{Extent, Offset, Page, SessionState};
 
-/// The entry a pane shows, and where it belongs.
-pub struct Shown<'a> {
-    /// The id of the session the entry belongs to.
-    pub session: &'a str,
-    pub key: EntryKey,
-    pub entry: &'a ContextEntry,
-}
-
-/// Draws the pane for `shown` into `area`, from `offset` on, and says what
-/// it showed. The header takes the first line and the viewer the rest.
+/// Draws the pane for the entry `state` shows into `area`, scrolled as far
+/// as the person scrolled it, and says what it showed. The header takes the
+/// first line and the viewer the rest. A row without context leaves the
+/// pane empty, so it keeps its place while the cursor moves on.
 pub fn draw_pane(
     frame: &mut Frame,
-    shown: &Shown,
+    state: &SessionState,
     area: Rect,
-    offset: Offset,
     viewers: &mut Viewers,
     cx: &mut DrawContext,
-) -> Page {
+) -> Option<Page> {
+    let (key, entry) = state.shown_entry()?;
     let header = Rect { height: 1, ..area };
     let body = Rect {
         y: area.y + 1,
@@ -44,7 +38,7 @@ pub fn draw_pane(
         ..area
     };
 
-    let viewer = viewers.viewer(shown.session, shown.key, shown.entry);
+    let viewer = viewers.viewer(state.id(), key, entry);
     let size = viewer.lay_out(body.width, body.height);
     let width = usize::from(body.width);
     let page = Page {
@@ -64,13 +58,22 @@ pub fn draw_pane(
         },
     };
     // A smaller terminal may have left the offset past the end.
+    let offset = state.pane_offset();
     let offset = Offset {
         top: offset.top.min(page.rows.last_start()),
         left: offset.left.min(page.columns.last_start()),
     };
     viewer.draw(frame, body, offset, cx);
-    frame.render_widget(header_line(shown.entry, page, offset, header.width), header);
-    page
+    let line = header_line(entry, page, offset, header.width);
+    // The focused pane's header stands out the way the current tab does,
+    // so the person sees where the keys go.
+    let line = if state.pane_focused() {
+        line.reversed()
+    } else {
+        line
+    };
+    frame.render_widget(line, header);
+    Some(page)
 }
 
 /// The pane's header: the entry's name in bold, and on the right, where

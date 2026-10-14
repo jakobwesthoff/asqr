@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scrolls with `↑`/`↓`, `j`/`k`, `pgup`/`pgdn`, `ctrl-u`/`ctrl-d`,
   `g`/`G` and `home`/`end` when the intro is longer than the screen.
   `esc`, `q` and `i` close it.
+- `tab` moves into the context pane, which then scrolls with `↑`/`↓`,
+  `j`/`k`, `←`/`→`, `h`/`l`, `g`/`G`, `home`/`end`, `pgup`/`pgdn` and
+  `ctrl-u`/`ctrl-d`; `tab` or `esc` move back to the question or the
+  field being typed in. `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the
+  pane from anywhere, also while typing in a field. Each entry keeps its
+  scroll position while the person moves between options and
+  questions. The key bar and the help show the pane's keys while it has
+  the focus.
 - `--layout auto|beside|below` and `ASQR_LAYOUT` choose where a
   question's context goes. `auto`, the default, puts it beside the
   question when the terminal's area looks landscape and below it when
@@ -67,6 +75,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one row less for that line.
 - `z` shows any context entry full screen, not only an image, and the
   one-line hint on small terminals offers it for every entry.
+- `tab` no longer types a tab character into a field. While a context
+  pane shows, `ctrl-u` and `ctrl-d` scroll it instead of undoing and
+  deleting in a field.
+- The help puts `space` and `1`-`9` on one line and `n` and `ctrl-j` on
+  another, to make room for the context pane's keys.
+- The agent skill explains that context shows in a pane of its own that
+  the person scrolls and can show full screen, so long material belongs
+  there rather than in the question text.
 - The session title and intro wrap at the reading width instead of
   running to the edge. The title takes at most two lines, one on
   terminals under 24 rows. A cut intro ends in `… i: more`.

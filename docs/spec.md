@@ -649,6 +649,8 @@ On an option row (vim style plus arrows):
 | `L` | the list of waiting sessions |
 | `i` | the whole intro |
 | `o`, `z` | open the image shown in the system viewer; show the context shown full screen |
+| `tab` | move into the context pane; `tab` or `esc` move back |
+| `pgup`/`pgdn`, `ctrl-u`/`ctrl-d` | scroll the context pane by a page, also while typing in a field |
 | `q`, `ctrl-c` | quit, keeping the draft |
 | `?` | help |
 
@@ -666,6 +668,21 @@ On an option row (vim style plus arrows):
 - `z` shows the context pane of the entry shown over the question's
   area, header included, and toggles back; changing the question ends
   it. It acts on every kind of entry (ADR 31).
+- `tab` moves the focus into the context pane (section 7.7) wherever one
+  shows, also from a field, and does nothing otherwise, such as next to
+  the one-line hint. The focused pane takes every key: `↑`/`↓` and
+  `k`/`j` scroll by line, `←`/`→` and `h`/`l` by 4 columns sideways
+  where the entry's lines are cut at the pane's edge, `pgup`/`pgdn` and
+  `ctrl-u`/`ctrl-d` by page, `g`/`G` and `home`/`end` to the ends. `z`,
+  `o`, `q` and `?` keep their meaning and `ctrl-c` quits. `tab` and
+  `esc` give the focus back to where it was, a field being typed in
+  included, and every other key does nothing. While the pane has the
+  focus, its header is highlighted, a field's text cursor hides, and the
+  key bar and the help show the pane's keys. A pane that goes away, as
+  after a resize down to the hint, gives the focus back.
+- `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the context pane by a page
+  from anywhere, also from inside a field, while a pane shows. These
+  are the intro overlay's keys and conventions.
 - Help closes on any key.
 - `i` shows the session's whole intro in a frame over the question,
   styled as in the header (section 7.6), with the key bar left free. An
@@ -709,6 +726,11 @@ a frame (user, 2026-09-27):
   one-line fields like the own answer and wrap the same way.
 - Every edit is saved to the draft continuously, the session note and
   the reject reason included; there is no discard.
+- `tab` never types into a field: it moves the focus into the context
+  pane where one shows, and does nothing otherwise. Where a pane shows,
+  `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll it from inside a field;
+  without one, the field's editor keeps its own meaning for them, such
+  as `ctrl-d` deleting the character under the text cursor (ADR 31).
 
 Where the question sets `length`, a counter on a line of its own after
 the focused field's text, at the right edge, shows the length as text,
@@ -788,6 +810,11 @@ Context appears only when a question or one of its options has some.
   `4–15 of 120`. A row without context leaves the pane empty, header
   included (ADR 31).
 - Below the header, a viewer shows the entry. An image is scaled to fit.
+- The pane scrolls with its own keys (section 7.2). Every entry keeps
+  its scroll position while its session waits: moving to an option with
+  another entry shows that entry where the person left it, or at its top
+  the first time, and coming back restores the first one's. Rows that
+  show the question's entry share its position.
 - Text and diff entries show a placeholder that names the entry by its
   `title` (a text entry's `path` or a diff's `name` without one) and
   says that this asqr cannot show them yet.

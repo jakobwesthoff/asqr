@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: drawn(&mut app)
+---
+" asqr · queue: default · 1 session waiting                                      "
+" long                                                                           "
+"   ☐ q  ✔ Review                                                                "
+"────────────────────────────────────────────────────────────────────────────────"
+" Merge it?                                                                      "
+" pick one, or type your own                                                     "
+"                                                                                "
+" ❯ ( ) 1. Yes                                                                   "
+"   ( ) ✎ Own answer: —                                                          "
+"                                                                                "
+" Notes: —                                                                       "
+" a title long enough to wrap onto many lines of the pane a title lo… 1–10 of 13 "
+" diff not shown                                                                 "
+" a title long enough to wrap onto many lines of the pane a title long enough to "
+" wrap onto many lines of the pane a title long enough to wrap onto many lines   "
+" of the pane a title long enough to wrap onto many lines of the pane a title    "
+" long enough to wrap onto many lines of the pane a title long enough to wrap    "
+" onto many lines of the pane a title long enough to wrap onto many lines of the "
+" pane a title long enough to wrap onto many lines of the pane a title long      "
+" enough to wrap onto many lines of the pane a title long enough to wrap onto    "
+" many lines of the pane a title long enough to wrap onto many lines of the pane "
+" a title long enough to wrap onto many lines of the pane a title long enough to "
+"                                                                                "
+" ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ?  help   q "

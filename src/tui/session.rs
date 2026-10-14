@@ -13,8 +13,13 @@
 //! everything the state cannot do itself: saving the draft, finishing the
 //! session, quitting, opening an image, showing an overlay over all of it.
 
+use std::collections::HashMap;
+
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui_textarea::{CursorMove, TextArea};
+
+use super::scroll::scroll;
+use super::{Offset, Page};
 
 pub use crate::format::Length;
 use crate::format::{
@@ -152,6 +157,17 @@ pub struct SessionState {
     message: Option<String>,
     /// The context entry shown, drawn over the question's area (`z`).
     full_screen: bool,
+    /// The context pane takes the keys. Kept apart from `focus`, so the
+    /// field or note being typed in has its text and cursor again when the
+    /// pane gives the focus back.
+    pane_focus: bool,
+    /// What the context pane showed in the last draw; `None` when there was
+    /// no pane, as on a terminal that only had room for a hint.
+    pane_page: Option<Page>,
+    /// Where the person left each entry they scrolled. Offsets of different
+    /// entries have nothing to do with each other, so each entry keeps its
+    /// own, and one shown for the first time starts at its top.
+    offsets: HashMap<EntryKey, Offset>,
 }
 
 impl SessionState {
@@ -207,6 +223,9 @@ impl SessionState {
             help: false,
             message: None,
             full_screen: false,
+            pane_focus: false,
+            pane_page: None,
+            offsets: HashMap::new(),
         };
         state.arrive();
         state
@@ -260,6 +279,28 @@ impl SessionState {
 
     pub fn full_screen(&self) -> bool {
         self.full_screen
+    }
+
+    /// Whether the context pane takes the keys.
+    pub fn pane_focused(&self) -> bool {
+        self.pane_focus
+    }
+
+    /// Where the entry shown starts, as far as the person scrolled it.
+    pub fn pane_offset(&self) -> Offset {
+        self.shown_entry()
+            .and_then(|(key, _)| self.offsets.get(&key).copied())
+            .unwrap_or_default()
+    }
+
+    /// Takes what the last draw of the context pane showed, which depends
+    /// on the size of the terminal. Without a pane there is nothing to
+    /// focus, so a focused pane gives the focus back.
+    pub fn set_pane_page(&mut self, page: Option<Page>) {
+        self.pane_page = page;
+        if page.is_none() {
+            self.pane_focus = false;
+        }
     }
 
     /// The note to the whole session, as typed.
@@ -476,10 +517,70 @@ impl SessionState {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Effect::Quit;
         }
+        if let Some(effect) = self.pane_key(key) {
+            return effect;
+        }
         match self.focus {
             Focus::None => self.command(key),
             Focus::Field => self.field_key(key),
             Focus::Note => self.note_key(key),
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Keys of the context pane
+    // -----------------------------------------------------------------
+
+    /// The keys that belong to the context pane, before a field or the
+    /// question sees them; `None` leaves `key` to them.
+    ///
+    /// The focused pane reads like a pager: it takes every key, and only
+    /// `q`, `?`, `z` and `o` keep their meaning from the question. Without
+    /// the focus, `tab` and the page keys still reach it, also from a field,
+    /// as none of them types text (plan, *Keys*).
+    fn pane_key(&mut self, key: KeyEvent) -> Option<Effect> {
+        if self.pane_focus {
+            let effect = match key.code {
+                KeyCode::Tab | KeyCode::Esc => {
+                    self.pane_focus = false;
+                    Effect::None
+                }
+                KeyCode::Char('q' | '?' | 'z' | 'o') => self.command(key),
+                _ => {
+                    self.scroll_pane(key, true);
+                    Effect::None
+                }
+            };
+            return Some(effect);
+        }
+        match key.code {
+            // A tab never types: a tab character in a one-line answer is a
+            // mistake, and on a text question, whose field has the focus
+            // from the start, the pane would otherwise take `esc` first.
+            KeyCode::Tab => {
+                self.pane_focus = self.pane_page.is_some();
+                Some(Effect::None)
+            }
+            // Without a pane, `ctrl-u` and `ctrl-d` keep the meaning the
+            // field's editor gives them.
+            _ if self.scroll_pane(key, false) => Some(Effect::None),
+            _ => None,
+        }
+    }
+
+    /// Scrolls the entry shown when `key` scrolls the pane, and says
+    /// whether it did.
+    fn scroll_pane(&mut self, key: KeyEvent, focused: bool) -> bool {
+        let (Some(page), Some((entry, _))) = (self.pane_page, self.shown_entry()) else {
+            return false;
+        };
+        let offset = self.offsets.get(&entry).copied().unwrap_or_default();
+        match scroll(key, offset, page, focused) {
+            Some(scrolled) => {
+                self.offsets.insert(entry, scrolled);
+                true
+            }
+            None => false,
         }
     }
 
@@ -848,6 +949,7 @@ mod tests {
 
     use super::*;
     use crate::format::{Answer, SessionResult};
+    use crate::tui::Extent;
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [
         {"id": "single", "text": "?", "kind": "single", "custom": true,
@@ -1745,6 +1847,246 @@ mod tests {
             Effect::DraftChanged,
             "in a field, i is typed"
         );
+    }
+
+    // ---------------------------------------------------------------
+    // The context pane
+    // ---------------------------------------------------------------
+
+    /// A question whose text entry shows on every row but the second,
+    /// which has an entry of its own, then a text question with an image.
+    const WITH_CONTEXT: &str = r#"{"asqr": 2, "questions": [
+        {"id": "q", "text": "?", "kind": "single", "custom": true,
+         "context": [{"type": "text", "text": "the question's"}],
+         "options": [{"id": "a", "label": "A"},
+                     {"id": "b", "label": "B", "context": [{"type": "text", "text": "the option's"}]}]},
+        {"id": "t", "text": "?", "kind": "text", "context": [{"type": "image", "path": "/pictures/p.png"}]}
+    ]}"#;
+
+    /// What a draw of a pane 10 lines high and 20 columns wide showed: 40
+    /// lines of content 50 columns wide.
+    const PANE: Page = Page {
+        rows: Extent {
+            shown: 10,
+            total: 40,
+        },
+        columns: Extent {
+            shown: 20,
+            total: 50,
+        },
+    };
+
+    /// The session with `WITH_CONTEXT`, its pane drawn as `PANE`.
+    fn with_pane() -> SessionState {
+        let mut state = SessionState::new(
+            "batch",
+            serde_json::from_str(WITH_CONTEXT).expect("test session parses"),
+            None,
+        );
+        state.set_pane_page(Some(PANE));
+        state
+    }
+
+    fn top(state: &SessionState) -> usize {
+        state.pane_offset().top
+    }
+
+    #[test]
+    fn tab_gives_the_pane_the_focus_and_tab_or_esc_give_it_back() {
+        let mut state = with_pane();
+
+        for back in [code(KeyCode::Tab), code(KeyCode::Esc)] {
+            assert_eq!(state.handle(code(KeyCode::Tab)), Effect::None);
+            assert!(state.pane_focused());
+            assert_eq!(state.handle(back), Effect::None);
+            assert!(!state.pane_focused(), "{back:?}");
+            assert_eq!((state.tab(), state.row()), (0, 0), "the cursor stays");
+        }
+    }
+
+    #[test]
+    fn tab_does_nothing_where_no_pane_shows() {
+        let mut state = state();
+
+        state.handle(code(KeyCode::Tab));
+        assert!(!state.pane_focused());
+
+        let mut state = with_pane();
+        state.set_pane_page(None);
+        state.handle(code(KeyCode::Tab));
+        assert!(!state.pane_focused(), "a hint is no pane");
+    }
+
+    #[test]
+    fn tab_never_types_into_a_field() {
+        let mut state = state();
+        press(&mut state, "jjab");
+
+        assert_eq!(state.handle(code(KeyCode::Tab)), Effect::None);
+
+        assert_eq!(state.field_text().as_deref(), Some("ab"));
+    }
+
+    #[test]
+    fn the_focused_pane_scrolls_by_line_page_and_to_its_ends() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::Tab));
+
+        let mut scrolled = |event: KeyEvent| {
+            assert_eq!(state.handle(event), Effect::None);
+            state.pane_offset()
+        };
+        assert_eq!(scrolled(code(KeyCode::Char('j'))).top, 1);
+        assert_eq!(scrolled(code(KeyCode::Down)).top, 2);
+        assert_eq!(scrolled(code(KeyCode::Char('k'))).top, 1);
+        assert_eq!(scrolled(code(KeyCode::PageDown)).top, 11);
+        assert_eq!(scrolled(ctrl('d')).top, 21);
+        assert_eq!(scrolled(code(KeyCode::Char('G'))).top, 30);
+        assert_eq!(
+            scrolled(code(KeyCode::Char('j'))).top,
+            30,
+            "stops at the end"
+        );
+        assert_eq!(scrolled(ctrl('u')).top, 20);
+        assert_eq!(scrolled(code(KeyCode::Home)).top, 0);
+        assert_eq!(scrolled(code(KeyCode::End)).top, 30);
+        assert_eq!(scrolled(code(KeyCode::Char('g'))).top, 0);
+        assert_eq!(scrolled(code(KeyCode::Char('l'))).left, 4);
+        assert_eq!(scrolled(code(KeyCode::Right)).left, 8);
+        assert_eq!(scrolled(code(KeyCode::Left)).left, 4);
+        assert_eq!(scrolled(code(KeyCode::Char('h'))).left, 0);
+        assert_eq!((state.tab(), state.row()), (0, 0), "the question stays");
+    }
+
+    #[test]
+    fn the_focused_pane_takes_every_other_key_but_quit_help_z_and_o() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::Tab));
+
+        for ignored in ['1', 'n', ' ', 'L', 'i', 'x'] {
+            assert_eq!(press(&mut state, &ignored.to_string()), Effect::None);
+        }
+        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::None);
+        assert_eq!(state.answers()[0].selected, Vec::<String>::new());
+        assert_eq!(state.focus(), Focus::None, "no note was opened");
+        assert!(state.pane_focused());
+
+        press(&mut state, "z");
+        assert!(state.full_screen(), "z shows the entry full screen");
+        press(&mut state, "z");
+        assert!(!state.full_screen());
+        press(&mut state, "?");
+        assert!(state.help());
+        press(&mut state, "x");
+        assert_eq!(press(&mut state, "q"), Effect::Quit);
+    }
+
+    #[test]
+    fn o_opens_the_image_from_the_focused_pane() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::Right));
+        state.set_pane_page(Some(PANE));
+        state.handle(code(KeyCode::Tab));
+
+        assert_eq!(
+            press(&mut state, "o"),
+            Effect::OpenImage("/pictures/p.png".into())
+        );
+    }
+
+    #[test]
+    fn leaving_the_pane_returns_to_the_field_as_it_was() {
+        let mut state = with_pane();
+        press(&mut state, "jjown");
+        state.handle(code(KeyCode::Left));
+
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(press(&mut state, "j"), Effect::None, "j scrolls the pane");
+        state.handle(code(KeyCode::Esc));
+
+        assert_eq!(state.focus(), Focus::Field);
+        assert_eq!(state.field_cursor(), Some((0, 2)));
+        press(&mut state, "e");
+        assert_eq!(state.field_text().as_deref(), Some("owen"));
+    }
+
+    #[test]
+    fn page_keys_scroll_the_pane_from_the_question_and_from_a_field() {
+        let mut state = with_pane();
+
+        state.handle(code(KeyCode::PageDown));
+        assert_eq!(top(&state), 10);
+        state.handle(ctrl('d'));
+        assert_eq!(top(&state), 20);
+        assert_eq!(press(&mut state, "j"), Effect::None);
+        assert_eq!(state.row(), 1, "j still moves the cursor");
+
+        // The own answer shows the question's entry again.
+        press(&mut state, "j");
+        assert_eq!(state.focus(), Focus::Field);
+        press(&mut state, "ab");
+        state.handle(code(KeyCode::Left));
+        state.handle(ctrl('u'));
+        assert_eq!(top(&state), 10);
+        state.handle(code(KeyCode::PageUp));
+        assert_eq!(top(&state), 0);
+        assert_eq!(
+            state.field_text().as_deref(),
+            Some("ab"),
+            "ctrl-u did not undo"
+        );
+        state.handle(ctrl('d'));
+        assert_eq!(
+            state.field_text().as_deref(),
+            Some("ab"),
+            "nor ctrl-d delete"
+        );
+    }
+
+    #[test]
+    fn without_a_pane_fields_keep_their_own_ctrl_keys() {
+        let mut state = state();
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Left));
+
+        assert_eq!(state.handle(ctrl('d')), Effect::DraftChanged);
+
+        assert_eq!(state.field_text().as_deref(), Some("a"), "ctrl-d deleted");
+        assert_eq!(state.handle(code(KeyCode::PageDown)), Effect::None);
+    }
+
+    #[test]
+    fn each_entry_keeps_its_own_position() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::PageDown));
+        assert_eq!(top(&state), 10);
+
+        press(&mut state, "j");
+        assert_eq!(top(&state), 0, "the option's entry starts at its top");
+        state.handle(code(KeyCode::PageDown));
+        state.handle(code(KeyCode::PageDown));
+        assert_eq!(top(&state), 20);
+
+        press(&mut state, "k");
+        assert_eq!(top(&state), 10, "back on the question's entry");
+        state.handle(code(KeyCode::Right));
+        state.handle(code(KeyCode::Esc));
+        state.handle(code(KeyCode::Left));
+        assert_eq!(top(&state), 10, "kept while moving between questions");
+        press(&mut state, "j");
+        assert_eq!(top(&state), 20, "and the option's too");
+    }
+
+    #[test]
+    fn a_pane_that_goes_away_takes_the_focus_with_it() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::Tab));
+
+        state.set_pane_page(None);
+
+        assert!(!state.pane_focused());
+        press(&mut state, "j");
+        assert_eq!(state.row(), 1, "keys move the cursor again");
     }
 
     #[test]

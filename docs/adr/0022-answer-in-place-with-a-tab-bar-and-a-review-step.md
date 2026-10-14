@@ -18,6 +18,8 @@ Amended by [29. Let the person add a note to the whole session](0029-let-the-per
 
 Amended by [30. Cap the question at a reading width and place context by the terminal's shape](0030-cap-the-question-at-a-reading-width-and-place-context-by-the-terminals-shape.md)
 
+Amended by [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
+
 ## Context
 
 The user looked at the first screens and the key model of ADR 8 and

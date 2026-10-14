@@ -86,12 +86,19 @@ Once asked, asqr fits best when:
 - `min` and `max` count the picked options; the own answer of a `multi`
   comes on top of them.
 - `default: true` on an option preselects it.
-- `context` holds material that helps to decide, shown next to the
-  question: a list with one entry, since asqr shows one per question or
-  option. An option can have its own `context`, shown instead while the
-  cursor is on that option, so the person can flip through variants in
-  one question and pick one. Every entry has a `type` and an optional
-  `title`:
+- `context` holds material that helps to decide: a list with one entry,
+  since asqr shows one per question or option. The person sees it in a
+  pane of its own, beside the question on a wide terminal and below it
+  on a tall one, under a header line with the entry's `title` (or its
+  file name). The pane scrolls on its own, and `z` shows the entry full
+  screen; a terminal too small for the pane shows one line naming the
+  entry, and `z` opens it. So put long material, such as a file, a log,
+  a diff or a screenshot, into `context` and keep the question `text` to
+  what the person reads to decide. Give each entry a `title` that says
+  what it is. An option can have its own `context`, shown instead while
+  the cursor is on that option, so the person can flip through variants
+  in one question and pick one. Every entry has a `type` and an
+  optional `title`:
   - `{ "type": "image", "path": "..." }`: an image file. asqr shows PNG,
     JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM, QOI,
     DDS, OpenEXR, HDR and farbfeld. It cannot show SVG or AVIF, so
@@ -128,8 +135,9 @@ Once asked, asqr fits best when:
   pressing `i`. Keep it to a sentence or two that
   identifies the session, such as which round of which piece of work it
   is. Everything the person needs to answer a question goes into that
-  question's `text`: it wraps instead of being cut, takes the Markdown
-  above, and a little context there makes the decision easier.
+  question's `text` or its `context`: the text wraps instead of being
+  cut and takes the Markdown above, and a little context there makes
+  the decision easier, while longer material goes into `context`.
 - Leave the session's `id` out: `asqr ask` assigns one and prints it.
   Questions and options always need their own `id`.
 
