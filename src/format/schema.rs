@@ -100,6 +100,8 @@ mod tests {
             let context = &schema["$defs"][holder]["properties"]["context"];
             assert_eq!(context["maxItems"], 1, "{holder}");
             assert!(context.get("minItems").is_none(), "{holder}");
+            // A `null` context is no context, as the parser reads it.
+            assert_eq!(context["type"], json!(["array", "null"]), "{holder}");
         }
     }
 

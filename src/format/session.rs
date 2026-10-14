@@ -28,8 +28,50 @@ pub enum ParseError {
     #[error("{}", .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
     Refused(Vec<ValidationError>),
 
+    /// The file is no JSON at all.
     #[error("not a session file: {0}")]
     NotASession(serde_json::Error),
+
+    /// The JSON is not shaped like a session.
+    #[error("not a session file: {0}")]
+    Shape(ShapeError),
+}
+
+/// A field whose value has the wrong type, or a required field that is
+/// missing, with the path to it. A file with several questions needs the
+/// path, as the parser's own message names no question.
+#[derive(Debug)]
+pub struct ShapeError {
+    path: serde_path_to_error::Path,
+    error: serde_json::Error,
+}
+
+impl ShapeError {
+    /// Whether the error is about a `context` field itself rather than one
+    /// of its entries. A `null` context parses, so this is a value of
+    /// another type, most likely a single entry written without its list.
+    fn context_is_no_list(&self) -> bool {
+        matches!(
+            self.path.iter().next_back(),
+            Some(serde_path_to_error::Segment::Map { key }) if key == "context"
+        )
+    }
+}
+
+impl std::fmt::Display for ShapeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // An error of the whole file, such as a missing `questions`, has an
+        // empty path, which the crate writes as `.`.
+        if self.path.iter().next().is_some() {
+            write!(formatter, "{}: ", self.path)?;
+        }
+        let hint = if self.context_is_no_list() {
+            "; context is a list with one entry: wrap the entry in [ ]"
+        } else {
+            ""
+        };
+        write!(formatter, "{}{hint}", self.error)
+    }
 }
 
 /// Reads a session from `bytes`, returning the raw JSON too, which keeps
@@ -61,7 +103,12 @@ pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
     if !text_entries.is_empty() {
         return Err(ParseError::Refused(text_entries));
     }
-    let session = serde_json::from_value(raw.clone()).map_err(ParseError::NotASession)?;
+    let session = serde_path_to_error::deserialize(raw.clone()).map_err(|error| {
+        ParseError::Shape(ShapeError {
+            path: error.path().clone(),
+            error: error.into_inner(),
+        })
+    })?;
     Ok((raw, session))
 }
 
@@ -157,8 +204,12 @@ pub struct Question {
 
     /// Material shown next to the question that helps to answer it. Most
     /// questions have none. A list, of which this asqr shows one entry.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[schemars(length(max = MAX_CONTEXT_ENTRIES))]
+    #[serde(
+        default,
+        deserialize_with = "null_as_no_context",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    #[schemars(with = "Option<Vec<ContextEntry>>", length(max = MAX_CONTEXT_ENTRIES))]
     pub context: Vec<ContextEntry>,
 
     /// Whether the person may add a note to this question.
@@ -175,6 +226,16 @@ pub struct Question {
 
 fn note_allowed_by_default() -> bool {
     true
+}
+
+/// Reads a `null` context as an empty list. A `null` counts as a missing
+/// field everywhere in the format (spec section 4), and the other optional
+/// fields get that from their `Option`.
+fn null_as_no_context<'de, D>(deserializer: D) -> Result<Vec<ContextEntry>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<Vec<ContextEntry>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -206,8 +267,12 @@ pub struct Choice {
 
     /// Shown in place of the question's context while the cursor is on
     /// this option, so the person can compare options before picking.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[schemars(length(max = MAX_CONTEXT_ENTRIES))]
+    #[serde(
+        default,
+        deserialize_with = "null_as_no_context",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    #[schemars(with = "Option<Vec<ContextEntry>>", length(max = MAX_CONTEXT_ENTRIES))]
     pub context: Vec<ContextEntry>,
 }
 
@@ -462,6 +527,93 @@ mod tests {
                 "{error}"
             );
         }
+    }
+
+    fn shape_error(file: &str) -> String {
+        parse_session(file.as_bytes())
+            .expect_err("the shape is refused")
+            .to_string()
+    }
+
+    #[test]
+    fn a_shape_error_names_the_field_it_is_about() {
+        // Without the path an agent learns that some list is a map, but
+        // not which of its questions or fields holds it.
+        assert_eq!(
+            shape_error(
+                r#"{"asqr": 2, "questions": [{"id": "a", "text": "?", "kind": "text"},
+                    {"id": "b", "text": "?", "kind": "multi", "min": "one"}]}"#
+            ),
+            r#"not a session file: questions[1].min: invalid type: string "one", expected u32"#
+        );
+        assert_eq!(
+            shape_error(
+                r#"{"asqr": 2, "questions": [{"id": "a", "text": "?", "kind": "text"},
+                    {"id": "b", "text": "?"}]}"#
+            ),
+            "not a session file: questions[1]: missing field `kind`"
+        );
+        assert_eq!(
+            shape_error(
+                r#"{"asqr": 2, "questions": [{"id": "a", "text": "?", "kind": "text",
+                    "context": [{"type": "image", "path": null}]}]}"#
+            ),
+            "not a session file: questions[0].context[0]: invalid type: null, expected a string"
+        );
+    }
+
+    #[test]
+    fn a_shape_error_of_the_whole_file_names_no_path() {
+        assert_eq!(
+            shape_error(r#"{"asqr": 2}"#),
+            "not a session file: missing field `questions`"
+        );
+    }
+
+    #[test]
+    fn a_context_that_is_no_list_says_how_to_make_it_one() {
+        // A single entry written without its list is the likely slip, as a
+        // question holds one entry.
+        let hint = "context is a list with one entry: wrap the entry in [ ]";
+        assert_eq!(
+            shape_error(
+                r#"{"asqr": 2, "questions": [{"id": "a", "text": "?", "kind": "text"},
+                    {"id": "b", "text": "?", "kind": "text",
+                     "context": {"type": "code", "content": "x"}}]}"#
+            ),
+            format!(
+                "not a session file: questions[1].context: invalid type: map, expected a sequence; {hint}"
+            )
+        );
+        assert_eq!(
+            shape_error(
+                r#"{"asqr": 2, "questions": [{"id": "a", "text": "?", "kind": "single",
+                    "options": [{"id": "x", "label": "X", "context": "notes.md"}]}]}"#
+            ),
+            format!(
+                r#"not a session file: questions[0].options[0].context: invalid type: string "notes.md", expected a sequence; {hint}"#
+            )
+        );
+    }
+
+    #[test]
+    fn a_null_context_is_no_context() {
+        // Spec section 4: a `null` counts as a missing field, as it does
+        // for every other optional field.
+        let (_, session) = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                "context": null,
+                "options": [{"id": "a", "label": "A", "context": null}]}]}"#,
+        )
+        .expect("a null context parses");
+
+        let question = &session.questions[0];
+        assert!(question.context.is_empty());
+        assert!(
+            question.options.as_ref().expect("options")[0]
+                .context
+                .is_empty()
+        );
     }
 
     #[test]

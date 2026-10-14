@@ -50,3 +50,13 @@ crossterm.
 
 The text fields render full Markdown through patine (ADR 34, ADR 35),
 and `pulldown-cmark` goes.
+
+## Amendment (2026-10-14, adversarial review)
+
+`serde_path_to_error` wraps the typed parse of a session, so a shape
+error names the path of its field, as in `questions[1].context: invalid
+type: map, expected a sequence`. `serde_json` alone names no field when
+it parses from a `Value`, and a session is parsed from one because
+`parse_session` checks the version and the context entry types on the
+raw JSON first. In a file with several questions, an agent could not
+tell which question held the wrong value.

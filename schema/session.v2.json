@@ -9,7 +9,10 @@
             "$ref": "#/$defs/ContextEntry"
           },
           "maxItems": 1,
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "default": {
           "description": "Preselects the option.",
@@ -422,7 +425,10 @@
             "$ref": "#/$defs/ContextEntry"
           },
           "maxItems": 1,
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "custom": {
           "anyOf": [

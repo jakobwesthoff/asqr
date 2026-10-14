@@ -198,6 +198,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a single newline joins the lines, a blank line starts a paragraph, a
   trailing backslash breaks the line, and raw HTML is left out, so `<`
   goes into code spans.
+- A session file of the wrong shape names the field in its error, as
+  in `not a session file: questions[1].context: invalid type: map,
+  expected a sequence`. Before, the message named no question and no
+  field. A `context` that is no list adds `context is a list with one
+  entry: wrap the entry in [ ]`.
 
 ### Removed
 
@@ -251,6 +256,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   terminals draw it.
 - The `—` of an empty `text` answer and an empty note is dim, as it is
   in an empty own answer. Before, it showed in full brightness.
+- `"context": null` on a question or an option is the same as no
+  context, as `null` is for every other optional field. Before, the file
+  was refused as no session file.
 
 ## [0.10.1] - 2026-10-14
 
