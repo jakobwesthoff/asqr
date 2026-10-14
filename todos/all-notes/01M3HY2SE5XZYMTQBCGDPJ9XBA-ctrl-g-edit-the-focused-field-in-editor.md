@@ -12,11 +12,11 @@ The user requested this on 2026-09-27 during phase 6. It is not scheduled yet.
 
 ## Wish
 
-In every input field (own answer, text answer, note, reject reason),
-`ctrl-g` writes the field's content into a temp file, opens it in the
-person's editor (`$VISUAL`, then `$EDITOR`, e.g. vim), and after the
-editor exits takes the file's content back into the field. Longer
-answers and notes can then be written with a real editor.
+In every typed field (own answer, text answer, question note, session
+note, reject reason), `ctrl-g` writes the field's content into a temp
+file, opens it in the person's editor (`$VISUAL`, then `$EDITOR`, e.g.
+vim), and after the editor exits takes the file's content back into the
+field. Longer answers and notes can then be written with a real editor.
 
 ## Existing pieces
 
@@ -47,5 +47,5 @@ answers and notes can then be written with a real editor.
   it has to be stripped reliably on the way back.
 - Editor exits with an error, or the file is unchanged: keep the field
   as it was.
-- The key goes into the key bar and help for focused fields, and into
-  spec section 7.2 and an ADR amendment of ADR 0036.
+- The key goes into the key bar of every typed field and into the
+  help, spec section 7.2 and an ADR amendment of ADR 0036.

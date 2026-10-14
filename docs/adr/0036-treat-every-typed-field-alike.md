@@ -116,7 +116,6 @@ Agent's choices within that design:
   asker gets it with its lines.
 - An agent reading `custom`, `note` or `reason` has to expect line
   breaks in each of them. The skill says so.
-
 - The cursor reaches every line of a multi-line `text` answer and every
   row of a long own answer with the arrows.
 - `↑` and `↓` take as many presses as a field has rows before they leave

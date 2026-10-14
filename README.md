@@ -62,10 +62,11 @@ key. `q` quits; your answers so far are kept as a draft.
 
 Questions keep to a width of 100 columns. Context the asker attached, an
 image, highlighted code, rendered Markdown or a diff, shows in a pane
-beside the question on a wide terminal and below it on a tall one; `--layout beside` or `--layout below` (or
-`ASQR_LAYOUT`) fixes where it goes. `pgup`/`pgdn` (or `ctrl-u`/`ctrl-d`)
-scroll the pane from anywhere, `tab` moves into it to scroll with the
-arrow keys and back out, and `z` shows it full screen.
+beside the question on a wide terminal and below it on a tall one;
+`--layout beside` or `--layout below` (or `ASQR_LAYOUT`) fixes where it
+goes. `pgup`/`pgdn` (or `ctrl-u`/`ctrl-d`) scroll the pane from
+anywhere, `tab` moves into it to scroll with the arrow keys and back
+out, and `z` shows it full screen.
 
 `asqr wait` exits 0 for a submitted session, 10 when you rejected it, 11
 for an invalid file and 12 when its `--timeout` ran out, so scripts can

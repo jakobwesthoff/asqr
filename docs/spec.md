@@ -10,9 +10,10 @@ result format. The specifications of earlier versions are in the git
 history.
 
 Status: reviewed with the user and in an adversarial review on
-2026-09-27, with the findings F1 to F12 worked in, and revised with the
-decisions made while building it. The decisions behind it are recorded
-as ADRs 2 to 30 in `docs/adr/`.
+2026-09-27, with the findings F1 to F12 worked in, in two adversarial
+reviews on 2026-10-14, and revised with the decisions made while
+building it. The decisions behind it are recorded as ADRs in
+`docs/adr/`.
 
 ## 1. Purpose
 
