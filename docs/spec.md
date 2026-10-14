@@ -1143,6 +1143,16 @@ link, also means blocks. Outside Unix asqr does not wait and shows
 blocks there. Notifications
 inside tmux go out in tmux's passthrough wrapper.
 
+Whenever `TERM` starts with `tmux` or `TERM_PROGRAM` is `tmux`,
+ratatui-image, the crate asqr draws images with, sets
+`allow-passthrough on` for the pane while asqr detects the protocol.
+asqr reads the pane's own value first (`tmux show-options -p`) and puts
+it back once detection is done, or unsets it again when the pane had
+none of its own. Without a tmux server, or with a tmux before 3.3 that
+has no such option, there is nothing to put back. Known limitation: the
+pane's passthrough is on while the query runs, and asqr killed in that
+window leaves it on.
+
 ## 8. The command line
 
 | Command | What it does |

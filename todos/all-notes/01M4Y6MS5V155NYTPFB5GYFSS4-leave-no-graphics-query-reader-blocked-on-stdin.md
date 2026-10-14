@@ -37,10 +37,15 @@ would have worked.
 A second effect of the same detection: whenever `TERM` starts with
 `tmux` or `TERM_PROGRAM` is `tmux`, ratatui-image runs
 `tmux set -p allow-passthrough on` (`detect_tmux_and_outer_protocol_from_env`,
-called by `from_query_stdio` and by `Picker::halfblocks` too). Without
-`TMUX`, as over ssh from a tmux pane, that command goes to the default
-tmux server of the host asqr runs on, if one is running, and changes an
-option of a pane that has nothing to do with asqr.
+called by `from_query_stdio` and by `Picker::halfblocks` too). Inside
+tmux that overrides the person's own setting for asqr's pane on every
+start. Without `TMUX`, as over ssh from a tmux pane, the command goes to
+the default tmux server of the host asqr runs on, if one is running, and
+changes an option of a pane that has nothing to do with asqr.
+`PassthroughRestore` (`src/terminal.rs`) reads the pane's value before
+the picker is built and puts it back afterwards, so the change lasts
+only while the query runs, and stays when asqr is killed during it.
+An upstream option to skip the `tmux set` stays the lasting fix.
 
 ## Options
 
@@ -53,5 +58,6 @@ option of a pane that has nothing to do with asqr.
   with a poll timeout that ends the thread with the query.
 
 Either way, decide whether asqr keeps the `TERM` check and the
-passthrough probe afterwards, and whether to avoid `detect_tmux_and_outer_protocol_from_env` when
-`TMUX` is unset, which may need an upstream option as well.
+passthrough probe afterwards, and get an upstream option that skips the
+`tmux set` in `detect_tmux_and_outer_protocol_from_env`, which would
+make `PassthroughRestore` unnecessary.

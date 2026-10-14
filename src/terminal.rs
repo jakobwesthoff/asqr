@@ -72,14 +72,20 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         term: term.as_deref(),
         term_program: term_program.as_deref(),
     };
-    let picker = if may_query_protocol(&names, tmux_state, probe_passthrough) {
-        Picker::from_query_stdio().unwrap_or_else(|error| {
-            tracing::info!(%error, "no graphics protocol detected; using half blocks");
+    // Every `Picker` constructor turns passthrough on for the pane; one
+    // guard around both gives the pane its own setting back once the
+    // picker is built (spec section 7.7).
+    let picker = {
+        let _passthrough = PassthroughRestore::snapshot(&names, run_tmux);
+        if may_query_protocol(&names, tmux_state, probe_passthrough) {
+            Picker::from_query_stdio().unwrap_or_else(|error| {
+                tracing::info!(%error, "no graphics protocol detected; using half blocks");
+                Picker::halfblocks()
+            })
+        } else {
+            tracing::info!("tmux or screen cannot forward the graphics query; using half blocks");
             Picker::halfblocks()
-        })
-    } else {
-        tracing::info!("tmux or screen cannot forward the graphics query; using half blocks");
-        Picker::halfblocks()
+        }
     };
     // Images are sized with this cell size for the whole run, so a report
     // of a cropped or shrunken image starts by comparing it with the cell
@@ -198,12 +204,18 @@ fn log_window_size() {
 
 /// What [`may_query_protocol`] needs to know from tmux.
 fn tmux_state() -> Option<String> {
+    run_tmux(&[
+        "display-message",
+        "-p",
+        "#{allow-passthrough} #{session_attached}",
+    ])
+}
+
+/// Runs `tmux` with `args` and returns what it printed, or `None` when it
+/// cannot run or fails, as without a server.
+fn run_tmux(args: &[&str]) -> Option<String> {
     let output = Command::new("tmux")
-        .args([
-            "display-message",
-            "-p",
-            "#{allow-passthrough} #{session_attached}",
-        ])
+        .args(args)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -212,6 +224,51 @@ fn tmux_state() -> Option<String> {
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Puts the pane's `allow-passthrough` back as it was before the `Picker`
+/// was built, when dropped.
+///
+/// ratatui-image 11.1.0 runs `tmux set -p allow-passthrough on` in every
+/// `Picker` constructor when `TERM` starts with `tmux` or `TERM_PROGRAM`
+/// is `tmux`, which would override the person's own setting for the pane
+/// on every start. The same test decides here whether to take a snapshot,
+/// so the guard acts exactly where the library does. A tmux that cannot
+/// show the option, with no server or before 3.3, gets no snapshot and is
+/// left alone.
+struct PassthroughRestore<R: FnMut(&[&str]) -> Option<String>> {
+    tmux: R,
+    /// The pane's value before, `Some(None)` when the pane had none of its
+    /// own and inherited it; `None` without a snapshot.
+    before: Option<Option<String>>,
+}
+
+impl<R: FnMut(&[&str]) -> Option<String>> PassthroughRestore<R> {
+    fn snapshot(names: &TerminalNames<'_>, mut tmux: R) -> Self {
+        let tmux_like = names.term.is_some_and(|term| term.starts_with("tmux"))
+            || names.term_program == Some("tmux");
+        let before = if tmux_like {
+            tmux(&["show-options", "-p", "-v", "allow-passthrough"]).map(|shown| {
+                let value = shown.trim();
+                (!value.is_empty()).then(|| value.to_owned())
+            })
+        } else {
+            None
+        };
+        Self { tmux, before }
+    }
+}
+
+impl<R: FnMut(&[&str]) -> Option<String>> Drop for PassthroughRestore<R> {
+    fn drop(&mut self) {
+        // Unsetting lets the pane inherit from its window, session or the
+        // global options again, as before.
+        match self.before.take() {
+            None => {}
+            Some(None) => _ = (self.tmux)(&["set", "-pu", "allow-passthrough"]),
+            Some(Some(value)) => _ = (self.tmux)(&["set", "-p", "allow-passthrough", &value]),
+        }
+    }
 }
 
 /// How long [`probe_passthrough`] waits for the answer: long enough for a
@@ -302,6 +359,64 @@ mod tests {
             "focus reports off: {written:?}"
         );
         assert!(RESTORED.get());
+    }
+
+    /// The tmux commands a [`PassthroughRestore`] runs from its snapshot to
+    /// its drop, where `show-options` answers `shown`.
+    fn passthrough_commands(term: &str, term_program: &str, shown: Option<&str>) -> Vec<String> {
+        let commands = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let recorded = std::rc::Rc::clone(&commands);
+        let names = TerminalNames {
+            tmux: None,
+            term: Some(term),
+            term_program: Some(term_program),
+        };
+        drop(PassthroughRestore::snapshot(
+            &names,
+            move |args: &[&str]| {
+                recorded.borrow_mut().push(args.join(" "));
+                if args[0] == "show-options" {
+                    shown.map(str::to_owned)
+                } else {
+                    Some(String::new())
+                }
+            },
+        ));
+        commands.take()
+    }
+
+    const SHOW: &str = "show-options -p -v allow-passthrough";
+
+    #[test]
+    fn a_pane_without_its_own_passthrough_gets_it_unset_again() {
+        assert_eq!(
+            passthrough_commands("tmux-256color", "", Some("")),
+            [SHOW, "set -pu allow-passthrough"]
+        );
+    }
+
+    #[test]
+    fn a_pane_with_its_own_passthrough_gets_that_value_back() {
+        assert_eq!(
+            passthrough_commands("xterm-256color", "tmux", Some("off\n")),
+            [SHOW, "set -p allow-passthrough off"]
+        );
+    }
+
+    #[test]
+    fn a_tmux_that_cannot_show_the_option_is_left_alone() {
+        assert_eq!(passthrough_commands("tmux", "", None), [SHOW]);
+    }
+
+    #[test]
+    fn outside_what_ratatui_image_takes_for_tmux_tmux_is_not_run() {
+        for (term, term_program) in [("xterm-ghostty", "ghostty"), ("screen-256color", "")] {
+            assert_eq!(
+                passthrough_commands(term, term_program, Some("off")),
+                Vec::<String>::new(),
+                "{term} {term_program}"
+            );
+        }
     }
 
     #[test]
