@@ -170,6 +170,7 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follows: Option<String>,
 
+    #[schemars(length(min = 1))]
     pub questions: Vec<Question>,
 }
 

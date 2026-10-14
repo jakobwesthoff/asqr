@@ -8,9 +8,10 @@
 //! `schema/result.v2.json`, and `asqr schema` prints it.
 //!
 //! The schema describes the shape, plus the rules a schema states
-//! directly: the format version, one context entry, and exactly one of
-//! `path` and `content`. The other rules that span fields (ids, option
-//! counts, length bounds) are checked by validation and noted in the spec.
+//! directly: the format version, at least one question, one context
+//! entry, and exactly one of `path` and `content`. The other rules that
+//! span fields (ids, option counts, length bounds) are checked by
+//! validation and noted in the spec.
 
 use super::{Session, SessionResult};
 
@@ -90,6 +91,13 @@ mod tests {
                 schema["title"]
             );
         }
+    }
+
+    #[test]
+    fn a_session_holds_at_least_one_question() {
+        // Validation refuses an empty list, so the schema must not accept
+        // what `asqr validate` refuses.
+        assert_eq!(session_schema()["properties"]["questions"]["minItems"], 1);
     }
 
     #[test]

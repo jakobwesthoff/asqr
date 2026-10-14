@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration file), Markdown (rendered) or a diff, which asqr
   computes from the old and the new text. Code and Markdown come from a
   file or inline in `content`. A question or option holds one entry.
+  `"context": null` counts as no context, as `null` does for every
+  other optional field.
   asqr reads only regular files, so a directory or a FIFO shows a
   placeholder instead of stalling the screen, and of a text file at
   most its first 8 MiB, under a dim "first 8 MiB shown".
@@ -256,9 +258,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   terminals draw it.
 - The `—` of an empty `text` answer and an empty note is dim, as it is
   in an empty own answer. Before, it showed in full brightness.
-- `"context": null` on a question or an option is the same as no
-  context, as `null` is for every other optional field. Before, the file
-  was refused as no session file.
+- The session schema requires at least one question, as validation
+  does. Before, it accepted `"questions": []`, which `asqr validate`
+  refuses.
 
 ## [0.10.1] - 2026-10-14
 

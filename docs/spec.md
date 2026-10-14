@@ -456,17 +456,18 @@ The repo ships the JSON Schema (`schema/session.v2.json`,
 `schema/result.v2.json`). `asqr schema` prints the session schema and
 `asqr schema --result` the result schema. Besides the shape, the schemas
 state the rules a schema can state directly: `asqr` is the constant `2`
-in both, `context` holds at most one entry (an empty list and `null` are
-valid), and a `code` or `markdown` entry or a side of a `diff` takes
-exactly one of `path` and `content`, written as a `oneOf` of a branch
-that requires `path` as a string and one that requires `content` as a
-string; an empty `content` counts as given, and a `null` counts as
-missing, as it does for asqr. A `diff` takes `old`, `new` or both,
-written as an `anyOf` of a branch that requires `old` as an object and
-one that requires `new` as an object. The descriptions of `intro`,
-question `text` and option `description` say that they are Markdown,
-that a single newline breaks the line and that raw HTML shows as
-written. The other rules are validation's alone.
+in both, a session holds at least one question, `context` holds at most
+one entry (an empty list and `null` are valid), and a `code` or
+`markdown` entry or a side of a `diff` takes exactly one of `path` and
+`content`, written as a `oneOf` of a branch that requires `path` as a
+string and one that requires `content` as a string; an empty `content`
+counts as given, and a `null` counts as missing, as it does for asqr. A
+`diff` takes `old`, `new` or both, written as an `anyOf` of a branch
+that requires `old` as an object and one that requires `new` as an
+object. The descriptions of `intro`, question `text` and option
+`description` say that they are Markdown, that a single newline breaks
+the line and that raw HTML shows as written. The other rules are
+validation's alone.
 
 ## 5. Results and drafts
 
