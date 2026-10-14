@@ -207,6 +207,38 @@ fn validate_warns_without_failing() {
 }
 
 #[test]
+fn validate_names_a_missing_file_by_its_absolute_path() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "session/session.json",
+        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "markdown", "path": "plan.md"}]}]}"#,
+    );
+    let directory = file.parent().expect("the session has a directory");
+
+    let output = sandbox
+        .asqr()
+        .args(["validate", "session.json"])
+        .current_dir(directory)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0));
+    let expected = directory
+        .canonicalize()
+        .expect("the directory exists")
+        .join("plan.md");
+    assert!(
+        stderr(&output).contains(&format!(
+            "warning: questions[0].context[0].path: file not found: {}\n",
+            expected.display()
+        )),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn validate_fails_on_a_missing_file() {
     let sandbox = Sandbox::new();
 

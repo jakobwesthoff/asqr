@@ -160,3 +160,12 @@ user, the version stays 2:
   `2.0`, `"2"`, `-1` or `true`, is refused as "unsupported format
   version" with the value as written, checked before the shape like any
   other version. The parser's type error named neither.
+- **Unified diff in a side:** `validate` and `ask` warn when a side,
+  inline or in a file of at most 1 MiB, looks like a unified diff (a
+  line starting with `@@ -` after one starting with `--- `, `+++ ` or
+  `diff --git`). asqr would diff it like any other text and show a diff
+  of the diff. Requiring a file header before the hunk header keeps a
+  text that only mentions `@@` free of the warning.
+- **Not a file:** a path that exists but names no regular file, such as
+  a directory, gets the warning "not a file" instead of "file not
+  found".

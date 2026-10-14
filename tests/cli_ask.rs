@@ -173,6 +173,39 @@ fn makes_every_context_path_absolute_and_keeps_unknown_fields() {
 }
 
 #[test]
+fn warnings_name_a_missing_file_by_its_absolute_path() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "session/session.json",
+        r#"{"asqr": 2, "id": "missing", "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "code", "path": "files/fetch.rs"}]}]}"#,
+    );
+    let directory = file.parent().expect("the session has a directory");
+
+    // The session file given by its bare name, from its own directory,
+    // as an agent working there writes it.
+    let output = sandbox
+        .asqr_in_queue(&["ask", "session.json"])
+        .current_dir(directory)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let expected = directory
+        .canonicalize()
+        .expect("the directory exists")
+        .join("files/fetch.rs");
+    assert!(
+        stderr(&output).contains(&format!(
+            "warning: questions[0].context[0].path: file not found: {}\n",
+            expected.display()
+        )),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
 fn a_question_without_context_gets_none_in_the_dropped_file() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(

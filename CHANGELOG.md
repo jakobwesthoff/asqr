@@ -48,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before and after the change, which asqr diffs itself.
 - `asqr validate` and `asqr ask` warn about a code, Markdown or diff
   entry above 1 MiB. asqr still shows it.
+- `asqr validate` and `asqr ask` warn when a side of a diff looks like a
+  unified diff, which asqr would diff like any other text, and say to
+  give the text before and after the change as `old` and `new`.
+- `asqr validate` and `asqr ask` warn "not a file" about a context path
+  that names a directory or another file that is not a regular file.
 - A note to the whole session: the review tab has a field for it below
   Submit, and `enter` in it submits. A submitted result carries it as a
   top-level `note`, the first new field of result format version 2. A
@@ -149,6 +154,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The warnings of `asqr ask` and `asqr validate` name a missing context
+  file by its absolute path when the session file was given by its bare
+  name. Before, they printed the path as the session file wrote it.
 - `asqr ask` no longer adds `"options": null` to a `text` question in
   the copy it drops into the inbox.
 - The text cursor of a note or a `text` answer stays visible when the

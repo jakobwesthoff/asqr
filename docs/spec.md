@@ -370,9 +370,11 @@ a name for the entry such as a file name:
   file, a missing `new` a deleted one. `name` (optional) is the file
   name the diff is about, shown in the header. A diff shows without
   syntax highlighting, so it takes no language. A unified diff written
-  by the asker is not accepted: every hunk header needs exact line
-  counts, which goes wrong easily. asqr shows the change as a unified
-  diff (section 7.7).
+  by the asker is not understood: asqr diffs it like any other text and
+  shows a diff of the diff. Every hunk header of a unified diff needs
+  exact line counts, which goes wrong easily, so the asker gives the two
+  versions instead. asqr shows the change as a unified diff (section
+  7.7).
 
 Paths in context entries, for every type:
 
@@ -380,9 +382,18 @@ Paths in context entries, for every type:
   file it was given and drops absolute ones. `asqr validate` warns about
   relative paths, which a file dropped by hand must not use.
 - `asqr validate` and `asqr ask` both warn about files that do not
-  exist, and about image files the terminal UI cannot decode (section
-  7.7). That check reads only the image file's header. For an
-  unsupported format the warning lists the formats that work.
+  exist ("file not found"), about paths that exist but are no regular
+  file, such as a directory ("not a file"), and about image files the
+  terminal UI cannot decode (section 7.7). That check reads only the
+  image file's header. For an unsupported format the warning lists the
+  formats that work. Both check a relative path against the absolute
+  directory of the session file, so the warning names the file by an
+  absolute path even when the session file was given by its bare name.
+- `asqr validate` and `asqr ask` warn when a side of a `diff`, inline or
+  in a file of at most 1 MiB, looks like a unified diff: a line starting
+  with `@@ -` after a line starting with `--- `, `+++ ` or `diff --git`.
+  The warning says to give the text before and after the change as `old`
+  and `new`, since asqr computes the diff.
 - `asqr validate` and `asqr ask` warn about a `code`, `markdown` or
   `diff` entry above 1 MiB, from its file or inline; for a diff, both sides count
   together. asqr still shows it. Image entries get no such warning:

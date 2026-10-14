@@ -129,7 +129,9 @@ Once asked, asqr fits best when:
     diffs itself. `old` is the text before the change and `new` the text
     after it, each `{ "path": "..." }` or `{ "content": "..." }`: two
     versions of the same text, never a unified diff of your own, which
-    asqr would show as a changed file of `+` and `-` lines. The two
+    asqr would show as a changed file of `+` and `-` lines. `validate`
+    and `ask` warn that a side "looks like a unified diff" when it holds
+    one; give the two versions instead. The two
     versions can be whole files or the same excerpt of both; the line
     numbers then count from the excerpt's first line. Leave out
     `old` for a new file and `new` for a deleted one. `name` is the

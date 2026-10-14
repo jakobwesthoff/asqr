@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::Exit;
-use super::format::{print_errors, print_warnings, read_session_file};
+use super::format::{print_errors, print_warnings, read_session_file, session_dir};
 use super::wait::wait_for_result;
 use crate::format::{WarningKind, validate, warnings};
 use crate::queue::{QueueLocation, drop_session, lock_holder};
@@ -31,7 +31,11 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
 
     // `ask` turns relative paths into absolute ones itself, so only the
     // other warnings concern the asker.
-    let found = warnings(&session_file.raw, &session_file.session, file.parent());
+    let found = warnings(
+        &session_file.raw,
+        &session_file.session,
+        session_dir(file).as_deref(),
+    );
     print_warnings(
         found
             .iter()

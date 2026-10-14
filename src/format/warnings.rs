@@ -9,6 +9,7 @@
 //! that context entries name are checked here too, since the TUI only
 //! shows a placeholder for a file it cannot read.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -32,6 +33,13 @@ pub enum WarningKind {
     ImageField,
     RelativePath,
     FileNotFound(PathBuf),
+    /// The path exists but names a directory or another file that is not
+    /// a regular file, such as a FIFO.
+    NotAFile(PathBuf),
+    /// A side of a diff holds a unified diff instead of a version of the
+    /// text. asqr would diff it like any other text and show a diff of the
+    /// diff.
+    UnifiedDiff,
     /// A code, Markdown or diff entry above [`LARGE_ENTRY_BYTES`]. Carries its size
     /// in bytes.
     LargeEntry(u64),
@@ -52,6 +60,10 @@ impl fmt::Display for Warning {
                 "relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
             ),
             WarningKind::FileNotFound(path) => write!(formatter, "file not found: {}", path.display()),
+            WarningKind::NotAFile(path) => write!(formatter, "not a file: {}", path.display()),
+            WarningKind::UnifiedDiff => formatter.write_str(
+                "looks like a unified diff; give the text before and after the change as `old` and `new`, asqr computes the diff",
+            ),
             WarningKind::LargeEntry(size) => {
                 // Rounded up, so a size just above the limit does not read
                 // as the limit itself.
@@ -271,51 +283,98 @@ fn check_context(
                 }
             }
             ContextEntry::Code(code) => {
-                let size = source_size(&code.path, &code.content, &path, base_dir, found);
+                let (size, _) = source_size(&code.path, &code.content, &path, base_dir, found);
                 check_size(size, &path, found);
             }
             ContextEntry::Markdown(markdown) => {
-                let size = source_size(&markdown.path, &markdown.content, &path, base_dir, found);
+                let (size, _) =
+                    source_size(&markdown.path, &markdown.content, &path, base_dir, found);
                 check_size(size, &path, found);
             }
             ContextEntry::Diff(diff) => {
                 // The viewer works on both texts, so they count together.
-                let size = [("old", &diff.old), ("new", &diff.new)]
-                    .into_iter()
-                    .filter_map(|(field, side)| Some((field, side.as_ref()?)))
-                    .map(|(field, side)| {
-                        source_size(
-                            &side.path,
-                            &side.content,
-                            &path.field(field),
-                            base_dir,
-                            found,
-                        )
-                    })
-                    .sum();
+                let mut size = 0;
+                let sides = [("old", &diff.old), ("new", &diff.new)];
+                for (field, side) in sides {
+                    let Some(side) = side else { continue };
+                    let side_path = path.field(field);
+                    let (side_size, file) =
+                        source_size(&side.path, &side.content, &side_path, base_dir, found);
+                    size += side_size;
+                    check_unified_diff(side.content.as_deref(), file.as_deref(), side_path, found);
+                }
                 check_size(size, &path, found);
             }
         }
     }
 }
 
-/// The size in bytes of text given as a file or inline. A file is checked
-/// first; one that cannot be found counts as empty, as it has its own
-/// warning.
+/// The size in bytes of text given as a file or inline, and the file it
+/// resolves to. A file is checked first; one that cannot be found counts
+/// as empty, as it has its own warning.
 fn source_size(
     file: &Option<String>,
     content: &Option<String>,
     path: &FieldPath,
     base_dir: Option<&Path>,
     found: &mut Vec<Warning>,
-) -> u64 {
-    let file_size = file
+) -> (u64, Option<PathBuf>) {
+    let resolved = file
         .as_ref()
-        .and_then(|file| check_file(file, &path.field("path"), base_dir, found))
+        .and_then(|file| check_file(file, &path.field("path"), base_dir, found));
+    let file_size = resolved
+        .as_ref()
         .and_then(|resolved| std::fs::metadata(resolved).ok())
         .map_or(0, |metadata| metadata.len());
     let content_size = content.as_ref().map_or(0, |content| content.len() as u64);
-    file_size + content_size
+    (file_size + content_size, resolved)
+}
+
+/// Warns when a side of a diff holds a unified diff, which an agent with
+/// a patch at hand writes there instead of the two versions. A file is
+/// only read up to the size an entry should stay under: a larger one has
+/// its own warning, and reading it would slow `ask` down.
+fn check_unified_diff(
+    content: Option<&str>,
+    file: Option<&Path>,
+    path: FieldPath,
+    found: &mut Vec<Warning>,
+) {
+    let from_file = || {
+        let file = file?;
+        let size = std::fs::metadata(file).ok()?.len();
+        if size > LARGE_ENTRY_BYTES {
+            return None;
+        }
+        let bytes = std::fs::read(file).ok()?;
+        Some(Cow::Owned(String::from_utf8_lossy(&bytes).into_owned()))
+    };
+    let text = match content {
+        Some(content) => Some(Cow::Borrowed(content)),
+        None => from_file(),
+    };
+    if text.is_some_and(|text| looks_like_unified_diff(&text)) {
+        found.push(Warning {
+            path,
+            kind: WarningKind::UnifiedDiff,
+        });
+    }
+}
+
+/// A hunk header (`@@ -`) at the start of a line, after a file header
+/// (`--- `, `+++ `) or the `diff --git` line that `git diff` starts with.
+/// Both must be there, so a text that only mentions a hunk header, such as
+/// documentation about diffs, does not count.
+fn looks_like_unified_diff(text: &str) -> bool {
+    let mut after_header = false;
+    for line in text.lines() {
+        if line.starts_with("--- ") || line.starts_with("+++ ") || line.starts_with("diff --git") {
+            after_header = true;
+        } else if after_header && line.starts_with("@@ -") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Above this size a code, Markdown or diff entry gets a warning (user, 2026-10-14).
@@ -332,8 +391,8 @@ fn check_size(size: u64, path: &FieldPath, found: &mut Vec<Warning>) {
     }
 }
 
-/// Warns about a relative or missing file and returns the existing file it
-/// resolves to.
+/// Warns about a relative or missing file, or a path that names no regular
+/// file, and returns the existing file it resolves to.
 fn check_file(
     file: &str,
     path: &FieldPath,
@@ -350,14 +409,18 @@ fn check_file(
         });
         base_dir.map(|base| base.join(file))
     }?;
-    if !resolved.is_file() {
-        found.push(Warning {
-            path: path.clone(),
-            kind: WarningKind::FileNotFound(resolved),
-        });
-        return None;
-    }
-    Some(resolved)
+    // `metadata` follows symbolic links, so a link to a file is a file and
+    // a dangling link is not found.
+    let problem = match std::fs::metadata(&resolved) {
+        Ok(metadata) if metadata.is_file() => return Some(resolved),
+        Ok(_) => WarningKind::NotAFile(resolved),
+        Err(_) => WarningKind::FileNotFound(resolved),
+    };
+    found.push(Warning {
+        path: path.clone(),
+        kind: problem,
+    });
+    None
 }
 
 fn check_decodable(resolved: &Path, path: FieldPath, found: &mut Vec<Warning>) {
@@ -692,6 +755,101 @@ mod tests {
                 "questions[0].options[1].context[0].old.text: unknown field",
             ]
         );
+    }
+
+    #[test]
+    fn a_directory_given_as_a_file_is_not_a_file() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let json = with_context(&serde_json::json!({"type": "code", "path": directory.path()}));
+
+        assert_eq!(
+            warn(&json, None),
+            [format!(
+                "questions[0].context[0].path: not a file: {}",
+                directory.path().display()
+            )]
+        );
+    }
+
+    const UNIFIED: &str = "looks like a unified diff; give the text before and after the change as `old` and `new`, asqr computes the diff";
+
+    /// A unified diff as `git diff` writes it.
+    const GIT_DIFF: &str = "diff --git a/fetch.rs b/fetch.rs\nindex 1..2 100644\n--- a/fetch.rs\n+++ b/fetch.rs\n@@ -1,2 +1,2 @@\n fn fetch() {\n-    get(url)\n+    get(uri)\n";
+
+    #[test]
+    fn warns_about_a_diff_side_that_holds_a_unified_diff_inline_or_in_a_file() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let patch = directory.path().join("change.patch");
+        // `diff -u` output starts with the file headers, without the git
+        // line.
+        std::fs::write(&patch, "--- a.rs\n+++ b.rs\n@@ -1 +1 @@\n-a\n+b\n").expect("written");
+
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "diff",
+                    "old": {"content": "fn fetch() {}"}, "new": {"content": GIT_DIFF}})),
+                None
+            ),
+            [format!("questions[0].context[0].new: {UNIFIED}")]
+        );
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "diff", "old": {"path": patch}})),
+                None
+            ),
+            [format!("questions[0].context[0].old: {UNIFIED}")]
+        );
+    }
+
+    #[test]
+    fn a_text_that_only_mentions_a_hunk_header_is_no_unified_diff() {
+        for text in [
+            // A hunk header without file headers before it.
+            "@@ -1,2 +1,2 @@\n-a\n+b\n",
+            // File headers, but the hunk header is not at a line start.
+            "--- a.rs\n+++ b.rs\nsee @@ -1 +1 @@ in the patch\n",
+            // A hunk header before the file headers.
+            "@@ -1 +1 @@\n--- a.rs\n+++ b.rs\n",
+            "Markdown uses `--- ` for a rule; `@@ -1 +1 @@` is a hunk header.",
+        ] {
+            assert_eq!(
+                warn(
+                    &with_context(&serde_json::json!({"type": "diff", "new": {"content": text}})),
+                    None
+                ),
+                Vec::<String>::new(),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_unified_diff_in_code_or_markdown_entries_is_fine() {
+        // Showing a patch as code is a choice, not a mistake.
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "code", "content": GIT_DIFF})),
+                None
+            ),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_side_file_above_the_size_limit_is_not_read_for_the_check() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let large = directory.path().join("large.patch");
+        let mut text = GIT_DIFF.to_owned();
+        text.push_str(&"+x\n".repeat(MIB / 3 + 1));
+        std::fs::write(&large, text).expect("written");
+
+        let warnings = warn(
+            &with_context(&serde_json::json!({"type": "diff", "new": {"path": large}})),
+            None,
+        );
+
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("MiB"), "{warnings:?}");
     }
 
     #[test]

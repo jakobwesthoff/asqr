@@ -5,7 +5,7 @@
 //! The commands about the file format: `asqr new`, `asqr validate` and
 //! `asqr schema`, plus reading a session file the way `ask` needs it too.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
@@ -56,6 +56,15 @@ pub(super) fn read_session_file(path: &Path) -> Result<SessionFile, ReadError> {
     Ok(SessionFile { raw, session })
 }
 
+/// The directory of a session file, against which the warnings resolve
+/// relative paths. It is absolute, so a session file given by its bare
+/// name, whose parent is the empty path, still names a missing file by a
+/// path that leads to it.
+pub(super) fn session_dir(file: &Path) -> Option<PathBuf> {
+    let absolute = std::path::absolute(file).ok()?;
+    absolute.parent().map(Path::to_path_buf)
+}
+
 pub(super) fn print_errors(errors: &[ValidationError]) {
     for error in errors {
         eprintln!("error: {error}");
@@ -73,7 +82,11 @@ pub(super) fn run_validate(path: &Path) -> Exit {
         Ok(file) => file,
         Err(error) => return error.report(path),
     };
-    print_warnings(&warnings(&file.raw, &file.session, path.parent()));
+    print_warnings(&warnings(
+        &file.raw,
+        &file.session,
+        session_dir(path).as_deref(),
+    ));
     match validate(&file.session, None) {
         Ok(()) => {
             println!("{}: valid", path.display());
