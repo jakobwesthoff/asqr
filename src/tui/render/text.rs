@@ -103,8 +103,8 @@ impl MarkdownCache {
 
 #[cfg(test)]
 mod tests {
+    use super::super::source_line::columns;
     use ratatui::style::{Color, Modifier, Style};
-    use unicode_width::UnicodeWidthStr;
 
     use super::*;
 
@@ -174,7 +174,7 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .all(|line| texts(std::slice::from_ref(line))[0].width() <= 20)
+                .all(|line| columns(&texts(std::slice::from_ref(line))[0]) <= 20)
         );
     }
 

@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr · queue: default · 1 session waiting                  "
+" wide                                                       "
+"   ☒ Go  ☒ a日本語のとても長い見出し  ✔ Review              " Hidden by multi-width symbols: [(13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " "), (27, " "), (29, " "), (31, " "), (33, " "), (35, " ")]
+"────────────────────────────────────────────────────────────"
+" Review your answers, then submit or reject.                "
+"                                                            "
+"   ☒ Go                        "ok"                         "
+"   ☒ a日本語のとても長い見出   "あいうえおかきくけこさしす… " Hidden by multi-width symbols: [(7, " "), (9, " "), (11, " "), (13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " "), (27, " "), (33, " "), (35, " "), (37, " "), (39, " "), (41, " "), (43, " "), (45, " "), (47, " "), (49, " "), (51, " "), (53, " "), (55, " "), (57, " ")]
+"                                                            "
+" answered 2 · skipped 0 · defaulted 0                       "
+"                                                            "
+" ❯ [ Submit ]                                               "
+"   ✎ Note to the asker (optional): —                        "
+"   ✗ Reject, reason (optional): —                           "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+"                                                            "
+" ↑/↓  move   enter  open/submit   ?  help   q  quit         "

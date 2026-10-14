@@ -155,8 +155,8 @@ impl Lines {
 mod tests {
     use std::fs;
 
+    use super::super::source_line::columns;
     use ratatui::style::{Color, Modifier};
-    use unicode_width::UnicodeWidthStr;
 
     use super::*;
 
@@ -189,7 +189,7 @@ mod tests {
             while x < buf.area.width {
                 let symbol = buf[(x, y)].symbol();
                 row.push_str(symbol);
-                x += u16::try_from(symbol.width().max(1)).expect("a cell is narrow");
+                x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
             }
             rows.push(format!("\"{row}\""));
         }

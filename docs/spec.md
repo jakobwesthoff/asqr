@@ -1117,7 +1117,7 @@ MPL-2.0.
 | Logging | `tracing` and `tracing-subscriber`, into a file in the platform cache directory |
 | Markdown and highlighting | `patine` without default features, for the text fields and for code and Markdown entries (ADR 34, ADR 35) |
 | Diffs | `similar` with its `inline` and `unicode` features |
-| Columns of source lines | `unicode-segmentation` and `unicode-width` |
+| Columns of text on screen | `unicode-segmentation` for graphemes, each as wide as ratatui's cell width |
 | Session ids | `ulid` |
 | Tests | `insta` for snapshots of rendered screens, `assert_cmd` for the CLI, `portable-pty` and `vt100` for the TUI in a pseudo-terminal |
 

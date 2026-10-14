@@ -152,6 +152,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cursor or a word with Markdown emphasis in only part of it, wraps as
   one word. Before, it could be split at the style change. A word that
   ends exactly at the end of a line also stays on that line.
+- Text with wide characters, such as Chinese, Japanese or Korean or
+  most emoji, keeps to the screen's width. Each such character takes two
+  columns, but asqr counted it as one, so a wrapped own answer, note,
+  session note, reject reason or `text` answer ran past the edge, and a
+  cut title or intro lost its `…` or `… i: more`. The same held for the
+  tab bar, the review's labels and answers, the description column of
+  options, the context pane's header and the queue path in the title
+  bar. A wide character that does not fit at the end of a line now
+  starts the next one. The text cursor shows on the whole character it
+  sits on, an emoji with its skin tone included. In the context pane, a
+  halfwidth sound mark such as `ﾞ` takes a column of its own, as
+  terminals draw it.
 
 ## [0.10.1] - 2026-10-14
 

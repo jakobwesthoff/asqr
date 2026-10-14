@@ -6,13 +6,13 @@
 //! control characters made visible, measured in terminal columns, and drawn
 //! through a window of columns, so a line longer than the pane scrolls
 //! sideways instead of wrapping. Rendered Markdown, which never scrolls
-//! sideways, breaks such a line into rows instead (ADR 34).
+//! sideways, breaks such a line into rows instead (ADR 34). Its measure of
+//! columns, [`columns`], is the one the whole screen lays text out by.
 
-use ratatui::buffer::Buffer;
+use ratatui::buffer::{Buffer, CellWidth};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 /// Columns from one tab stop to the next. Panes are often 40 to 60 columns
 /// wide, where the terminal's 8 would push indented code out of sight.
@@ -64,7 +64,7 @@ impl SourceLine {
                         }
                     } else {
                         shown.push_str(grapheme);
-                        column += grapheme.width();
+                        column += grapheme_columns(grapheme);
                     }
                 }
                 Piece { text: shown, style }
@@ -105,7 +105,7 @@ impl SourceLine {
         let mut room = first;
         for piece in &self.pieces {
             for grapheme in piece.text.graphemes(true) {
-                let width = grapheme.width();
+                let width = grapheme_columns(grapheme);
                 if row.width > 0 && row.width + width > room {
                     let blanks = room.saturating_sub(row.width);
                     row.push(&" ".repeat(blanks), piece.style);
@@ -131,7 +131,7 @@ impl SourceLine {
         if text.is_empty() {
             return;
         }
-        self.width += text.width();
+        self.width += columns(text);
         match self.pieces.last_mut() {
             Some(last) if last.style == style => last.text.push_str(text),
             _ => self.pieces.push(Piece {
@@ -159,7 +159,7 @@ impl SourceLine {
         let mut column = 0;
         'pieces: for piece in &self.pieces {
             for grapheme in piece.text.graphemes(true) {
-                let width = grapheme.width();
+                let width = grapheme_columns(grapheme);
                 let start = column;
                 column += width;
                 if width == 0 || column <= left {
@@ -188,6 +188,42 @@ impl SourceLine {
     }
 }
 
+/// How many columns `text` takes in a span ratatui draws. ratatui lays a
+/// span out grapheme by grapheme, each as wide as its cell width, so this
+/// sums those: a CJK character or most emoji take two columns, a
+/// combining accent none, and a grapheme with a control character none
+/// either, as ratatui leaves it out. Every width the screen lays out is
+/// measured here, so what it measures is what ratatui draws.
+pub fn columns(text: &str) -> usize {
+    text.graphemes(true).map(grapheme_columns).sum()
+}
+
+/// The longest start of `text` that fits into `room` columns, measured as
+/// [`columns`] does. A fit never splits a grapheme: a wide character that
+/// would cross the end stays out whole, and a combining accent stays with
+/// its letter.
+pub fn fitting(text: &str, room: usize) -> &str {
+    let mut used = 0;
+    for (start, grapheme) in text.grapheme_indices(true) {
+        used += grapheme_columns(grapheme);
+        if used > room {
+            return &text[..start];
+        }
+    }
+    text
+}
+
+/// The columns ratatui gives one grapheme. Its cell width is the grapheme's
+/// Unicode width, except that a halfwidth sound mark such as `ﾞ` takes a
+/// cell of its own, as terminals draw it.
+fn grapheme_columns(grapheme: &str) -> usize {
+    if grapheme.contains(char::is_control) {
+        0
+    } else {
+        usize::from(grapheme.cell_width())
+    }
+}
+
 /// How a control character shows: U+2400 to U+241F picture the C0 controls
 /// in order, and U+2421 pictures delete.
 fn picture(control: char) -> char {
@@ -201,7 +237,6 @@ fn picture(control: char) -> char {
 #[cfg(test)]
 mod tests {
     use ratatui::style::{Color, Modifier};
-    use unicode_width::UnicodeWidthStr;
 
     use super::*;
 
@@ -228,7 +263,7 @@ mod tests {
         while x < width {
             let symbol = buf[(x, 0)].symbol();
             row.push_str(symbol);
-            x += u16::try_from(symbol.width().max(1)).expect("a cell is narrow");
+            x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
         }
         (row, buf)
     }
@@ -271,6 +306,11 @@ mod tests {
         assert_eq!(plain("").width(), 0);
         assert_eq!(plain("fetch").width(), 5);
         assert_eq!(plain("日本語").width(), 6);
+        assert_eq!(
+            plain("ｶﾞ").width(),
+            2,
+            "as ratatui draws a halfwidth sound mark"
+        );
         assert_eq!(
             plain("e\u{301}").width(),
             1,
@@ -381,6 +421,37 @@ mod tests {
             ["日", "本"],
             "a character wider than the room still goes on"
         );
+    }
+
+    #[test]
+    fn columns_count_what_each_grapheme_takes_on_screen() {
+        assert_eq!(columns(""), 0);
+        assert_eq!(columns("fetch"), 5);
+        assert_eq!(columns("日本語"), 6);
+        assert_eq!(columns("🎉ok"), 4);
+        assert_eq!(columns("e\u{301}"), 1, "a combining accent takes no column");
+        assert_eq!(
+            columns("👍🏽"),
+            2,
+            "an emoji with a skin tone is one grapheme of two columns"
+        );
+        assert_eq!(columns("a\u{1b}b"), 2, "ratatui draws no control character");
+        assert_eq!(
+            columns("ｶﾞ"),
+            2,
+            "terminals give a halfwidth sound mark a cell of its own, and so does ratatui"
+        );
+    }
+
+    #[test]
+    fn fitting_keeps_whole_graphemes_within_the_room() {
+        assert_eq!(fitting("fetch", 3), "fet");
+        assert_eq!(fitting("fetch", 9), "fetch", "it fits");
+        assert_eq!(fitting("日本語", 4), "日本", "本 ends at the edge");
+        assert_eq!(fitting("日本語", 5), "日本", "語 would cross it");
+        assert_eq!(fitting("a🎉", 2), "a");
+        assert_eq!(fitting("e\u{301}x", 1), "e\u{301}", "the accent stays");
+        assert_eq!(fitting("日", 0), "");
     }
 
     #[test]

@@ -11,10 +11,9 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use similar::{Algorithm, ChangeTag, InlineChange, InlineChangeOptions, TextDiff};
-use unicode_width::UnicodeWidthStr;
 
 use super::source_file::{Unreadable, read_source};
-use super::source_line::SourceLine;
+use super::source_line::{SourceLine, columns};
 use super::viewer::{ContentSize, Placeholder, Viewer};
 use crate::format::{DiffEntry, DiffSide};
 use crate::tui::Offset;
@@ -195,7 +194,7 @@ impl Rows {
                 Row::Line { text, .. } => self.gutter_width() + text.width(),
                 // The separator fills whatever width the body has.
                 Row::Separator => 0,
-                Row::Note(note) => note.width().min(width),
+                Row::Note(note) => columns(note).min(width),
             })
             .max()
             .unwrap_or(0);
@@ -295,7 +294,6 @@ mod tests {
     use std::fs;
 
     use ratatui::style::{Color, Modifier};
-    use unicode_width::UnicodeWidthStr;
 
     use super::*;
 
@@ -358,7 +356,7 @@ mod tests {
             while x < buf.area.width {
                 let symbol = buf[(x, y)].symbol();
                 row.push_str(symbol);
-                x += u16::try_from(symbol.width().max(1)).expect("a cell is narrow");
+                x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
             }
             rows.push(format!("\"{row}\""));
         }

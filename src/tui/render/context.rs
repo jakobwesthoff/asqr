@@ -15,6 +15,7 @@ use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 
 use super::parts::cut;
+use super::source_line::columns;
 use super::viewer::Viewers;
 use crate::format::ContextEntry;
 use crate::tui::{Extent, Offset, Page, SessionState};
@@ -81,9 +82,9 @@ fn header_line(entry: &ContextEntry, page: Page, offset: Offset, width: u16) -> 
             page.rows.total
         )
     });
-    let position_width = position.as_ref().map_or(0, |text| text.chars().count());
+    let position_width = position.as_deref().map_or(0, columns);
     let name = cut(&entry_name(entry), width.saturating_sub(position_width));
-    let gap = width.saturating_sub(name.chars().count() + position_width);
+    let gap = width.saturating_sub(columns(&name) + position_width);
     let mut spans = vec![Span::from(name).bold(), Span::from(" ".repeat(gap))];
     spans.extend(position.map(|text| Span::from(text).dim()));
     Line::from(spans)
@@ -264,5 +265,35 @@ mod tests {
         let line = text(&header_line(&titled, page, Offset { top: 3, left: 0 }, 30));
 
         assert_eq!(line, "A very long title… 4–15 of 120");
+    }
+
+    #[test]
+    fn the_header_fills_its_columns_with_a_name_of_wide_characters() {
+        let fits = Page {
+            rows: Extent {
+                shown: 10,
+                total: 3,
+            },
+            columns: Extent::default(),
+        };
+        let short = entry(r#"{"type": "code", "title": "日本語の🎉", "content": "x"}"#);
+        let line = text(&header_line(&short, fits, Offset::default(), 30));
+        assert_eq!(columns(&line), 30, "fills the line: {line:?}");
+
+        let page = Page {
+            rows: Extent {
+                shown: 12,
+                total: 120,
+            },
+            columns: Extent::default(),
+        };
+        let long =
+            entry(r#"{"type": "code", "title": "日本語のとても長いタイトルです", "content": "x"}"#);
+        // The position takes 12 columns, which leaves the name 18: 16 for
+        // 日本語のとても長, as い would cross into the `…`, then the `…`
+        // and one blank.
+        let line = text(&header_line(&long, page, Offset { top: 3, left: 0 }, 30));
+        assert_eq!(line, "日本語のとても長…  4–15 of 120");
+        assert_eq!(columns(&line), 30);
     }
 }

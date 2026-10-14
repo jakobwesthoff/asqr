@@ -15,10 +15,12 @@ use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui_image::picker::Picker;
+use unicode_segmentation::UnicodeSegmentation;
 
 use super::context::{context_hint, draw_pane};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
+use super::source_line::{columns, fitting};
 use super::text::MarkdownCache;
 use super::viewer::Viewers;
 use crate::format::{Kind, Question};
@@ -46,19 +48,29 @@ const MIN_FIELD_WIDTH: usize = 20;
 /// less than `MIN_FIELD_WIDTH` columns.
 const NARROW_FIELD_INDENT: usize = 4;
 
-/// `text` in at most `room` characters: whole as long as it fits,
-/// otherwise its end behind `…`, cut at a `/` where one is in reach, since
-/// the end of a queue's path is what tells queues apart.
+/// `text` in at most `room` columns: whole as long as it fits, otherwise
+/// its end behind `…`, cut at a `/` where one is in reach, since the end
+/// of a queue's path is what tells queues apart.
 fn shorten_from_left(text: &str, room: usize) -> String {
-    let length = text.chars().count();
-    if length <= room {
+    if columns(text) <= room {
         return text.to_owned();
     }
+    // The end that fits behind the `…`, taken grapheme by grapheme from the
+    // last one, so a wide character that would not fit stays out whole.
     let keep = room.saturating_sub(1);
-    let tail: String = text.chars().skip(length - keep).collect();
+    let mut start = text.len();
+    let mut used = 0;
+    for (index, grapheme) in text.grapheme_indices(true).rev() {
+        used += columns(grapheme);
+        if used > keep {
+            break;
+        }
+        start = index;
+    }
+    let tail = &text[start..];
     let tail = match tail.find('/') {
         Some(slash) => &tail[slash..],
-        None => &tail,
+        None => tail,
     };
     format!("…{tail}")
 }
@@ -156,8 +168,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
         if waiting == 1 { "" } else { "s" }
     );
     let prefix = " asqr · queue: ";
-    let room =
-        usize::from(title.width).saturating_sub(prefix.chars().count() + count.chars().count());
+    let room = usize::from(title.width).saturating_sub(columns(prefix) + columns(&count));
     let title_text = format!("{prefix}{}{count}", shorten_from_left(view.queue, room));
     frame.render_widget(Line::from(title_text).reversed(), title);
 
@@ -337,13 +348,18 @@ fn at_most(
 /// `line` shortened so that `marker` fits after it within `width`
 /// columns. What stays keeps its styles, and blanks before the marker go.
 fn ending_in(line: Line<'static>, marker: &str, width: usize) -> Line<'static> {
-    let mut room = width.saturating_sub(marker.chars().count());
+    let mut room = width.saturating_sub(columns(marker));
     let mut spans: Vec<Span<'static>> = Vec::new();
     for span in line.spans {
-        let kept: String = span.content.chars().take(room).collect();
-        room -= kept.chars().count();
+        let kept = fitting(&span.content, room);
+        room -= columns(kept);
         if !kept.is_empty() {
-            spans.push(Span::styled(kept, span.style));
+            spans.push(Span::styled(kept.to_owned(), span.style));
+        }
+        // A wide character that did not fit ends the line, even where a
+        // narrower one after it would fill the column it leaves.
+        if kept.len() < span.content.len() {
+            break;
         }
     }
     // The indent span stays, so a line of nothing but blanks keeps its
@@ -397,10 +413,7 @@ fn tab_line(state: &SessionState, width: usize) -> Line<'static> {
         .collect();
     labels.push("✔ Review".to_owned());
 
-    let widths: Vec<usize> = labels
-        .iter()
-        .map(|label| label.chars().count() + 2)
-        .collect();
+    let widths: Vec<usize> = labels.iter().map(|label| columns(label) + 2).collect();
     let current = state.tab();
     // Grow the visible window around the current tab while it fits,
     // keeping two columns on each side for the arrows.
@@ -624,7 +637,7 @@ fn question_content(
 
 /// The width of an option's pointer, mark, number and label.
 fn option_head_width(index: usize, label: &str) -> usize {
-    format!("❯ ( ) {}. ", index + 1).chars().count() + label.chars().count()
+    columns(&format!("❯ ( ) {}. ", index + 1)) + columns(label)
 }
 
 /// An option: pointer, mark, number and label, then the description from
@@ -640,7 +653,7 @@ fn option_lines(
     current: bool,
     markdown: &mut MarkdownCache,
 ) -> Vec<Line<'static>> {
-    let head_width: usize = head.iter().map(|span| span.content.chars().count()).sum();
+    let head_width: usize = head.iter().map(|span| columns(&span.content)).sum();
     let head = if current {
         head.into_iter()
             .map(|span| span.add_modifier(Modifier::REVERSED))
@@ -700,7 +713,7 @@ fn one_line_field(
     current: bool,
 ) -> Vec<Line<'static>> {
     let focused = current && state.focus() == Focus::Field;
-    let head_width = head.chars().count();
+    let head_width = columns(&head);
     let indent = if width.saturating_sub(head_width) >= MIN_FIELD_WIDTH {
         head_width
     } else {
@@ -768,14 +781,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
     let questions = &state.session().questions;
     let label_width = questions
         .iter()
-        .map(|question| {
-            question
-                .header
-                .as_deref()
-                .unwrap_or(&question.id)
-                .chars()
-                .count()
-        })
+        .map(|question| columns(question.header.as_deref().unwrap_or(&question.id)))
         .max()
         .unwrap_or(0)
         .min(24);
@@ -787,20 +793,20 @@ fn review_content(state: &SessionState, width: usize) -> Content {
             Row::Question(question_index) => {
                 let question = &questions[question_index];
                 let skipped = states[question_index].answer == AnswerState::Skipped;
-                let label: String = question
-                    .header
-                    .as_deref()
-                    .unwrap_or(&question.id)
-                    .chars()
-                    .take(label_width)
-                    .collect();
+                let label = fitting(
+                    question.header.as_deref().unwrap_or(&question.id),
+                    label_width,
+                );
+                // The padding is counted in columns: `format!` would pad a
+                // label of wide characters by its characters.
+                let padding = " ".repeat(label_width - columns(label));
                 let lead = format!(
-                    "{pointer}{} {label:<label_width$}  ",
+                    "{pointer}{} {label}{padding}  ",
                     if skipped { "☐" } else { "☒" }
                 );
                 // One line per question: the summary gets what is left of
                 // the width and ends in `…` when it is longer.
-                let room = width.saturating_sub(lead.chars().count());
+                let room = width.saturating_sub(columns(&lead));
                 let summary = cut(&answer_summary(question, &answers[question_index]), room);
                 let spans = vec![Span::from(lead), Span::from(summary).dim()];
                 let line = Line::from(spans);
@@ -867,23 +873,34 @@ fn plain_lines(text: &str) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// `text` as lines with the cell under the text cursor inverted, or an
-/// inverted blank after the end of its line.
+/// `text` as lines with the grapheme under the text cursor inverted, or
+/// an inverted blank after the end of its line. The cursor's column is a
+/// character index, as ratatui-textarea counts it, and can lie inside a
+/// grapheme, such as on the skin tone of an emoji: the whole grapheme
+/// shows as the cursor then, as no terminal cell holds a part of one.
 fn with_cursor(text: &str, cursor: Option<(usize, usize)>) -> Vec<Line<'static>> {
     text.split('\n')
         .enumerate()
         .map(|(index, line)| match cursor {
             Some((row, column)) if row == index => {
-                let chars: Vec<char> = line.chars().collect();
-                let column = column.min(chars.len());
-                let before: String = chars[..column].iter().collect();
-                let under = chars
-                    .get(column)
-                    .map_or_else(|| " ".to_owned(), char::to_string);
-                let after: String = chars.iter().skip(column + 1).collect();
+                let mut before = String::new();
+                let mut under = None;
+                let mut after = String::new();
+                let mut start = 0;
+                for grapheme in line.graphemes(true) {
+                    let end = start + grapheme.chars().count();
+                    if under.is_none() && column < end {
+                        under = Some(grapheme);
+                    } else if under.is_none() {
+                        before.push_str(grapheme);
+                    } else {
+                        after.push_str(grapheme);
+                    }
+                    start = end;
+                }
                 Line::from(vec![
                     Span::from(before),
-                    Span::from(under).reversed(),
+                    Span::from(under.unwrap_or(" ").to_owned()).reversed(),
                     Span::from(after),
                 ])
             }
@@ -892,32 +909,34 @@ fn with_cursor(text: &str, cursor: Option<(usize, usize)>) -> Vec<Line<'static>>
         .collect()
 }
 
-/// Word-wraps `line` to `width`: the first line is indented by `first`,
-/// the following ones by `rest`. A word is a run of non-blanks with the
-/// blanks after it, whatever styles its characters carry, so a style
-/// change inside a word, such as the text cursor, never splits it. Every character keeps its style, and a word longer
-/// than a line is broken where the line ends.
+/// Word-wraps `line` to `width` columns: the first line is indented by
+/// `first`, the following ones by `rest`. A word is a run of non-blanks
+/// with the blanks after it, whatever styles its graphemes carry, so a
+/// style change inside a word, such as the text cursor, never splits it.
+/// Every grapheme keeps its style, and a word longer than a line is broken
+/// where the line ends.
 pub(super) fn wrap(
     line: Line<'static>,
     width: usize,
     first: usize,
     rest: usize,
 ) -> Vec<Line<'static>> {
-    let mut words: Vec<Vec<(char, Style)>> = Vec::new();
+    let mut words: Vec<Vec<Glyph>> = Vec::new();
     for span in &line.spans {
         let style = line.style.patch(span.style);
-        for c in span.content.chars() {
+        for grapheme in span.content.graphemes(true) {
             let after_blank = words
                 .last()
                 .and_then(|word| word.last())
-                .is_none_or(|(last, _)| *last == ' ');
-            if words.is_empty() || (c != ' ' && after_blank) {
+                .is_none_or(Glyph::is_blank);
+            if words.is_empty() || (grapheme != " " && after_blank) {
                 words.push(Vec::new());
             }
-            words
-                .last_mut()
-                .expect("a word was started")
-                .push((c, style));
+            words.last_mut().expect("a word was started").push(Glyph {
+                text: grapheme,
+                style,
+                width: columns(grapheme),
+            });
         }
     }
 
@@ -927,7 +946,11 @@ pub(super) fn wrap(
         rest,
     };
     for word in words {
-        let blanks = word.iter().rev().take_while(|(c, _)| *c == ' ').count();
+        let blanks = word
+            .iter()
+            .rev()
+            .take_while(|glyph| glyph.is_blank())
+            .count();
         let (mut body, blanks) = word.split_at(word.len() - blanks);
         while !body.is_empty() {
             let indent = if wrapped.lines.len() == 1 {
@@ -935,7 +958,7 @@ pub(super) fn wrap(
             } else {
                 rest
             };
-            if wrapped.used + body.len() <= width {
+            if wrapped.used + Glyph::columns(body) <= width {
                 wrapped.push(body);
                 break;
             }
@@ -944,11 +967,22 @@ pub(super) fn wrap(
                 continue;
             }
             // A word longer than a whole line: break it where the line
-            // ends.
-            let room = width.saturating_sub(indent).max(1);
-            let (head, tail) = body.split_at(room.min(body.len()));
+            // ends. A wide character that would cross the end starts the
+            // next line whole, and every line takes at least one grapheme,
+            // so one wider than the whole line still makes progress.
+            let mut used = wrapped.used;
+            let fits = body
+                .iter()
+                .take_while(|glyph| {
+                    used += glyph.width;
+                    used <= width
+                })
+                .count();
+            let (head, tail) = body.split_at(fits.max(1));
             wrapped.push(head);
-            wrapped.break_line();
+            if !tail.is_empty() {
+                wrapped.break_line();
+            }
             body = tail;
         }
         // Blanks may hang past the end of a line, so the next line does not
@@ -956,7 +990,7 @@ pub(super) fn wrap(
         // visible: the text cursor's cell (`with_cursor`) or part of a
         // highlighted head. It starts the next line when this one is full.
         for blank in blanks {
-            let visible = blank.1.add_modifier.contains(Modifier::REVERSED);
+            let visible = blank.style.add_modifier.contains(Modifier::REVERSED);
             if visible && wrapped.used >= width {
                 wrapped.break_line();
             }
@@ -966,19 +1000,39 @@ pub(super) fn wrap(
     wrapped.into_lines()
 }
 
-/// The lines `wrap` builds: each one's indent and its styled characters.
-struct Wrapped {
-    lines: Vec<(usize, Vec<(char, Style)>)>,
+/// One grapheme of the line `wrap` breaks, with its style and the columns
+/// it takes.
+#[derive(Clone, Copy)]
+struct Glyph<'a> {
+    text: &'a str,
+    style: Style,
+    width: usize,
+}
+
+impl Glyph<'_> {
+    fn is_blank(&self) -> bool {
+        self.text == " "
+    }
+
+    /// The columns `glyphs` take together.
+    fn columns(glyphs: &[Glyph]) -> usize {
+        glyphs.iter().map(|glyph| glyph.width).sum()
+    }
+}
+
+/// The lines `wrap` builds: each one's indent and its styled graphemes.
+struct Wrapped<'a> {
+    lines: Vec<(usize, Vec<Glyph<'a>>)>,
     /// The columns taken on the last line, its indent included.
     used: usize,
     rest: usize,
 }
 
-impl Wrapped {
-    fn push(&mut self, cells: &[(char, Style)]) {
+impl<'a> Wrapped<'a> {
+    fn push(&mut self, glyphs: &[Glyph<'a>]) {
         let (_, line) = self.lines.last_mut().expect("there is always a line");
-        line.extend_from_slice(cells);
-        self.used += cells.len();
+        line.extend_from_slice(glyphs);
+        self.used += Glyph::columns(glyphs);
     }
 
     fn break_line(&mut self) {
@@ -991,12 +1045,12 @@ impl Wrapped {
     fn into_lines(self) -> Vec<Line<'static>> {
         self.lines
             .into_iter()
-            .map(|(indent, cells)| {
+            .map(|(indent, glyphs)| {
                 let mut runs: Vec<(String, Style)> = Vec::new();
-                for (c, style) in cells {
+                for glyph in glyphs {
                     match runs.last_mut() {
-                        Some((text, run_style)) if *run_style == style => text.push(c),
-                        _ => runs.push((c.to_string(), style)),
+                        Some((text, style)) if *style == glyph.style => text.push_str(glyph.text),
+                        _ => runs.push((glyph.text.to_owned(), glyph.style)),
                     }
                 }
                 let mut spans = vec![Span::from(" ".repeat(indent))];
@@ -1235,7 +1289,7 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<(&'static str, &'stati
 fn key_line(keys: &[(&str, &str)], width: u16) -> Line<'static> {
     // Each hint is ` key ` and ` what  `; the blanks after the last one may
     // run past the edge.
-    let hint_width = |(key, what): &(&str, &str)| key.chars().count() + what.chars().count() + 5;
+    let hint_width = |(key, what): &(&str, &str)| columns(key) + columns(what) + 5;
     let mut kept: Vec<&(&str, &str)> = keys.iter().collect();
     loop {
         let used: usize = kept.iter().map(|hint| hint_width(hint)).sum();
@@ -1344,12 +1398,25 @@ mod tests {
     }
 
     fn title_line(backend: &TestBackend) -> String {
+        visible_rows(backend)[0].trim_end().to_owned()
+    }
+
+    /// Each row of the screen as the terminal shows it: a wide character
+    /// hides the cell after it.
+    fn visible_rows(backend: &TestBackend) -> Vec<String> {
         let buffer = backend.buffer();
-        (0..buffer.area.width)
-            .map(|x| buffer[(x, 0)].symbol())
-            .collect::<String>()
-            .trim_end()
-            .to_owned()
+        (0..buffer.area.height)
+            .map(|y| {
+                let mut row = String::new();
+                let mut x = 0;
+                while x < buffer.area.width {
+                    let symbol = buffer[(x, y)].symbol();
+                    row.push_str(symbol);
+                    x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
+                }
+                row
+            })
+            .collect()
     }
 
     // -----------------------------------------------------------------
@@ -2884,7 +2951,7 @@ mod tests {
                     if span.style.add_modifier.contains(Modifier::REVERSED) {
                         cursor = Some(column);
                     }
-                    column += span.content.chars().count();
+                    column += columns(&span.content);
                 }
                 (text, cursor)
             })
@@ -2964,5 +3031,341 @@ mod tests {
             cursor_columns(&lines),
             [("ab  ".to_owned(), None), ("cd".to_owned(), None)]
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Wide characters
+    // -----------------------------------------------------------------
+
+    /// The text of each line, spans joined.
+    fn line_texts(lines: &[Line]) -> Vec<String> {
+        lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Thirty characters of two columns each.
+    const WIDE_TEXT: &str = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほ";
+
+    /// A session in Japanese with an emoji in its title, whose intro runs
+    /// past the three lines the header gives it at 60×24.
+    fn wide_session() -> App {
+        let intro = "変更点を確認してから公開してください。 ".repeat(6);
+        let json = serde_json::json!({
+            "asqr": 2,
+            "title": "リリース 🎉 の確認",
+            "intro": intro,
+            "questions": [
+                {"id": "go", "header": "公開", "text": "今すぐ**公開**しますか？", "kind": "single",
+                 "options": [
+                    {"id": "yes", "label": "今すぐ", "description": "タグを作って公開する"},
+                    {"id": "later", "label": "Later", "description": "週末の後で公開する"}],
+                 "custom": {"label": "別の答え"}},
+                {"id": "notes", "header": "メモ", "text": "リリースノートの一文:", "kind": "text"}
+            ]
+        });
+        app(&[("wide", &json.to_string())])
+    }
+
+    #[test]
+    fn a_cut_line_measures_wide_characters_in_columns() {
+        let line = Line::from(vec![Span::from(" "), Span::from("日本語の説明").dim()]);
+        let kept = [
+            Span::from(" "),
+            Span::from("日本").dim(),
+            Span::from("… i: more"),
+        ];
+
+        // The marker takes 9 of the 14 columns, which leaves 5: the blank,
+        // then 日本, which ends at the edge.
+        let cut = ending_in(line.clone(), "… i: more", 14);
+        assert_eq!(cut.spans, kept);
+        assert_eq!(columns(&line_texts(&[cut])[0]), 14);
+        assert_eq!(
+            ending_in(line, "… i: more", 15).spans,
+            kept,
+            "語 would cross the edge"
+        );
+        assert_eq!(
+            line_texts(&[ending_in(Line::from("ab🎉cd"), "…", 4)]),
+            ["ab…"]
+        );
+    }
+
+    #[test]
+    fn wrapping_measures_wide_characters_in_columns() {
+        let wrapped =
+            |text: &'static str, width, rest| line_texts(&wrap(Line::from(text), width, 0, rest));
+
+        assert_eq!(
+            wrapped("日本語🎉です", 6, 0),
+            ["日本語", "🎉です"],
+            "語 ends at the edge"
+        );
+        assert_eq!(
+            wrapped("日本語🎉です", 5, 0),
+            ["日本", "語🎉", "です"],
+            "語 would cross the edge and moves on whole"
+        );
+        assert_eq!(wrapped("ab 日本 語", 5, 1), ["ab ", " 日本 ", " 語"]);
+        assert_eq!(
+            wrapped("日本", 1, 0),
+            ["日", "本"],
+            "a character wider than the line still goes on"
+        );
+    }
+
+    #[test]
+    fn the_text_cursor_on_a_wide_character_moves_with_it_to_the_next_line() {
+        let line = with_cursor("日本語", Some((0, 2))).remove(0);
+        assert_eq!(
+            cursor_columns(&wrap(line, 5, 0, 1)),
+            [("日本".to_owned(), None), (" 語".to_owned(), Some(1))]
+        );
+
+        let line = with_cursor("日本", Some((0, 2))).remove(0);
+        assert_eq!(
+            cursor_columns(&wrap(line, 4, 0, 1)),
+            [("日本".to_owned(), None), ("  ".to_owned(), Some(1))],
+            "after a line full of wide characters"
+        );
+    }
+
+    #[test]
+    fn the_text_cursor_covers_the_whole_grapheme_its_character_is_in() {
+        // ratatui-textarea moves its cursor by characters, so it can stop
+        // on a combining accent or on the skin tone of an emoji.
+        let accent = with_cursor("ce\u{301}x", Some((0, 2))).remove(0);
+        assert_eq!(
+            accent.spans,
+            [
+                Span::from("c"),
+                Span::from("e\u{301}").reversed(),
+                Span::from("x")
+            ]
+        );
+
+        let emoji = with_cursor("👍🏽!", Some((0, 1))).remove(0);
+        assert_eq!(
+            emoji.spans,
+            [Span::from(""), Span::from("👍🏽").reversed(), Span::from("!")]
+        );
+    }
+
+    #[test]
+    fn the_tab_bar_measures_wide_headers_in_columns() {
+        let questions: Vec<String> = ["質問一", "質問二", "質問三", "質問四", "質問五"]
+            .iter()
+            .enumerate()
+            .map(|(index, header)| {
+                format!(
+                    r#"{{"id": "q{index}", "header": "{header}", "text": "?", "kind": "text"}}"#
+                )
+            })
+            .collect();
+        let app = app(&[(
+            "wide",
+            &format!(r#"{{"asqr": 2, "questions": [{}]}}"#, questions.join(",")),
+        )]);
+
+        // Each tab takes 10 columns, so four fill the 40 between the
+        // arrows exactly.
+        let line = tab_line(app.active().expect("the session"), 44);
+
+        assert_eq!(
+            line_texts(&[line])[0],
+            "   ☐ 質問一  ☐ 質問二  ☐ 質問三  ☐ 質問四  →"
+        );
+    }
+
+    #[test]
+    fn descriptions_line_up_after_a_label_of_wide_characters() {
+        let backend = screen(&wide_session(), 100, 24);
+        let rows = visible_rows(&backend);
+
+        // The widest head is `❯ ( ) 1. ` and 今すぐ, 15 columns, and the
+        // descriptions start 2 after it, behind the margin of one.
+        for description in ["タグを作って公開する", "週末の後で公開する"] {
+            let row = rows
+                .iter()
+                .find(|row| row.contains(description))
+                .expect("the description is on screen");
+            let start = row.find(description).expect("it is in the row");
+            assert_eq!(columns(&row[..start]), 18, "{description}:\n{backend}");
+        }
+    }
+
+    #[test]
+    fn a_head_of_wide_characters_counts_its_columns() {
+        // As with 28 and 29 `x`: 14 wide characters leave the text 20
+        // columns, and it wraps under its start; 15 leave it 18.
+        for (count, indent) in [(14, 38), (15, 4)] {
+            let backend = screen(&own_answer_labelled(&"日".repeat(count)), 60, 24);
+            let rows = visible_rows(&backend);
+
+            let head = rows
+                .iter()
+                .position(|row| row.contains('✎'))
+                .expect("the own answer is on screen");
+            let leading = rows[head + 1].chars().take_while(|c| *c == ' ').count();
+            assert_eq!(
+                leading,
+                1 + indent,
+                "a label of {count} wraps after {indent}:\n{backend}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_own_answer_of_wide_characters_wraps_in_columns() {
+        let mut app = wide_session();
+        keys(&mut app, "jj");
+        keys(&mut app, WIDE_TEXT);
+
+        let backend = screen(&app, 60, 24);
+        insta::assert_snapshot!("wide_own_answer_60x24", backend);
+        let rows = visible_rows(&backend);
+        assert!(
+            rows[4].trim_end().ends_with("… i: more"),
+            "the cut intro keeps its marker:\n{backend}"
+        );
+        // Without blanks, the text is one word longer than the room after
+        // the head `❯ (•) ✎ 別の答え: `, so it starts under its start on
+        // the next line. Its 18 columns leave 40 of the 58 for 20
+        // characters, the last ending at the edge.
+        let head = rows
+            .iter()
+            .position(|row| row.contains('✎'))
+            .expect("the own answer is on screen");
+        assert_eq!(rows[head].trim_end(), " ❯ (•) ✎ 別の答え:");
+        assert_eq!(
+            rows[head + 1],
+            format!("{}{} ", " ".repeat(19), &WIDE_TEXT[..60]),
+            "only the margin follows"
+        );
+        assert_eq!(rows[head + 2].trim(), &WIDE_TEXT[60..]);
+
+        // The cursor goes back to な, which starts the third line.
+        for _ in 0..10 {
+            special(&mut app, KeyCode::Left);
+        }
+        let backend = screen(&app, 60, 24);
+        // The header takes four rows here, so the tab bar's current tab is
+        // among the reversed cells too.
+        let head = u16::try_from(head).expect("a row on the screen");
+        let cursor: Vec<_> = reversed_cells_in_tab(&backend)
+            .into_iter()
+            .filter(|&(_, y, _)| y >= head)
+            .collect();
+        assert_eq!(cursor, [(19, head + 2, "な".to_owned())], "{backend}");
+    }
+
+    #[test]
+    fn a_text_answer_of_wide_characters_wraps_in_columns() {
+        let mut app = wide_session();
+        keys(&mut app, "l");
+        keys(&mut app, WIDE_TEXT);
+
+        let backend = screen(&app, 60, 24);
+        insta::assert_snapshot!("wide_text_answer_60x24", backend);
+        // Without blanks, the text is one word longer than the room after
+        // `❯ ✎ `, so it starts on the next line, 4 columns in, which leaves
+        // 54 of the 58 for 27 characters, the last ending at the edge.
+        let rows = visible_rows(&backend);
+        let first = rows
+            .iter()
+            .position(|row| row.contains('✎'))
+            .expect("the answer is on screen");
+        assert_eq!(rows[first].trim_end(), " ❯ ✎");
+        assert_eq!(
+            rows[first + 1],
+            format!("     {} ", &WIDE_TEXT[..81]),
+            "only the margin follows"
+        );
+        assert_eq!(rows[first + 2].trim(), &WIDE_TEXT[81..]);
+    }
+
+    #[test]
+    fn the_review_lines_up_and_cuts_wide_labels_and_answers_in_columns() {
+        let json = serde_json::json!({
+            "asqr": 2,
+            "questions": [
+                {"id": "a", "header": "Go", "text": "?", "kind": "text"},
+                {"id": "b", "header": "a日本語のとても長い見出し", "text": "?", "kind": "text"}
+            ]
+        });
+        let mut app = app(&[("wide", &json.to_string())]);
+        keys(&mut app, "ok");
+        special(&mut app, KeyCode::Enter);
+        keys(&mut app, WIDE_TEXT);
+        special(&mut app, KeyCode::Enter);
+
+        let backend = screen(&app, 60, 24);
+        insta::assert_snapshot!("wide_review_60x24", backend);
+        let rows = visible_rows(&backend);
+        let row = |start: &str| {
+            rows.iter()
+                .find(|row| row.contains(start))
+                .unwrap_or_else(|| panic!("{start} is on screen:\n{backend}"))
+        };
+        // The second header takes 25 columns and is cut to 23, as its
+        // last character would cross the 24 labels get. Its summary then
+        // starts at column 30 of the tab and has 28 columns: the quote,
+        // 13 characters and `…`, the last ending at the edge.
+        let summary = format!("\"{}…", &WIDE_TEXT[..39]);
+        assert_eq!(
+            row("見出 ").trim_end(),
+            format!("   ☒ a日本語のとても長い見出   {summary}")
+        );
+        let go = row("\"ok\"");
+        let start = go.find("\"ok\"").expect("the first summary");
+        assert_eq!(columns(&go[..start]), 31, "{backend}");
+    }
+
+    #[test]
+    fn a_queue_path_of_wide_characters_is_cut_in_columns() {
+        let app = App::default();
+
+        // The path gets 24 columns: `…` and 23 for its end, which hold 11
+        // wide characters, as a 12th would cross the edge.
+        assert_eq!(
+            title_line(&screen_of_queue(
+                &app,
+                &format!("/q/{}", "日".repeat(20)),
+                60,
+                15
+            )),
+            format!(" asqr · queue: …{} · 0 sessions waiting", "日".repeat(11))
+        );
+        assert_eq!(
+            title_line(&screen_of_queue(
+                &app,
+                &format!("/{}/{}", "日".repeat(15), "本".repeat(8)),
+                60,
+                15
+            )),
+            format!(" asqr · queue: …/{} · 0 sessions waiting", "本".repeat(8)),
+            "cut at the separator in reach"
+        );
+    }
+
+    #[test]
+    fn the_key_bar_measures_wide_hints_in_columns() {
+        let text = |width: u16| {
+            line_texts(&[key_line(&[("日本", "表示"), ("q", "quit")], width)])[0]
+                .trim_end()
+                .to_owned()
+        };
+
+        // ` 日本 ` and ` 表示  ` take 13 columns, ` q ` and ` quit  ` 10,
+        // of which the last two blanks may run past the edge.
+        assert_eq!(text(21), " 日本  表示   q  quit");
+        assert_eq!(text(20), " q  quit");
     }
 }

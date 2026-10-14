@@ -167,7 +167,6 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "unicode-segmentation",
- "unicode-width",
  "vt100",
 ]
 
