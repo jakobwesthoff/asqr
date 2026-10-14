@@ -87,6 +87,17 @@ impl std::fmt::Display for ShapeError {
 /// of the parser.
 pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
     let raw: Value = serde_json::from_slice(bytes).map_err(ParseError::NotASession)?;
+    // serde reads a struct from an array of its fields as well, so a
+    // session written as an array would parse, and code that sets a key
+    // of the raw JSON, as `asqr ask` sets the id, would panic.
+    if !raw.is_object() {
+        let error = serde_path_to_error::deserialize::<_, serde_json::Map<String, Value>>(raw)
+            .expect_err("only an object reads as a map");
+        return Err(ParseError::Shape(ShapeError {
+            path: error.path().clone(),
+            error: error.into_inner(),
+        }));
+    }
     // A missing version is left to the parser, which names the missing
     // field.
     let version = raw.get("asqr").and_then(|version| match version.as_u64() {
@@ -560,6 +571,23 @@ mod tests {
                     "context": [{"type": "image", "path": null}]}]}"#
             ),
             "not a session file: questions[0].context[0]: invalid type: null, expected a string"
+        );
+    }
+
+    /// A session written as an array, its fields in their order. serde
+    /// reads a struct from an array too, so this parses as a `Session`.
+    const SESSION_AS_ARRAY: &str =
+        r#"[2, null, null, null, null, null, [{"id": "a", "text": "?", "kind": "text"}]]"#;
+
+    #[test]
+    fn a_session_that_is_no_json_object_is_refused() {
+        assert_eq!(
+            shape_error(SESSION_AS_ARRAY),
+            "not a session file: invalid type: sequence, expected a map"
+        );
+        assert_eq!(
+            shape_error(r#""session""#),
+            r#"not a session file: invalid type: string "session", expected a map"#
         );
     }
 

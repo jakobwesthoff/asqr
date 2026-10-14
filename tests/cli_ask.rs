@@ -284,6 +284,35 @@ fn refuses_a_file_that_is_not_a_session() {
 }
 
 #[test]
+fn refuses_a_session_that_is_no_json_object_without_a_panic() {
+    // serde reads the session's struct from an array of its fields in
+    // their order, so this array passes the typed parse.
+    let array = r#"[2, null, null, null, null, null, [{"id": "a", "text": "?", "kind": "text"}]]"#;
+    for (name, content) in [("array", array), ("string", r#""session""#)] {
+        let sandbox = Sandbox::new();
+        let file = sandbox.file("bad.json", content);
+
+        let output = sandbox
+            .asqr_in_queue(&["ask"])
+            .arg(&file)
+            .output()
+            .expect("runs");
+
+        assert_eq!(
+            output.status.code(),
+            Some(11),
+            "{name}: {}",
+            stderr(&output)
+        );
+        assert!(
+            stderr(&output).starts_with("error: not a session file:"),
+            "{name}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
 fn replaces_a_waiting_session_nobody_answered() {
     let sandbox = Sandbox::new();
     let file = sandbox.file("session.json", SESSION);

@@ -116,6 +116,31 @@ fn validate_reports_a_file_that_is_not_a_session() {
 }
 
 #[test]
+fn validate_refuses_a_session_that_is_no_json_object() {
+    // serde reads the session's struct from an array of its fields in
+    // their order, so this array passes the typed parse.
+    let array = r#"[2, null, null, null, null, null, [{"id": "a", "text": "?", "kind": "text"}]]"#;
+    for (name, content) in [("array", array), ("string", r#""session""#)] {
+        let sandbox = Sandbox::new();
+        let file = sandbox.file("bad.json", content);
+
+        let output = sandbox
+            .asqr()
+            .arg("validate")
+            .arg(&file)
+            .output()
+            .expect("runs");
+
+        assert_eq!(output.status.code(), Some(11), "{name}");
+        assert!(
+            stderr(&output).starts_with("error: not a session file:"),
+            "{name}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
 fn validate_refuses_an_enlarge_that_is_no_boolean() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(

@@ -248,6 +248,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closes when none is left.
 - `asqr ask` no longer adds `"options": null` to a `text` question in
   the copy it drops into the inbox.
+- `asqr validate` and `asqr ask` refuse a session file that is no JSON
+  object as not a session file (exit code 11). Before, a session written
+  as an array of its fields in their order passed validation, and
+  `asqr ask` crashed on it.
 - The text cursor of a note or a `text` answer stays visible when the
   text fills its line exactly or the cursor sits on the space where a
   line breaks. Before, the cursor's cell fell past the end of the line
