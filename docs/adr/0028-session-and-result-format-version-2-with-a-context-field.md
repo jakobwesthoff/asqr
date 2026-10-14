@@ -18,6 +18,8 @@ Amended by [32. Let an image entry opt out of enlarging](0032-let-an-image-entry
 
 Amended by [33. Show diffs as a unified diff computed with similar](0033-show-diffs-as-a-unified-diff-computed-with-similar.md)
 
+Amended by [34. Show code and Markdown entries through patine](0034-show-code-and-markdown-entries-through-patine.md)
+
 ## Context
 
 The user asked on 2026-10-14 for a context pane next to the question:
@@ -86,9 +88,8 @@ Agent's choices within that design:
 - The version is checked on the raw JSON before the file is parsed into
   a session. A version 1 file whose shape does not parse under version 2
   still gets the refusal with the hint, not a parser error.
-- Until the text viewer lands, text entries show a placeholder that
-  names them, and `o` and `z` act on image entries only. Diff entries
-  show as a unified diff (ADR 33).
+- `o` acts on image entries only. Diff entries show as a unified diff
+  (ADR 33), code and Markdown entries through their viewers (ADR 34).
 
 ## Consequences
 
@@ -139,5 +140,4 @@ Agent's choices within that design:
 - The keys `render` and an inline `text` are unknown fields like any
   other: format version 2 was never released with them, so no file
   carries them (user, 2026-10-14).
-- Until their viewers land, code and Markdown entries show the
-  placeholder that text entries showed.
+- Code entries show highlighted and Markdown entries rendered (ADR 34).

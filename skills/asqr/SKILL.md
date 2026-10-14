@@ -142,8 +142,13 @@ Once asked, asqr fits best when:
     lines green, and the changed words inside a changed line marked. A
     long line does not wrap; the person scrolls sideways. There is no
     syntax highlighting in a diff. Identical versions show "no changes".
-  - This version of asqr shows code and Markdown entries as a
-    placeholder that names them; their viewers come in a later version.
+  - asqr shows a code entry highlighted, with line numbers in a gutter.
+    Long lines do not wrap; the person scrolls sideways. A Markdown entry
+    is rendered and wrapped to the pane: headings, emphasis, lists,
+    quotes, tables and highlighted code blocks, whose long lines wrap
+    behind a `↪` marker. Name the language of a code block's fence so it
+    is highlighted. A file asqr cannot read shows as a placeholder with
+    the reason.
   - Keep a code, Markdown or diff entry under 1 MiB (both sides of a diff
     together); `validate` and `ask` warn above that. Show an excerpt
     instead of a whole large file.

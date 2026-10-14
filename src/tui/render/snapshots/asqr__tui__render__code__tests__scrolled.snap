@@ -1,0 +1,10 @@
+---
+source: src/tui/render/code.rs
+expression: "shown(&mut viewer, 24, 20)"
+---
+"1 ion;                  "
+"2                       "
+"3                       "
+"4 tr) -> Result<Respons›"
+"5                       "
+"6                       "

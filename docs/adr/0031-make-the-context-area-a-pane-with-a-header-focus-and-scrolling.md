@@ -16,6 +16,8 @@ Amended by [32. Let an image entry opt out of enlarging](0032-let-an-image-entry
 
 Amended by [33. Show diffs as a unified diff computed with similar](0033-show-diffs-as-a-unified-diff-computed-with-similar.md)
 
+Amended by [34. Show code and Markdown entries through patine](0034-show-code-and-markdown-entries-through-patine.md)
+
 ## Context
 
 ADR 30 placed the context area beside or below the question. It drew an

@@ -2197,19 +2197,44 @@ mod tests {
     }
 
     #[test]
-    fn markdown_entries_show_a_placeholder_naming_them() {
+    fn a_markdown_entry_shows_rendered_under_its_title() {
         let review = include_str!("../../../examples/sessions/retry-review.json");
         let mut titled = app(&[("review", review)]);
         keys(&mut titled, "l");
-        insta::assert_snapshot!("markdown_placeholder", screen(&titled, 80, 24));
+        insta::assert_snapshot!("markdown_in_pane", screen(&titled, 80, 24));
 
-        // Without a title the placeholder names the file, or nothing for
-        // inline text.
+        // Inline Markdown without a title is named by its kind.
         let without_title = review.replace(r#""title": "short.md", "#, "");
         let mut untitled = app(&[("review", &without_title)]);
         keys(&mut untitled, "l");
-        let text = screen(&untitled, 120, 20).to_string();
-        assert!(text.contains("markdown not shown"), "{text}");
+        let text = screen(&untitled, 80, 24).to_string();
+        assert!(text.contains(" markdown "), "{text}");
+    }
+
+    #[test]
+    fn a_code_entry_shows_highlighted_with_line_numbers() {
+        let app = app(&[(
+            "code",
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "Keep the retry?", "kind": "single",
+                "context": [{"type": "code", "title": "fetch.rs",
+                             "content": "pub fn fetch(url: &str) -> Response {\n    retry(|| get(url))\n}\n"}],
+                "options": [{"id": "a", "label": "Yes"}]}]}"#,
+        )]);
+
+        let backend = screen(&app, 120, 20);
+
+        insta::assert_snapshot!("code_in_pane", backend);
+        let row = row_starting_with(&backend, "Keep the retry?");
+        let line = screen_lines(&backend)[usize::from(row) + 1].clone();
+        assert!(line.contains("1 pub fn fetch"), "{backend}");
+        let start = line.find("pub fn").expect("the code line");
+        let x = line[..start].chars().count() + "pub ".len();
+        let x = u16::try_from(x).expect("a narrow screen");
+        assert_eq!(
+            backend.buffer()[(x, row + 1)].fg,
+            Color::Indexed(5),
+            "a highlighted keyword:\n{backend}"
+        );
     }
 
     #[test]

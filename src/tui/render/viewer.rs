@@ -16,8 +16,10 @@ use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Widget};
 use ratatui_image::picker::Picker;
 
+use super::code::CodeViewer;
 use super::diff::DiffViewer;
 use super::images::Image;
+use super::markdown_viewer::MarkdownViewer;
 use super::screen::wrap;
 use crate::format::ContextEntry;
 use crate::tui::{EntryKey, Offset};
@@ -178,18 +180,8 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
             picker: picker.clone(),
             image: None,
         }),
-        // TODO: replace with the code and Markdown viewers, see the todo
-        // `01M4XHQSD1EM17QD87CFB3VWMG-show-code-and-markdown-entries-in-the-context-pane.md`.
-        ContextEntry::Code(code) => Box::new(Placeholder::new(
-            "code not shown",
-            code.title.as_ref().or(code.path.as_ref()),
-            "this asqr cannot show code entries yet",
-        )),
-        ContextEntry::Markdown(markdown) => Box::new(Placeholder::new(
-            "markdown not shown",
-            markdown.title.as_ref().or(markdown.path.as_ref()),
-            "this asqr cannot show markdown entries yet",
-        )),
+        ContextEntry::Code(code) => Box::new(CodeViewer::new(code)),
+        ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown)),
         ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff)),
     }
 }
@@ -235,9 +227,9 @@ impl Viewer for ImageViewer {
 // Placeholders
 // ---------------------------------------------------------------------
 
-/// Up to three lines that name an entry this asqr cannot show, or a file
-/// it cannot read, and say why, the way an image placeholder names its
-/// file, wrapped to the body.
+/// Up to three lines that name a file a viewer cannot read and say why,
+/// the way an image placeholder names its file, or one dim note in place
+/// of content, wrapped to the body.
 pub(super) struct Placeholder {
     lines: Vec<Line<'static>>,
     wrapped: Vec<Line<'static>>,
@@ -254,6 +246,14 @@ impl Placeholder {
         lines.push(Line::from(reason.into()).dim());
         Placeholder {
             lines,
+            wrapped: Vec::new(),
+        }
+    }
+
+    /// A dim note, such as "empty", where there is no content to show.
+    pub(super) fn note(note: &'static str) -> Self {
+        Placeholder {
+            lines: vec![Line::from(note).dim()],
             wrapped: Vec::new(),
         }
     }
@@ -510,52 +510,86 @@ mod tests {
     // Placeholders
     // -----------------------------------------------------------------
 
+    /// The text `viewer`, laid out and drawn into `width`×`height` cells
+    /// from line `top` on, shows, one string per row.
+    fn drawn_viewer(viewer: &mut dyn Viewer, width: u16, height: u16, top: usize) -> Vec<String> {
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        viewer.lay_out(width, height);
+        viewer.draw(area, &mut buf, Offset { top, left: 0 });
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buf[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    }
+
     #[test]
     fn a_placeholder_wraps_to_the_body_and_counts_its_lines() {
-        let text = entry(r#"{"type": "code", "path": "/src/fetch.rs"}"#);
-        let mut viewers = viewers();
+        let path = "/src/fetch.rs".to_owned();
+        let mut placeholder = Placeholder::new(
+            "code not shown",
+            Some(&path),
+            "this file moved after the session came",
+        );
 
-        let (_, size) = viewers.laid_out("s", QUESTION, &text, 40, 10);
         assert_eq!(
-            size,
+            placeholder.lay_out(40, 10),
             ContentSize {
                 lines: 3,
                 columns: 38
             },
             "as wide as its widest line"
         );
-        let (_, size) = viewers.laid_out("s", QUESTION, &text, 20, 10);
         assert_eq!(
-            size,
+            placeholder.lay_out(20, 10),
             ContentSize {
                 lines: 5,
                 columns: 18
             },
             "the reason takes three lines at 20 columns"
         );
-        let (_, size) = viewers.laid_out("s", QUESTION, &text, 9, 10);
         assert_eq!(
-            size.columns, 9,
-            "the blank after `asqr`, hanging past the edge, does not count"
+            placeholder.lay_out(9, 10).columns,
+            9,
+            "the blank after `file`, hanging past the edge, does not count"
         );
 
         assert_eq!(
-            drawn(&text, 40, 3, 0),
+            drawn_viewer(&mut placeholder, 40, 3, 0),
             [
                 "code not shown",
                 "/src/fetch.rs",
-                "this asqr cannot show code entries yet"
+                "this file moved after the session came"
             ]
         );
         assert_eq!(
-            drawn(&text, 40, 3, 1),
+            drawn_viewer(&mut placeholder, 40, 3, 1),
             [
                 "/src/fetch.rs",
-                "this asqr cannot show code entries yet",
+                "this file moved after the session came",
                 ""
             ],
             "it starts at the offset"
         );
+    }
+
+    #[test]
+    fn a_note_is_one_dim_line() {
+        let mut note = Placeholder::note("empty");
+
+        assert_eq!(
+            note.lay_out(30, 4),
+            ContentSize {
+                lines: 1,
+                columns: 5
+            }
+        );
+        assert_eq!(drawn_viewer(&mut note, 30, 1, 0), ["empty"]);
     }
 
     // -----------------------------------------------------------------
@@ -571,25 +605,37 @@ mod tests {
         assert_eq!(drawn(&diff, 40, 2, 0), ["1   - get(url)", "  1 + get(uri)"]);
     }
 
+    // -----------------------------------------------------------------
+    // Code and Markdown
+    // -----------------------------------------------------------------
+
     #[test]
-    fn a_code_or_markdown_placeholder_names_its_title_or_path() {
-        let titled = entry(r#"{"type": "code", "title": "Log", "path": "/var/log/x"}"#);
-        assert_eq!(drawn(&titled, 40, 3, 0)[1], "Log");
+    fn a_code_entry_shows_its_numbered_lines() {
+        let code =
+            entry(r#"{"type": "code", "language": "rust", "content": "fn a() {}\nfn b() {}\n"}"#);
 
-        let untitled = entry(r#"{"type": "markdown", "path": "/notes/plan.md"}"#);
-        assert_eq!(
-            drawn(&untitled, 50, 3, 0)[..2],
-            ["markdown not shown", "/notes/plan.md"]
-        );
+        assert_eq!(drawn(&code, 20, 2, 0), ["1 fn a() {}", "2 fn b() {}"]);
+    }
 
-        let inline = entry(r#"{"type": "code", "content": "x"}"#);
-        assert_eq!(
-            drawn(&inline, 40, 3, 0),
-            [
-                "code not shown",
-                "this asqr cannot show code entries yet",
-                ""
-            ]
-        );
+    #[test]
+    fn a_markdown_entry_shows_rendered() {
+        let markdown = entry(r#"{"type": "markdown", "content": "**Plan**\n\n- one\n"}"#);
+
+        assert_eq!(drawn(&markdown, 20, 3, 0), ["Plan", "", "• one"]);
+    }
+
+    #[test]
+    fn code_and_markdown_viewers_keep_what_they_derived_when_the_images_go() {
+        let mut viewers = viewers();
+        let code = entry(r#"{"type": "code", "content": "x"}"#);
+        let markdown = entry(r#"{"type": "markdown", "content": "x"}"#);
+        built(&mut viewers, "s", QUESTION, &code);
+        built(&mut viewers, "s", OPTION, &markdown);
+
+        viewers.forget_images();
+        built(&mut viewers, "s", QUESTION, &code);
+        built(&mut viewers, "s", OPTION, &markdown);
+
+        assert_eq!(viewers.built, 2);
     }
 }

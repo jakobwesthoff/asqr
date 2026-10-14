@@ -15,8 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration file), Markdown (rendered) or a diff, which asqr
   computes from the old and the new text. Code and Markdown come from a
   file or inline in `content`. A question or option holds one entry.
-  This version shows code and Markdown entries as a placeholder that
-  names them.
+- A code entry shows highlighted in its language, through the user's
+  Markdown renderer patine and the 8 colours of the terminal's palette,
+  with line numbers in a dim gutter. The language comes from `language`,
+  else from the extension or file name of `path` or `title`. Long lines
+  do not wrap; the pane scrolls sideways and a `›` marks a cut line.
+- A Markdown entry shows rendered in patine's style and wrapped to the
+  pane: headings, emphasis, inline code, lists, quotes, tables and
+  highlighted code blocks. A line patine leaves wider than the pane,
+  such as a long line of code, wraps, and each further row starts with a
+  dim `↪`.
 - A diff entry shows as a unified diff: hunks with 3 lines of context, a
   separator between hunks, the old and the new line number in a dim
   gutter, removed lines red and added lines green, and the changed words

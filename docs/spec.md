@@ -832,9 +832,6 @@ Context appears only when a question or one of its options has some.
   another entry shows that entry where the person left it, or at its top
   the first time, and coming back restores the first one's. Rows that
   show the question's entry share its position.
-- Code and Markdown entries show a placeholder that names the entry by
-  its `title` (its `path` without one) and says that this asqr cannot
-  show them yet.
 
 Diffs (ADR 33):
 
@@ -873,6 +870,36 @@ Diffs (ADR 33):
 - Computing a diff may take up to a second. Past that, asqr shows a
   diff that is still correct but may mark more lines as changed than
   needed.
+
+Code and Markdown (ADR 34):
+
+- A code entry shows its text exactly as written, highlighted in its
+  language (section 4) with the 8 colours of the terminal's palette, so
+  its theme decides the shades. Without a language, or with one asqr
+  does not know, the text is plain. A file name without an extension,
+  such as `Makefile`, counts as a whole, and a `.md` file shows its
+  source.
+- A dim gutter holds each line's number. Lines do not wrap: a line wider
+  than the pane ends in a dim `›`, and the pane scrolls sideways while
+  the gutter stays in place. Tabs and control characters show as in a
+  diff.
+- A Markdown entry shows rendered in patine's style, wrapped at the
+  pane's width, without a gutter and without sideways scrolling:
+  headings bold (level one also italic and underlined, level two
+  underlined), emphasis, inline code in yellow, lists with bullets,
+  quotes behind a dim bar, tables, and code blocks highlighted when the
+  fence names a language.
+- A line patine leaves wider than the pane, such as a line of a code
+  block, a long URL or a table that cannot shrink, wraps: each further
+  row repeats the blanks and quote bars the line starts with, then a dim
+  `↪`, then the rest. A wide character that would cross the end of a row
+  starts the next one. This holds wherever asqr renders Markdown with
+  patine. Tabs in code blocks expand to stops of 4 columns.
+- Both are read when the entry is first shown. A relative path, a
+  missing or unreadable file, or a binary file shows a placeholder
+  saying "code not shown" or "markdown not shown" with the path and the
+  reason. Bytes that are not UTF-8 show as `�`, and an entry without any
+  text shows a dim "empty".
 
 Images:
 

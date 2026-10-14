@@ -1,0 +1,18 @@
+---
+source: src/tui/render/markdown_viewer.rs
+expression: "shown(&mut viewer, 24)"
+---
+"Retries                 "
+"                        "
+"A failed request is     "
+"tried again up to three "
+"times, with delay       "
+"doubling.               "
+"                        "
+"Settings                "
+"                        "
+"• tries: 3              "
+"• delay: 100 ms         "
+"                        "
+"  let delay = Duration::"
+"  ↪ from_millis(100);   "

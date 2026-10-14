@@ -32,21 +32,17 @@ The format step, session and result files in format version 2 with a
 caps the question at a reading width and places the context area
 beside or below it (ADR 30), the pane step, which made that area a
 pane with a header, viewers, focus and scrolling (ADR 31), and the diff
-step, which shows diff entries as a unified diff (ADR 33). "Show code
-and Markdown entries in the context pane" comes next. Its first part
-has landed: `code` and `markdown` replace the `text` entry type in
-format version 2 (user, 2026-10-14; ADR 28, amendment). It then
-implements the pane's `Viewer` trait
-(`src/tui/render/viewer.rs`) for both in place of the placeholder viewer
-there. The code viewer draws source lines through
-`src/tui/render/source_line.rs` as the diff viewer does; both use patine
-1.5.0, published 2026-10-14.
+step, which shows diff entries as a unified diff (ADR 33), and the code
+and Markdown step: `code` and `markdown` replace the `text` entry type
+in format version 2 (user, 2026-10-14; ADR 28, amendment), and each
+has a viewer built on patine 1.5.0 (ADR 34).
 
 Full Markdown in question texts ships in the same release as its own
 todo; the wrapped own answer (ADR 27) and the session note on the review
-tab (ADR 29) have landed already. The Markdown todo and the Markdown
-viewer share the adapter from patine's lines to ratatui styles;
-whichever lands first builds it.
+tab (ADR 29) have landed already. The Markdown todo uses the adapter
+from patine's lines to ratatui styles that the Markdown viewer brought,
+`src/tui/render/patine_adapter.rs`, with its rule for lines wider than
+the space (ADR 34).
 
 ## Where asqr stands
 
@@ -69,7 +65,9 @@ whichever lands first builds it.
   (ADR 31, `src/tui/render/context.rs`) shows a header that names the
   entry and the entry's viewer below it. Image entries show as images,
   diff entries as a unified diff (ADR 33, `src/tui/render/diff.rs`),
-  and code and Markdown entries as a placeholder viewer that names them. `tab` focuses the pane,
+  code entries highlighted with line numbers and Markdown entries
+  rendered and wrapped (ADR 34, `src/tui/render/code.rs`,
+  `src/tui/render/markdown_viewer.rs`). `tab` focuses the pane,
   the page keys scroll it from anywhere, and each entry keeps its scroll
   position. `o` opens the shown image in the system viewer and ignores
   the other entries; `z` shows any entry

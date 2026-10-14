@@ -5,7 +5,8 @@
 //! One line of source text as the viewers show it (ADR 33): tabs expanded,
 //! control characters made visible, measured in terminal columns, and drawn
 //! through a window of columns, so a line longer than the pane scrolls
-//! sideways instead of wrapping.
+//! sideways instead of wrapping. Rendered Markdown, which never scrolls
+//! sideways, breaks such a line into rows instead (ADR 34).
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -78,6 +79,66 @@ impl SourceLine {
     /// How many columns the line takes.
     pub fn width(&self) -> usize {
         self.width
+    }
+
+    /// The runs of the line with their styles, tabs already expanded and
+    /// control characters already pictured.
+    pub fn pieces(&self) -> impl Iterator<Item = (&str, Style)> {
+        self.pieces
+            .iter()
+            .map(|piece| (piece.text.as_str(), piece.style))
+    }
+
+    /// The line broken into rows, the first at most `first` columns wide
+    /// and every further one at most `rest`, for text that wraps instead
+    /// of scrolling sideways. Graphemes stay whole: a wide character that
+    /// would cross the end of a row starts the next one, and the cell it
+    /// leaves shows a blank in its style, as at the edge of a cut line. A
+    /// row always takes at least one grapheme, so a character wider than
+    /// the room still makes progress.
+    pub fn wrap(&self, first: usize, rest: usize) -> Vec<SourceLine> {
+        let mut rows = Vec::new();
+        let mut row = SourceLine {
+            pieces: Vec::new(),
+            width: 0,
+        };
+        let mut room = first;
+        for piece in &self.pieces {
+            for grapheme in piece.text.graphemes(true) {
+                let width = grapheme.width();
+                if row.width > 0 && row.width + width > room {
+                    let blanks = room.saturating_sub(row.width);
+                    row.push(&" ".repeat(blanks), piece.style);
+                    rows.push(std::mem::replace(
+                        &mut row,
+                        SourceLine {
+                            pieces: Vec::new(),
+                            width: 0,
+                        },
+                    ));
+                    room = rest;
+                }
+                row.push(grapheme, piece.style);
+            }
+        }
+        rows.push(row);
+        rows
+    }
+
+    /// Appends `text`, which holds no tab or control character, in
+    /// `style`, extending the last piece when it has the same style.
+    fn push(&mut self, text: &str, style: Style) {
+        if text.is_empty() {
+            return;
+        }
+        self.width += text.width();
+        match self.pieces.last_mut() {
+            Some(last) if last.style == style => last.text.push_str(text),
+            _ => self.pieces.push(Piece {
+                text: text.to_owned(),
+                style,
+            }),
+        }
     }
 
     /// Draws the columns `left..left + area.width` of the line into the
@@ -263,6 +324,63 @@ mod tests {
         let tight = SourceLine::new([("日本", Style::new())]);
         let (row, _) = drawn(&tight, 3, 1);
         assert_eq!(row, " 本", "cut on the left, whole on the right");
+    }
+
+    /// The text of each row `line` wraps into.
+    fn wrapped(line: &SourceLine, first: usize, rest: usize) -> Vec<String> {
+        line.wrap(first, rest).iter().map(text).collect()
+    }
+
+    #[test]
+    fn wrapping_breaks_a_line_into_rows_of_the_rooms_given() {
+        let line = plain("0123456789");
+
+        assert_eq!(wrapped(&line, 4, 3), ["0123", "456", "789"]);
+        assert_eq!(wrapped(&line, 10, 3), ["0123456789"], "it fits");
+        assert_eq!(wrapped(&plain(""), 4, 3), [""], "an empty line is one row");
+        let rows = line.wrap(4, 3);
+        assert_eq!(
+            rows.iter().map(SourceLine::width).collect::<Vec<_>>(),
+            [4, 3, 3]
+        );
+    }
+
+    #[test]
+    fn wrapping_keeps_the_styles_and_the_expanded_tabs() {
+        let line = SourceLine::new([("\tab", Style::new()), ("cdef", Style::new().red())]);
+
+        let rows = line.wrap(6, 6);
+
+        assert_eq!(
+            rows.iter().map(text).collect::<Vec<_>>(),
+            ["    ab", "cdef"]
+        );
+        assert_eq!(
+            rows[1].pieces().collect::<Vec<_>>(),
+            [("cdef", Style::new().red())]
+        );
+    }
+
+    #[test]
+    fn a_wide_character_at_the_break_moves_whole_and_leaves_a_blank_in_its_style() {
+        let line = SourceLine::new([("ab", Style::new()), ("日本", Style::new().green())]);
+
+        let rows = line.wrap(3, 3);
+
+        assert_eq!(
+            rows.iter().map(text).collect::<Vec<_>>(),
+            ["ab ", "日 ", "本"]
+        );
+        assert_eq!(
+            rows[0].pieces().collect::<Vec<_>>(),
+            [("ab", Style::new()), (" ", Style::new().green())]
+        );
+        assert_eq!(rows[0].width(), 3);
+        assert_eq!(
+            wrapped(&plain("日本"), 1, 1),
+            ["日", "本"],
+            "a character wider than the room still goes on"
+        );
     }
 
     #[test]

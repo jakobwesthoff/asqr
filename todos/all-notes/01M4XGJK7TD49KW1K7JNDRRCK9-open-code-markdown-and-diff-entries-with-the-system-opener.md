@@ -2,7 +2,6 @@
 title: "Open code, Markdown and diff entries with the system opener"
 kind: feature
 component: tui
-status: blocked
 origin: discussion
 tags: [ux]
 ---
@@ -30,6 +29,3 @@ configured app for the file type opens it.
 - Where the temporary files live and when they are removed (the queue's
   cache directory, removed with the session or on quit).
 
-## Relations
-
-- Depends on: [Show code and Markdown entries in the context pane](01M4XHQSD1EM17QD87CFB3VWMG-show-code-and-markdown-entries-in-the-context-pane.md)

@@ -74,10 +74,11 @@ patine side, with its design and size, is patine todo
 
 On asqr's side:
 
-- A small adapter from patine's `TextStyle` to ratatui's `Style`
-  (double underline becomes single, as ratatui has no double
-  underline). The context pane's Markdown viewer uses it too; whichever
-  lands first builds it.
+- The adapter from patine's lines to what asqr draws exists:
+  `src/tui/render/patine_adapter.rs` (ADR 34), built with the context
+  pane's Markdown viewer. `style` maps a `TextStyle` (double underline
+  becomes single), and `markdown_rows` lays rendered lines out for a
+  width.
 - It replaces `src/tui/render/markdown.rs` and `pulldown-cmark` for the
   intro, question texts and option descriptions. asqr renders again at
   the new width on resize and caches per width.
@@ -86,10 +87,12 @@ On asqr's side:
   to the width it gets; the skill advises keeping descriptions short.
 - A code block line longer than the question pane wraps and is marked
   as a continuation, so nothing is lost (user, 2026-10-14). patine
-  itself never wraps code, so asqr wraps its lines after rendering.
+  itself never wraps code, so asqr wraps its lines after rendering:
+  `markdown_rows` does this for the Markdown viewer already, with a dim
+  `↪` and the line's indent on each further row (ADR 34).
+- asqr depends on patine 1.5 already (ADR 34).
 - The spec (section 7.6's subset rule), the skill (which tells agents
   what they may use, and that long code belongs in a code entry of the
   context pane) and an ADR.
-- asqr depends on patine 1.5.0 from crates.io (`cargo add patine@1.5`,
-  published 2026-10-14), without a path or git dependency (user, asqr
-  session `01M4XJX6BJADVKKXNXXFNVVC8Q`).
+- The dependency on patine comes from crates.io, without a path or git
+  dependency (user, asqr session `01M4XJX6BJADVKKXNXXFNVVC8Q`).

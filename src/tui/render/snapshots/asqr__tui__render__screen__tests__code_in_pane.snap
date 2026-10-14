@@ -1,0 +1,24 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr · queue: default · 1 session waiting                                                                              "
+" code                                                                                                                   "
+"   ☐ q  ✔ Review                                                                                                        "
+"────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
+" Keep the retry?                                              fetch.rs                                                  "
+" pick one                                                     1 pub fn fetch(url: &str) -> Response {                   "
+"                                                              2     retry(|| get(url))                                  "
+" ❯ ( ) 1. Yes                                                 3 }                                                       "
+"                                                                                                                        "
+" Notes: —                                                                                                               "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+" ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ?  help   q  quit                                   "

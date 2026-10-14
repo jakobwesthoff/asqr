@@ -1,0 +1,10 @@
+---
+source: src/tui/render/code.rs
+expression: "shown(&mut viewer, 40, 0)"
+---
+"1 use std::time::Duration;              "
+"2                                       "
+"3 // Fetches a page.                    "
+"4 pub fn fetch(url: &str) -> Result<Res›"
+"5     get(url)                          "
+"6 }                                     "

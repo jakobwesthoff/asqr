@@ -4,12 +4,15 @@
 
 //! Drawing the TUI (spec section 7) from the state in [`super::App`].
 
+mod code;
 mod context;
 mod diff;
 mod images;
 pub mod markdown;
+mod markdown_viewer;
 mod panes;
 mod parts;
+mod patine_adapter;
 mod screen;
 mod source_file;
 mod source_line;
