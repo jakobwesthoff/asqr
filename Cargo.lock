@@ -1955,9 +1955,9 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "patine"
-version = "1.6.1"
+version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ab94edb3b4356f93f3048715f39706904cbc8747e2b2271ce9d7c8839e1f9b"
+checksum = "f31e6b5c9f0cadce68e8cd4f2dc0840a1ed25d1bebf2f87807c03729934dd248"
 dependencies = [
  "anyhow",
  "markdown",

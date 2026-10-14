@@ -89,7 +89,10 @@ plan:
   87 µs with the subset and about 244 µs through patine in a release
   build, 3.1 ms in a debug build. patine's first rendering takes 34 ms
   once, for syntect's grammars.
-- asqr depends on patine 1.6.1 and no longer on `pulldown-cmark`.
+- A list item wraps at the full width of its field, and a link whose
+  text is its URL, such as an autolink, shows the URL once (patine
+  1.6.2).
+- asqr depends on patine 1.6.2 and no longer on `pulldown-cmark`.
 
 ## Amendment (2026-10-14, no render cache)
 
