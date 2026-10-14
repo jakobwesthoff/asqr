@@ -572,9 +572,12 @@ when the question has context (user, 2026-10-14; ADR 30):
 - The title bar names the queue and counts the waiting sessions. A queue
   name too long for the line is cut from the left with `…`, at a `/`
   where possible, so the count stays visible.
-- The session header shows the title (or the id), `from` and `follows`
-  in one line, and the intro under it: at most three lines, one on
-  terminals below 24 rows, ending in `…` when it is cut.
+- The session header shows the title (or the id), `from` and `follows`,
+  then the intro, both wrapped at the reading width. The title takes at
+  most two lines and the intro three, one each on terminals below 24
+  rows. A cut title ends in `…`, a cut intro in `… i: more`, and `i`
+  shows the whole intro (section 7.2). The tab bar keeps the full
+  width.
 - The tab bar lists every question by its `header` (or id) with `☒`
   once it is answered and `☐` while it is not, and `✔ Review` last. The
   current tab is highlighted. When the tabs do not fit, the bar scrolls
@@ -644,6 +647,7 @@ On an option row (vim style plus arrows):
 | `1`-`9` | `single`: pick that option and move on. `multi`: toggle it |
 | `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
+| `i` | the whole intro |
 | `o`, `z` | open the image shown in the system viewer; show it full screen |
 | `q`, `ctrl-c` | quit, keeping the draft |
 | `?` | help |
@@ -662,6 +666,15 @@ On an option row (vim style plus arrows):
   question's area and toggles back; changing the question ends it.
   Neither acts on a text or diff entry.
 - Help closes on any key.
+- `i` shows the session's whole intro in a frame over the question,
+  styled as in the header (section 7.6), with the key bar left free. An
+  intro longer than the frame scrolls: `↑`/`↓` and `k`/`j` by line,
+  `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` by page, `g`/`G` and `home`/`end`
+  to the ends. The frame's bottom edge then shows which lines are
+  visible, such as `4–15 of 16`. `esc`, `q` and `i` close it and
+  `ctrl-c` quits; every other key does nothing, so a key meant to
+  scroll never closes it. On a session without an intro, `i` does
+  nothing.
 - The session list (`L`) lists every waiting session in queue order
   (section 3.4): `↑`/`↓` or `k`/`j` move, `enter` switches to the
   session, `esc` or `L` close the list, and `q` quits asqr.

@@ -55,6 +55,20 @@ Taken with the user:
   agent.
 - **Where the memory lives:** left to the agent, as long as a redraw
   without a resize keeps the current arrangement.
+- **Header:** the session title and intro wrap at the reading width; the
+  tab bar keeps the full width. The intro still shows at most three
+  lines, the cut is marked `… i: more`, and `i` shows the whole intro in
+  an overlay. The skill explains what the intro is for.
+
+Settled while building it:
+
+- **Intro overlay:** it never cuts the intro. A longer one scrolls with
+  the keys the plan gives the context pane: `↑`/`↓` and `j`/`k` by line,
+  `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` by page, `g`/`G` and `home`/`end`
+  to the ends. `esc`, `q` and `i` close it, and other keys do nothing,
+  so a scroll key never closes it. A dim position such as `4–15 of 16`
+  on its bottom edge shows where it stands, and the key bar, which the
+  overlay leaves free, says what scrolls and closes it.
 
 Agent's choices within that design:
 
@@ -79,6 +93,12 @@ Agent's choices within that design:
   wins over the variable.
 - The hint names the entry by its `title`, or by the file name of its
   path (a diff by its `name`), and adds `z: full screen` for an image.
+- The title takes at most two lines, one below 24 rows, and a cut title
+  ends in `…`.
+- `ctrl-c` quits over the intro overlay, as it does everywhere but over
+  the help. On a session without an intro, `i` does nothing.
+- The help lists `i` on the line of `?`. The help already filled the
+  15 rows of the smallest screen.
 
 ## Consequences
 

@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The agent skill tells agents to read the session note.
 - An example session with a diff and text entries in
   `examples/sessions/retry-review.json`.
+- `i` shows the session's whole intro in a frame of its own, which
+  scrolls with `↑`/`↓`, `j`/`k`, `pgup`/`pgdn`, `ctrl-u`/`ctrl-d`,
+  `g`/`G` and `home`/`end` when the intro is longer than the screen.
+  `esc`, `q` and `i` close it.
 - `--layout auto|beside|below` and `ASQR_LAYOUT` choose where a
   question's context goes. `auto`, the default, puts it beside the
   question when the terminal's area looks landscape and below it when
@@ -57,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   least 8 rows and the question at most half the height. Where neither
   fits, context shrinks to a line that names it, and `z` still shows an
   image full screen.
+- The session title and intro wrap at the reading width instead of
+  running to the edge. The title takes at most two lines, one on
+  terminals under 24 rows. A cut intro ends in `… i: more`.
+- The agent skill says that a cut intro can be read with `i`.
 - The agent skill explains that the intro shows in at most three lines
   and only identifies the session, and that everything needed to answer
   belongs in the question text.

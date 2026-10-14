@@ -122,9 +122,10 @@ Once asked, asqr fits best when:
   as quotes, headings, links and code blocks, shows as its literal
   source, `> ` and `#` included. To set a line apart, put a bold label
   on a line of its own or make it a list item.
-- `intro` shows dimmed under the title in at most three lines, one on
-  terminals under 24 rows. Anything longer is cut off with `…`, and the
-  person has no way to read the rest. Keep it to a sentence or two that
+- `intro` shows dimmed under the title in at most three lines of at
+  most 100 columns, one line on terminals under 24 rows. Anything longer
+  is cut off with `… i: more`, and the person reads the rest only by
+  pressing `i`. Keep it to a sentence or two that
   identifies the session, such as which round of which piece of work it
   is. Everything the person needs to answer a question goes into that
   question's `text`: it wraps instead of being cut, takes the Markdown

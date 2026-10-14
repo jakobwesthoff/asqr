@@ -66,6 +66,9 @@ where
         terminal
             .draw(|frame| draw(frame, app, view, images))
             .context("drawing the screen")?;
+        // How far the intro overlay can scroll depends on the size it was
+        // drawn at.
+        app.set_intro_page(view.intro_page());
         let Ok(event) = events.recv() else {
             return Ok(());
         };
@@ -324,6 +327,27 @@ mod tests {
         harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
 
         assert_eq!(harness.host.opened, ["/nowhere/cat.png"]);
+    }
+
+    #[test]
+    fn the_intro_scrolls_as_far_as_the_last_draw_showed() {
+        let harness = &mut Harness::new();
+        let intro: Vec<String> = (1..=30).map(|n| format!("- line {n}")).collect();
+        let session = SESSION.replacen(
+            r#"{"asqr": 2,"#,
+            &format!(r#"{{"asqr": 2, "intro": {:?},"#, intro.join("\n")),
+            1,
+        );
+        fs::write(harness.location.inbox().join("long.json"), session).expect("written");
+
+        harness
+            .run(vec![key(KeyCode::Char('i')), key(KeyCode::Char('G'))])
+            .expect("runs");
+
+        // 24 rows leave 23 above the key bar and 21 inside the frame.
+        let screen = harness.screen();
+        assert!(screen.contains("• line 30"), "{screen}");
+        assert!(screen.contains("10–30 of 30"), "{screen}");
     }
 
     #[test]

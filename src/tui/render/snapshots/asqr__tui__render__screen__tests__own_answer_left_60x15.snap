@@ -4,7 +4,7 @@ expression: "screen(&app, width, height)"
 ---
 " asqr · queue: default · 1 session waiting                  "
 " Release 0.2.0  (release script)                            "
-" Three decisions before the release. Skip what you cannot…  "
+" Three decisions before the release. Skip what you… i: more "
 "   ☐ Go?  ☒ Channels  ☐ Highlights  ✔ Review                "
 "────────────────────────────────────────────────────────────"
 " Where should the release be announced?                     "

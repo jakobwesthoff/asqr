@@ -3,8 +3,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The state across all waiting sessions (spec section 7.5): which one is
-//! being answered, the session list behind `L`, and notices about the
-//! queue. Sessions are kept in the order they are added, which the running
+//! being answered, the session list behind `L`, the intro overlay behind
+//! `i`, and notices about the queue. Sessions are kept in the order they are added, which the running
 //! app keeps in queue order.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -37,12 +37,32 @@ pub enum AppEffect {
     OpenImage(String),
 }
 
+/// How much of the intro the overlay showed in the last draw, which is
+/// how far its keys can scroll it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IntroPage {
+    /// The lines of the intro the overlay has room for.
+    pub rows: usize,
+    /// The lines the whole intro takes at the overlay's width.
+    pub lines: usize,
+}
+
+impl IntroPage {
+    fn last_scroll(self) -> usize {
+        self.lines.saturating_sub(self.rows)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct App {
     sessions: Vec<SessionState>,
     active: usize,
     /// The cursor of the open session list.
     list: Option<usize>,
+    /// The first line of the active session's intro shown in the open
+    /// intro overlay.
+    intro: Option<usize>,
+    intro_page: IntroPage,
     notice: Option<String>,
 }
 
@@ -63,6 +83,9 @@ impl App {
         let Some(index) = self.position(id) else {
             return;
         };
+        if index == self.active {
+            self.intro = None;
+        }
         self.sessions.remove(index);
         if index < self.active || self.active >= self.sessions.len() {
             self.active = self.active.saturating_sub(1);
@@ -98,8 +121,49 @@ impl App {
         self.notice.as_deref()
     }
 
+    /// The first line of the intro shown while its overlay is open.
+    pub fn intro_scroll(&self) -> Option<usize> {
+        self.intro
+    }
+
+    /// Takes what the last draw of the intro overlay showed, which depends
+    /// on the size of the terminal.
+    pub fn set_intro_page(&mut self, page: IntroPage) {
+        self.intro_page = page;
+    }
+
+    /// A key while the intro overlay is open. It reads like a pager, so
+    /// only `esc`, `q` and `i` close it and other keys do nothing: a key
+    /// meant to scroll never closes it by accident.
+    fn intro_key(&mut self, key: KeyEvent, scroll: usize) -> AppEffect {
+        let page = self.intro_page;
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        let scroll = match key.code {
+            KeyCode::Char('c') if control => return AppEffect::Quit,
+            KeyCode::Char('u') if control => scroll.saturating_sub(page.rows),
+            KeyCode::Char('d') if control => scroll + page.rows,
+            _ if control => scroll,
+            KeyCode::Esc | KeyCode::Char('q' | 'i') => {
+                self.intro = None;
+                return AppEffect::None;
+            }
+            KeyCode::Char('k') | KeyCode::Up => scroll.saturating_sub(1),
+            KeyCode::Char('j') | KeyCode::Down => scroll + 1,
+            KeyCode::PageUp => scroll.saturating_sub(page.rows),
+            KeyCode::PageDown => scroll + page.rows,
+            KeyCode::Char('g') | KeyCode::Home => 0,
+            KeyCode::Char('G') | KeyCode::End => page.last_scroll(),
+            _ => scroll,
+        };
+        self.intro = Some(scroll.min(page.last_scroll()));
+        AppEffect::None
+    }
+
     pub fn handle(&mut self, key: KeyEvent) -> AppEffect {
         self.notice = None;
+        if let Some(scroll) = self.intro {
+            return self.intro_key(key, scroll);
+        }
         let quit = key.code == KeyCode::Char('q')
             || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL));
 
@@ -149,6 +213,10 @@ impl App {
             Effect::OpenImage(path) => AppEffect::OpenImage(path),
             Effect::OpenSessionList => {
                 self.list = Some(self.active);
+                AppEffect::None
+            }
+            Effect::ShowIntro => {
+                self.intro = Some(0);
                 AppEffect::None
             }
         }
@@ -363,6 +431,107 @@ mod tests {
         app.remove("second");
 
         assert_eq!(active_id(&app), Some("first"));
+    }
+
+    /// An app with one session that has an intro, its overlay open, after
+    /// a draw that showed `rows` of its `lines`.
+    fn intro_open(rows: usize, lines: usize) -> App {
+        let mut app = App::default();
+        let session: Session = serde_json::from_str(
+            r#"{"asqr": 2, "intro": "A long intro.", "questions": [{"id": "q", "text": "?", "kind": "single",
+                "options": [{"id": "a", "label": "A"}]}]}"#,
+        )
+        .expect("parses");
+        app.add(SessionState::new("intro", session, None));
+        assert_eq!(app.handle(key('i')), AppEffect::None);
+        app.set_intro_page(IntroPage { rows, lines });
+        app
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn i_opens_the_intro_at_its_start() {
+        let app = intro_open(10, 40);
+        assert_eq!(app.intro_scroll(), Some(0));
+    }
+
+    #[test]
+    fn the_intro_scrolls_by_line_and_page_within_its_ends() {
+        let mut app = intro_open(10, 40);
+        let mut scrolled = |event: KeyEvent| {
+            assert_eq!(app.handle(event), AppEffect::None);
+            app.intro_scroll().expect("still open")
+        };
+
+        assert_eq!(scrolled(key('j')), 1);
+        assert_eq!(scrolled(code(KeyCode::Down)), 2);
+        assert_eq!(scrolled(key('k')), 1);
+        assert_eq!(scrolled(code(KeyCode::Up)), 0);
+        assert_eq!(scrolled(key('k')), 0, "stops at the start");
+        assert_eq!(scrolled(code(KeyCode::PageDown)), 10);
+        assert_eq!(scrolled(ctrl('d')), 20);
+        assert_eq!(
+            scrolled(ctrl('d')),
+            30,
+            "the last page ends with the last line"
+        );
+        assert_eq!(scrolled(key('j')), 30, "stops at the end");
+        assert_eq!(scrolled(code(KeyCode::PageUp)), 20);
+        assert_eq!(scrolled(ctrl('u')), 10);
+        assert_eq!(scrolled(key('g')), 0);
+        assert_eq!(scrolled(key('G')), 30);
+        assert_eq!(scrolled(code(KeyCode::Home)), 0);
+        assert_eq!(scrolled(code(KeyCode::End)), 30);
+    }
+
+    #[test]
+    fn an_intro_that_fits_does_not_scroll() {
+        let mut app = intro_open(10, 4);
+        for event in [key('j'), key('G'), code(KeyCode::PageDown)] {
+            app.handle(event);
+            assert_eq!(app.intro_scroll(), Some(0));
+        }
+    }
+
+    #[test]
+    fn esc_q_and_i_close_the_intro_and_other_keys_do_nothing() {
+        for close in [code(KeyCode::Esc), key('q'), key('i')] {
+            let mut app = intro_open(10, 40);
+            assert_eq!(
+                app.handle(close),
+                AppEffect::None,
+                "{close:?} does not quit"
+            );
+            assert_eq!(app.intro_scroll(), None, "{close:?} closes it");
+        }
+
+        let mut app = intro_open(10, 40);
+        for ignored in [
+            key('1'),
+            key('L'),
+            code(KeyCode::Enter),
+            key('?'),
+            ctrl('j'),
+        ] {
+            assert_eq!(app.handle(ignored), AppEffect::None);
+            assert_eq!(app.intro_scroll(), Some(0), "{ignored:?} is ignored");
+        }
+        assert_eq!(
+            app.active().expect("active").answers()[0].selected,
+            Vec::<String>::new(),
+            "nothing reached the question"
+        );
+        assert_eq!(app.handle(ctrl('c')), AppEffect::Quit, "ctrl-c still quits");
+    }
+
+    #[test]
+    fn the_intro_closes_when_its_session_leaves() {
+        let mut app = intro_open(10, 40);
+        app.remove("intro");
+        assert_eq!(app.intro_scroll(), None);
     }
 
     #[test]

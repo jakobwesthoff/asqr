@@ -2,7 +2,6 @@
 title: "Make the context area a pane of its own with focus and scrolling"
 kind: feature
 component: tui
-status: blocked
 horizon: next
 origin: discussion
 tags: [ux, milestone/v0-11]
@@ -37,7 +36,17 @@ The plan's Design section, *Keys*, has the full key set. In short:
 - The key bar and help show the pane's keys while it has the focus.
 - Spec section 7.2 and 7.7, and an ADR.
 
+## Where step 2 left it
+
+Step 2 (ADR 30) placed the context area. `src/tui/render/panes.rs`
+decides beside, below or a one-line hint (`choose`) and the areas
+(`areas`); `draw_tab` and `draw_context` in `src/tui/render/screen.rs`
+draw into them. The hint (`context_hint`) offers `z` for images only and
+carries a TODO for this step. The intro overlay (`i`, in `App`) already
+scrolls with `pgup`/`pgdn`, `ctrl-u`/`ctrl-d`, `↑`/`↓`, `j`/`k`,
+`g`/`G` and `home`/`end`; while it is open it takes every key, so the
+pane's keys do not reach the pane then.
+
 ## Relations
 
 - Part of: [Split the TUI into a question pane and a context pane](01M4XEGTAZ69KV9Y0ZTNYQJJ4X-split-the-tui-into-a-question-pane-and-a-context-pane.md)
-- Depends on: [Cap the question at a reading width and pick the pane layout automatically](01M4XHQSBDWD4J2EWY7FB7PKRG-cap-the-question-at-a-reading-width-and-pick-the-pane-layout.md)

@@ -11,7 +11,7 @@
 //! Rows that take text are live fields, typed into in place as soon as the
 //! cursor lands on them. [`SessionState::handle`] returns an [`Effect`] for
 //! everything the state cannot do itself: saving the draft, finishing the
-//! session, quitting, opening an image.
+//! session, quitting, opening an image, showing an overlay over all of it.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui_textarea::{CursorMove, TextArea};
@@ -45,6 +45,8 @@ pub enum Effect {
     Quit,
     OpenImage(String),
     OpenSessionList,
+    /// Show the session's whole intro, which the header may cut.
+    ShowIntro,
 }
 
 /// One row of the current tab.
@@ -496,6 +498,7 @@ impl SessionState {
                 Effect::None
             }
             KeyCode::Char('L') => Effect::OpenSessionList,
+            KeyCode::Char('i') if self.session.intro.is_some() => Effect::ShowIntro,
             KeyCode::Char('o') => match self.shown_image() {
                 Some(image) => Effect::OpenImage(image.to_owned()),
                 None => Effect::None,
@@ -1655,6 +1658,33 @@ mod tests {
         assert_eq!(press(&mut state, "o"), Effect::None);
         press(&mut state, "z");
         assert!(!state.image_full_screen());
+    }
+
+    #[test]
+    fn i_asks_for_the_intro_where_there_is_one() {
+        let mut state = state();
+        assert_eq!(
+            press(&mut state, "i"),
+            Effect::None,
+            "this session has none"
+        );
+
+        let with_intro =
+            SESSION.replacen(r#"{"asqr": 2,"#, r#"{"asqr": 2, "intro": "Round two.","#, 1);
+        let mut state = SessionState::new(
+            "batch",
+            serde_json::from_str(&with_intro).expect("test session parses"),
+            None,
+        );
+        assert_eq!(press(&mut state, "i"), Effect::ShowIntro);
+
+        press(&mut state, "jj");
+        assert_eq!(state.focus(), Focus::Field);
+        assert_eq!(
+            press(&mut state, "i"),
+            Effect::DraftChanged,
+            "in a field, i is typed"
+        );
     }
 
     #[test]

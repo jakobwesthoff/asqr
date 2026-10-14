@@ -28,10 +28,10 @@ and skill changes for its part.
 ## Steps
 
 The format step, session and result files in format version 2 with a
-`context` field, has landed (ADR 28). "Cap the question at a reading
-width and pick the pane layout automatically" comes next. "Make the
-context area a pane of its own with focus and scrolling" needs it.
-"Show text entries in the context pane with syntax highlighting" and
+`context` field, has landed (ADR 28), and so has the layout step, which
+caps the question at a reading width and places the context area
+beside or below it (ADR 30). "Make the context area a pane of its own
+with focus and scrolling" comes next. "Show text entries in the context pane with syntax highlighting" and
 "Show diff entries in the context pane as a unified diff" build on the
 pane; the text viewer uses the shared line renderer of patine 1.5.0,
 published 2026-10-14.
@@ -47,18 +47,16 @@ first builds it.
 - `src/tui/render/screen.rs`, `draw`: below 60×15 asqr only says what
   size it needs (`MIN_WIDTH`, `MIN_HEIGHT`). Above that, the screen is a
   vertical stack: title, header (session title and intro), tab bar, the
-  tab's content, status line, key bar. Everything uses the full width.
-  On a terminal of about 230 columns, question texts, option
-  descriptions and notes run across nearly all of it and are hard to
-  read (user's screenshot, 2026-10-14).
-- `header_lines`: the intro shows dimmed in at most three lines (one
-  below 24 rows), cut with `…`; the rest cannot be read.
+  tab's content, status line, key bar. The question, the review and the
+  header text keep to a reading width of 100 columns (ADR 30).
+- `header_lines`: the title wraps onto at most two lines and the intro
+  onto three (one each below 24 rows); a cut intro ends in `… i: more`,
+  and `i` shows all of it in an overlay that scrolls.
 - `draw_tab`: once a question or any of its options has context
   (`has_context_area`), the question keeps room for it while moving
-  through the options. From 100 columns of content on
-  (`CONTEXT_BESIDE_WIDTH`) the context goes beside the text at 3:2 for
-  the text; below that it goes underneath, at a third of the height and
-  at most 12 rows.
+  through the options. `src/tui/render/panes.rs` places the context
+  area beside, below, or as a one-line hint by the rules under
+  *Layout*, with `--layout` and `ASQR_LAYOUT` (ADR 30).
 - Context attaches to a question (`context`) and to an option
   (`context`), one entry each; the option under the cursor shows its
   own, otherwise the question's (`shown_context`). Image entries show as

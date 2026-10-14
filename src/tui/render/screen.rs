@@ -20,7 +20,7 @@ use super::markdown;
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{Level, answer_summary, counter, cut, kind_hint};
 use crate::format::{ContextEntry, Kind, Question};
-use crate::tui::{AnswerState, App, Focus, Row, SessionState};
+use crate::tui::{AnswerState, App, Focus, IntroPage, Row, SessionState};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -68,6 +68,8 @@ pub struct View<'a> {
     /// [`panes::choose`] keeps it while a resize stays near a square
     /// shape. A hint leaves it as it is.
     shown: Option<Arrangement>,
+    /// What the intro overlay showed in the last draw.
+    intro_page: IntroPage,
 }
 
 impl<'a> View<'a> {
@@ -76,7 +78,14 @@ impl<'a> View<'a> {
             queue,
             layout,
             shown: None,
+            intro_page: IntroPage::default(),
         }
+    }
+
+    /// What the intro overlay showed in the last draw, for
+    /// [`App::set_intro_page`]; nothing while it is closed.
+    pub fn intro_page(&self) -> IntroPage {
+        self.intro_page
     }
 }
 
@@ -91,11 +100,14 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
         return;
     }
 
+    // The header text keeps to the reading width the question has, after
+    // the margin on the left and before the one on the right.
+    let header_width = usize::from(area.width.min(READING_WIDTH + 2));
     let header_lines = app
         .active()
-        .map(|state| header_lines(state, usize::from(area.width), area.height))
+        .map(|state| header_lines(state, header_width, area.height))
         .unwrap_or_default();
-    let header_height = u16::try_from(header_lines.len()).expect("at most four header lines");
+    let header_height = u16::try_from(header_lines.len()).expect("at most five header lines");
 
     let [title, header, tabs, main, status, keys] = Layout::vertical([
         Constraint::Length(1),
@@ -150,12 +162,33 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
 
     let feedback = app.current_notice().or(state.message()).unwrap_or_default();
     frame.render_widget(Line::from(feedback).fg(Color::Yellow), status);
-    frame.render_widget(
-        key_line(&key_hints(state, app.list_cursor().is_some())),
-        keys,
-    );
 
-    // Overlays use the whole screen, so they fit the smallest one.
+    // The intro overlay leaves the key bar free, which says how to scroll
+    // and close it. It never shows together with the other overlays: while
+    // it is open it takes every key, and any key closes the help.
+    view.intro_page = match (app.intro_scroll(), session_intro(state)) {
+        (Some(scroll), Some(intro)) => {
+            let above_keys = Rect {
+                height: area.height - 1,
+                ..area
+            };
+            draw_intro(frame, intro, scroll, above_keys)
+        }
+        _ => IntroPage::default(),
+    };
+
+    let hints = match app.intro_scroll() {
+        Some(_) if view.intro_page.lines > view.intro_page.rows => vec![
+            ("↑/↓", "scroll"),
+            ("pgup/pgdn", "page"),
+            ("esc/q/i", "close"),
+        ],
+        Some(_) => vec![("esc/q/i", "close")],
+        None => key_hints(state, app.list_cursor().is_some()),
+    };
+    frame.render_widget(key_line(&hints), keys);
+
+    // These overlays use the whole screen, so they fit the smallest one.
     if state.help() {
         draw_help(frame, area);
     }
@@ -164,50 +197,128 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
     }
 }
 
-/// The session header: the title line, then the intro. The intro takes
-/// at most three lines, one on short terminals, so the question keeps its
-/// room; a cut intro ends in `…`.
+fn session_intro(state: &SessionState) -> Option<&str> {
+    state.session().intro.as_deref()
+}
+
+/// The whole intro in a frame over the screen, from line `scroll` on, and
+/// what of it fits. An intro longer than the frame scrolls, and the frame's
+/// bottom edge says which lines show.
+fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> IntroPage {
+    // The text keeps to the reading width, with a blank column inside each
+    // border.
+    let width = area.width.saturating_sub(4).min(READING_WIDTH + 4);
+    let inner = usize::from(width.saturating_sub(2));
+    let lines: Vec<Line<'static>> = markdown::render(intro)
+        .into_iter()
+        .flat_map(|line| wrap(line, inner.saturating_sub(1), 1, 1))
+        .collect();
+    let wanted = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
+    let area = center(area, width, wanted);
+    let page = IntroPage {
+        rows: usize::from(area.height.saturating_sub(2)),
+        lines: lines.len(),
+    };
+    let scroll = scroll.min(page.lines.saturating_sub(page.rows));
+
+    let mut block = Block::bordered().title(" Intro ");
+    if page.lines > page.rows {
+        let position = format!(" {}–{} of {} ", scroll + 1, scroll + page.rows, page.lines);
+        block = block.title_bottom(Line::from(position).dim().right_aligned());
+    }
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0))
+            .block(block),
+        area,
+    );
+    page
+}
+
+/// The session header in `width` columns: the title line, then the intro,
+/// both wrapped. The title takes at most two lines and the intro three,
+/// one each on short terminals, so the question keeps its room. A cut
+/// title ends in `…`; a cut intro ends in `… i: more`, as `i` shows all
+/// of it.
 fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'static>> {
+    let short = height < 24;
     let session = state.session();
     let title = session
         .title
         .clone()
         .unwrap_or_else(|| state.id().to_owned());
-    let mut spans = vec![Span::from(format!(" {title}")).bold()];
+    let mut spans = vec![Span::from(title).bold()];
     if let Some(from) = &session.from {
         spans.push(Span::from(format!("  ({from})")));
     }
     if let Some(follows) = &session.follows {
         spans.push(Span::from(format!("  follows: {follows}")).dim());
     }
-    let mut lines = vec![Line::from(spans)];
+    // Lines end a column before the edge, as the question's text does.
+    let room = width.saturating_sub(1);
+    let mut lines = at_most(
+        wrap(Line::from(spans), room, 1, 1),
+        if short { 1 } else { 2 },
+        "…",
+        room,
+    );
 
     let Some(intro) = session.intro.as_deref() else {
         return lines;
     };
-    let room = if height < 24 { 1 } else { 3 };
-    let mut intro: Vec<Line<'static>> = markdown::render(intro)
+    let intro: Vec<Line<'static>> = markdown::render(intro)
         .into_iter()
-        .flat_map(|line| wrap(line, width.saturating_sub(1), 1, 1))
+        .flat_map(|line| wrap(line, room, 1, 1))
         .map(|line| line.dim())
         .collect();
-    if intro.len() > room {
-        intro.truncate(room);
-        let last = intro.last_mut().expect("room is at least one line");
-        // Replace the end of the last line with the ellipsis, keeping it
-        // inside the width.
-        let mut text: String = last
-            .spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect();
-        while text.chars().count() + 1 > width.saturating_sub(1) {
-            text.pop();
-        }
-        *last = Line::from(format!("{}…", text.trim_end())).dim();
-    }
-    lines.extend(intro);
+    lines.extend(at_most(intro, if short { 1 } else { 3 }, "… i: more", room));
     lines
+}
+
+/// The first `count` of `lines`; when that cuts some off, the last one
+/// kept ends in `marker`, within `width`.
+fn at_most(
+    mut lines: Vec<Line<'static>>,
+    count: usize,
+    marker: &str,
+    width: usize,
+) -> Vec<Line<'static>> {
+    if lines.len() <= count {
+        return lines;
+    }
+    lines.truncate(count);
+    let last = lines.pop().expect("at least one line is kept");
+    lines.push(ending_in(last, marker, width));
+    lines
+}
+
+/// `line` shortened so that `marker` fits after it within `width`
+/// columns. What stays keeps its styles, and blanks before the marker go.
+fn ending_in(line: Line<'static>, marker: &str, width: usize) -> Line<'static> {
+    let mut room = width.saturating_sub(marker.chars().count());
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for span in line.spans {
+        let kept: String = span.content.chars().take(room).collect();
+        room -= kept.chars().count();
+        if !kept.is_empty() {
+            spans.push(Span::styled(kept, span.style));
+        }
+    }
+    // The indent span stays, so a line of nothing but blanks keeps its
+    // place before the marker.
+    while spans.len() > 1 {
+        let last = spans.last_mut().expect("more than one span");
+        let trimmed = last.content.trim_end().to_owned();
+        if trimmed.is_empty() {
+            spans.pop();
+        } else {
+            last.content = trimmed.into();
+            break;
+        }
+    }
+    spans.push(Span::from(marker.to_owned()));
+    Line::from(spans).style(line.style)
 }
 
 // ---------------------------------------------------------------------
@@ -941,7 +1052,7 @@ const HELP: &[(&str, &str)] = &[
     ("L", "the list of waiting sessions"),
     ("o, z", "open the image; show it full screen"),
     ("q, ctrl-c", "quit, keeping the draft"),
-    ("?", "this help"),
+    ("?, i", "this help; the whole intro"),
 ];
 
 fn draw_help(frame: &mut Frame, area: Rect) {
@@ -1185,6 +1296,134 @@ mod tests {
                 screen(&app, width, height)
             );
         }
+    }
+
+    /// The release session with a title and an intro that run far past the
+    /// reading width.
+    fn long_header() -> App {
+        let session = RELEASE
+            .replace(
+                r#""title": "Release 0.2.0""#,
+                r#""title": "Release 0.2.0 of the queue watcher, the new session format and the reworked review tab with its note field and the layout that keeps questions readable""#,
+            )
+            .replace(
+                "Three decisions before the release. Skip what you cannot decide `yet`.",
+                &"Three decisions before the release, each with its own question. ".repeat(4),
+            );
+        app(&[("release", &session)])
+    }
+
+    #[test]
+    fn the_header_wraps_at_the_reading_width_and_the_tab_bar_does_not() {
+        let backend = screen(&long_header(), 160, 30);
+        let lines = screen_lines(&backend);
+
+        for (row, line) in lines.iter().enumerate().take(6).skip(1) {
+            let used = line.trim_end().chars().count();
+            assert!(used <= 101, "header row {row} ends at {used}:\n{backend}");
+        }
+        insta::assert_snapshot!("header_wrapped_160x30", backend);
+
+        let questions: Vec<String> = (1..=20)
+            .map(|n| format!(r#"{{"id": "question-{n}", "text": "?", "kind": "text"}}"#))
+            .collect();
+        let many_tabs = app(&[(
+            "tabs",
+            &format!(r#"{{"asqr": 2, "questions": [{}]}}"#, questions.join(",")),
+        )]);
+        let tab_bar = screen_lines(&screen(&many_tabs, 160, 30))[2].clone();
+        assert!(
+            tab_bar.trim_end().chars().count() > 150,
+            "the tab bar uses the full width: {tab_bar}"
+        );
+    }
+
+    #[test]
+    fn a_long_title_takes_two_lines_or_one_on_short_terminals() {
+        let app = long_header();
+        let lines = screen_lines(&screen(&app, 80, 24));
+        assert!(lines[2].trim_end().ends_with('…'), "{lines:#?}");
+        assert!(lines[5].trim_end().ends_with("… i: more"), "{lines:#?}");
+
+        let lines = screen_lines(&screen(&app, 80, 20));
+        assert!(lines[1].trim_end().ends_with('…'), "{lines:#?}");
+        assert!(lines[2].trim_end().ends_with("… i: more"), "{lines:#?}");
+    }
+
+    #[test]
+    fn a_cut_line_keeps_its_styles_and_drops_the_blanks_before_the_marker() {
+        let line = Line::from(vec![
+            Span::from(" "),
+            Span::from("bold").bold(),
+            Span::from(" words   "),
+        ]);
+        let cut = ending_in(line, "…", 13);
+        assert_eq!(
+            cut.spans,
+            [
+                Span::from(" "),
+                Span::from("bold").bold(),
+                Span::from(" words"),
+                Span::from("…"),
+            ]
+        );
+
+        let blank = ending_in(Line::from(vec![Span::from(" "), Span::from("   ")]), "…", 4);
+        assert_eq!(blank.spans, [Span::from(" "), Span::from("…")]);
+    }
+
+    /// A session whose intro takes far more lines than a 60×15 screen.
+    fn longer_intro() -> App {
+        let intro = (1..=8)
+            .map(|round| {
+                format!(
+                    "- Round {round} asked about the **queue watcher** and the review tab, \
+                     and the answers went into the plan."
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\\n");
+        app(&[(
+            "release",
+            &RELEASE.replace(
+                "Three decisions before the release. Skip what you cannot decide `yet`.",
+                &intro,
+            ),
+        )])
+    }
+
+    /// Draws `app` with `view`, then hands the app what the intro overlay
+    /// showed, as the running app does after every draw.
+    fn drawn(app: &mut App, view: &mut View, width: u16, height: u16) -> TestBackend {
+        let backend = screen_in(app, view, width, height);
+        app.set_intro_page(view.intro_page());
+        backend
+    }
+
+    #[test]
+    fn i_shows_the_whole_intro_and_scrolls_it_on_a_small_screen() {
+        let mut app = longer_intro();
+        let mut view = View::new("default", PaneLayout::Auto);
+        keys(&mut app, "i");
+        insta::assert_snapshot!("intro_overlay_top", drawn(&mut app, &mut view, 60, 15));
+
+        keys(&mut app, "jjj");
+        insta::assert_snapshot!("intro_overlay_scrolled", drawn(&mut app, &mut view, 60, 15));
+
+        keys(&mut app, "G");
+        insta::assert_snapshot!("intro_overlay_end", drawn(&mut app, &mut view, 60, 15));
+
+        keys(&mut app, "i");
+        let backend = drawn(&mut app, &mut view, 60, 15);
+        assert!(!backend.to_string().contains("Intro"), "{backend}");
+        assert_eq!(view.intro_page(), IntroPage::default());
+    }
+
+    #[test]
+    fn an_intro_that_fits_shows_without_a_position() {
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "i");
+        insta::assert_snapshot!(screen(&app, 80, 24));
     }
 
     #[test]
