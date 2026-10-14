@@ -235,12 +235,15 @@ fn answers_a_session_that_arrives_while_it_runs() {
     tui.wait_for("Own answer: xy");
 
     // asqr asks for bracketed paste, so a pasted line break is no enter
-    // that would pick the own answer, but a line break in it.
+    // that would pick the own answer, but a line break in it. Terminals
+    // send a pasted line break as CR, the byte of `enter` outside a paste,
+    // and a pasted CRLF arrives as it was copied; both become LF.
     assert!(
         tui.output().contains("\x1b[?2004h"),
         "bracketed paste is on"
     );
-    tui.send("\x1b[200~ z\nw\x1b[201~");
+    tui.send("\x1b[200~ z\rw\x1b[201~");
+    tui.send("\x1b[200~\r\nv\x1b[201~");
     tui.wait_for("Own answer: xy z");
 
     // Pick the own answer, which moves on to the review, where the cursor
@@ -269,7 +272,7 @@ fn answers_a_session_that_arrives_while_it_runs() {
     )
     .expect("parses");
     assert_eq!(result.status, Status::Submitted);
-    assert_eq!(result.answers[0].custom.as_deref(), Some("xy z\nw"));
+    assert_eq!(result.answers[0].custom.as_deref(), Some("xy z\nw\nv"));
 }
 
 #[test]
@@ -301,21 +304,25 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
     tui.wait_for("Pick a fruit");
 
     tui.press("o");
+    // The stand-in viewer creates the file before it writes the line, so
+    // only a whole line in it says that the viewer is done.
     let viewed = sandbox.home().join("viewed");
     let start = Instant::now();
-    while !viewed.exists() {
-        assert!(start.elapsed() < PATIENCE, "the viewer was never started");
+    let recorded = loop {
+        let recorded = std::fs::read_to_string(&viewed).unwrap_or_default();
+        if recorded.ends_with('\n') && !recorded.trim().is_empty() {
+            break recorded;
+        }
+        assert!(
+            start.elapsed() < PATIENCE,
+            "the viewer never recorded a path"
+        );
         std::thread::sleep(Duration::from_millis(20));
-    }
+    };
     tui.press("q");
 
     assert_eq!(tui.wait_for_exit(), 0);
-    // The viewer may still be writing when the file appears.
-    std::thread::sleep(Duration::from_millis(100));
-    assert_eq!(
-        std::fs::read_to_string(viewed).expect("recorded").trim(),
-        "/pictures/fruit.png"
-    );
+    assert_eq!(recorded.trim(), "/pictures/fruit.png");
     assert!(
         !tui.output().contains("]9;"),
         "--no-notify sends no notification"

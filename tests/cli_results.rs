@@ -207,7 +207,7 @@ fn an_archived_session_whose_result_is_gone_ends_the_wait() {
 }
 
 #[test]
-fn a_session_taken_out_of_the_inbox_ends_the_wait() {
+fn a_session_removed_from_the_inbox_while_waited_for_ends_the_wait_with_the_unknown_id_exit() {
     let sandbox = Sandbox::new();
     ask(&sandbox, "withdrawn");
     let mut waiting = sandbox
@@ -219,11 +219,22 @@ fn a_session_taken_out_of_the_inbox_ends_the_wait() {
         .spawn()
         .expect("wait starts");
 
+    // Still waiting, so the session counted as known when the wait began
+    // and the exit below comes from its removal.
     std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(
+        waiting.try_wait().expect("status").is_none(),
+        "the wait ended before the session went"
+    );
     std::fs::remove_file(sandbox.queue_dir().join("inbox/withdrawn.json")).expect("removed");
 
     let output = wait_with_deadline(&mut waiting);
     assert_eq!(output.status.code(), Some(13));
+    assert!(
+        stderr(&output).contains("no session"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 /// Waits for `child`, killing it when it runs over, so a regression fails
