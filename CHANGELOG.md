@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and only identifies the session, and that everything needed to answer
   belongs in the question text.
 
+### Fixed
+
+- The text cursor of a note or a `text` answer stays visible when the
+  text fills its line exactly or the cursor sits on the space where a
+  line breaks. Before, the cursor's cell fell past the end of the line
+  and could not be seen.
+
 ## [0.10.1] - 2026-10-14
 
 ### Added

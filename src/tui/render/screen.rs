@@ -706,11 +706,17 @@ fn wrap(line: Line<'static>, width: usize, first: usize, rest: usize) -> Vec<Lin
     let mut used = first;
     for span in line.spans {
         let style = line_style.patch(span.style);
+        // Blanks may hang past the end of a line, so the next line does not
+        // start with them. The text cursor's cell is the exception: it is a
+        // reversed blank (`with_cursor`) and has to stay on screen, so it
+        // moves to the next line like a word.
+        let cursor = style.add_modifier.contains(Modifier::REVERSED);
         for word in span.content.split_inclusive(' ') {
             let mut word: Vec<char> = word.chars().collect();
+            let hangs = !cursor && word.iter().all(|c| *c == ' ');
             loop {
                 let indent = if lines.len() == 1 { first } else { rest };
-                let fits = used + word.len() <= width || word.iter().all(|c| *c == ' ');
+                let fits = used + word.len() <= width || hangs;
                 if fits {
                     let text: String = word.iter().collect();
                     lines
@@ -1498,5 +1504,62 @@ mod tests {
             .collect();
 
         assert_eq!(text, ["abcd", " efg", " hij"]);
+    }
+
+    /// The text of each line and the column of its reversed cell, if any.
+    fn cursor_columns(lines: &[Line]) -> Vec<(String, Option<usize>)> {
+        lines
+            .iter()
+            .map(|line| {
+                let text: String = line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect();
+                let mut column = 0;
+                let mut cursor = None;
+                for span in &line.spans {
+                    if span.style.add_modifier.contains(Modifier::REVERSED) {
+                        cursor = Some(column);
+                    }
+                    column += span.content.chars().count();
+                }
+                (text, cursor)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_text_cursor_after_a_full_line_starts_the_next_one() {
+        let line = with_cursor("ab cd", Some((0, 5))).remove(0);
+
+        let lines = wrap(line, 5, 0, 1);
+
+        assert_eq!(
+            cursor_columns(&lines),
+            [("ab cd".to_owned(), None), ("  ".to_owned(), Some(1))]
+        );
+    }
+
+    #[test]
+    fn the_text_cursor_on_the_space_at_a_line_break_starts_the_next_line() {
+        let line = with_cursor("abcd efg", Some((0, 4))).remove(0);
+
+        let lines = wrap(line, 4, 0, 0);
+
+        assert_eq!(
+            cursor_columns(&lines),
+            [("abcd".to_owned(), None), (" efg".to_owned(), Some(0))]
+        );
+    }
+
+    #[test]
+    fn plain_spaces_still_hang_past_the_end_of_a_line() {
+        let lines = wrap(Line::from("ab  cd"), 3, 0, 0);
+
+        assert_eq!(
+            cursor_columns(&lines),
+            [("ab  ".to_owned(), None), ("cd".to_owned(), None)]
+        );
     }
 }
