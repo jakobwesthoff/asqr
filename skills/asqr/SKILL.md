@@ -119,7 +119,11 @@ Once asked, asqr fits best when:
     you want when the Markdown itself is under review.
   - `{ "type": "markdown", "path": "..." }` or `{ "type": "markdown",
     "content": "..." }`: Markdown the person reads rendered, such as
-    notes, a plan or a draft section of documentation.
+    notes, a plan or a draft section of documentation. A Markdown entry
+    follows CommonMark, unlike the question text: a single newline joins
+    the lines (a blank line starts a paragraph, a trailing backslash
+    breaks the line), and raw HTML is left out, so put `<` into code
+    spans, such as `` `Vec<String>` ``.
   - Choose by what the person should see: the text as written is
     `code`, rendered prose is `markdown`. Neither is the place for your
     explanation of the question; that goes into the question's `text`.

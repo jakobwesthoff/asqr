@@ -16,14 +16,19 @@ file that the agent reads back. Scripts and builds can ask the same way.
 - Any number of questions per session, and any number of options per
   question.
 - Single and multiple choice, typed answers, your own answer instead of
-  the given options, and a note on every question.
+  the given options, a note on every question and one on the whole
+  session.
 - Descriptions, defaults and length hints. The intro, question texts
   and descriptions are Markdown, rendered with highlighted code blocks.
-- Optional images next to a question, or one per option to flip
-  through variants, shown inline in terminals that support it.
+- Context next to a question, or one per option to flip through
+  variants: an image, highlighted code, rendered Markdown or a diff that
+  asqr computes from the old and the new text. It shows in a pane of its
+  own beside or below the question, and you scroll it. Images show
+  inline in terminals that support it.
 - A tab per question and a review tab: move freely, then submit or
   reject the whole session.
-- A versioned JSON format with a JSON Schema, so any tool can ask.
+- A versioned JSON format, currently version 2, with a JSON Schema, so
+  any tool can ask. `asqr skill` describes it.
 - A skill that teaches agents how to use asqr, built into the binary.
 
 ## Install
@@ -55,9 +60,9 @@ typing goes straight into the answer fields, `n` adds a note, and the
 last tab reviews everything before you submit or reject. `?` shows every
 key. `q` quits; your answers so far are kept as a draft.
 
-Questions keep to a width of 100 columns. Context the asker attached, such
-as an image, shows in a pane beside the question on a wide terminal and
-below it on a tall one; `--layout beside` or `--layout below` (or
+Questions keep to a width of 100 columns. Context the asker attached, an
+image, highlighted code, rendered Markdown or a diff, shows in a pane
+beside the question on a wide terminal and below it on a tall one; `--layout beside` or `--layout below` (or
 `ASQR_LAYOUT`) fixes where it goes. `pgup`/`pgdn` (or `ctrl-u`/`ctrl-d`)
 scroll the pane from anywhere, `tab` moves into it to scroll with the
 arrow keys and back out, and `z` shows it full screen.

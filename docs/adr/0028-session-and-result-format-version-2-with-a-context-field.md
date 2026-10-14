@@ -10,6 +10,8 @@ Supersedes [7. Session and result format version 1](0007-session-and-result-form
 
 Supersedes the format part of [25. Show an image per option](0025-show-an-image-per-option.md)
 
+Amends [12. Use ULIDs as session ids](0012-use-ulids-as-session-ids.md)
+
 Amended by [29. Let the person add a note to the whole session](0029-let-the-person-add-a-note-to-the-whole-session.md)
 
 Amended by [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
@@ -179,3 +181,6 @@ user, the version stays 2:
   single newline breaks the line and that raw HTML shows as written. An
   agent that checks its file against the schema learns these rules
   without reading the spec.
+- **`asqr new` without an id:** the skeleton leaves out the session
+  `id`, as the skill tells agents to, and `asqr ask` assigns one. This
+  amends ADR 12, under which `asqr new` printed a fresh ULID.

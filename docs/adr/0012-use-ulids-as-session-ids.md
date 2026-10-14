@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [28. Session and result format version 2 with a context field](0028-session-and-result-format-version-2-with-a-context-field.md)
+
 ## Context
 
 Session ids name the result files and must be unique per queue. Askers

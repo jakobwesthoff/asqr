@@ -149,6 +149,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   descriptions take full Markdown, that a single newline breaks the line
   and HTML shows as written there, that option descriptions should stay
   short, and that long code belongs in a `code` entry.
+- The agent skill says that a Markdown entry follows CommonMark instead:
+  a single newline joins the lines, a blank line starts a paragraph, a
+  trailing backslash breaks the line, and raw HTML is left out, so `<`
+  goes into code spans.
 
 ### Removed
 
