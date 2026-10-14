@@ -77,7 +77,7 @@ enum Command {
         json: bool,
     },
 
-    /// Print a session skeleton with a fresh id.
+    /// Print a session skeleton to start from.
     New,
 
     /// Check a session file and report errors and warnings.

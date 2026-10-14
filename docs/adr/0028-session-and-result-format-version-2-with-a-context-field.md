@@ -53,8 +53,8 @@ Taken with the user:
   - `text`: `path` or inline `text`, an optional `language`, and an
     optional `render: false` that shows Markdown as its source.
   - `diff`: `old` and `new`, each `{ "path" }` or `{ "text" }`, and an
-    optional `name` and `language`. A missing `old` is a new file, a
-    missing `new` a deleted one.
+    optional `name`. A missing `old` is a new file, a missing `new` a
+    deleted one.
 - **Diffs as two texts:** asqr computes the diff itself. An agent can
   always produce the two versions, while a hand-written unified diff
   goes wrong easily, as every hunk header needs exact line counts
@@ -141,3 +141,22 @@ Agent's choices within that design:
   other: format version 2 was never released with them, so no file
   carries them (user, 2026-10-14).
 - Code entries show highlighted and Markdown entries rendered (ADR 34).
+
+## Amendment (2026-10-14, review of the format)
+
+An adversarial review of the unreleased version 2 found places where an
+agent could write a file that asqr reads differently from what the agent
+meant, or gets a message that does not say what to do. Agreed with the
+user, the version stays 2:
+
+- **Diff sides:** a diff with neither `old` nor `new`, or with `path` or
+  `content` on the entry itself, is one validation error per entry. It
+  says that a diff takes `old` and/or `new`, each `{"path": ...}` or
+  `{"content": ...}`, the text before and after the change, and that
+  asqr computes the diff itself and does not read a unified diff. An
+  agent that has a unified diff at hand puts it there, and the
+  unknown-field warning it got before did not say where the texts go.
+- **Version:** an `asqr` value that is no unsigned integer, such as
+  `2.0`, `"2"`, `-1` or `true`, is refused as "unsupported format
+  version" with the value as written, checked before the shape like any
+  other version. The parser's type error named neither.

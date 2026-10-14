@@ -100,7 +100,7 @@ pub struct MarkdownEntry {
 
 /// A change between two versions of a text, which asqr diffs itself. A
 /// missing `old` is a new file, a missing `new` a deleted one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DiffEntry {
     /// A name for the entry, such as a file name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,13 +112,30 @@ pub struct DiffEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new: Option<DiffSide>,
 
-    /// The file name the diff is about, shown in the header. Its
-    /// extension picks the language when `language` is not given.
+    /// The file name the diff is about, shown in the header.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub language: Option<String>,
+    // A `path` or `content` on the entry itself, where an agent with a
+    // unified diff at hand puts it. Neither is part of the format, so the
+    // schema leaves them out and nothing writes them back; they are read
+    // only so validation can say where the texts go, together with every
+    // other error of the file.
+    #[serde(default, rename = "path", skip_serializing)]
+    #[schemars(skip)]
+    pub(crate) misplaced_path: Option<serde_json::Value>,
+
+    #[serde(default, rename = "content", skip_serializing)]
+    #[schemars(skip)]
+    pub(crate) misplaced_content: Option<serde_json::Value>,
+}
+
+impl DiffEntry {
+    /// Whether the entry carries `path` or `content` itself instead of on
+    /// `old` or `new`.
+    pub fn misplaced_source(&self) -> bool {
+        self.misplaced_path.is_some() || self.misplaced_content.is_some()
+    }
 }
 
 /// One side of a diff: a file or inline content. Exactly one of the two
@@ -193,10 +210,8 @@ mod tests {
             })
         );
         assert_eq!(
-            parse(
-                json!({"type": "diff", "name": "main.rs", "language": "rust",
-                         "old": {"path": "/src/main.rs"}, "new": {"content": "fn main() {}"}})
-            ),
+            parse(json!({"type": "diff", "name": "main.rs",
+                         "old": {"path": "/src/main.rs"}, "new": {"content": "fn main() {}"}})),
             ContextEntry::Diff(DiffEntry {
                 title: None,
                 old: Some(DiffSide {
@@ -208,9 +223,28 @@ mod tests {
                     content: Some("fn main() {}".into())
                 }),
                 name: Some("main.rs".into()),
-                language: Some("rust".into()),
+                ..DiffEntry::default()
             })
         );
+    }
+
+    #[test]
+    fn a_diff_reads_a_path_or_content_on_the_entry_but_never_writes_it() {
+        let parsed = parse(json!({"type": "diff", "path": "/a.diff", "content": "@@ -1 +1 @@"}));
+
+        let ContextEntry::Diff(diff) = &parsed else {
+            panic!("a diff entry");
+        };
+        assert!(diff.misplaced_source());
+        assert_eq!(
+            serde_json::to_value(&parsed).expect("entry serializes"),
+            json!({"type": "diff"})
+        );
+        let ContextEntry::Diff(diff) = parse(json!({"type": "diff", "new": {"content": "x"}}))
+        else {
+            panic!("a diff entry");
+        };
+        assert!(!diff.misplaced_source());
     }
 
     #[test]

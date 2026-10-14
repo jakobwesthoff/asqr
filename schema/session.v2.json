@@ -160,14 +160,8 @@
     "DiffEntry": {
       "description": "A change between two versions of a text, which asqr diffs itself. A\nmissing `old` is a new file, a missing `new` a deleted one.",
       "properties": {
-        "language": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "name": {
-          "description": "The file name the diff is about, shown in the header. Its\nextension picks the language when `language` is not given.",
+          "description": "The file name the diff is about, shown in the header.",
           "type": [
             "string",
             "null"

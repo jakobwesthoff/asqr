@@ -302,7 +302,9 @@ Session fields:
   asqr up to 0.10 read, is the validation error "this asqr no longer
   supports format version 1; `asqr skill` describes the current format
   (version 2)". Any other value is the validation error "unsupported
-  format version". The version is checked before the rest of the file,
+  format version", followed by the value as the file writes it, which
+  covers values that are no unsigned integer, such as `2.0`, `"2"`, `-1`
+  or `true`. The version is checked before the rest of the file,
   so a file of another version gets only this error, even when its
   shape does not parse under version 2.
 - `id` (optional): a valid id (section 3.3). In the inbox it must equal
@@ -366,10 +368,11 @@ a name for the entry such as a file name:
   itself. `old` and `new` are each `{ "path": ... }` or
   `{ "content": ... }`, exactly one of the two. A missing `old` is a new
   file, a missing `new` a deleted one. `name` (optional) is the file
-  name the diff is about, shown with it and the source of the language;
-  `language` (optional) as for `code`. A unified diff written by the asker is not accepted:
-  every hunk header needs exact line counts, which goes wrong easily.
-  asqr shows the change as a unified diff (section 7.7).
+  name the diff is about, shown in the header. A diff shows without
+  syntax highlighting, so it takes no language. A unified diff written
+  by the asker is not accepted: every hunk header needs exact line
+  counts, which goes wrong easily. asqr shows the change as a unified
+  diff (section 7.7).
 
 Paths in context entries, for every type:
 
@@ -404,8 +407,13 @@ Validation errors, besides missing or mistyped fields:
 - a reversed `target` range, or `warn` below the end of `target`
 - more than one context entry on a question or an option
 - a `code` or `markdown` entry or a side of a `diff` with neither or
-  both of `path` and `content`, and a `diff` with neither `old` nor
-  `new`
+  both of `path` and `content`
+- a `diff` with neither `old` nor `new`, or with `path` or `content` on
+  the entry itself: one error per entry, saying that a diff takes `old`
+  and/or `new`, each `{"path": ...}` or `{"content": ...}`, the text
+  before and after the change, and that asqr computes the diff itself
+  and does not read a unified diff. Such a `path` or `content` gets no
+  unknown-field warning on top.
 - an entry whose `type` is not `image`, `code`, `markdown` or `diff`
   (the file is not shaped like a session). An entry of type `text` gets
   an error of its own that names `code` and `markdown`. Like the
@@ -966,7 +974,7 @@ inside tmux go out in tmux's passthrough wrapper.
 | Command | What it does |
 |---|---|
 | `asqr` / `asqr watch [--no-notify] [--no-bell] [--layout auto\|beside\|below]` | the TUI (section 7) |
-| `asqr new` | prints a session skeleton with a fresh ULID as its id |
+| `asqr new` | prints a session skeleton without an id, which `asqr ask` assigns |
 | `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file (section 3.5), prints the id |
 | `asqr wait <id> [--timeout <secs>]` | waits for the result and prints it; blocks without `--timeout` |
 | `asqr result <id>` | prints the result if it is there, like `wait --timeout 0` |

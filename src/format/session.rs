@@ -37,10 +37,18 @@ pub enum ParseError {
 /// format version has the rules of that version, so its shape errors would
 /// only mislead. An entry of `type: "text"`, a natural guess for an agent
 /// that wants to show text, would only be an unknown variant, while the
-/// error here says which of the two text types to pick.
+/// error here says which of the two text types to pick. A version that is
+/// no unsigned integer, such as `2.0` or `"2"`, would only be a type error
+/// of the parser.
 pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
     let raw: Value = serde_json::from_slice(bytes).map_err(ParseError::NotASession)?;
-    if let Some(problem) = raw["asqr"].as_u64().and_then(version_problem) {
+    // A missing version is left to the parser, which names the missing
+    // field.
+    let version = raw.get("asqr").and_then(|version| match version.as_u64() {
+        Some(number) => version_problem(number),
+        None => Some(Problem::UnsupportedVersion(version.to_string())),
+    });
+    if let Some(problem) = version {
         return Err(ParseError::Refused(vec![ValidationError {
             path: FieldPath::root("asqr"),
             problem,
@@ -85,8 +93,9 @@ fn text_entries(raw: &Value) -> Vec<ValidationError> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Session {
     /// The format version. Only `2` is supported.
-    // Any number parses; validation rejects the others, so the error names
-    // the field instead of failing in the parser.
+    // Any `u32` parses; validation rejects the others, so the error names
+    // the field instead of failing in the parser. `parse_session` refuses
+    // the values that are no `u32` before the parser sees them.
     pub asqr: u32,
 
     /// The session id. Optional, because `asqr ask` assigns a ULID when it
@@ -371,6 +380,41 @@ mod tests {
                 .expect_err("version 3 is refused")
                 .to_string(),
             "asqr: unsupported format version 3"
+        );
+    }
+
+    #[test]
+    fn a_version_that_is_no_unsigned_integer_is_refused_as_written() {
+        // The parser would only say that it expected a `u32`, which names
+        // neither the field's meaning nor the version asqr reads.
+        for (written, shown) in [
+            ("2.0", "2.0"),
+            (r#""2""#, r#""2""#),
+            ("-1", "-1"),
+            ("true", "true"),
+            ("null", "null"),
+            // Beyond `u64` the JSON parser keeps the number as a float.
+            ("18446744073709551616", "1.8446744073709552e+19"),
+        ] {
+            let file = format!(r#"{{"asqr": {written}, "questions": [{{"id": "q"}}]}}"#);
+
+            assert_eq!(
+                parse_session(file.as_bytes())
+                    .expect_err("the version is refused")
+                    .to_string(),
+                format!("asqr: unsupported format version {shown}"),
+                "{written}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_version_too_large_for_the_format_is_named_in_full() {
+        assert_eq!(
+            parse_session(br#"{"asqr": 4294967296}"#)
+                .expect_err("the version is refused")
+                .to_string(),
+            "asqr: unsupported format version 4294967296"
         );
     }
 

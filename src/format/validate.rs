@@ -36,8 +36,10 @@ pub struct ValidationError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum Problem {
+    /// Carries the version as the file writes it, which need not be a
+    /// number, such as `"2"` or `2.0`.
     #[error("unsupported format version {0}")]
-    UnsupportedVersion(u32),
+    UnsupportedVersion(String),
 
     /// A version that an earlier asqr read. The skill compiled into this
     /// asqr describes the current format, so an agent learns there what to
@@ -108,23 +110,27 @@ pub enum Problem {
     )]
     TextEntryType,
 
-    #[error("a diff needs old, new or both")]
-    DiffWithoutSides,
+    /// A diff without sides, or with `path` or `content` on the entry
+    /// itself. Both come from an agent that has not learned that asqr
+    /// diffs two texts, often one holding a unified diff, so the message
+    /// says what a diff takes.
+    #[error(
+        r#"a diff takes `old` and/or `new`, each {{"path": ...}} or {{"content": ...}}: the text before and after the change; asqr computes the diff itself and does not read a unified diff"#
+    )]
+    DiffSides,
 }
 
 /// The problem with format version `version`, if it is not the one this
 /// asqr reads.
 pub(crate) fn version_problem(version: u64) -> Option<Problem> {
     let current = u64::from(FORMAT_VERSION);
-    // A version too large for `u32` is no version anyone wrote; it is
-    // reported at its largest representable value.
-    let reported = u32::try_from(version).unwrap_or(u32::MAX);
     if version == current {
         None
     } else if (1..current).contains(&version) {
-        Some(Problem::DroppedVersion(reported))
+        let dropped = u32::try_from(version).expect("below the current version, so it fits");
+        Some(Problem::DroppedVersion(dropped))
     } else {
-        Some(Problem::UnsupportedVersion(reported))
+        Some(Problem::UnsupportedVersion(version.to_string()))
     }
 }
 
@@ -357,8 +363,8 @@ fn validate_context(
             ContextEntry::Diff(diff) => {
                 // One missing side is a new or a deleted file; with both
                 // missing there is nothing to compare.
-                if diff.old.is_none() && diff.new.is_none() {
-                    report(path.clone(), Problem::DiffWithoutSides);
+                if (diff.old.is_none() && diff.new.is_none()) || diff.misplaced_source() {
+                    report(path.clone(), Problem::DiffSides);
                 }
                 let sides = [("old", &diff.old), ("new", &diff.new)];
                 for (field, side) in sides {
@@ -747,13 +753,15 @@ mod tests {
         }
     }
 
+    const DIFF_SIDES: &str = r#"a diff takes `old` and/or `new`, each {"path": ...} or {"content": ...}: the text before and after the change; asqr computes the diff itself and does not read a unified diff"#;
+
     #[test]
     fn a_diff_has_at_least_one_side_and_each_side_one_source() {
         assert_eq!(
             errors(&with_question(
                 r#"{"id": "q", "text": "?", "kind": "text", "context": [{"type": "diff", "name": "a.rs"}]}"#
             )),
-            ["questions[0].context[0]: a diff needs old, new or both"]
+            [format!("questions[0].context[0]: {DIFF_SIDES}")]
         );
         assert_eq!(
             errors(&with_question(
@@ -765,6 +773,27 @@ mod tests {
                 "questions[0].context[0].new: takes path or content, not both",
             ]
         );
+    }
+
+    #[test]
+    fn a_path_or_content_on_the_diff_itself_says_where_the_texts_go() {
+        // Once per entry, whether or not it also has sides, and whatever
+        // the misplaced key holds: an agent with a unified diff at hand
+        // writes it there.
+        for entry in [
+            r#"{"type": "diff", "content": "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n"}"#,
+            r#"{"type": "diff", "path": "/change.diff"}"#,
+            r#"{"type": "diff", "path": "/change.diff", "content": ""}"#,
+            r#"{"type": "diff", "content": "b", "old": {"content": "a"}}"#,
+        ] {
+            assert_eq!(
+                errors(&with_question(&format!(
+                    r#"{{"id": "q", "text": "?", "kind": "text", "context": [{entry}]}}"#
+                ))),
+                [format!("questions[0].context[0]: {DIFF_SIDES}")],
+                "{entry}"
+            );
+        }
     }
 
     #[test]

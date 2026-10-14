@@ -116,6 +116,12 @@ impl KnownFields {
                 let name = reference.rsplit('/').next()?;
                 let mut fields = definition(name);
                 fields.insert("type".to_owned());
+                // A `path` or `content` on a diff itself is a validation
+                // error that says where the texts go (`DiffEntry`), so it
+                // does not count as unknown as well.
+                if kind == "diff" {
+                    fields.extend(["path".to_owned(), "content".to_owned()]);
+                }
                 Some((kind.to_owned(), fields))
             })
             .collect();
@@ -685,6 +691,21 @@ mod tests {
                 "questions[0].options[0].context[0].render: unknown field",
                 "questions[0].options[1].context[0].old.text: unknown field",
             ]
+        );
+    }
+
+    #[test]
+    fn path_and_content_on_a_diff_are_an_error_not_unknown_fields() {
+        // Validation reports them with a hint where the texts go, so the
+        // generic warning would only repeat the problem. A diff has no
+        // `language`, as it shows without highlighting.
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "diff", "path": "/change.diff", "content": "x", "language": "rust",
+                         "new": {"content": "b"}}]}]}"#;
+
+        assert_eq!(
+            warn(json, None),
+            ["questions[0].context[0].language: unknown field"]
         );
     }
 

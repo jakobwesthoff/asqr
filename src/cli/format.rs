@@ -86,14 +86,14 @@ pub(super) fn run_validate(path: &Path) -> Exit {
     }
 }
 
-/// A session to start from: one question of each kind, one context entry,
-/// and a fresh ULID as the id, so it is ready for `asqr ask` once the texts
-/// are filled in. The context entry is inline Markdown, so the skeleton
-/// names no file that could be missing.
+/// A session to start from: one question of each kind and one context
+/// entry, ready for `asqr ask` once the texts are filled in. It has no id,
+/// as the skill tells agents to leave it out: `asqr ask` assigns one. The
+/// context entry is inline Markdown, so the skeleton names no file that
+/// could be missing.
 pub(super) fn run_new() -> Exit {
     let skeleton = serde_json::json!({
         "asqr": FORMAT_VERSION,
-        "id": ulid::Ulid::generate().to_string(),
         "title": "What this session is about",
         "questions": [
             {

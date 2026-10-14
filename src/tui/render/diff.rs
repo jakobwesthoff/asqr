@@ -310,7 +310,7 @@ mod tests {
             old: side(old),
             new: side(new),
             name: None,
-            language: None,
+            ..DiffEntry::default()
         })
     }
 
@@ -333,7 +333,7 @@ mod tests {
             old,
             new,
             name: None,
-            language: None,
+            ..DiffEntry::default()
         })
     }
 

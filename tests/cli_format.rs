@@ -12,25 +12,22 @@ use common::{Sandbox, stderr, stdout};
 const EXAMPLE: &str = include_str!("../examples/sessions/release-checklist.json");
 
 #[test]
-fn new_prints_a_valid_skeleton_with_a_fresh_ulid() {
+fn new_prints_a_valid_skeleton_without_an_id() {
     let sandbox = Sandbox::new();
 
-    let first = sandbox.asqr().arg("new").output().expect("runs");
-    let second = sandbox.asqr().arg("new").output().expect("runs");
+    let output = sandbox.asqr().arg("new").output().expect("runs");
 
-    assert_eq!(first.status.code(), Some(0));
-    let session: Session = serde_json::from_str(&stdout(&first)).expect("the skeleton parses");
-    let id = session.id.clone().expect("the skeleton has an id");
-    assert!(ulid::Ulid::from_string(&id).is_ok(), "{id} is a ULID");
+    assert_eq!(output.status.code(), Some(0));
+    let session: Session = serde_json::from_str(&stdout(&output)).expect("the skeleton parses");
+    // The skill tells agents to leave the id out, and `asqr ask` assigns
+    // one, so the skeleton shows what the agent should write.
+    assert_eq!(session.id, None);
     assert_eq!(validate(&session, None), Ok(()));
     assert_eq!(session.asqr, FORMAT_VERSION);
     assert!(
         session.questions[0].context[0].title().is_some(),
         "the skeleton shows a context entry"
     );
-
-    let other: Session = serde_json::from_str(&stdout(&second)).expect("parses");
-    assert_ne!(other.id, session.id, "every skeleton gets its own id");
 }
 
 #[test]

@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in any context entry, and about an `image` field left over from format
   version 1, saying that an image is a context entry of type `image`.
   An entry of type `text` is an error that names `code` and `markdown`.
+  A diff with neither `old` nor `new`, or with `path` or `content` on
+  the entry itself, is an error that says what a diff takes: the text
+  before and after the change, which asqr diffs itself.
 - `asqr validate` and `asqr ask` warn about a code, Markdown or diff
   entry above 1 MiB. asqr still shows it.
 - A note to the whole session: the review tab has a field for it below
@@ -81,7 +84,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already in the outbox.
 - `asqr ask` makes every path in a context entry absolute, as it did
   for images.
-- `asqr new` writes format version 2 with a context entry.
+- `asqr new` writes format version 2 with a context entry, and without
+  an id, which `asqr ask` assigns, as the agent skill says.
+- An `asqr` version that is no unsigned integer, such as `2.0` or
+  `"2"`, is refused as an unsupported format version with the value as
+  written, instead of a parser error about its type.
 - The agent skill describes format version 2 and context entries.
 - A long own answer and a long reject reason wrap onto further lines
   under their start, like a note, instead of scrolling sideways while
