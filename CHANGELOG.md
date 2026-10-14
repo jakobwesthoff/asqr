@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text fills its line exactly or the cursor sits on the space where a
   line breaks. Before, the cursor's cell fell past the end of the line
   and could not be seen.
+- A word that changes its style midway, such as the word under the text
+  cursor or a word with Markdown emphasis in only part of it, wraps as
+  one word. Before, it could be split at the style change. A word that
+  ends exactly at the end of a line also stays on that line.
 
 ## [0.10.1] - 2026-10-14
 

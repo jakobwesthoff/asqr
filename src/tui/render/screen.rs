@@ -11,7 +11,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
-use ratatui::style::{Color, Modifier, Stylize};
+use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
@@ -698,55 +698,117 @@ fn with_cursor(text: &str, cursor: Option<(usize, usize)>) -> Vec<Line<'static>>
 }
 
 /// Word-wraps `line` to `width`: the first line is indented by `first`,
-/// the following ones by `rest`. Styles are kept per word, and a word
-/// longer than a line is broken where the line ends.
+/// the following ones by `rest`. A word is a run of non-blanks with the
+/// blanks after it, whatever styles its characters carry, so a style
+/// change inside a word, such as the text cursor or Markdown emphasis,
+/// never splits it. Every character keeps its style, and a word longer
+/// than a line is broken where the line ends.
 fn wrap(line: Line<'static>, width: usize, first: usize, rest: usize) -> Vec<Line<'static>> {
-    let line_style = line.style;
-    let mut lines: Vec<Vec<Span<'static>>> = vec![vec![Span::from(" ".repeat(first))]];
-    let mut used = first;
-    for span in line.spans {
-        let style = line_style.patch(span.style);
+    let mut words: Vec<Vec<(char, Style)>> = Vec::new();
+    for span in &line.spans {
+        let style = line.style.patch(span.style);
+        for c in span.content.chars() {
+            let after_blank = words
+                .last()
+                .and_then(|word| word.last())
+                .is_none_or(|(last, _)| *last == ' ');
+            if words.is_empty() || (c != ' ' && after_blank) {
+                words.push(Vec::new());
+            }
+            words
+                .last_mut()
+                .expect("a word was started")
+                .push((c, style));
+        }
+    }
+
+    let mut wrapped = Wrapped {
+        lines: vec![(first, Vec::new())],
+        used: first,
+        rest,
+    };
+    for word in words {
+        let blanks = word.iter().rev().take_while(|(c, _)| *c == ' ').count();
+        let (mut body, blanks) = word.split_at(word.len() - blanks);
+        while !body.is_empty() {
+            let indent = if wrapped.lines.len() == 1 {
+                first
+            } else {
+                rest
+            };
+            if wrapped.used + body.len() <= width {
+                wrapped.push(body);
+                break;
+            }
+            if wrapped.used > indent {
+                wrapped.break_line();
+                continue;
+            }
+            // A word longer than a whole line: break it where the line
+            // ends.
+            let room = width.saturating_sub(indent).max(1);
+            let (head, tail) = body.split_at(room.min(body.len()));
+            wrapped.push(head);
+            wrapped.break_line();
+            body = tail;
+        }
         // Blanks may hang past the end of a line, so the next line does not
         // start with them. The text cursor's cell is the exception: it is a
         // reversed blank (`with_cursor`) and has to stay on screen, so it
-        // moves to the next line like a word.
-        let cursor = style.add_modifier.contains(Modifier::REVERSED);
-        for word in span.content.split_inclusive(' ') {
-            let mut word: Vec<char> = word.chars().collect();
-            let hangs = !cursor && word.iter().all(|c| *c == ' ');
-            loop {
-                let indent = if lines.len() == 1 { first } else { rest };
-                let fits = used + word.len() <= width || hangs;
-                if fits {
-                    let text: String = word.iter().collect();
-                    lines
-                        .last_mut()
-                        .expect("there is always a line")
-                        .push(Span::styled(text, style));
-                    used += word.len();
-                    break;
-                }
-                if used > indent {
-                    lines.push(vec![Span::from(" ".repeat(rest))]);
-                    used = rest;
-                    continue;
-                }
-                // A word longer than a whole line: break it where the line
-                // ends.
-                let room = width.saturating_sub(indent).max(1);
-                let (head, tail) = word.split_at(room.min(word.len()));
-                let text: String = head.iter().collect();
-                lines
-                    .last_mut()
-                    .expect("there is always a line")
-                    .push(Span::styled(text, style));
-                lines.push(vec![Span::from(" ".repeat(rest))]);
-                used = rest;
-                word = tail.to_vec();
+        // starts the next line when this one is full.
+        for blank in blanks {
+            let cursor = blank.1.add_modifier.contains(Modifier::REVERSED);
+            if cursor && wrapped.used >= width {
+                wrapped.break_line();
             }
+            wrapped.push(std::slice::from_ref(blank));
         }
     }
-    lines.into_iter().map(Line::from).collect()
+    wrapped.into_lines()
+}
+
+/// The lines `wrap` builds: each one's indent and its styled characters.
+struct Wrapped {
+    lines: Vec<(usize, Vec<(char, Style)>)>,
+    /// The columns taken on the last line, its indent included.
+    used: usize,
+    rest: usize,
+}
+
+impl Wrapped {
+    fn push(&mut self, cells: &[(char, Style)]) {
+        let (_, line) = self.lines.last_mut().expect("there is always a line");
+        line.extend_from_slice(cells);
+        self.used += cells.len();
+    }
+
+    fn break_line(&mut self) {
+        self.lines.push((self.rest, Vec::new()));
+        self.used = self.rest;
+    }
+
+    /// The lines as spans: the indent first, as a span of its own that
+    /// `option_lines` replaces, then one span per run of a style.
+    fn into_lines(self) -> Vec<Line<'static>> {
+        self.lines
+            .into_iter()
+            .map(|(indent, cells)| {
+                let mut runs: Vec<(String, Style)> = Vec::new();
+                for (c, style) in cells {
+                    match runs.last_mut() {
+                        Some((text, run_style)) if *run_style == style => text.push(c),
+                        _ => runs.push((c.to_string(), style)),
+                    }
+                }
+                let mut spans = vec![Span::from(" ".repeat(indent))];
+                spans.extend(
+                    runs.into_iter()
+                        .map(|(text, style)| Span::styled(text, style)),
+                );
+                Line::from(spans)
+            })
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -1550,6 +1612,47 @@ mod tests {
         assert_eq!(
             cursor_columns(&lines),
             [("abcd".to_owned(), None), (" efg".to_owned(), Some(0))]
+        );
+    }
+
+    #[test]
+    fn the_text_cursor_inside_a_word_keeps_the_word_whole() {
+        let line = with_cursor("ab channel", Some((0, 3))).remove(0);
+
+        let lines = wrap(line, 8, 0, 0);
+
+        assert_eq!(
+            cursor_columns(&lines),
+            [("ab ".to_owned(), None), ("channel".to_owned(), Some(0))]
+        );
+    }
+
+    #[test]
+    fn a_word_styled_in_parts_wraps_as_one_word() {
+        let line = Line::from(vec![
+            Span::from("ab "),
+            Span::from("cha").bold(),
+            Span::from("nnel"),
+        ]);
+
+        let lines = wrap(line, 8, 0, 0);
+
+        assert_eq!(
+            cursor_columns(&lines),
+            [("ab ".to_owned(), None), ("channel".to_owned(), None)]
+        );
+    }
+
+    #[test]
+    fn a_word_ending_at_the_end_of_a_line_stays_on_it() {
+        assert_eq!(
+            cursor_columns(&wrap(Line::from("ab cd ef"), 5, 0, 0)),
+            [("ab cd ".to_owned(), None), ("ef".to_owned(), None)]
+        );
+        assert_eq!(
+            cursor_columns(&wrap(Line::from("abcd efg"), 4, 0, 0)),
+            [("abcd ".to_owned(), None), ("efg".to_owned(), None)],
+            "the next line does not start with the blank"
         );
     }
 
