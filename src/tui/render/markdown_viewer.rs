@@ -20,6 +20,9 @@ use crate::tui::Offset;
 pub struct MarkdownViewer {
     entry: MarkdownEntry,
     content: Option<Content>,
+    /// How often patine rendered the text, so tests see a render skipped.
+    #[cfg(test)]
+    renders: usize,
 }
 
 /// What `load` made of the entry: its Markdown with the rows it was last
@@ -28,6 +31,8 @@ enum Content {
     Markdown {
         source: String,
         rows: Vec<SourceLine>,
+        /// The width `rows` were rendered for and the size they take.
+        laid_out: Option<(u16, ContentSize)>,
     },
     /// The file cannot be read, or there is no text at all.
     Note(Placeholder),
@@ -38,6 +43,8 @@ impl MarkdownViewer {
         MarkdownViewer {
             entry: entry.clone(),
             content: None,
+            #[cfg(test)]
+            renders: 0,
         }
     }
 
@@ -59,25 +66,46 @@ impl Viewer for MarkdownViewer {
             Ok(source) => Content::Markdown {
                 source,
                 rows: Vec::new(),
+                laid_out: None,
             },
         });
     }
 
     /// Renders the Markdown for `width` columns. Every row fits the width,
-    /// so the pane never scrolls sideways.
+    /// so the pane never scrolls sideways. The rows depend on the width
+    /// alone, so a body that changed only its height keeps the rows
+    /// rendered before.
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        match self.content() {
+        match self
+            .content
+            .as_mut()
+            .expect("the pane loads a viewer before laying it out")
+        {
             Content::Note(note) => note.lay_out(width, height),
-            Content::Markdown { source, rows } => {
-                let width = usize::from(width);
-                *rows = markdown_rows(&patine::render_lines(source, width), width);
+            Content::Markdown {
+                laid_out: Some((rendered_for, size)),
+                ..
+            } if *rendered_for == width => *size,
+            Content::Markdown {
+                source,
+                rows,
+                laid_out,
+            } => {
+                #[cfg(test)]
+                {
+                    self.renders += 1;
+                }
+                let columns = usize::from(width);
+                *rows = markdown_rows(&patine::render_lines(source, columns), columns);
                 // Only a character wider than the whole body is wider than
                 // a row, and it shows cut.
                 let widest = rows.iter().map(SourceLine::width).max().unwrap_or(0);
-                ContentSize {
+                let size = ContentSize {
                     lines: rows.len(),
-                    columns: widest.min(width),
-                }
+                    columns: widest.min(columns),
+                };
+                *laid_out = Some((width, size));
+                size
             }
         }
     }
@@ -184,6 +212,18 @@ mod tests {
             viewer.lay_out(24, 10).lines > 12,
             "the text wraps more when narrower"
         );
+    }
+
+    #[test]
+    fn only_a_new_width_renders_the_markdown_again() {
+        let mut viewer = inline(NOTES);
+
+        let size = viewer.lay_out(40, 10);
+        assert_eq!(viewer.lay_out(40, 12), size, "the rows depend on the width");
+        assert_eq!(viewer.renders, 1);
+
+        viewer.lay_out(30, 12);
+        assert_eq!(viewer.renders, 2);
     }
 
     #[test]

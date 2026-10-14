@@ -43,7 +43,7 @@ Taken with the user (plan, *Viewers*, and the step's todo):
   line, so the pane scrolls sideways, and the gutter stays in place
   while it does.
 - **Markdown:** rendered by patine for the body's width in `lay_out`,
-  so only when the size changes. Wrapped, without a gutter and without
+  so only when the width changes. Wrapped, without a gutter and without
   sideways scrolling.
 - **The adapter:** one module, `src/tui/render/patine_adapter.rs`,
   turns patine's lines into what asqr draws, for the context pane and
@@ -98,9 +98,12 @@ Agent's choices within that design:
   `src/tui/render/source_file.rs` for all three viewers: a relative path
   is never resolved, a file with a NUL byte is binary and not shown, and
   bytes that are not UTF-8 show as `�`.
-- **Rendering again for each new size** includes a change of height
-  only. The pane's keeper calls `lay_out` only when the size changes,
-  which happens on a resize or on `z`.
+- **Rendering again for each new width:** the pane's keeper calls
+  `lay_out` only when the size changes, which happens on a resize or on
+  `z`. The Markdown viewer keeps the width it rendered for and returns
+  the size it found then when only the height changed, as the rows
+  depend on the width alone. Code and diffs render nothing in
+  `lay_out`.
 - **A new ADR** rather than an amendment of ADR 31 or 33: this decision
   brings a dependency and the adapter that neither covers, and question
   texts will use the adapter too.
