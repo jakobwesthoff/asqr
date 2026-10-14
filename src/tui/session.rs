@@ -253,12 +253,55 @@ impl SessionState {
     }
 
     /// Takes over a session file that was replaced while it was open,
-    /// keeping the answers that still fit (review F1).
+    /// keeping the answers that still fit (review F1) and where the person
+    /// was, so the reload does not throw them back to the start.
+    ///
+    /// The question shown is found again by its id, as a draft finds it,
+    /// and the review stays the review. The row stays where it was, or on
+    /// the last row when the tab has fewer, and its field takes the keys
+    /// again. The pane's focus and the full-screen view stay while the
+    /// same entry shows; another entry under them ends both, as the
+    /// person did not choose to look at it. Each entry keeps its scroll
+    /// position while it reads as before.
     pub fn replace_session(&mut self, session: Session) {
         let draft = self.to_draft();
-        let revision = self.revision + 1;
-        *self = SessionState::new(self.id.clone(), session, Some(&draft));
-        self.revision = revision;
+        let mut replaced = SessionState::new(self.id.clone(), session, Some(&draft));
+        replaced.revision = self.revision + 1;
+
+        if self.on_review() {
+            replaced.tab = replaced.session.questions.len();
+        }
+        // On the review neither has a question, which counts as the same.
+        let same_tab = self.question().map(|question| &question.id)
+            == replaced.question().map(|question| &question.id);
+        if same_tab {
+            let rows = replaced.rows();
+            replaced.row = self
+                .current_row()
+                .and_then(|row| rows.iter().position(|&new| new == row))
+                .unwrap_or_else(|| self.row.min(rows.len().saturating_sub(1)));
+        }
+        replaced.arrive();
+
+        replaced.pane_page = self.pane_page;
+        let shown = |state: &SessionState| state.shown_entry().map(|(key, _)| key);
+        if shown(self).is_some() && shown(self) == shown(&replaced) {
+            replaced.pane_focus = self.pane_focus;
+            replaced.full_screen = self.full_screen;
+        }
+        replaced.offsets = self
+            .offsets
+            .iter()
+            .filter(|(key, _)| {
+                entry_at(&self.session, **key)
+                    .is_some_and(|entry| entry_at(&replaced.session, **key) == Some(entry))
+            })
+            .map(|(key, offset)| (*key, *offset))
+            .collect();
+
+        let name = replaced.session.title.as_deref().unwrap_or(&replaced.id);
+        replaced.message = Some(format!("{name} changed on disk and was reloaded"));
+        *self = replaced;
     }
 
     /// How often the session file was replaced while open, so what was
@@ -1007,6 +1050,15 @@ fn option_ids(question: &Question) -> impl Iterator<Item = &str> {
         .iter()
         .flatten()
         .map(|option| option.id.as_str())
+}
+
+/// The context entry `key` names in `session`, if it has one there.
+fn entry_at(session: &Session, key: EntryKey) -> Option<&ContextEntry> {
+    let question = session.questions.get(key.question)?;
+    match key.option {
+        Some(option) => question.options.as_ref()?.get(option)?.context.first(),
+        None => question.context.first(),
+    }
 }
 
 fn is_default(question: &Question, id: &str) -> bool {
@@ -2518,6 +2570,102 @@ mod tests {
         assert_eq!(state.revision(), 1, "even an unchanged file counts");
         state.replace_session(serde_json::from_str(SESSION).expect("parses"));
         assert_eq!(state.revision(), 2);
+    }
+
+    #[test]
+    fn a_replaced_session_keeps_where_the_person_was_and_says_so() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::PageDown));
+        press(&mut state, "j");
+        state.handle(code(KeyCode::PageDown));
+        state.handle(code(KeyCode::Tab));
+        press(&mut state, "z");
+        // The question's own entry changes; option b's stays as it was.
+        let replacement = WITH_CONTEXT.replace("the question's", "the question's, reworded");
+
+        state.replace_session(serde_json::from_str(&replacement).expect("parses"));
+
+        assert_eq!((state.tab(), state.row()), (0, 1));
+        assert_eq!((state.pane_focused(), state.full_screen()), (true, true));
+        assert_eq!(top(&state), 10, "option b's entry is where it was");
+        assert_eq!(
+            state.message(),
+            Some("batch changed on disk and was reloaded")
+        );
+        state.handle(code(KeyCode::Esc));
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "k");
+        assert_eq!(top(&state), 0, "the changed entry starts at its top");
+    }
+
+    #[test]
+    fn a_replaced_session_ends_the_pane_focus_and_full_screen_when_their_entry_goes() {
+        let mut state = with_pane();
+        press(&mut state, "j");
+        press(&mut state, "z");
+        let replacement = WITH_CONTEXT.replace(
+            r#", "context": [{"type": "markdown", "content": "the option's"}]"#,
+            "",
+        );
+
+        state.replace_session(serde_json::from_str(&replacement).expect("parses"));
+
+        assert_eq!(state.row(), 1, "the row stays");
+        assert_eq!((state.pane_focused(), state.full_screen()), (false, false));
+        press(&mut state, "k");
+        assert_eq!(state.row(), 0, "keys move the cursor again");
+    }
+
+    #[test]
+    fn a_replaced_session_keeps_the_review_and_the_field_typed_in() {
+        let mut state = state();
+        review_row(&mut state, Row::Reject);
+        press(&mut state, "stale");
+        let titled = SESSION.replacen(r#"{"asqr": 2,"#, r#"{"asqr": 2, "title": "Batch 3","#, 1);
+        let fewer = titled.replace(
+            r#"{"id": "text", "text": "?", "kind": "text", "length": {"warn": 5}},"#,
+            "",
+        );
+
+        state.replace_session(serde_json::from_str(&fewer).expect("parses"));
+
+        assert!(state.on_review());
+        assert_eq!(state.current_row(), Some(Row::Reject));
+        assert_eq!(state.field_text().as_deref(), Some("stale"), "typed on");
+        assert_eq!(
+            state.message(),
+            Some("Batch 3 changed on disk and was reloaded")
+        );
+    }
+
+    #[test]
+    fn a_replaced_session_clamps_the_row_to_the_rows_left() {
+        let mut state = state();
+        press(&mut state, "l");
+        press(&mut state, "jj");
+        assert_eq!(state.current_row(), Some(Row::Option(2)));
+        let fewer = SESSION.replace(r#", {"id": "z", "label": "Z"}"#, "");
+
+        state.replace_session(serde_json::from_str(&fewer).expect("parses"));
+
+        assert_eq!(state.tab(), 1);
+        assert_eq!(state.current_row(), Some(Row::Own), "the last row left");
+        assert_eq!(state.focus(), Focus::Field, "a field row focuses its field");
+    }
+
+    #[test]
+    fn a_replaced_session_without_the_question_shown_starts_at_the_top() {
+        let mut state = state();
+        press(&mut state, "l");
+        press(&mut state, "jj");
+        let without = SESSION.replace(
+            r#"{"id": "multi", "text": "?", "kind": "multi", "max": 2, "custom": true,"#,
+            r#"{"id": "renamed", "text": "?", "kind": "multi", "max": 2, "custom": true,"#,
+        );
+
+        state.replace_session(serde_json::from_str(&without).expect("parses"));
+
+        assert_eq!((state.tab(), state.row()), (0, 0));
     }
 
     #[test]

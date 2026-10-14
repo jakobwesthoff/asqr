@@ -860,6 +860,16 @@ is left.
   arrive at once; OSC 9 puts "asqr: " in front, OSC 777 uses "asqr" as
   the title.
   Sessions waiting when asqr starts, and replaced files, trigger nothing.
+- A replaced session file keeps the answers that still fit and where
+  the person was: the question shown, found again by its id, or the
+  review; the row, or the last one when fewer are left, with its field
+  taking the keys again; the context pane's focus and the full-screen
+  view while the same entry shows; and the scroll position of every
+  entry that reads as before. The message "<title> changed on disk and
+  was reloaded" says so, with the id for a session without a title. An
+  open intro overlay closes when the new file has no intro. A session
+  list open while a session leaves keeps its cursor on a waiting
+  session, and closes when none is left.
 - A session colliding with an unread result (section 3.7), an invalid
   file (section 3.8) and a failure to write a draft or a result trigger
   a notice. A failure never ends asqr; answers stay in the TUI.
@@ -927,7 +937,9 @@ Context appears only when a question or one of its options has some.
   its scroll position while its session waits: moving to an option with
   another entry shows that entry where the person left it, or at its top
   the first time, and coming back restores the first one's. Rows that
-  show the question's entry share its position.
+  show the question's entry share its position. A replaced session file
+  keeps the positions of the entries it leaves as they were and starts
+  the others at their top (section 7.5).
 
 Diffs (ADR 33):
 

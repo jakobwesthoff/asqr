@@ -201,6 +201,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The warnings of `asqr ask` and `asqr validate` name a missing context
   file by its absolute path when the session file was given by its bare
   name. Before, they printed the path as the session file wrote it.
+- A session file replaced while asqr shows it keeps the question or
+  review shown, the row, a field's text cursor at its end, the context
+  pane's focus, the full-screen view and the scroll positions of the
+  entries that did not change, and a message says that the file was
+  reloaded. Before, the session started over at its first question
+  without a word. An open intro overlay closes when the new file has
+  no intro, where it stayed open with nothing in it and took every key.
+- Removing a session while the session list was open on the last one
+  left the cursor past the end, and `enter` showed "Nothing to answer"
+  while sessions waited. The cursor stays on a session, and the list
+  closes when none is left.
 - `asqr ask` no longer adds `"options": null` to a `text` question in
   the copy it drops into the inbox.
 - The text cursor of a note or a `text` answer stays visible when the

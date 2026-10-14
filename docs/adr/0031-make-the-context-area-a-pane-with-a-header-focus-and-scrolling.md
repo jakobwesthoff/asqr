@@ -137,8 +137,11 @@ Agent's choices within that design:
   the first one's. Offsets of different entries have nothing to do with
   each other, as their content and length differ, so carrying one over
   would land in the middle of unrelated text. Rows that show the
-  question's entry share its position. A replaced session file starts
-  every entry at its top.
+  question's entry share its position. A replaced session file keeps
+  the position of every entry it leaves as it was, compared by the
+  entry's fields, and starts the others at their top. It also keeps the
+  pane's focus and the full-screen view while the same entry shows,
+  and ends both when another entry takes its place.
 - The scroll keys and their conventions are the intro overlay's (ADR
   30), and both share one function: a line key moves one line, a page
   is the pane's height, and an offset a larger terminal left past the

@@ -57,15 +57,27 @@ impl App {
     /// Adds a session at the end of the queue. A session whose id is known
     /// already is a replaced file: it takes the place of the open one and
     /// keeps the answers that still fit.
+    ///
+    /// When the active session's new file has no intro, its open intro
+    /// overlay closes, as there is nothing left to show and it would still
+    /// take every key. A shorter intro needs nothing here: the draw shows
+    /// it from within its length, and the next key scrolls from there.
     pub fn add(&mut self, state: SessionState) {
         match self.position(state.id()) {
-            Some(index) => self.sessions[index].replace_session(state.session().clone()),
+            Some(index) => {
+                self.sessions[index].replace_session(state.session().clone());
+                if index == self.active && state.session().intro.is_none() {
+                    self.intro = None;
+                }
+            }
             None => self.sessions.push(state),
         }
     }
 
     /// Removes session `id`. The session after it takes over when it was
-    /// the active one, or the one before when it was the last.
+    /// the active one, or the one before when it was the last. An open
+    /// session list keeps its cursor on a session, and closes when none is
+    /// left.
     pub fn remove(&mut self, id: &str) {
         let Some(index) = self.position(id) else {
             return;
@@ -77,6 +89,8 @@ impl App {
         if index < self.active || self.active >= self.sessions.len() {
             self.active = self.active.saturating_sub(1);
         }
+        let last = self.sessions.len().checked_sub(1);
+        self.list = self.list.zip(last).map(|(cursor, last)| cursor.min(last));
     }
 
     fn position(&self, id: &str) -> Option<usize> {
@@ -170,7 +184,11 @@ impl App {
                     AppEffect::None
                 }
                 KeyCode::Enter => {
-                    self.active = cursor;
+                    // `remove` keeps the cursor in range. An index past
+                    // the end would leave the person on "Nothing to
+                    // answer" while sessions wait, so it is bounded here
+                    // too.
+                    self.active = cursor.min(self.sessions.len().saturating_sub(1));
                     self.list = None;
                     AppEffect::None
                 }
@@ -548,6 +566,63 @@ mod tests {
         let mut app = intro_open(10, 40);
         app.remove("intro");
         assert_eq!(app.intro_scroll(), None);
+    }
+
+    #[test]
+    fn the_intro_closes_when_a_replaced_file_drops_it() {
+        let mut app = intro_open(10, 40);
+
+        app.add(SessionState::new("intro", session("q"), None));
+
+        assert_eq!(app.intro_scroll(), None);
+        assert_eq!(
+            app.handle(key('1')),
+            AppEffect::SaveDraft(app.active().expect("active").to_draft()),
+            "keys reach the question again"
+        );
+    }
+
+    #[test]
+    fn a_replaced_intro_scrolls_from_within_its_new_length() {
+        let mut app = intro_open(10, 40);
+        app.handle(key('G'));
+        assert_eq!(app.intro_scroll(), Some(30));
+        let shorter: Session = serde_json::from_str(
+            r#"{"asqr": 2, "intro": "Short now.", "questions": [{"id": "q", "text": "?", "kind": "single",
+                "options": [{"id": "a", "label": "A"}]}]}"#,
+        )
+        .expect("parses");
+
+        app.add(SessionState::new("intro", shorter, None));
+        // The draw clamps the overlay to what the new intro has, and keys
+        // move from there.
+        app.set_intro_page(Extent {
+            shown: 10,
+            total: 4,
+        });
+        app.handle(key('k'));
+
+        assert_eq!(app.intro_scroll(), Some(0));
+    }
+
+    #[test]
+    fn removing_sessions_keeps_the_list_cursor_on_one_and_closes_an_empty_list() {
+        let mut app = app(&["first", "second", "third"]);
+        app.handle(key('L'));
+        app.handle(key('j'));
+        app.handle(key('j'));
+
+        app.remove("third");
+        assert_eq!(app.list_cursor(), Some(1));
+        app.handle(code(KeyCode::Enter));
+        assert_eq!(active_id(&app), Some("second"));
+
+        app.handle(key('L'));
+        app.remove("first");
+        assert_eq!(app.list_cursor(), Some(0));
+        app.remove("second");
+        assert_eq!(app.list_cursor(), None, "nothing left to list");
+        assert_eq!(app.handle(key('q')), AppEffect::Quit);
     }
 
     #[test]
