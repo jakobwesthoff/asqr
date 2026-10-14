@@ -32,19 +32,20 @@ The format step, session and result files in format version 2 with a
 caps the question at a reading width and places the context area
 beside or below it (ADR 30), the pane step, which made that area a
 pane with a header, viewers, focus and scrolling (ADR 31), and the diff
-step, which shows diff entries as a unified diff (ADR 33). "Show text
-entries in the context pane with syntax highlighting" comes next; it
-implements the pane's `Viewer` trait (`src/tui/render/viewer.rs`) in
-place of the placeholder viewer there, and draws source lines through
-`src/tui/render/source_line.rs` as the diff viewer does. The text
-viewer uses the shared line renderer of patine 1.5.0, published
-2026-10-14.
+step, which shows diff entries as a unified diff (ADR 33). "Show code
+and Markdown entries in the context pane" comes next. It first replaces
+the `text` entry type by `code` and `markdown` in format version 2
+(user, 2026-10-14), then implements the pane's `Viewer` trait
+(`src/tui/render/viewer.rs`) for both in place of the placeholder viewer
+there. The code viewer draws source lines through
+`src/tui/render/source_line.rs` as the diff viewer does; both use patine
+1.5.0, published 2026-10-14.
 
 Full Markdown in question texts ships in the same release as its own
 todo; the wrapped own answer (ADR 27) and the session note on the review
-tab (ADR 29) have landed already. The Markdown todo and the text viewer
-share the adapter from patine's lines to ratatui styles; whichever lands
-first builds it.
+tab (ADR 29) have landed already. The Markdown todo and the Markdown
+viewer share the adapter from patine's lines to ratatui styles;
+whichever lands first builds it.
 
 ## Where asqr stands
 
@@ -67,10 +68,11 @@ first builds it.
   (ADR 31, `src/tui/render/context.rs`) shows a header that names the
   entry and the entry's viewer below it. Image entries show as images,
   diff entries as a unified diff (ADR 33, `src/tui/render/diff.rs`),
-  and text entries as a placeholder viewer that names them. `tab`
-  focuses the pane, the page keys scroll it from anywhere, and each
-  entry keeps its scroll position. `o` opens the shown image in the
-  system viewer and ignores text and diff entries; `z` shows any entry
+  and text entries as a placeholder viewer that names them (until the
+  `code` and `markdown` types replace them). `tab` focuses the pane,
+  the page keys scroll it from anywhere, and each entry keeps its scroll
+  position. `o` opens the shown image in the system viewer and ignores
+  the other entries; `z` shows any entry
   full screen. The review tab shows no context.
 - Session and result files are format version 2 (ADR 28, schemas in
   `schema/`). An invalid session file gets a result with status `error`
@@ -134,12 +136,13 @@ wide, so the visible shape is W ÷ 2H.
   The `image` field is folded into it and goes away.
 - Every entry has a `type` and an optional `title` for the pane's
   header.
-  - `image`: `path`.
-  - `text`: `path` or inline `text`, an optional `language`, and an
-    optional `render: false` for Markdown that should show as source.
-    Without a language, the extension of `path` (or of `title`)
-    decides; failing that, plain text.
-  - `diff`: `old` and `new`, each `{ "path": ... }` or `{ "text": ... }`,
+  - `image`: `path`, optional `enlarge` (ADR 32).
+  - `code`: `path` or inline `content`, an optional `language`. Shown
+    verbatim and highlighted, like a fenced code block. Without a
+    language, the extension of `path` (or of `title`) decides; failing
+    that, plain text.
+  - `markdown`: `path` or inline `content`, rendered with patine.
+  - `diff`: `old` and `new`, each `{ "path": ... }` or `{ "content": ... }`,
     an optional `name` (the file name in the header and the source of
     the language) and `language`. A missing `old` is a new file, a
     missing `new` a deleted one. asqr computes the diff; a hand-written
@@ -156,12 +159,11 @@ wide, so the visible shape is W ÷ 2H.
   ANSI theme, like patine, so the terminal's theme decides the colours.
   Shared with patine through its library (patine todo
   01M4XHNXXNJNV57SNBYH88EFAN).
-- Text: lines longer than the pane scroll sideways in code and diffs,
-  with a dim `›` marking a cut line; prose and rendered Markdown wrap.
-  A dim gutter with line numbers on every text item shown as source;
-  rendered Markdown has none.
-- Markdown items render through the patine-style renderer, unless the
-  entry says `render: false`.
+- Code: lines longer than the pane scroll sideways, with a dim `›`
+  marking a cut line, and a dim gutter with line numbers on every code
+  entry. A `.md` file as a code entry shows its source.
+- Markdown entries render through the patine-style renderer, wrapped,
+  without gutter or sideways scrolling.
 - Diff: unified in phase 1, side by side later (its own todo, for panes
   of about 160 columns and more). Hunks with 3 context lines and a dim
   separator between hunks, old and new line numbers in a dim gutter,
@@ -178,7 +180,7 @@ wide, so the visible shape is W ÷ 2H.
   sideways, `g`/`G` and `home`/`end` to the top and bottom.
 - `z` and `o` act on the item shown, from the question as today and from
   the focused pane. `z` shows any item full screen; `o` opens images
-  only (text and diffs follow in their own todo).
+  only (the other entry types follow in their own todo).
 - No `[`/`]` or other keys that need AltGr or Option on non-US layouts.
 
 ### Agent skill
@@ -215,9 +217,14 @@ wide, so the visible shape is W ÷ 2H.
   exact line counts.
 - 2026-10-14, user: the keys as listed above.
 - 2026-10-14, user: ANSI-theme highlighting, sideways scrolling, line
-  numbers on source views only, Markdown rendered unless
-  `render: false`, unified diffs with hunks, line numbers and word
-  emphasis.
+  numbers on source views only, unified diffs with hunks, line numbers
+  and word emphasis.
+- 2026-10-14, user: the `text` entry type is replaced by `code`
+  (verbatim, highlighted) and `markdown` (rendered), each with its own
+  viewer, and the `render` flag goes away. The inline content key
+  `text` becomes `content` in every entry, so "text" and "kind" each
+  mean one thing in the format. Reasons in the step todo "Show code and
+  Markdown entries in the context pane".
 - 2026-10-14, user: patine's library renders to style-neutral lines that
   asqr shares (patine 1.5.0), as planned in patine todo
   01M4XHNXXNJNV57SNBYH88EFAN.

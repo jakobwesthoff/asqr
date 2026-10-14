@@ -178,8 +178,8 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
             picker: picker.clone(),
             image: None,
         }),
-        // TODO: replace with the text viewer, see the todo
-        // `01M4XHQSD1EM17QD87CFB3VWMG-show-text-entries-in-the-context-pane-with-syntax-highlighting.md`.
+        // TODO: replace with the code and Markdown viewers, see the todo
+        // `01M4XHQSD1EM17QD87CFB3VWMG-show-code-and-markdown-entries-in-the-context-pane.md`.
         ContextEntry::Text(text) => Box::new(Placeholder::new(
             "text not shown",
             text.title.as_ref().or(text.path.as_ref()),

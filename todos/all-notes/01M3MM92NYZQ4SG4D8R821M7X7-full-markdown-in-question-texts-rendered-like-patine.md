@@ -13,7 +13,7 @@ texts, the intro and option descriptions render full Markdown with
 syntax highlighting, in the restrained style of the user's tool patine
 (`~/Development/github/jakobwesthoff/patine`, version 1.5.0, tag
 `v1.5.0`, on crates.io). It ships in 0.11.0 together with the context
-pane, whose text viewer uses the same renderer.
+pane, whose Markdown viewer uses the same renderer.
 
 ## The request
 
@@ -76,7 +76,7 @@ On asqr's side:
 
 - A small adapter from patine's `TextStyle` to ratatui's `Style`
   (double underline becomes single, as ratatui has no double
-  underline). The context pane's text viewer uses it too; whichever
+  underline). The context pane's Markdown viewer uses it too; whichever
   lands first builds it.
 - It replaces `src/tui/render/markdown.rs` and `pulldown-cmark` for the
   intro, question texts and option descriptions. asqr renders again at
@@ -88,7 +88,7 @@ On asqr's side:
   as a continuation, so nothing is lost (user, 2026-10-14). patine
   itself never wraps code, so asqr wraps its lines after rendering.
 - The spec (section 7.6's subset rule), the skill (which tells agents
-  what they may use, and that long code belongs in a text entry of the
+  what they may use, and that long code belongs in a code entry of the
   context pane) and an ADR.
 - asqr depends on patine 1.5.0 from crates.io (`cargo add patine@1.5`,
   published 2026-10-14), without a path or git dependency (user, asqr
