@@ -78,6 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tab` no longer types a tab character into a field. While a context
   pane shows, `ctrl-u` and `ctrl-d` scroll it instead of undoing and
   deleting in a field.
+- The key bar leaves out hints that do not fit whole instead of cutting
+  the last one, and keeps `? help` and `q quit` longest.
 - The help puts `space` and `1`-`9` on one line and `n` and `ctrl-j` on
   another, to make room for the context pane's keys.
 - The agent skill explains that context shows in a pane of its own that

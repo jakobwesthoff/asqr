@@ -156,7 +156,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
         // one leaves the queue empty, and the notice is all that says why.
         let notice = app.current_notice().unwrap_or_default();
         frame.render_widget(Line::from(notice).fg(Color::Yellow), status);
-        frame.render_widget(key_line(&[("q", "quit")]), keys);
+        frame.render_widget(key_line(&[("q", "quit")], keys.width), keys);
         return;
     };
 
@@ -202,7 +202,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View, images: &mut Images) 
         Some(_) => vec![("esc/q/i", "close")],
         None => key_hints(state, app.list_cursor().is_some(), view.pane_page),
     };
-    frame.render_widget(key_line(&hints), keys);
+    frame.render_widget(key_line(&hints, keys.width), keys);
 
     // These overlays use the whole screen, so they fit the smallest one.
     if state.help() {
@@ -1205,13 +1205,50 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<(&'static str, &'stati
     }
 }
 
-fn key_line(keys: &[(&str, &str)]) -> Line<'static> {
+/// The key bar in `width` columns. Hints that do not fit whole are left
+/// out rather than cut, the least important first (`hint_rank`), and the
+/// rest keep their order; the help lists every key anyway.
+fn key_line(keys: &[(&str, &str)], width: u16) -> Line<'static> {
+    // Each hint is ` key ` and ` what  `; the blanks after the last one may
+    // run past the edge.
+    let hint_width = |(key, what): &(&str, &str)| key.chars().count() + what.chars().count() + 5;
+    let mut kept: Vec<&(&str, &str)> = keys.iter().collect();
+    loop {
+        let used: usize = kept.iter().map(|hint| hint_width(hint)).sum();
+        if used.saturating_sub(2) <= usize::from(width) {
+            break;
+        }
+        // Among hints of the same rank, the one further right goes first.
+        let least = (0..kept.len())
+            .rev()
+            .min_by_key(|&index| hint_rank(kept[index].0))
+            .expect("no hints at all always fit");
+        kept.remove(least);
+    }
+
     let mut spans = Vec::new();
-    for (key, what) in keys {
+    for (key, what) in kept {
         spans.push(Span::from(format!(" {key} ")).add_modifier(Modifier::REVERSED));
         spans.push(Span::from(format!(" {what}  ")));
     }
     Line::from(spans)
+}
+
+/// How long a hint stays in a key bar too narrow for all of them; higher
+/// stays longer. `?` and `q` stay longest, as the help names every other
+/// key and quitting is what a lost person looks for. The keys that act
+/// where the cursor is come next, then switching questions, then the
+/// context pane's `tab`, and a note last, which is optional on every
+/// question.
+fn hint_rank(key: &str) -> u8 {
+    match key {
+        "?" => 6,
+        "q" => 5,
+        "←/→" => 3,
+        "tab" => 2,
+        "n" => 1,
+        _ => 4,
+    }
 }
 
 /// A rectangle of `width`×`height` in the middle of `area`, never larger
@@ -2406,6 +2443,51 @@ mod tests {
             (96, 5),
             "after beside, it stays beside"
         );
+    }
+
+    #[test]
+    fn the_key_bar_leaves_out_what_does_not_fit_whole() {
+        let text = |width: u16| -> String {
+            let hints = [
+                ("↑/↓", "move"),
+                ("enter", "pick"),
+                ("←/→", "question"),
+                ("n", "note"),
+                ("tab", "context"),
+                ("?", "help"),
+                ("q", "quit"),
+            ];
+            let line = key_line(&hints, width);
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        };
+
+        assert_eq!(
+            text(100),
+            " ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ?  help   q  quit"
+        );
+        assert_eq!(
+            text(85),
+            " ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ?  help   q  quit",
+            "the blanks after the last hint may run past the edge"
+        );
+        assert_eq!(
+            text(80),
+            " ↑/↓  move   enter  pick   ←/→  question   tab  context   ?  help   q  quit",
+            "the note goes first"
+        );
+        assert_eq!(
+            text(60),
+            " ↑/↓  move   enter  pick   ←/→  question   ?  help   q  quit",
+            "then the pane's tab"
+        );
+        assert_eq!(text(40), " ↑/↓  move   ?  help   q  quit");
+        assert_eq!(text(20), " ?  help   q  quit");
+        assert_eq!(text(5), "");
     }
 
     #[test]

@@ -598,7 +598,10 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
 - The line above the key bar shows notices (about the queue) and
   messages (about the last key) until the next key.
 - The key bar shows the keys that work where the cursor is; they change
-  inside a field.
+  inside a field. Hints that do not fit its width are left out whole,
+  never cut: first `n`, then `tab`, then `←`/`→`, then the others from
+  the right. `?` and `q` stay longest, as the help lists every key
+  (ADR 31).
 - **Reading width:** the question and the review take at most 100
   columns and start at the left, with or without a context pane. The
   tab's area, W×H, is the area under the tab bar inside a margin of one

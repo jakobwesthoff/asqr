@@ -119,5 +119,11 @@ Agent's choices within that design:
 - A field can no longer take a typed tab character.
 - While a pane shows, `ctrl-u` no longer undoes and `ctrl-d` no longer
   deletes in a field.
-- On a terminal of 80 columns, `tab context` in the key bar pushes
-  `q quit` past its end; the help still lists `q`.
+- `tab context` made the key bar too long for 80 columns, where it cut
+  `q quit` in the middle. The key bar now leaves out whole hints that do
+  not fit, by a rank: `n` first, then `tab`, then `←`/`→`, then the
+  others from the right, and `?` and `q` last, since the help lists
+  every key and quitting is what a lost person looks for. On 80 columns
+  the question's bar drops `n note`; on 60 columns it also drops
+  `tab context`, where before it showed a cut `tab  co` and no
+  `? help`.
