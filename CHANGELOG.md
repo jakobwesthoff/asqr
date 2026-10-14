@@ -172,9 +172,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field shows, wrapped rows included, and leave the field only from its
   first or last row; `ctrl-p`/`ctrl-n` do the same. Moving down onto a
   field puts the text cursor at the end of its first row, moving up
-  onto it at the end of its text. Before, they left the own answer, the `text`
-  answer, the session note and the reject reason at once, so the cursor
-  could not reach an earlier line of a `text` answer, and in a
+  onto it at the end of its text. Before, they left the own answer, the
+  `text` answer, the session note and the reject reason at once, so the
+  cursor could not reach an earlier line of a `text` answer, and in a
   question's note they moved by the text's lines. The key bars of these
   fields drop their `↑/↓ leave` and `↑ back` hints, and the help states
   the rule.
@@ -238,9 +238,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   review shown, the row, a field's text cursor, whether the field had
   the keys, an open note, the context pane's focus, the full-screen view
   and the scroll positions of the entries that did not change, and a
-  message says that the file was reloaded. Before, the session started over at its first question
-  without a word. An open intro overlay closes when the new file has
-  no intro, where it stayed open with nothing in it and took every key.
+  message says that the file was reloaded. Before, the session started
+  over at its first question without a word. An open intro overlay
+  closes when the new file has no intro, where it stayed open with
+  nothing in it and took every key.
 - Removing a session while the session list was open on the last one
   left the cursor past the end, and `enter` showed "Nothing to answer"
   while sessions waited. The cursor stays on a session, and the list
