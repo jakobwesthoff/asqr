@@ -38,13 +38,14 @@ answers and notes can then be written with a real editor.
 - This is terminal work, so it goes through the `Host` trait
   (`src/tui/run.rs`), like opening an image: a new `Effect`/`AppEffect`
   asks for it, the host runs the editor, the loop puts the text back.
-- One-line fields (the own answer) take a single line: decide whether
-  newlines from the editor are joined with spaces or refused with a
-  message (ADR 22 keeps own answers to one line).
+- Every typed field takes several lines (ADR 0036), so the editor's
+  text comes back with its line breaks, normalised like a paste (CR and
+  CRLF become LF). `TextField` (`src/tui/text_field.rs`) is the one
+  place that takes text into a field.
 - The temp file suffix (`.md`, `.txt`) decides the editor's syntax
   mode; the question's text could go in as a comment header, but then
   it has to be stripped reliably on the way back.
 - Editor exits with an error, or the file is unchanged: keep the field
   as it was.
 - The key goes into the key bar and help for focused fields, and into
-  spec section 7.2 and an ADR amendment of ADR 22.
+  spec section 7.2 and an ADR amendment of ADR 0036.
