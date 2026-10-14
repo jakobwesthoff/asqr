@@ -2,7 +2,6 @@
 title: "Full Markdown in question texts, rendered like patine"
 kind: feature
 component: tui
-status: blocked
 horizon: next
 origin: request
 tags: [ux, milestone/v0-11]
@@ -12,8 +11,8 @@ tags: [ux, milestone/v0-11]
 The user requested this on 2026-09-28 and again on 2026-10-14. Question
 texts, the intro and option descriptions render full Markdown with
 syntax highlighting, in the restrained style of the user's tool patine
-(`~/Development/github/jakobwesthoff/patine`, version 1.4.0 at
-`b5411d3`, on crates.io). It ships in 0.11.0 together with the context
+(`~/Development/github/jakobwesthoff/patine`, version 1.5.0, tag
+`v1.5.0`, on crates.io). It ships in 0.11.0 together with the context
 pane, whose text viewer uses the same renderer.
 
 ## The request
@@ -71,7 +70,7 @@ Decided by the user on 2026-10-14 (asqr session
 `01M4XHEY66BQDA0ZPRXV3P22MD`): patine's library renders to
 style-neutral lines of styled spans, and asqr draws those lines. The
 patine side, with its design and size, is patine todo
-01M4XHNXXNJNV57SNBYH88EFAN; it ships as patine 1.5.0.
+01M4XHNXXNJNV57SNBYH88EFAN; it shipped as patine 1.5.0 on 2026-10-14.
 
 On asqr's side:
 
@@ -91,12 +90,6 @@ On asqr's side:
 - The spec (section 7.6's subset rule), the skill (which tells agents
   what they may use, and that long code belongs in a text entry of the
   context pane) and an ADR.
-- asqr depends on patine 1.5.0 from crates.io. Work on this todo starts
-  once the user has published patine 1.5.0 (user, 2026-10-14, asqr
-  session `01M4XJX6BJADVKKXNXXFNVVC8Q`): no path or git dependency in
-  between.
-
-## Relations
-
-- Depends on: patine todo 01M4XHNXXNJNV57SNBYH88EFAN (Render to style-neutral lines so other tools can share the renderer)
-- Blocked by: patine 1.5.0 published on crates.io (the user publishes)
+- asqr depends on patine 1.5.0 from crates.io (`cargo add patine@1.5`,
+  published 2026-10-14), without a path or git dependency (user, asqr
+  session `01M4XJX6BJADVKKXNXXFNVVC8Q`).

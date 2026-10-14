@@ -30,10 +30,11 @@ and skill changes for its part.
 The format step, session and result files in format version 2 with a
 `context` field, has landed (ADR 28). "Cap the question at a reading
 width and pick the pane layout automatically" comes next. "Make the
-context area a pane of its own with focus and scrolling" needs it. "Show text entries in the context pane with syntax
-highlighting" and "Show diff entries in the context pane as a unified
-diff" build on the pane; the text viewer also waits for patine 1.5.0
-with the shared line renderer.
+context area a pane of its own with focus and scrolling" needs it.
+"Show text entries in the context pane with syntax highlighting" and
+"Show diff entries in the context pane as a unified diff" build on the
+pane; the text viewer uses the shared line renderer of patine 1.5.0,
+published 2026-10-14.
 
 Full Markdown in question texts ships in the same release as its own
 todo; the wrapped own answer (ADR 27) and the session note on the review
