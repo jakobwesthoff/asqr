@@ -119,6 +119,28 @@ fn validate_reports_a_file_that_is_not_a_session() {
 }
 
 #[test]
+fn validate_refuses_an_enlarge_that_is_no_boolean() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "pixels.json",
+        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "image", "path": "/sprites/hero.png", "enlarge": "no"}]}]}"#,
+    );
+
+    let output = sandbox
+        .asqr()
+        .arg("validate")
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(11));
+    let errors = stderr(&output);
+    assert!(errors.starts_with("error: not a session file:"), "{errors}");
+    assert!(errors.contains("expected a boolean"), "{errors}");
+}
+
+#[test]
 fn validate_warns_without_failing() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(

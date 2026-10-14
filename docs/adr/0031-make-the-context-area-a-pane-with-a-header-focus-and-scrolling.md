@@ -12,6 +12,8 @@ Amends [28. Session and result format version 2 with a context field](0028-sessi
 
 Amends [30. Cap the question at a reading width and place context by the terminal's shape](0030-cap-the-question-at-a-reading-width-and-place-context-by-the-terminals-shape.md)
 
+Amended by [32. Let an image entry opt out of enlarging](0032-let-an-image-entry-opt-out-of-enlarging.md)
+
 ## Context
 
 ADR 30 placed the context area beside or below the question. It drew an

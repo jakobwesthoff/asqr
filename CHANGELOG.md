@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which asqr computes from the old and the new text. A question or
   option holds one entry. This version shows text and diff entries as a
   placeholder that names them.
+- An image entry takes `"enlarge": false` to keep the image at its
+  natural size where it fits, in the pane and full screen, instead of
+  scaling it up to fill the space. A larger image still shrinks. The
+  agent skill tells agents to use it only where the exact pixel size
+  matters.
 - `asqr validate` and `asqr ask` warn about a relative or missing file
   in any context entry, and about an `image` field left over from format
   version 1, saying that an image is a context entry of type `image`.

@@ -103,7 +103,13 @@ Once asked, asqr fits best when:
     JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM, QOI,
     DDS, OpenEXR, HDR and farbfeld. It cannot show SVG or AVIF, so
     convert those to PNG first. The person only sees a placeholder for an
-    image asqr cannot show, and `validate` and `ask` warn about it.
+    image asqr cannot show, and `validate` and `ask` warn about it. asqr
+    scales an image up to fill the pane, which suits most images: the
+    person sees them larger when the space is there. Add
+    `"enlarge": false` only when the exact pixel size matters, such as
+    pixel art, a screenshot whose size is the point, or an icon at its
+    real size; the image then keeps its natural size and only shrinks
+    when it does not fit.
   - `{ "type": "text", "path": "..." }` or `{ "type": "text", "text":
     "..." }`: source code, a log, notes or Markdown, from a file or
     inline. `language`, such as `rust`, picks the highlighting; without

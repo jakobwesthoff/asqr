@@ -14,6 +14,8 @@ Amended by [29. Let the person add a note to the whole session](0029-let-the-per
 
 Amended by [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
 
+Amended by [32. Let an image entry opt out of enlarging](0032-let-an-image-entry-opt-out-of-enlarging.md)
+
 ## Context
 
 The user asked on 2026-10-14 for a context pane next to the question:

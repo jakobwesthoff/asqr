@@ -173,6 +173,7 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
     match entry {
         ContextEntry::Image(image) => Box::new(ImageViewer {
             path: image.path.clone(),
+            enlarge: image.enlarge,
             picker: picker.clone(),
             image: None,
         }),
@@ -196,10 +197,12 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
 // Images
 // ---------------------------------------------------------------------
 
-/// An image file, scaled to fill the body as far as its proportions allow.
-/// A file that cannot be shown shows why instead.
+/// An image file, scaled to fill the body as far as its proportions allow,
+/// or, without `enlarge`, at its natural size where that fits. A file that
+/// cannot be shown shows why instead.
 struct ImageViewer {
     path: String,
+    enlarge: bool,
     picker: Picker,
     image: Option<Image>,
 }
@@ -209,7 +212,8 @@ impl Viewer for ImageViewer {
         self.image = Some(Image::load(&self.picker, &self.path));
     }
 
-    /// The image is scaled to the body, so it takes exactly the body.
+    /// The image never gets larger than the body, so the body is all the
+    /// room it needs.
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
         ContentSize {
             lines: usize::from(height),
@@ -222,7 +226,7 @@ impl Viewer for ImageViewer {
         self.image
             .as_mut()
             .expect("the pane loads a viewer before drawing it")
-            .draw(&self.path, area, buf);
+            .draw(&self.path, area, buf, self.enlarge);
     }
 }
 

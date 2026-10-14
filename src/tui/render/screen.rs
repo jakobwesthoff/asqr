@@ -1881,12 +1881,17 @@ mod tests {
 
     /// A two-colour PNG, so the halfblock rendering is visible.
     fn png() -> tempfile::NamedTempFile {
+        png_of(160)
+    }
+
+    /// A square two-colour PNG of `size` pixels.
+    fn png_of(size: u32) -> tempfile::NamedTempFile {
         let file = tempfile::Builder::new()
             .suffix(".png")
             .tempfile()
             .expect("temp file");
-        let image = image::RgbImage::from_fn(160, 160, |x, _| {
-            if x < 80 {
+        let image = image::RgbImage::from_fn(size, size, |x, _| {
+            if x < size / 2 {
                 image::Rgb([255, 0, 0])
             } else {
                 image::Rgb([0, 0, 255])
@@ -1948,6 +1953,47 @@ mod tests {
 
         assert_eq!(rows, 5..=17, "every row of the pane's body");
         assert!(columns.end() - columns.start() > 16, "{columns:?}");
+    }
+
+    /// A session with one question showing `image` at its natural size.
+    fn with_image_kept_small(image: &str) -> App {
+        app(&[(
+            "pictured",
+            &format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Which one?", "kind": "single",
+                    "context": [{{"type": "image", "path": {image:?}, "enlarge": false}}],
+                    "options": [{{"id": "a", "label": "This one"}}]}}]}}"#
+            ),
+        )])
+    }
+
+    #[test]
+    fn an_image_that_does_not_enlarge_keeps_its_size_in_the_pane_and_full_screen() {
+        // The 160 pixels take 16 columns and 8 rows at the half blocks'
+        // cell size of 10×20 pixels.
+        let file = png();
+        let mut app = with_image_kept_small(file.path().to_str().expect("UTF-8 path"));
+
+        let (columns, rows) = image_cells(&screen(&app, 140, 20));
+        assert_eq!((columns, rows), (70..=85, 5..=12), "in the pane");
+
+        keys(&mut app, "z");
+        let (columns, rows) = image_cells(&screen(&app, 140, 20));
+        assert_eq!(
+            (columns.end() - columns.start(), rows.end() - rows.start()),
+            (15, 7),
+            "full screen too"
+        );
+    }
+
+    #[test]
+    fn an_image_that_does_not_enlarge_still_shrinks_to_fit() {
+        let file = png_of(2000);
+        let app = with_image_kept_small(file.path().to_str().expect("UTF-8 path"));
+
+        let (_, rows) = image_cells(&screen(&app, 140, 20));
+
+        assert_eq!(rows, 5..=17, "the pane's body, no more");
     }
 
     /// With the Kitty protocol the terminal draws the image into the cells

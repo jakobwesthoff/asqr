@@ -33,6 +33,24 @@ pub struct ImageEntry {
 
     /// An absolute path; `asqr ask` makes a relative one absolute.
     pub path: String,
+
+    /// `false` keeps the image at its natural size where it fits, instead
+    /// of scaling it up to fill the space it gets. A larger image still
+    /// shrinks to fit.
+    // Written back only when it differs from the default, so `asqr ask`
+    // adds nothing to an image entry that leaves it out. The skip would
+    // also hide the default from the schema, which names it here.
+    #[serde(default = "enlarge_by_default", skip_serializing_if = "is_true")]
+    #[schemars(extend("default" = true))]
+    pub enlarge: bool,
+}
+
+fn enlarge_by_default() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 /// Longer text: source code, plain text or Markdown, from a file or
@@ -136,7 +154,8 @@ mod tests {
             parse(json!({"type": "image", "path": "/shots/login.png"})),
             ContextEntry::Image(ImageEntry {
                 title: None,
-                path: "/shots/login.png".into()
+                path: "/shots/login.png".into(),
+                enlarge: true,
             })
         );
         assert_eq!(
@@ -177,6 +196,29 @@ mod tests {
         };
 
         assert!(text.render);
+    }
+
+    #[test]
+    fn an_image_enlarges_unless_the_entry_says_otherwise() {
+        let ContextEntry::Image(image) = parse(json!({"type": "image", "path": "/a.png"})) else {
+            panic!("an image entry");
+        };
+        assert!(image.enlarge);
+
+        let pixel_art = parse(json!({"type": "image", "path": "/a.png", "enlarge": false}));
+        let ContextEntry::Image(image) = &pixel_art else {
+            panic!("an image entry");
+        };
+        assert!(!image.enlarge);
+        assert_eq!(
+            serde_json::to_value(&pixel_art).expect("entry serializes"),
+            json!({"type": "image", "path": "/a.png", "enlarge": false}),
+            "the default is not written back, anything else is"
+        );
+
+        let wrong: Result<ContextEntry, _> =
+            serde_json::from_value(json!({"type": "image", "path": "/a.png", "enlarge": "no"}));
+        assert!(wrong.is_err(), "enlarge is a boolean");
     }
 
     #[test]

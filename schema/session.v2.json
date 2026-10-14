@@ -178,6 +178,11 @@
     "ImageEntry": {
       "description": "An image file. PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF,\nICO, TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and\nAVIF are not.",
       "properties": {
+        "enlarge": {
+          "default": true,
+          "description": "`false` keeps the image at its natural size where it fits, instead\nof scaling it up to fill the space it gets. A larger image still\nshrinks to fit.",
+          "type": "boolean"
+        },
         "path": {
           "description": "An absolute path; `asqr ask` makes a relative one absolute.",
           "type": "string"

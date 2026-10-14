@@ -350,7 +350,10 @@ Question fields:
 Context entry fields. Every entry has a `type` and an optional `title`,
 a name for the entry such as a file name:
 
-- `image`: `path` (required), an image file.
+- `image`: `path` (required), an image file. `enlarge` (optional,
+  default `true`): `false` keeps the image at its natural size where it
+  fits, in the pane and full screen, instead of scaling it up; a larger
+  image still shrinks to fit (ADR 32).
 - `text`: longer text such as source code, a log or Markdown, from the
   file at `path` or inline in `text`, exactly one of the two. `language`
   (optional), such as `rust`, names the language; without it the
@@ -814,7 +817,8 @@ Context appears only when a question or one of its options has some.
   included (ADR 31).
 - Below the header, a viewer shows the entry. An image is scaled to
   fill the pane as far as its proportions allow, a small one included,
-  and so is the `z` view.
+  and so is the `z` view. An image entry with `enlarge: false` keeps its
+  natural size in both, and only shrinks when it does not fit.
 - The pane scrolls with its own keys (section 7.2). Every entry keeps
   its scroll position while its session waits: moving to an option with
   another entry shows that entry where the person left it, or at its top

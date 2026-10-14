@@ -44,17 +44,21 @@ impl Image {
         }
     }
 
-    /// Draws the image into `area` of `buf`, scaled to fill it as far as
-    /// its proportions allow, or a placeholder that names `path` and the
-    /// reason it is not shown.
-    pub fn draw(&mut self, path: &str, area: Rect, buf: &mut Buffer) {
+    /// Draws the image into `area` of `buf`, or a placeholder that names
+    /// `path` and the reason it is not shown. With `enlarge`, the image is
+    /// scaled to fill the area as far as its proportions allow; without, it
+    /// keeps its natural size and only shrinks when it does not fit.
+    pub fn draw(&mut self, path: &str, area: Rect, buf: &mut Buffer, enlarge: bool) {
         match self {
             Image::Ready(protocol) => {
-                StatefulImage::default().resize(Resize::Scale(None)).render(
-                    area,
-                    buf,
-                    protocol.as_mut(),
-                );
+                let resize = if enlarge {
+                    Resize::Scale(None)
+                } else {
+                    Resize::Fit(None)
+                };
+                StatefulImage::default()
+                    .resize(resize)
+                    .render(area, buf, protocol.as_mut());
                 // Works around images cropped by a changed cell size; see
                 // the function for when it can go.
                 size_kitty_placement(buf, area);
