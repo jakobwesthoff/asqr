@@ -174,28 +174,25 @@ impl QuestionHeight {
                 continue;
             }
             let key = (state.id().to_owned(), state.revision(), index, width);
-            let count = |drawn| {
-                question_content(state, index, usize::from(width), drawn)
+            let count = |pass| {
+                question_content(state, index, usize::from(width), pass)
                     .lines
                     .len()
             };
             let rows = if index == state.tab() {
-                let rows = count(Drawn::Counted);
+                let rows = count(Pass::Counted);
                 self.rows.insert(key, rows);
                 // While a field or the note has the keys, the question
                 // counts as drawn, its text cursor included: the cursor's
                 // blank after a full line takes a row then, and counted
                 // without it, that row would push the last one out of view.
                 if typing {
-                    rows.max(count(Drawn::Live))
+                    rows.max(count(Pass::Live))
                 } else {
                     rows
                 }
             } else {
-                *self
-                    .rows
-                    .entry(key)
-                    .or_insert_with(|| count(Drawn::Counted))
+                *self.rows.entry(key).or_insert_with(|| count(Pass::Counted))
             };
             most = most.max(rows);
         }
@@ -239,7 +236,7 @@ pub(super) fn draw_tab(
     });
 
     let content_at = |width: u16| match state.question() {
-        Some(_) => question_content(state, state.tab(), usize::from(width), Drawn::Live),
+        Some(_) => question_content(state, state.tab(), usize::from(width), Pass::Live),
         None => review_content(state, usize::from(width)),
     };
     let question_rows = match arrangement {
@@ -375,7 +372,7 @@ fn mark(kind: Kind, chosen: bool) -> &'static str {
 
 /// How [`question_content`] draws a question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Drawn {
+enum Pass {
     /// As the person sees the current tab: the row under the cursor
     /// highlighted, and the field or note that has the keys with its text
     /// cursor and counter.
@@ -390,9 +387,9 @@ enum Drawn {
 
 /// The lines of question `index`, wrapped to `width`. Counting and drawing
 /// share this function, so the rows counted are the rows drawn.
-fn question_content(state: &SessionState, index: usize, width: usize, drawn: Drawn) -> Content {
+fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass) -> Content {
     let question = &state.session().questions[index];
-    let live = drawn == Drawn::Live;
+    let live = pass == Pass::Live;
     let mut content = Content {
         lines: field_lines(&question.text, width),
         cursor: (0, 0),

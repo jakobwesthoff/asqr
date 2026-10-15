@@ -16,7 +16,7 @@ use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
 
-use super::render::{View, draw};
+use super::render::{Drawn, View, draw};
 use super::{App, Applied, Inbox};
 use crate::queue::QueueLocation;
 
@@ -70,23 +70,26 @@ where
         if view.must_clear(app) {
             terminal.clear().context("clearing the screen")?;
         }
+        let mut drawn = Drawn::default();
         terminal
-            .draw(|frame| draw(frame, app, view))
+            .draw(|frame| drawn = draw(frame, app, view))
             .context("drawing the screen")?;
         // How far the intro overlay and the context pane can scroll depends
         // on the size they were drawn at, and where `↑`/`↓` go in a field
         // on where its rows break. A frame without a tab, as below the
-        // minimum size, says nothing about the pane: handing it on would
-        // end the pane's focus and the full-screen view, and the session
-        // shown at the next tab may be another one.
-        app.set_intro_page(view.intro_page());
-        if let Some(page) = view.pane_page() {
+        // minimum size, says nothing about the intro or the pane: handing
+        // it on would end the pane's focus and the full-screen view, and the
+        // session shown at the next tab may be another one.
+        if let Some(page) = drawn.intro_page {
+            app.set_intro_page(page);
+        }
+        if let Some(page) = drawn.pane_page {
             app.set_pane_page(page);
         }
         // A field entered from above finds its first row only in its first
         // draw, and its text cursor goes there; that draw showed it
         // elsewhere.
-        if app.set_field_shape(view.field_shape()) {
+        if app.set_field_shape(drawn.field_shape) {
             continue;
         }
         let Ok(event) = events.recv() else {
@@ -477,16 +480,63 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_intro_scrolls_as_far_as_the_last_draw_showed() {
-        let harness = &mut Harness::new();
+    /// `SESSION` with an intro of thirty bullet lines.
+    fn with_long_intro() -> String {
         let intro: Vec<String> = (1..=30).map(|n| format!("- line {n}")).collect();
-        let session = SESSION.replacen(
+        SESSION.replacen(
             r#"{"asqr": 2,"#,
             &format!(r#"{{"asqr": 2, "intro": {:?},"#, intro.join("\n")),
             1,
-        );
-        fs::write(harness.location.inbox().join("long.json"), session).expect("written");
+        )
+    }
+
+    #[test]
+    fn a_frame_too_small_keeps_how_far_the_intro_scrolls() {
+        let harness = &mut Harness::new();
+        fs::write(
+            harness.location.inbox().join("long.json"),
+            with_long_intro(),
+        )
+        .expect("written");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+        harness
+            .run_with_view(
+                &mut app,
+                &mut inbox,
+                &mut view,
+                vec![key(KeyCode::Char('i')), key(KeyCode::Char('G'))],
+            )
+            .expect("runs");
+
+        // The too-small frame shows no intro, so `k` still scrolls within
+        // what the last full frame showed: one line up from the end.
+        harness.terminal.backend_mut().resize(40, 10);
+        harness
+            .run_with_view(
+                &mut app,
+                &mut inbox,
+                &mut view,
+                vec![key(KeyCode::Char('k'))],
+            )
+            .expect("runs");
+        harness.terminal.backend_mut().resize(80, 24);
+        harness
+            .run_with_view(&mut app, &mut inbox, &mut view, vec![])
+            .expect("runs");
+
+        let screen = harness.screen();
+        assert!(screen.contains("9–29 of 30"), "{screen}");
+    }
+
+    #[test]
+    fn the_intro_scrolls_as_far_as_the_last_draw_showed() {
+        let harness = &mut Harness::new();
+        fs::write(
+            harness.location.inbox().join("long.json"),
+            with_long_intro(),
+        )
+        .expect("written");
 
         harness
             .run(vec![key(KeyCode::Char('i')), key(KeyCode::Char('G'))])

@@ -58,19 +58,33 @@ fn shorten_from_left(text: &str, room: usize) -> String {
     format!("…{tail}")
 }
 
+/// What one draw measured that the app needs for the keys that follow: how
+/// far the intro and the context pane can scroll depends on the size they
+/// were drawn at, and where `↑`/`↓` go in a field on where its rows break.
+///
+/// A frame that shows no tab, as below the minimum size or with an empty
+/// queue, says nothing about the intro or the pane: both are `None` then,
+/// so a moment at a small size keeps the intro's scroll range, the pane's
+/// focus and the full-screen view.
+#[derive(Debug, Default)]
+pub struct Drawn {
+    /// What the intro overlay showed, for [`App::set_intro_page`]: an empty
+    /// extent while it is closed.
+    pub intro_page: Option<Extent>,
+    /// What the context pane showed, for [`App::set_pane_page`]:
+    /// `Some(None)` for a tab without a pane.
+    pub pane_page: Option<Option<Page>>,
+    /// Where the field or note that has the keys was drawn, for
+    /// [`App::set_field_shape`].
+    pub field_shape: Option<FieldShape>,
+}
+
 /// What the screen shows besides the state, and what it keeps from one
 /// draw to the next.
 pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
     queue: &'a str,
     tab: TabState,
-    /// What the intro overlay showed in the last draw.
-    intro_page: Extent,
-    /// What the context pane showed in the last draw; see
-    /// [`View::pane_page`].
-    pane_page: Option<Option<Page>>,
-    /// Where the field or note that has the keys was last drawn.
-    field_shape: Option<FieldShape>,
     /// Whether the last draw showed the help, the intro or the session
     /// list over the screen.
     overlay_shown: bool,
@@ -85,9 +99,6 @@ impl<'a> View<'a> {
         View {
             queue,
             tab: TabState::new(layout, picker),
-            intro_page: Extent::default(),
-            pane_page: None,
-            field_shape: None,
             overlay_shown: false,
             image_shown: false,
         }
@@ -106,38 +117,14 @@ impl<'a> View<'a> {
         self.overlay_shown && self.image_shown && !overlay_open(app)
     }
 
-    /// What the intro overlay showed in the last draw, for
-    /// [`App::set_intro_page`]; nothing while it is closed.
-    pub fn intro_page(&self) -> Extent {
-        self.intro_page
-    }
-
-    /// What the context pane showed in the last draw, for
-    /// [`App::set_pane_page`]: `Some(None)` when the draw showed a tab
-    /// without a pane, and `None` when it showed no tab at all, as below
-    /// the minimum size or with an empty queue. Such a frame says nothing
-    /// about the pane, so it is not handed on, and a moment at a small size
-    /// keeps the pane's focus and the full-screen view.
-    pub fn pane_page(&self) -> Option<Option<Page>> {
-        self.pane_page
-    }
-
-    /// Where the field or note that has the keys was drawn in the last
-    /// draw, for [`App::set_field_shape`]; nothing when none was.
-    pub fn field_shape(&self) -> Option<FieldShape> {
-        self.field_shape.clone()
-    }
-
     /// Reads and sends every image again as it is next shown (ADR 24).
     pub fn forget_images(&mut self) {
         self.tab.viewers.forget_images();
     }
 }
 
-pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
-    // Whatever returns early draws no tab, no pane and no overlay.
-    view.pane_page = None;
-    view.field_shape = None;
+pub fn draw(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
+    // Whatever returns early draws no pane and no overlay.
     view.overlay_shown = false;
     view.image_shown = false;
     let area = frame.area();
@@ -147,7 +134,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
             area.width, area.height
         );
         frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
-        return;
+        return Drawn::default();
     }
 
     // The header text keeps to the reading width the question has, after
@@ -196,7 +183,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
         let notice = app.current_notice().unwrap_or_default();
         frame.render_widget(Line::from(notice).fg(Color::Yellow), status);
         frame.render_widget(key_line(&[("q", "quit")], keys.width), keys);
-        return;
+        return Drawn::default();
     };
 
     frame.render_widget(Paragraph::new(header_lines), header);
@@ -212,8 +199,6 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     } else {
         draw_tab(main, frame.buffer_mut(), state, &mut view.tab)
     };
-    view.pane_page = Some(pane_page);
-    view.field_shape = field_shape;
     view.image_shown =
         pane_page.is_some() && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
 
@@ -223,7 +208,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     // The intro overlay leaves the key bar free, which says how to scroll
     // and close it. It never shows together with the other overlays: while
     // it is open it takes every key, and any key closes the help.
-    view.intro_page = match (app.intro_scroll(), session_intro(state)) {
+    let intro_page = match (app.intro_scroll(), session_intro(state)) {
         (Some(scroll), Some(intro)) => {
             let above_keys = Rect {
                 height: area.height - 1,
@@ -235,7 +220,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     };
 
     let hints = match app.intro_scroll() {
-        Some(_) if view.intro_page.total > view.intro_page.shown => vec![
+        Some(_) if intro_page.total > intro_page.shown => vec![
             ("↑/↓", "scroll"),
             ("pgup/pgdn", "page"),
             ("esc/q/i", "close"),
@@ -253,6 +238,12 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
         draw_session_list(area, frame.buffer_mut(), app, cursor);
     }
     view.overlay_shown = overlay_open(app);
+
+    Drawn {
+        intro_page: Some(intro_page),
+        pane_page: Some(pane_page),
+        field_shape,
+    }
 }
 
 /// Whether `app` shows an overlay over the screen: the help, the intro or
@@ -319,22 +310,35 @@ mod tests {
         )
     }
 
-    /// Hands `app` what the last draw with `view` showed of the pane, as the
-    /// run loop does after each frame.
-    fn hand_on_pane(app: &mut App, view: &View) {
-        if let Some(page) = view.pane_page() {
+    /// Draws `app` with `view`, then hands it what the draw showed of the
+    /// pane, as the run loop does after each frame.
+    fn screen_handing_on_pane(
+        app: &mut App,
+        view: &mut View,
+        width: u16,
+        height: u16,
+    ) -> TestBackend {
+        let (backend, drawn) = measured_in(app, view, width, height);
+        if let Some(page) = drawn.pane_page {
             app.set_pane_page(page);
         }
+        backend
     }
 
     /// The screen drawn with `view`, which keeps what it remembers for the
     /// next draw.
     fn screen_in(app: &App, view: &mut View, width: u16, height: u16) -> TestBackend {
+        measured_in(app, view, width, height).0
+    }
+
+    /// The screen drawn with `view`, and what the draw measured.
+    fn measured_in(app: &App, view: &mut View, width: u16, height: u16) -> (TestBackend, Drawn) {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        let mut drawn = Drawn::default();
         terminal
-            .draw(|frame| draw(frame, app, view))
+            .draw(|frame| drawn = draw(frame, app, view))
             .expect("draws");
-        terminal.backend().clone()
+        (terminal.backend().clone(), drawn)
     }
 
     fn title_line(backend: &TestBackend) -> String {
@@ -439,9 +443,11 @@ mod tests {
     /// Draws `app` with `view`, then hands the app what the intro overlay
     /// showed, as the running app does after every draw.
     fn drawn(app: &mut App, view: &mut View, width: u16, height: u16) -> TestBackend {
-        let backend = screen_in(app, view, width, height);
-        app.set_intro_page(view.intro_page());
-        app.set_field_shape(view.field_shape());
+        let (backend, drawn) = measured_in(app, view, width, height);
+        if let Some(page) = drawn.intro_page {
+            app.set_intro_page(page);
+        }
+        app.set_field_shape(drawn.field_shape);
         backend
     }
 
@@ -459,9 +465,9 @@ mod tests {
         insta::assert_snapshot!("intro_overlay_end", drawn(&mut app, &mut view, 60, 15));
 
         keys(&mut app, "i");
-        let backend = drawn(&mut app, &mut view, 60, 15);
+        let (backend, closed) = measured_in(&app, &mut view, 60, 15);
         assert!(!backend.to_string().contains("Intro"), "{backend}");
-        assert_eq!(view.intro_page(), Extent::default());
+        assert_eq!(closed.intro_page, Some(Extent::default()));
     }
 
     #[test]
@@ -1332,12 +1338,9 @@ mod tests {
         let mut picker = Picker::halfblocks();
         picker.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
         let mut view = View::new("q", PaneLayout::Auto, picker);
-        let mut terminal = Terminal::new(TestBackend::new(140, 24)).expect("test terminal");
-        terminal
-            .draw(|frame| draw(frame, &app, &mut view))
-            .expect("draws");
+        let backend = screen_in(&app, &mut view, 140, 24);
 
-        let buffer = terminal.backend().buffer();
+        let buffer = backend.buffer();
         let placeholders: Vec<(u16, u16)> = (0..buffer.area.height)
             .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
             .filter(|&position| buffer[position].symbol().contains('\u{10EEEE}'))
@@ -1658,11 +1661,7 @@ mod tests {
     fn the_focused_pane_scrolls_and_shows_its_keys() {
         let mut app = long_context();
         let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
-        let mut drawn = |app: &mut App| {
-            let backend = screen_in(app, &mut view, 80, 24);
-            hand_on_pane(app, &view);
-            backend
-        };
+        let mut drawn = |app: &mut App| screen_handing_on_pane(app, &mut view, 80, 24);
         insta::assert_snapshot!("pane_unfocused", drawn(&mut app));
 
         special(&mut app, KeyCode::Tab);
@@ -1682,13 +1681,37 @@ mod tests {
     }
 
     #[test]
+    fn a_draw_says_whether_it_showed_a_tab_a_pane_and_a_field() {
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+
+        let (_, empty) = measured_in(&App::default(), &mut view, 80, 24);
+        assert_eq!(empty.pane_page, None, "an empty queue shows no tab");
+        assert_eq!(empty.intro_page, None);
+        assert_eq!(empty.field_shape, None);
+
+        let (_, without_pane) = measured_in(&app(&[("release", RELEASE)]), &mut view, 80, 24);
+        assert_eq!(without_pane.pane_page, Some(None));
+        assert_eq!(without_pane.intro_page, Some(Extent::default()));
+
+        let mut app = long_context();
+        keys(&mut app, "j");
+        let (_, full) = measured_in(&app, &mut view, 80, 24);
+        assert!(matches!(full.pane_page, Some(Some(_))), "the pane showed");
+        assert!(full.field_shape.is_some(), "the own answer has the keys");
+
+        let (_, small) = measured_in(&app, &mut view, 40, 10);
+        assert_eq!(small.pane_page, None, "nothing of the last frame stays");
+        assert_eq!(small.intro_page, None);
+        assert_eq!(small.field_shape, None);
+    }
+
+    #[test]
     fn a_frame_too_small_for_asqr_keeps_the_pane_focus_and_the_full_screen() {
         let mut app = long_context();
         let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
         // What the run loop does after each frame.
         let mut drawn = |app: &mut App, width: u16, height: u16| {
-            screen_in(app, &mut view, width, height);
-            hand_on_pane(app, &view);
+            screen_handing_on_pane(app, &mut view, width, height);
         };
         drawn(&mut app, 80, 24);
         special(&mut app, KeyCode::Tab);
@@ -1712,8 +1735,7 @@ mod tests {
     fn the_full_screen_help_says_how_to_leave_the_full_screen() {
         let mut app = long_context();
         let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
-        screen_in(&app, &mut view, 80, 24);
-        hand_on_pane(&mut app, &view);
+        screen_handing_on_pane(&mut app, &mut view, 80, 24);
         // Entered from the pane, where "back to the question" would be wrong.
         special(&mut app, KeyCode::Tab);
         keys(&mut app, "z?");
@@ -1724,8 +1746,7 @@ mod tests {
     fn the_text_cursor_hides_while_the_pane_has_the_focus() {
         let mut app = long_context();
         let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
-        screen_in(&app, &mut view, 80, 24);
-        hand_on_pane(&mut app, &view);
+        screen_handing_on_pane(&mut app, &mut view, 80, 24);
         keys(&mut app, "jmine");
 
         let typing = screen_in(&app, &mut view, 80, 24);
@@ -1754,9 +1775,8 @@ mod tests {
         keys(&mut app, "z");
 
         let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
-        insta::assert_snapshot!(screen_in(&app, &mut view, 80, 16));
+        insta::assert_snapshot!(screen_handing_on_pane(&mut app, &mut view, 80, 16));
 
-        hand_on_pane(&mut app, &view);
         for _ in 0..4 {
             special(&mut app, KeyCode::Down);
         }
@@ -2129,8 +2149,7 @@ mod tests {
         special(&mut app, KeyCode::Backspace);
         assert_eq!(need(&app, &mut view, 58), 9);
 
-        screen_in(&app, &mut view, 60, 30);
-        hand_on_pane(&mut app, &view);
+        screen_handing_on_pane(&mut app, &mut view, 60, 30);
         special(&mut app, KeyCode::Tab);
         assert!(app.active().is_some_and(SessionState::pane_focused));
         assert_eq!(need(&app, &mut view, 58), 8);

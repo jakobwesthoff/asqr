@@ -30,6 +30,6 @@ mod wrap;
 pub use images::passthrough_answers;
 pub use images::{TerminalNames, may_query_protocol};
 pub use panes::PaneLayout;
-pub use screen::{MIN_HEIGHT, MIN_WIDTH, View, draw};
+pub use screen::{Drawn, MIN_HEIGHT, MIN_WIDTH, View, draw};
 pub(crate) use source_line::{TAB_STOP, columns};
 pub(crate) use wrap::{Glyph, styled_line, wrap_rows};
