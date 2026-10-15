@@ -784,14 +784,14 @@ mod tests {
 
     /// The status line of `app` drawn `width` columns wide.
     fn status_row(app: &App, width: u16) -> String {
+        use crate::graphics::Images;
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
-        use ratatui_image::picker::Picker;
 
         use crate::tui::render::{PaneLayout, View, draw};
 
         let mut terminal = Terminal::new(TestBackend::new(width, 20)).expect("test terminal");
-        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
         terminal
             .draw(|frame| {
                 draw(frame, app, &mut view);

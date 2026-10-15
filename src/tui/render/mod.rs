@@ -10,7 +10,6 @@ mod context;
 mod diff;
 mod empty;
 mod header;
-mod images;
 mod keys;
 mod markdown_viewer;
 mod mascot;
@@ -29,11 +28,6 @@ pub(crate) mod theme;
 mod viewer;
 mod wrap;
 
-pub use images::{
-    answers_may_follow_the_query, kitty_deletes, may_query_protocol, passthrough_all_for_images,
-};
-#[cfg(unix)]
-pub use images::{discard_late_answers, passthrough_answers};
 pub use mascot::Glyphs;
 pub use panes::PaneLayout;
 pub use screen::{Drawn, MIN_HEIGHT, MIN_WIDTH, View, draw};

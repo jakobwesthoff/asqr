@@ -454,7 +454,7 @@ fn check_decodable(resolved: &Path, path: FieldPath, found: &mut Vec<Warning>) {
     // The terminal UI would show a placeholder for this file, and a broken
     // image never becomes an error result (spec section 7.7), so the asker
     // only learns about it here. The file is
-    // opened the way `tui/render/images.rs` opens it, but only its header
+    // opened the way `graphics/mod.rs` opens it, but only its header
     // is read: that is enough to find a missing decoder, as for SVG or
     // AVIF, without decoding every pixel of a large image.
     let header = image::ImageReader::open(resolved)

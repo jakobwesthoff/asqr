@@ -3,9 +3,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The terminal around the TUI: the only code that talks to the real
-//! terminal, the operating system's image viewer and the inbox watcher's
-//! thread. Everything it wires together is tested in the library; what is
-//! left here needs a terminal and is kept to the wiring.
+//! terminal, to tmux, to the operating system's image viewer and to the
+//! inbox watcher's thread. What it decides on, such as whether to ask the
+//! terminal for its graphics protocol and what to do with tmux's
+//! passthrough, is decided and tested in the library. What is left here
+//! runs the terminal and those programs; its parts that write escape
+//! sequences are tested against a byte buffer.
 
 use std::cell::{Cell, RefCell};
 use std::io::{self, IsTerminal, Write};
@@ -15,12 +18,14 @@ use std::sync::mpsc;
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
-use asqr::terminal_env::{TerminalEnv, TmuxState};
-use asqr::tui::render::{
-    Glyphs, View, kitty_deletes, may_query_protocol, passthrough_all_for_images,
+use asqr::graphics::{
+    Graphics, Images, PanePassthrough, answers_may_follow_the_query, kitty_deletes,
+    may_query_protocol, passthrough_all_for_images, settle_passthrough,
 };
 #[cfg(unix)]
-use asqr::tui::render::{answers_may_follow_the_query, discard_late_answers, passthrough_answers};
+use asqr::graphics::{discard_late_answers, passthrough_answers};
+use asqr::terminal_env::{TerminalEnv, TmuxState};
+use asqr::tui::render::{Glyphs, View};
 use asqr::tui::{Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -73,7 +78,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // or as asqr ends when the pane gets `all` for Kitty images (spec
     // section 7.7). Made before the terminal guard, it is dropped after
     // it, so the deletes that guard writes still pass from a hidden pane.
-    let mut passthrough = PassthroughRestore::snapshot(&env, run_tmux);
+    let mut pane = PanePassthrough::snapshot(&env, run_tmux);
 
     // `try_init` also installs the panic hook that gives the terminal back
     // before a panic message is printed. That hook knows nothing of focus
@@ -105,50 +110,23 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     };
     let glyphs = Glyphs::for_terminal(&env, tmux.as_ref());
     tracing::info!(?glyphs, "glyphs for Talqi's emblem");
-    let picker = {
-        if may_query_protocol(&env, tmux.as_ref(), probe_passthrough) {
-            // Silence and an answer without graphics both give a half-block
-            // picker; only reading or writing the terminal fails.
-            let options = QueryStdioOptions {
-                timeout_ms: QUERY_WAIT_MS,
-                ..QueryStdioOptions::default()
-            };
-            let picker = Picker::from_query_stdio_with_options(options).unwrap_or_else(|error| {
-                tracing::warn!(%error, "could not query the graphics protocol; using half blocks");
-                Picker::halfblocks()
-            });
-            if let Some(reason) = half_blocks_reason(picker.protocol_type(), picker.capabilities())
-            {
-                tracing::info!(reason, "no graphics protocol detected; using half blocks");
-            }
-            #[cfg(unix)]
-            if answers_may_follow_the_query(!picker.capabilities().is_empty(), tmux.as_ref()) {
-                discard_late_answers_on_stdin();
-            }
-            picker
-        } else {
-            tracing::info!("tmux cannot forward the graphics query; using half blocks");
-            Picker::halfblocks()
-        }
-    };
-    if passthrough_all_for_images(
-        picker.protocol_type() == ProtocolType::Kitty,
-        picker.tmux_detected(),
-        tmux.as_ref(),
-    ) {
-        tracing::info!("allow-passthrough all for the pane while asqr runs");
-        passthrough.allow_all();
+    let mut graphics = if may_query_protocol(&env, tmux.as_ref(), probe_passthrough) {
+        query_graphics(tmux.as_ref())
     } else {
-        passthrough.restore();
+        tracing::info!("tmux cannot forward the graphics query; using half blocks");
+        Graphics::HALF_BLOCKS
+    };
+    let set_all = passthrough_all_for_images(&graphics, tmux.as_ref()) && pane.allow_all();
+    if set_all {
+        tracing::info!("allow-passthrough all for the pane while asqr runs");
+    } else {
+        pane.restore();
     }
-    // Images are sized with this cell size for the whole run, so a report
-    // of a cropped or shrunken image starts by comparing it with the cell
-    // size the terminal reports on a resize.
-    let font_size = picker.font_size();
-    let kitty_tmux = picker.tmux_detected();
+    graphics.passthrough = settle_passthrough(&env, tmux.as_ref(), set_all);
     tracing::info!(
-        protocol = ?picker.protocol_type(),
-        cell = %format!("{}x{}", font_size.width, font_size.height),
+        protocol = ?graphics.protocol,
+        cell = %format!("{}x{}", graphics.cell.width, graphics.cell.height),
+        passthrough = ?graphics.passthrough,
         "graphics protocol detected"
     );
     log_window_size();
@@ -196,9 +174,9 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         title: watch.title(),
         title_pushed,
         env,
-        kitty_tmux,
+        kitty_tmux: graphics.tmux_wrapped,
     };
-    let mut view = View::new(&queue, watch.layout(), picker)
+    let mut view = View::new(&queue, watch.layout(), Images::new(graphics))
         .no_color(watch.no_color())
         .glyphs(glyphs);
     let ran = run(
@@ -211,8 +189,44 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     );
     // The guard writes these while the alternate screen is still on, also
     // when the run ended in an error (ADR 42).
-    exit_deletes.replace(kitty_deletes(&view.take_kitty_images(), kitty_tmux));
+    exit_deletes.replace(kitty_deletes(
+        &view.take_kitty_images(),
+        graphics.tmux_wrapped,
+    ));
     ran
+}
+
+/// Asks the terminal for its graphics protocol, and discards the answers
+/// that may come after the query read its own. Silence and an answer
+/// without graphics both give half blocks; only reading or writing the
+/// terminal fails, and gives them too.
+fn query_graphics(tmux: Option<&TmuxState>) -> Graphics {
+    let options = QueryStdioOptions {
+        timeout_ms: QUERY_WAIT_MS,
+        ..QueryStdioOptions::default()
+    };
+    let queried = Picker::from_query_stdio_with_options(options);
+    let graphics = match &queried {
+        Ok(picker) => {
+            if let Some(reason) = half_blocks_reason(picker.protocol_type(), picker.capabilities())
+            {
+                tracing::info!(reason, "no graphics protocol detected; using half blocks");
+            }
+            Graphics::from_picker(picker)
+        }
+        Err(error) => {
+            tracing::warn!(%error, "could not query the graphics protocol; using half blocks");
+            Graphics::HALF_BLOCKS
+        }
+    };
+    let found = queried
+        .as_ref()
+        .is_ok_and(|picker| !picker.capabilities().is_empty());
+    if answers_may_follow_the_query(found, tmux) {
+        #[cfg(unix)]
+        discard_late_answers_on_stdin();
+    }
+    graphics
 }
 
 /// Gives the terminal back when dropped: deletes the Kitty images asqr
@@ -383,63 +397,6 @@ fn run_tmux(args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Puts the pane's `allow-passthrough` back as it was before the `Picker`
-/// was built, when dropped.
-///
-/// ratatui-image 12.0.0-rc.2 runs `tmux set -p allow-passthrough on` in every
-/// `Picker` constructor when `TERM` starts with `tmux` or `TERM_PROGRAM`
-/// is `tmux`, which would override the person's own setting for the pane
-/// on every start. The same test decides here whether to take a snapshot,
-/// so the guard acts exactly where the library does. A tmux that cannot
-/// show the option, with no server or before 3.3, gets no snapshot and is
-/// left alone.
-struct PassthroughRestore<R: FnMut(&[&str]) -> Option<String>> {
-    tmux: R,
-    /// The pane's value before, `Some(None)` when the pane had none of its
-    /// own and inherited it; `None` without a snapshot.
-    before: Option<Option<String>>,
-}
-
-impl<R: FnMut(&[&str]) -> Option<String>> PassthroughRestore<R> {
-    fn snapshot(env: &TerminalEnv, mut tmux: R) -> Self {
-        let before = if env.tmux_like_term() {
-            tmux(&["show-options", "-p", "-v", "allow-passthrough"]).map(|shown| {
-                let value = shown.trim();
-                (!value.is_empty()).then(|| value.to_owned())
-            })
-        } else {
-            None
-        };
-        Self { tmux, before }
-    }
-
-    /// Sets `allow-passthrough all` for the pane until the guard restores
-    /// it. Without a snapshot there is nothing to restore, and the pane is
-    /// left as it is.
-    fn allow_all(&mut self) {
-        if self.before.is_some() {
-            _ = (self.tmux)(&["set", "-p", "allow-passthrough", "all"]);
-        }
-    }
-
-    /// Puts the pane's value back now; the drop then does nothing more.
-    fn restore(&mut self) {
-        // Unsetting lets the pane inherit from its window, session or the
-        // global options again, as before.
-        match self.before.take() {
-            None => {}
-            Some(None) => _ = (self.tmux)(&["set", "-pu", "allow-passthrough"]),
-            Some(Some(value)) => _ = (self.tmux)(&["set", "-p", "allow-passthrough", &value]),
-        }
-    }
-}
-
-impl<R: FnMut(&[&str]) -> Option<String>> Drop for PassthroughRestore<R> {
-    fn drop(&mut self) {
-        self.restore();
-    }
-}
-
 /// How long the graphics query waits for the terminal's answer, in
 /// milliseconds. A terminal that answers does so well within it, so the
 /// wait only runs out when no answer comes, and a longer one leaves fewer
@@ -502,8 +459,8 @@ struct TerminalHost {
     title: bool,
     title_pushed: Rc<Cell<bool>>,
     env: TerminalEnv,
-    /// Whether the picker found tmux, which wraps every Kitty command for
-    /// its passthrough, the deletes as the transmissions.
+    /// Whether every Kitty command goes out wrapped for tmux's
+    /// passthrough, the deletes as the transmissions.
     kitty_tmux: bool,
 }
 
@@ -652,124 +609,6 @@ mod tests {
         assert!(write_title(&mut &mut full[..], "asqr · 1 waiting", &pushed).is_err());
 
         assert!(!pushed.get());
-    }
-
-    /// What the run does with a [`PassthroughRestore`] between its
-    /// snapshot and its drop.
-    #[derive(Clone, Copy)]
-    enum Between {
-        Nothing,
-        AllowAll,
-        Restore,
-    }
-
-    /// The tmux commands a [`PassthroughRestore`] runs from its snapshot to
-    /// its drop, where `show-options` answers `shown`.
-    fn passthrough_commands(term: &str, term_program: &str, shown: Option<&str>) -> Vec<String> {
-        passthrough_commands_with(term, term_program, shown, Between::Nothing)
-    }
-
-    /// Like [`passthrough_commands`], with `between` done before the drop.
-    fn passthrough_commands_with(
-        term: &str,
-        term_program: &str,
-        shown: Option<&str>,
-        between: Between,
-    ) -> Vec<String> {
-        let commands = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let recorded = std::rc::Rc::clone(&commands);
-        let env = TerminalEnv::from_pairs(&[("TERM", term), ("TERM_PROGRAM", term_program)]);
-        let mut passthrough = PassthroughRestore::snapshot(&env, move |args: &[&str]| {
-            recorded.borrow_mut().push(args.join(" "));
-            if args[0] == "show-options" {
-                shown.map(str::to_owned)
-            } else {
-                Some(String::new())
-            }
-        });
-        match between {
-            Between::Nothing => {}
-            Between::AllowAll => passthrough.allow_all(),
-            Between::Restore => passthrough.restore(),
-        }
-        drop(passthrough);
-        commands.take()
-    }
-
-    /// Under the Kitty protocol inside tmux 3.4 or later, the pane gets
-    /// `all` for the run and its own value back at the end.
-    #[test]
-    fn a_pane_set_to_all_gets_its_own_value_back() {
-        assert_eq!(
-            passthrough_commands_with("tmux-256color", "", Some(""), Between::AllowAll),
-            [
-                SHOW,
-                "set -p allow-passthrough all",
-                "set -pu allow-passthrough"
-            ]
-        );
-        assert_eq!(
-            passthrough_commands_with("tmux-256color", "", Some("on\n"), Between::AllowAll),
-            [
-                SHOW,
-                "set -p allow-passthrough all",
-                "set -p allow-passthrough on"
-            ]
-        );
-    }
-
-    /// Without a value to put back, asqr does not set `all` either.
-    #[test]
-    fn a_pane_without_a_snapshot_is_not_set_to_all() {
-        assert_eq!(
-            passthrough_commands_with("tmux", "", None, Between::AllowAll),
-            [SHOW]
-        );
-        assert_eq!(
-            passthrough_commands_with("xterm-ghostty", "ghostty", Some(""), Between::AllowAll),
-            Vec::<String>::new()
-        );
-    }
-
-    /// Restored once the picker is built, the pane is not restored again
-    /// when the guard goes.
-    #[test]
-    fn a_restored_pane_is_restored_once() {
-        assert_eq!(
-            passthrough_commands_with("tmux-256color", "", Some("off"), Between::Restore),
-            [SHOW, "set -p allow-passthrough off"]
-        );
-    }
-
-    const SHOW: &str = "show-options -p -v allow-passthrough";
-
-    #[test]
-    fn a_pane_without_its_own_passthrough_gets_it_unset_again() {
-        assert_eq!(
-            passthrough_commands("tmux-256color", "", Some("")),
-            [SHOW, "set -pu allow-passthrough"]
-        );
-    }
-
-    #[test]
-    fn a_pane_with_its_own_passthrough_gets_that_value_back() {
-        assert_eq!(
-            passthrough_commands("xterm-256color", "tmux", Some("off\n")),
-            [SHOW, "set -p allow-passthrough off"]
-        );
-    }
-
-    #[test]
-    fn a_tmux_that_cannot_show_the_option_is_left_alone() {
-        assert_eq!(passthrough_commands("tmux", "", None), [SHOW]);
-    }
-
-    #[test]
-    fn outside_what_ratatui_image_takes_for_tmux_tmux_is_not_run() {
-        assert_eq!(
-            passthrough_commands("screen-256color", "", Some("off")),
-            Vec::<String>::new()
-        );
     }
 
     /// A picker that found no graphics protocol says why in the log: with

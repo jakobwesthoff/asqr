@@ -12,6 +12,7 @@
 
 pub mod cli;
 pub mod format;
+pub mod graphics;
 pub mod queue;
 pub mod terminal_env;
 pub mod tui;

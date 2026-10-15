@@ -160,9 +160,9 @@ pub fn context_hint(entry: Option<&ContextEntry>, key: &str, width: u16) -> Line
 
 #[cfg(test)]
 mod tests {
+    use crate::graphics::Images;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::{Style, Stylize};
-    use ratatui_image::picker::Picker;
 
     use super::super::test_support::{find, row};
     use super::*;
@@ -432,7 +432,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 40, 11);
         let mut buf = Buffer::empty(area);
-        let mut viewers = Viewers::new(Picker::halfblocks());
+        let mut viewers = Viewers::new(Images::half_blocks());
         draw_pane(area, &mut buf, &state, &mut viewers);
 
         assert!(row(&buf, 0).ends_with("21–30 of 30"), "{:?}", row(&buf, 0));

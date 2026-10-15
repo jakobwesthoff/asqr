@@ -9,15 +9,14 @@
 
 use std::collections::HashMap;
 
-use ratatui_image::picker::Picker;
-
 use super::code::CodeViewer;
 use super::diff::DiffViewer;
-use super::images::{Encoder, Image};
 use super::markdown_viewer::MarkdownViewer;
+use super::source_file::{Unreadable, regular_file};
 use super::theme;
 use super::wrap::wrap;
 use crate::format::ContextEntry;
+use crate::graphics::{Image, Images};
 use crate::tui::{EntryKey, Offset};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -79,14 +78,14 @@ struct Kept {
 }
 
 /// Builds the viewer for an entry, given what makes its images.
-type Build = Box<dyn Fn(&ContextEntry, &Encoder) -> Box<dyn Viewer>>;
+type Build = Box<dyn Fn(&ContextEntry, &Images) -> Box<dyn Viewer>>;
 
 /// One viewer per entry shown, built and loaded when the entry is first
 /// shown and kept while the entry stays the same and its session waits. A
 /// viewer is laid out again only when the body's size changes, as its
 /// content does not.
 pub struct Viewers {
-    encoder: Encoder,
+    images: Images,
     build: Build,
     viewers: HashMap<ViewerKey, Kept>,
     /// How many viewers were built, so tests see that one is reused.
@@ -95,10 +94,10 @@ pub struct Viewers {
 }
 
 impl Viewers {
-    /// Viewers for a terminal whose graphics protocol `picker` speaks.
-    pub fn new(picker: Picker) -> Self {
+    /// Viewers whose images `images` makes.
+    pub fn new(images: Images) -> Self {
         Viewers {
-            encoder: Encoder::new(picker),
+            images,
             build: Box::new(viewer_for),
             viewers: HashMap::new(),
             #[cfg(test)]
@@ -132,7 +131,7 @@ impl Viewers {
             {
                 self.built += 1;
             }
-            let mut viewer = (self.build)(entry, &self.encoder);
+            let mut viewer = (self.build)(entry, &self.images);
             viewer.load();
             let kept = Kept {
                 entry: entry.clone(),
@@ -176,28 +175,28 @@ impl Viewers {
     /// The Kitty ids of the images whose viewers went since the last call,
     /// for the terminal to delete.
     pub fn dropped_images(&mut self) -> Vec<u32> {
-        self.encoder.take_dropped()
+        self.images.take_dropped()
     }
 
     /// The Kitty ids of every image the viewers sent that the terminal may
     /// still keep, for deleting them all as asqr quits.
     pub fn take_all_images(&mut self) -> Vec<u32> {
-        self.encoder.take_all()
+        self.images.take_all()
     }
 
     /// The Kitty ids of the images the viewers hold.
     #[cfg(test)]
     pub(super) fn held_images(&self) -> Vec<u32> {
-        self.encoder.held()
+        self.images.held()
     }
 }
 
-fn viewer_for(entry: &ContextEntry, encoder: &Encoder) -> Box<dyn Viewer> {
+fn viewer_for(entry: &ContextEntry, images: &Images) -> Box<dyn Viewer> {
     match entry {
         ContextEntry::Image(image) => Box::new(ImageViewer {
             path: image.path.clone(),
             enlarge: image.enlarge,
-            encoder: encoder.clone(),
+            images: images.clone(),
             content: None,
         }),
         ContextEntry::Code(code) => Box::new(CodeViewer::new(code)),
@@ -253,13 +252,21 @@ pub(super) fn loaded<T>(content: &mut Option<Loaded<T>>) -> &mut Loaded<T> {
 struct ImageViewer {
     path: String,
     enlarge: bool,
-    encoder: Encoder,
+    images: Images,
     content: Option<Loaded<Picture>>,
 }
 
 impl Viewer for ImageViewer {
+    /// Opens the path by the rule every viewer of a file follows, then
+    /// decodes the image.
     fn load(&mut self) {
-        self.content = Some(match Image::load(&self.encoder, &self.path) {
+        let loaded = regular_file(&self.path).and_then(|()| {
+            self.images.load(&self.path).map_err(|error| Unreadable {
+                path: self.path.clone(),
+                reason: error.to_string(),
+            })
+        });
+        self.content = Some(match loaded {
             Ok(image) => Loaded::Body(Picture {
                 image,
                 enlarge: self.enlarge,
@@ -363,13 +370,14 @@ mod tests {
 
     use super::super::test_support::{self, row};
     use super::*;
+    use crate::graphics::{Graphics, Protocol};
 
     fn entry(json: &str) -> ContextEntry {
         serde_json::from_str(json).expect("test entry parses")
     }
 
     fn viewers() -> Viewers {
-        Viewers::new(Picker::halfblocks())
+        Viewers::new(Images::half_blocks())
     }
 
     const QUESTION: EntryKey = EntryKey {
@@ -551,12 +559,7 @@ mod tests {
     /// Viewers whose terminal speaks the Kitty protocol and whose images
     /// get the ids 1, 2, 3 and so on.
     fn kitty_viewers() -> Viewers {
-        let mut picker = Picker::halfblocks();
-        picker.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
-        Viewers {
-            encoder: Encoder::with_ids(picker, (1..=100).collect()),
-            ..viewers()
-        }
+        Viewers::new(Images::kitty())
     }
 
     /// An image entry for a red picture written into `directory` as
@@ -656,13 +659,11 @@ mod tests {
     #[test]
     fn images_without_the_kitty_protocol_drop_no_id() {
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
-        for protocol in [
-            ratatui_image::picker::ProtocolType::Halfblocks,
-            ratatui_image::picker::ProtocolType::Iterm2,
-        ] {
-            let mut picker = Picker::halfblocks();
-            picker.set_protocol_type(protocol);
-            let mut viewers = Viewers::new(picker);
+        for protocol in [Protocol::HalfBlocks, Protocol::Iterm2] {
+            let mut viewers = Viewers::new(Images::new(Graphics {
+                protocol,
+                ..Graphics::HALF_BLOCKS
+            }));
             built(&mut viewers, "s", QUESTION, &picture(&directory, "a.png"));
             built(&mut viewers, "s", QUESTION, &picture(&directory, "b.png"));
             built(&mut viewers, "t", QUESTION, &picture(&directory, "c.png"));
@@ -719,6 +720,40 @@ mod tests {
         );
         assert_eq!(rows[0], "image not shown");
         assert_eq!(rows[1], "/nowhere/cat.png");
+        assert!(!rows[2].is_empty(), "the reason: {rows:?}");
+    }
+
+    #[test]
+    fn an_image_is_refused_by_the_path_rule() {
+        let (_directory, paths) = test_support::refused_paths();
+
+        for path in paths {
+            let image = entry(&format!(r#"{{"type": "image", "path": {path:?}}}"#));
+            let mut refused = regular_file(&path)
+                .expect_err("the rule refuses it")
+                .placeholder("image not shown");
+
+            assert_eq!(
+                drawn(&image, 60, 3, 0),
+                drawn_viewer(&mut refused, 60, 3, 0),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_that_does_not_decode_shows_why() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("notes.png");
+        std::fs::write(&path, b"no picture in here").expect("file is writable");
+        let image: ContextEntry =
+            serde_json::from_value(serde_json::json!({"type": "image", "path": path}))
+                .expect("test entry parses");
+
+        let rows = drawn(&image, 200, 3, 0);
+
+        assert_eq!(rows[0], "image not shown");
+        assert_eq!(rows[1], path.to_str().expect("a UTF-8 path"));
         assert!(!rows[2].is_empty(), "the reason: {rows:?}");
     }
 

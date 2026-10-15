@@ -182,20 +182,19 @@ where
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::BTreeSet;
     use std::fs;
     use std::rc::Rc;
-    use std::sync::{OnceLock, mpsc};
+    use std::sync::mpsc;
 
     use ratatui::backend::TestBackend;
-    use ratatui::buffer::Buffer;
     use ratatui::crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
-    use ratatui::layout::Rect;
     use ratatui::style::{Color, Modifier};
-    use ratatui_image::picker::{Picker, ProtocolType};
 
     use super::*;
     use crate::format::{SessionResult, Status};
+    use crate::graphics::Images;
+    use crate::graphics::testing::kitty_ids_on_screen;
     use crate::tui::render::PaneLayout;
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
@@ -273,7 +272,7 @@ mod tests {
             inbox: &mut Inbox,
             events: Vec<Event>,
         ) -> anyhow::Result<()> {
-            let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+            let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
             self.run_with_view(app, inbox, &mut view, events)
         }
 
@@ -560,7 +559,7 @@ mod tests {
         )
         .expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
         harness
             .run_with_view(&mut app, &mut inbox, &mut view, vec![])
             .expect("runs");
@@ -612,7 +611,7 @@ mod tests {
         )
         .expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
         harness
             .run_with_view(
                 &mut app,
@@ -712,7 +711,7 @@ mod tests {
         let session = SESSION.replace("/nowhere/cat.png", picture.to_str().expect("utf-8 path"));
         fs::write(harness.location.inbox().join("pictured.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
 
         harness
             .run_with_view(&mut app, &mut inbox, &mut view, vec![])
@@ -847,7 +846,7 @@ mod tests {
         }
 
         fn flush(&mut self) -> Result<(), Self::Error> {
-            let shown = kitty_images(self.backend.buffer());
+            let shown = kitty_ids_on_screen(self.backend.buffer());
             self.log.borrow_mut().push(Step::Frame(shown));
             self.backend.flush()
         }
@@ -858,7 +857,7 @@ mod tests {
         let harness = Harness::new();
         fs::write(harness.location.inbox().join("s.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
         let log = Log::default();
         let mut terminal = Terminal::new(Logging {
             backend: TestBackend::new(80, 24),
@@ -928,85 +927,6 @@ mod tests {
     // -----------------------------------------------------------------
     // Deleting Kitty images
     // -----------------------------------------------------------------
-
-    /// The character the Kitty protocol reserves for image placeholders.
-    const PLACEHOLDER: char = '\u{10EEEE}';
-
-    /// The byte each diacritic stands for as the third mark of a
-    /// placeholder, which carries the high byte of the image's id.
-    /// ratatui-image keeps its table private, so this draws one cell of an
-    /// image with each high byte and reads the mark back.
-    fn high_bytes() -> &'static HashMap<char, u8> {
-        static TABLE: OnceLock<HashMap<char, u8>> = OnceLock::new();
-        TABLE.get_or_init(|| {
-            (0..=u8::MAX)
-                .map(|high| {
-                    let mut buf = Buffer::empty(Rect::new(0, 0, 1, 1));
-                    draw_kitty(&mut buf, u32::from(high) << 24, Rect::new(0, 0, 1, 1));
-                    let mark = buf[(0, 0)].symbol().chars().last().expect("marks");
-                    (mark, high)
-                })
-                .collect()
-        })
-    }
-
-    /// Draws a transparent image under the Kitty `id` into `area` of
-    /// `buf`, through ratatui-image alone.
-    fn draw_kitty(buf: &mut Buffer, id: u32, area: Rect) {
-        use ratatui::widgets::Widget;
-        use ratatui_image::protocol::Protocol;
-        use ratatui_image::protocol::kitty::Kitty;
-
-        let picture = image::DynamicImage::new_rgba8(1, 1);
-        let kitty = Kitty::new(picture, area.as_size(), id, false, false, false)
-            .expect("a picture of one pixel encodes");
-        ratatui_image::Image::new(&Protocol::Kitty(kitty)).render(area, buf);
-    }
-
-    /// The Kitty ids of the images `buffer` shows: the low three bytes
-    /// from the foreground colour of the placeholders, the high byte from
-    /// the third mark, which the first placeholder of each row carries
-    /// (ratatui-image 12.0.0-rc.2 `protocol/kitty.rs` l.169-213).
-    fn kitty_images(buffer: &Buffer) -> BTreeSet<u32> {
-        buffer
-            .content()
-            .iter()
-            .filter_map(|cell| {
-                let symbol = cell.symbol();
-                let marks: Vec<char> = symbol[symbol.find(PLACEHOLDER)?..]
-                    .chars()
-                    .skip(1)
-                    .collect();
-                let [_, _, high] = marks[..] else {
-                    return None;
-                };
-                let Color::Rgb(red, green, blue) = cell.fg else {
-                    panic!("a placeholder names its image in RGB: {:?}", cell.fg);
-                };
-                let high = high_bytes()[&high];
-                Some(u32::from_be_bytes([high, red, green, blue]))
-            })
-            .collect()
-    }
-
-    #[test]
-    fn the_ids_of_kitty_images_are_read_from_the_screen() {
-        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 2));
-        draw_kitty(&mut buf, 0x0102_0304, Rect::new(0, 0, 2, 2));
-        draw_kitty(&mut buf, 0xFF00_00FF, Rect::new(3, 0, 1, 2));
-
-        assert_eq!(
-            kitty_images(&buf),
-            BTreeSet::from([0x0102_0304, 0xFF00_00FF])
-        );
-    }
-
-    /// A picker that speaks the Kitty protocol.
-    fn kitty() -> Picker {
-        let mut picker = Picker::halfblocks();
-        picker.set_protocol_type(ProtocolType::Kitty);
-        picker
-    }
 
     /// A queue whose run is logged, frames and deletes in one log, on a
     /// terminal that speaks the Kitty protocol.
@@ -1085,7 +1005,7 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, kitty());
+        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
 
         // `2` picks and moves on to the review, where `enter` submits.
         watched.run(
@@ -1119,7 +1039,7 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, kitty());
+        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
 
         // Should the run go on past the quit, `2` picks and `enter`
         // submits.
@@ -1155,7 +1075,7 @@ mod tests {
         watched.put("a", PICTURE, [255, 0, 0]);
         watched.put("b", PICTURE, [0, 0, 255]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, kitty());
+        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
         let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
 
         watched.run(app, inbox, view, vec![Event::Resize, Event::FocusGained]);
@@ -1242,7 +1162,7 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("a", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, kitty());
+        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
         let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
 
         watched.run(app, inbox, view, vec![]);

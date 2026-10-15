@@ -17,7 +17,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Widget};
-use ratatui_image::picker::Picker;
 
 use super::context::{context_hint, draw_pane};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
@@ -28,6 +27,7 @@ use super::theme;
 use super::viewer::Viewers;
 use super::wrap::{cut, indented, wrap};
 use crate::format::{Kind, Length, has_text};
+use crate::graphics::Images;
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
 use crate::tui::{Focus, Page, Row, SessionState, has_context};
 
@@ -101,13 +101,13 @@ pub(super) struct TabState {
 
 impl TabState {
     /// The state of a tab whose context goes where `layout` says, with
-    /// images sent in the graphics protocol `picker` speaks.
-    pub(super) fn new(layout: PaneLayout, picker: Picker) -> Self {
+    /// images that `images` makes.
+    pub(super) fn new(layout: PaneLayout, images: Images) -> Self {
         TabState {
             layout,
             shown: None,
             question_height: QuestionHeight::default(),
-            viewers: Viewers::new(picker),
+            viewers: Viewers::new(images),
         }
     }
 
@@ -1232,7 +1232,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 19, 30);
         let mut buf = Buffer::empty(area);
-        let mut tab = TabState::new(PaneLayout::Auto, Picker::halfblocks());
+        let mut tab = TabState::new(PaneLayout::Auto, Images::half_blocks());
         draw_tab(area, &mut buf, &state, &mut tab);
 
         let shown = test_support::rows(&buf);

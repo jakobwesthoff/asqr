@@ -353,10 +353,10 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use crate::graphics::Images;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui_image::picker::Picker;
 
     use super::*;
     use crate::format::Session;
@@ -857,7 +857,7 @@ mod tests {
     }
 
     fn view() -> View<'static> {
-        View::new("default", PaneLayout::Auto, Picker::halfblocks())
+        View::new("default", PaneLayout::Auto, Images::half_blocks())
     }
 
     /// Whether the screen must be cleared once every overlay of `app` is
