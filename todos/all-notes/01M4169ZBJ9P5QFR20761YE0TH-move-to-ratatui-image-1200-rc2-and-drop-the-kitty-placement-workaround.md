@@ -34,8 +34,11 @@ text `ratatui-image` writes, so `Cargo.toml` pins the crate to
 
 ## What to do
 
-- Pin `ratatui-image = "=12.0.0-rc.2"` with `cargo add` (cargo selects a
-  pre-release only when named exactly).
+- Pin `ratatui-image = "=12.0.0-rc.2"` (cargo selects a pre-release only
+  when named exactly). Change only the version string in `Cargo.toml`:
+  rc.2's default features include `chafa-dyn`, which needs pkg-config and
+  a system libchafa, so `default-features = false, features =
+  ["crossterm", "image-defaults"]` must stay; say so in the commit message.
 - Remove `size_kitty_placement`, its constants and its call, following
   its doc comment. `a_kitty_image_is_placed_over_exactly_its_placeholder_cells`
   in `src/tui/render/screen.rs` must stay green without it.
@@ -52,6 +55,34 @@ text `ratatui-image` writes, so `Cargo.toml` pins the crate to
   terminal that answers nothing at all loses the iTerm2 protocol hinted
   by the environment; a missing cell-size answer already meant half
   blocks in 11.1.0.
+- Drain stdin after the query. rc.2 reads the answer with `poll` on the
+  calling thread and stops at the first `ESC[0n` or at its deadline
+  (2000 ms by default); everything left in fd 0 is read by crossterm's
+  event thread, which parses a Kitty reply such as `ESC _Gi=31;OK ESC \`
+  as key events, and the digits in it pick options. This happens when a
+  reply arrives after the deadline, or when several tmux clients show the
+  pane and each terminal answers. Right after `Picker::from_query_stdio`
+  returns and before the event thread starts, poll stdin until about
+  150 ms pass without a byte (capped at about 1 s) and discard what
+  arrives; do it when the query timed out or tmux reports more than one
+  attached client, so a lone answering terminal pays nothing. Handle
+  EINTR as `passthrough_answers` does. Tests: a pipe test with a second
+  reply burst after the first `ESC[0n`, one with a reply after the
+  deadline, and a PTY test where a late reply does not pick an option.
+  Spec 7.7 states the remaining risk (a reply later than the timeout plus
+  the cap).
+- Under tmux 3.4 or later, when the detected protocol is Kitty, set
+  `allow-passthrough all` for asqr's pane instead of `on` (user decision,
+  2026-10-15), and restore the previous value on exit as
+  `PassthroughRestore` does; Kitty transmissions and deletes then also
+  reach the terminal from a hidden pane. Sixel and iTerm2 stay at `on`:
+  tmux writes passthrough unpositioned, and from a hidden pane they would
+  paint over the visible window. Do not touch `input-buffer-size` (a
+  server option). The drain above is a precondition, since with `all`
+  more clients answer the query. ADR 24 and spec 7.7 change accordingly.
+- Reword spec 7.7 and the doc of `may_query_protocol`: with rc.2 the
+  gate and the probe are justified by the full timeout and by late
+  replies read as keys, no longer by a reader that keeps taking keys.
 - Optionally set a shorter query timeout through
   `Picker::from_query_stdio_with_options` (`QueryStdioOptions::timeout_ms`).
 - Give context images a fresh Kitty id when their pane size changes:
@@ -71,6 +102,15 @@ text `ratatui-image` writes, so `Cargo.toml` pins the crate to
   answering as Kitty with a cell size, the output carries `a=T,U=1` with
   `c=`/`r=`; with no answer, a key typed after the deadline reaches asqr
   (the blocked-reader bug of todo 01M4Y6MS, gone in rc.2).
+- Manual check across terminals before release, logging the detected
+  protocol per row (`src/terminal.rs` "graphics protocol detected"):
+  Ghostty, kitty, WezTerm (and WezTerm over ssh), iTerm2, foot or
+  `xterm -ti vt340`, Konsole, VS Code, Windows Terminal, NO_COLOR with
+  Kitty, each with and without tmux, and tmux with two clients attached.
+  asqr.log on the author's machine shows only half-block runs inside tmux
+  on 2026-10-15, so the Kitty path needs this deliberately.
+- Correct spec 7.7 where it names WezTerm among the Kitty terminals:
+  ratatui-image gives WezTerm the iTerm2 protocol.
 - Check 01M4Y6MS afterwards: rc.2 reads the answer with `poll` on the
   calling thread; what may remain is the `tmux set -p allow-passthrough
   on` that `PassthroughRestore` undoes.
