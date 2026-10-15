@@ -77,9 +77,10 @@ Drawing:
   each colour multiplied by its alpha before and divided by the new
   alpha after. The scaled picture fills its cells exactly on one axis,
   so ratatui-image's `Resize::Fit` encodes it as it is.
-- The picture is drawn through the same image type as the images of
-  context entries. It is decoded, scaled and encoded when a picture or
-  a size is drawn for the first time, and kept until the next one.
+- With an image protocol, the picture is drawn through the same image
+  type as the images of context entries. It is decoded, scaled and
+  encoded when a picture or a size is drawn for the first time, and
+  kept until the next one.
 - When asqr's terminal gains the focus, the encoded picture is dropped
   like the images of entries (ADR 24), so the next draw sends it again.
 - Nothing clears the screen when the first session replaces the picture.
@@ -87,9 +88,24 @@ Drawing:
   the cell's equality and leaves out only the cells the new frame marks
   as skipped. The cells an image marked as skipped in the last frame are
   therefore written again when the new frame has text or blanks there.
-- In a terminal without an image protocol the sentence stands alone.
-  The user chose half blocks in Talqi's own colours as the fallback
-  there; they are not part of this decision.
+Without an image protocol:
+
+- In a terminal without an image protocol, Talqi is drawn in half
+  blocks in the picture's own colours, as the user chose. asqr works
+  them out at run time from the same two pictures; nothing else is
+  built in.
+- A half block is one pixel wide and two tall. The size rule above,
+  with cells of 1×2 pixels, gives at most 44 columns by 22 rows, a
+  picture of 44×44 pixels, which asqr scales the same alpha-aware way.
+- A pixel counts as opaque from alpha 128 on. A cell with two opaque
+  pixels shows `▀` in the upper pixel's colour over the lower one's, a
+  cell with one shows `▀` or `▄` in that pixel's colour over the cell's
+  background, and a cell with none stays blank.
+- asqr draws these half blocks itself, not through ratatui-image's,
+  which drop the alpha channel.
+- Their colours are RGB and stay under `NO_COLOR`, as those of images
+  do (the user, 2026-10-15).
+- The scaled picture is kept and dropped as the encoded one is.
 
 ## Consequences
 
@@ -98,6 +114,9 @@ Drawing:
   60×15, the sentence stands alone.
 - Each new size of the picture decodes and scales the 768 pixel picture
   again.
+- asqr does not check whether the terminal shows 24-bit colour. Where
+  it does not, the terminal approximates the half blocks' colours or
+  shows them wrong, as it does for the half blocks of context images.
 - Picture and sentence take a group of rows that is centred as a
   whole. On a screen wide enough for the sentence on one line, two of
   its three rows stay blank, so the group's visible part sits a little

@@ -4,12 +4,15 @@
 
 //! Talqi, asqr's mascot, as the empty queue shows it (spec section 7.1,
 //! ADR 39): the pictures built into asqr, the cells a picture takes, and
-//! the picture scaled and encoded for the terminal's graphics protocol.
+//! the picture scaled and encoded for the terminal's graphics protocol, or
+//! drawn in half blocks where the terminal has none.
 
 use image::imageops::{self, FilterType};
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect, Size};
+use ratatui::style::Color;
+use ratatui::widgets::Widget;
 use ratatui_image::FontSize;
 use ratatui_image::picker::{Picker, ProtocolType};
 
@@ -106,14 +109,28 @@ pub(super) fn scaled(picture: &DynamicImage, width: u32, height: u32) -> RgbaIma
     DynamicImage::ImageRgba32F(resized).into_rgba8()
 }
 
-/// Talqi for one terminal: the picture last drawn, kept encoded until
-/// another picture or another size is asked for. It is the state of
+/// The size in pixels of a half block: one wide and two tall, as a cell
+/// holds two of them, one above the other. Laid out in cells of this size,
+/// the picture has one pixel per half block.
+const HALF_BLOCK_CELL: FontSize = FontSize::new(1, 2);
+
+/// Talqi for one terminal: the picture last drawn, kept scaled, and
+/// encoded where the terminal has an image protocol, until another
+/// picture or another size is asked for. It is the state of
 /// [`EmptyQueue`](super::empty::EmptyQueue).
 pub(super) struct Mascot {
     picker: Picker,
     /// The picture last drawn, the cells it was scaled for, and the
-    /// picture encoded for `picker`'s protocol.
-    ready: Option<(Which, Size, Image)>,
+    /// picture ready to draw again.
+    ready: Option<(Which, Size, Ready)>,
+}
+
+/// The picture scaled for its cells, in the form the terminal draws it.
+enum Ready {
+    /// Encoded for `picker`'s image protocol.
+    Encoded(Image),
+    /// One pixel per half block, for [`HalfBlocks`].
+    HalfBlocks(RgbaImage),
 }
 
 impl Mascot {
@@ -125,50 +142,54 @@ impl Mascot {
         }
     }
 
-    /// The size in pixels of the cells the picture is laid out in, or
-    /// `None` where it cannot be drawn.
-    pub(super) fn font(&self) -> Option<FontSize> {
+    /// The size in pixels of the cells the picture is laid out in: the
+    /// terminal's own for an image protocol, a half block's without one.
+    pub(super) fn font(&self) -> FontSize {
         match self.picker.protocol_type() {
-            // TODO: Draw Talqi in half blocks of its own colours where no
-            // image protocol is available (todo
-            // 01M507H3TNBASG8PKRN0C7YW2Q). ratatui-image's half blocks drop
-            // the alpha channel and would draw the transparent background
-            // as coloured blocks, so the sentence stands alone until then.
-            ProtocolType::Halfblocks => None,
+            ProtocolType::Halfblocks => HALF_BLOCK_CELL,
             ProtocolType::Kitty | ProtocolType::Sixel | ProtocolType::Iterm2 => {
-                Some(self.picker.font_size())
+                self.picker.font_size()
             }
         }
     }
 
-    /// Draws `which` into `area` of `buf`, an area [`mascot_rect`] made.
+    /// Draws `which` into `area` of `buf`, an area [`mascot_rect`] made
+    /// for [`font`](Mascot::font).
     ///
     /// The picture is decoded, scaled and encoded only when `which` or the
     /// area's size differs from the last draw. Scaled to fill the area on
     /// one axis, it passes `Resize::Fit` unchanged (ratatui-image 11.1.0
     /// `lib.rs` l.470-480). `Resize::Scale` would resize it once more,
     /// without regard to alpha, and bring back the fringe [`scaled`]
-    /// avoids.
+    /// avoids. Without an image protocol, [`HalfBlocks`] draws the scaled
+    /// picture as it is.
     pub(super) fn draw(&mut self, which: Which, area: Rect, buf: &mut Buffer) {
         let size = area.as_size();
         let kept =
-            |&(shown, scaled_for, _): &(Which, Size, Image)| shown == which && scaled_for == size;
+            |&(shown, scaled_for, _): &(Which, Size, Ready)| shown == which && scaled_for == size;
         if !self.ready.as_ref().is_some_and(kept) {
             let picture = image::load_from_memory_with_format(which.webp(), ImageFormat::WebP)
                 .expect("the pictures built into asqr decode");
-            let side = picture_side(area.width, area.height, self.picker.font_size());
+            let side = picture_side(area.width, area.height, self.font());
             let picture = scaled(&picture, side, side);
-            let image = Image::from_picture(&self.picker, picture.into());
-            self.ready = Some((which, size, image));
+            let ready = match self.picker.protocol_type() {
+                ProtocolType::Halfblocks => Ready::HalfBlocks(picture),
+                ProtocolType::Kitty | ProtocolType::Sixel | ProtocolType::Iterm2 => {
+                    Ready::Encoded(Image::from_picture(&self.picker, picture.into()))
+                }
+            };
+            self.ready = Some((which, size, ready));
         }
-        let (.., image) = self.ready.as_mut().expect("made above when missing");
-        image.draw(area, buf, false);
+        match self.ready.as_mut().expect("made above when missing") {
+            (.., Ready::Encoded(image)) => image.draw(area, buf, false),
+            (.., Ready::HalfBlocks(picture)) => HalfBlocks(picture).render(area, buf),
+        }
     }
 
-    /// Drops the encoded picture, so it is sent to the terminal again when
-    /// it is next drawn. The Kitty protocol sends a picture's data only on
-    /// its first draw, and tmux drops that transfer while its pane is
-    /// hidden (ADR 24).
+    /// Drops the picture kept for drawing, so it is sent to the terminal
+    /// again when it is next drawn. The Kitty protocol sends a picture's
+    /// data only on its first draw, and tmux drops that transfer while its
+    /// pane is hidden (ADR 24).
     pub(super) fn forget(&mut self) {
         self.ready = None;
     }
@@ -180,10 +201,56 @@ impl Mascot {
     }
 }
 
+/// The least alpha of a pixel that counts as opaque in half blocks: half
+/// of full. A half block is either drawn or not, so the soft edge
+/// [`scaled`] leaves around Talqi falls to one side or the other.
+const OPAQUE: u8 = 128;
+
+/// A picture drawn as half blocks in its own RGB colours, one pixel per
+/// half of a cell, from the area's top-left corner.
+///
+/// ratatui-image has half blocks of its own, but makes them from the
+/// picture without its alpha channel (ratatui-image 11.1.0
+/// `protocol/halfblocks/primitive.rs` l.29), which paints a transparent
+/// background as coloured blocks. Here a transparent half shows the
+/// cell's background, and a cell with two transparent halves stays as it
+/// was. The RGB colours stay under `NO_COLOR`, as those of images do
+/// ([`theme::strip_colours`](super::theme::strip_colours)).
+struct HalfBlocks<'a>(&'a RgbaImage);
+
+impl Widget for HalfBlocks<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let HalfBlocks(picture) = self;
+        let opaque = |x: u16, y: u32| {
+            picture
+                .get_pixel_checked(u32::from(x), y)
+                .filter(|pixel| pixel[3] >= OPAQUE)
+                .map(|pixel| Color::Rgb(pixel[0], pixel[1], pixel[2]))
+        };
+        for position in area.intersection(buf.area).positions() {
+            let x = position.x - area.x;
+            let upper = u32::from(position.y - area.y) * 2;
+            let cell = &mut buf[position];
+            match (opaque(x, upper), opaque(x, upper + 1)) {
+                (Some(upper), Some(lower)) => {
+                    cell.set_symbol("▀").set_fg(upper).set_bg(lower);
+                }
+                (Some(upper), None) => {
+                    cell.set_symbol("▀").set_fg(upper);
+                }
+                (None, Some(lower)) => {
+                    cell.set_symbol("▄").set_fg(lower);
+                }
+                (None, None) => {}
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use image::Rgba;
-    use ratatui::style::Color;
+    use ratatui::buffer::Cell;
     use ratatui_image::Resize;
 
     use super::*;
@@ -291,10 +358,151 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn only_an_image_protocol_draws_the_picture() {
-        assert!(Mascot::new(Picker::halfblocks()).font().is_none());
-        let font = Mascot::new(kitty()).font().expect("Kitty draws it");
+    fn an_image_protocol_lays_the_picture_out_in_the_terminal_s_cells() {
+        let font = Mascot::new(kitty()).font();
         assert_eq!((font.width, font.height), (10, 20));
+    }
+
+    // -----------------------------------------------------------------
+    // Half blocks
+    // -----------------------------------------------------------------
+
+    /// Opaque, if only just, and transparent, if only just: alpha 128 is
+    /// the least that counts as opaque. The transparent pixel stores a
+    /// colour, as lossy WebP may.
+    const RED: Rgba<u8> = Rgba([200, 30, 10, 255]);
+    const GREEN: Rgba<u8> = Rgba([10, 180, 40, 128]);
+    const CLEAR: Rgba<u8> = Rgba([90, 90, 250, 127]);
+
+    /// A picture of `columns`, each given from top to bottom.
+    fn picture(columns: &[&[Rgba<u8>]]) -> RgbaImage {
+        let width = u32::try_from(columns.len()).expect("a small picture");
+        let height = u32::try_from(columns[0].len()).expect("a small picture");
+        RgbaImage::from_fn(width, height, |x, y| columns[x as usize][y as usize])
+    }
+
+    /// A buffer of `width`×`height` cells that each hold a blue `x` on
+    /// white, so that a test sees which cells a draw left alone.
+    fn marked(width: u16, height: u16) -> Buffer {
+        let mut cell = Cell::default();
+        cell.set_symbol("x")
+            .set_fg(Color::Blue)
+            .set_bg(Color::White);
+        Buffer::filled(Rect::new(0, 0, width, height), cell)
+    }
+
+    /// The symbol and colours of the cell at `x`, `y`.
+    fn drawn_at(buf: &Buffer, x: u16, y: u16) -> (&str, Color, Color) {
+        let cell = &buf[(x, y)];
+        (cell.symbol(), cell.fg, cell.bg)
+    }
+
+    fn rgb(pixel: Rgba<u8>) -> Color {
+        let [red, green, blue, _] = pixel.0;
+        Color::Rgb(red, green, blue)
+    }
+
+    #[test]
+    fn half_blocks_leave_the_cells_of_transparent_pixels_alone() {
+        let clear = picture(&[&[CLEAR, Rgba([0; 4])], &[Rgba([255, 0, 0, 0]), CLEAR]]);
+        let mut buf = marked(2, 1);
+
+        HalfBlocks(&clear).render(buf.area, &mut buf);
+
+        assert_eq!(buf, marked(2, 1));
+    }
+
+    #[test]
+    fn two_opaque_pixels_take_an_upper_half_block_in_both_their_colours() {
+        let both = picture(&[&[RED, GREEN]]);
+        let mut buf = marked(1, 1);
+
+        HalfBlocks(&both).render(buf.area, &mut buf);
+
+        assert_eq!(drawn_at(&buf, 0, 0), ("▀", rgb(RED), rgb(GREEN)));
+    }
+
+    /// One opaque pixel takes the half block on its side, in its colour
+    /// over the cell's background, so the terminal's background shows in
+    /// the transparent half.
+    #[test]
+    fn one_opaque_pixel_takes_its_half_of_the_cell() {
+        let halves = picture(&[&[RED, CLEAR], &[CLEAR, GREEN]]);
+        let mut buf = marked(2, 1);
+
+        HalfBlocks(&halves).render(buf.area, &mut buf);
+
+        assert_eq!(drawn_at(&buf, 0, 0), ("▀", rgb(RED), Color::White));
+        assert_eq!(drawn_at(&buf, 1, 0), ("▄", rgb(GREEN), Color::White));
+    }
+
+    /// A picture with an odd number of rows ends in a row of upper
+    /// halves, and an area larger than the picture or the buffer keeps
+    /// the rest of the buffer as it is.
+    #[test]
+    fn half_blocks_end_where_the_picture_and_the_buffer_end() {
+        let column = picture(&[&[RED, RED, RED]]);
+        let mut buf = marked(2, 3);
+
+        HalfBlocks(&column).render(Rect::new(0, 0, 5, 5), &mut buf);
+
+        assert_eq!(drawn_at(&buf, 0, 0), ("▀", rgb(RED), rgb(RED)));
+        assert_eq!(drawn_at(&buf, 0, 1), ("▀", rgb(RED), Color::White));
+        for (x, y) in [(0, 2), (1, 0), (1, 1), (1, 2)] {
+            assert_eq!(drawn_at(&buf, x, y), ("x", Color::Blue, Color::White));
+        }
+    }
+
+    /// A half block is one pixel wide and two tall, so the same rule
+    /// that sizes the picture for an image protocol gives a square of 44
+    /// pixels in the 44×22 cells of the largest box.
+    #[test]
+    fn a_square_in_half_blocks_takes_44_by_22_cells() {
+        let font = Mascot::new(Picker::halfblocks()).font();
+        assert_eq!((font.width, font.height), (1, 2));
+        let rect = mascot_rect(Rect::new(0, 0, 100, 40), font);
+        assert_eq!(rect, Rect::new(28, 0, 44, 22));
+
+        let side = picture_side(rect.width, rect.height, font);
+        let opaque = RgbaImage::from_pixel(768, 768, RED);
+        let square = scaled(&opaque.into(), side, side);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 40));
+        HalfBlocks(&square).render(rect, &mut buf);
+
+        let painted: Vec<_> = buf
+            .area
+            .positions()
+            .filter(|&position| buf[position].symbol() == "▀")
+            .collect();
+        assert_eq!(painted.len(), 44 * 22);
+        assert!(painted.iter().all(|&position| rect.contains(position)));
+    }
+
+    #[test]
+    fn without_an_image_protocol_talqi_is_drawn_in_half_blocks_inside_its_rect() {
+        let mut mascot = Mascot::new(Picker::halfblocks());
+        let rect = mascot_rect(Rect::new(0, 0, 60, 30), mascot.font());
+        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 30));
+
+        mascot.draw(Which::Base, rect, &mut buf);
+
+        // A cell of Talqi's transparent background stays blank, without
+        // colours.
+        let painted: Vec<_> = buf
+            .area
+            .positions()
+            .filter(|&position| buf[position] != Cell::default())
+            .collect();
+        assert!(!painted.is_empty(), "Talqi is drawn");
+        for position in painted {
+            let cell = &buf[position];
+            assert!(rect.contains(position), "{position:?} outside {rect:?}");
+            assert!(matches!(cell.symbol(), "▀" | "▄"), "{:?}", cell.symbol());
+            assert!(matches!(cell.fg, Color::Rgb(..)), "{:?}", cell.fg);
+        }
+        assert_eq!(mascot.shown(), Some(Which::Base));
+        mascot.forget();
+        assert_eq!(mascot.shown(), None);
     }
 
     /// Draws `which` with `mascot` into a 60×30 buffer and says whether

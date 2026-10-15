@@ -749,8 +749,10 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   at most 44 columns by 22 rows, smaller where the screen is smaller,
   and never stretched to fill it. It is centred across, and picture and
   sentence together are centred down the screen. Talqi shows on
-  terminals of at least 18 rows. On smaller ones, and in terminals
-  without an image protocol (section 7.7), the sentence stands alone.
+  terminals of at least 18 rows; on smaller ones the sentence stands
+  alone. Terminals without an image protocol (section 7.7) show Talqi
+  in half blocks of the picture's own colours, its transparent
+  background left blank.
 
 ### 7.2 Keys
 
@@ -1194,7 +1196,9 @@ Images:
   entries keep what asqr derived from them (ADR 31).
 - Talqi on the empty queue (section 7.1) is built into asqr and needs no
   file. It goes through the same protocol as the images of entries and
-  is sent again in the same way on regaining the focus.
+  is sent again in the same way on regaining the focus. Without an
+  image protocol, Talqi gets its own half blocks, which leave its
+  transparent background blank instead of filling it.
 - A relative path, a missing file, a path that is not a regular file or
   a file that cannot be read or decoded shows a placeholder saying
   "image not shown" with the path and the reason. A path is never resolved against the working directory,
@@ -1261,7 +1265,8 @@ commands ignore the variable.
 `NO_COLOR` (<https://no-color.org>) set to any value but the empty one
 makes the TUI draw without colours, a value that is not UTF-8 included.
 Text, marks, pointers, bold, dim and reversed stay, so the screen says
-the same as with colours. Images keep their colours. An empty `NO_COLOR`
+the same as with colours. Images keep their colours, and so does Talqi
+on the empty queue, in half blocks too. An empty `NO_COLOR`
 counts as unset.
 
 `ask`:

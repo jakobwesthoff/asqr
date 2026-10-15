@@ -19,11 +19,10 @@ const SENTENCE: &str = "Nothing to answer. New sessions show up here as soon as 
 const SENTENCE_ROWS: u16 = 3;
 
 /// The empty queue: Talqi, picture `which`, drawn in cells of `font`'s
-/// size in pixels, above the sentence. Without a `font`, the picture
-/// cannot be drawn, and the sentence stands alone.
+/// size in pixels, above the sentence.
 pub(super) struct EmptyQueue {
     pub(super) which: Which,
-    pub(super) font: Option<FontSize>,
+    pub(super) font: FontSize,
 }
 
 impl StatefulWidget for EmptyQueue {
@@ -54,13 +53,12 @@ const PICTURE_MIN_COLUMNS: u16 = 30;
 /// and [`mascot_rect`] sizes it there. Picture, blank row and sentence then
 /// form one group, centred in `main`, so the picture stands directly above
 /// the sentence however small it turns out.
-pub(super) fn empty_screen_areas(main: Rect, font: Option<FontSize>) -> (Option<Rect>, Rect) {
+pub(super) fn empty_screen_areas(main: Rect, font: FontSize) -> (Option<Rect>, Rect) {
     let sentence_width = Constraint::Length(main.width.saturating_sub(4));
-    let room = main.height >= PICTURE_MIN_ROWS && main.width >= PICTURE_MIN_COLUMNS;
-    let Some(font) = font.filter(|_| room) else {
+    if main.height < PICTURE_MIN_ROWS || main.width < PICTURE_MIN_COLUMNS {
         let alone = main.centered(sentence_width, Constraint::Length(SENTENCE_ROWS));
         return (None, alone);
-    };
+    }
     let above_sentence = Rect {
         height: main.height - SENTENCE_ROWS - 1,
         ..main
@@ -88,15 +86,17 @@ mod tests {
     use ratatui_image::picker::Picker;
 
     use super::super::mascot::tests::{kitty, transmission};
-    use super::super::test_support::{find, rows};
+    use super::super::test_support::find;
     use super::*;
 
     const GHOSTTY: FontSize = FontSize::new(15, 39);
     const HALFBLOCKS: FontSize = FontSize::new(10, 20);
+    /// The cell of a half block: one pixel wide, two tall.
+    const HALF_BLOCK: FontSize = FontSize::new(1, 2);
 
     /// The areas in a main area of `width`×`height` that starts below a
     /// title and a tab bar, as on the screen.
-    fn areas(width: u16, height: u16, font: Option<FontSize>) -> (Option<Rect>, Rect) {
+    fn areas(width: u16, height: u16, font: FontSize) -> (Option<Rect>, Rect) {
         empty_screen_areas(Rect::new(0, 4, width, height), font)
     }
 
@@ -110,25 +110,20 @@ mod tests {
 
     #[test]
     fn the_picture_needs_12_rows_and_30_columns() {
-        for font in [GHOSTTY, HALFBLOCKS] {
-            assert_eq!(areas(80, 11, Some(font)), (None, alone(80, 11)));
-            assert!(areas(80, 12, Some(font)).0.is_some());
-            assert_eq!(areas(29, 20, Some(font)), (None, alone(29, 20)));
-            assert!(areas(30, 20, Some(font)).0.is_some());
+        for font in [GHOSTTY, HALFBLOCKS, HALF_BLOCK] {
+            assert_eq!(areas(80, 11, font), (None, alone(80, 11)));
+            assert!(areas(80, 12, font).0.is_some());
+            assert_eq!(areas(29, 20, font), (None, alone(29, 20)));
+            assert!(areas(30, 20, font).0.is_some());
         }
     }
 
     #[test]
-    fn without_a_font_the_sentence_stands_alone() {
-        assert_eq!(areas(120, 40, None), (None, alone(120, 40)));
-    }
-
-    #[test]
     fn the_picture_stands_directly_above_the_sentence_and_both_are_centred() {
-        for font in [GHOSTTY, HALFBLOCKS] {
+        for font in [GHOSTTY, HALFBLOCKS, HALF_BLOCK] {
             for (width, height) in [(30, 12), (80, 14), (80, 30), (200, 60)] {
                 let main = Rect::new(0, 4, width, height);
-                let (picture, sentence) = empty_screen_areas(main, Some(font));
+                let (picture, sentence) = empty_screen_areas(main, font);
                 let picture = picture.expect("room for the picture");
                 let at = format!("{font:?} {width}×{height}: {picture:?} {sentence:?}");
 
@@ -197,16 +192,26 @@ mod tests {
     }
 
     #[test]
-    fn without_an_image_protocol_the_sentence_stands_alone() {
+    fn without_an_image_protocol_talqi_stands_in_half_blocks_above_the_sentence() {
         let mut mascot = Mascot::new(Picker::halfblocks());
 
-        let (buf, (picture, sentence)) = drawn(Which::Base, &mut mascot);
+        let (buf, (picture, sentence)) = drawn(Which::Sleeping, &mut mascot);
 
-        assert_eq!(picture, None);
-        assert_eq!(mascot.shown(), None);
-        for (y, row) in rows(&buf).iter().enumerate() {
-            let y = u16::try_from(y).expect("30 rows");
-            assert_eq!(row.trim().is_empty(), y != sentence.y, "row {y}: {row:?}");
-        }
+        let picture = picture.expect("room for the picture");
+        assert_eq!((picture.width, picture.height), (44, 22));
+        let half_blocks: Vec<_> = buf
+            .area
+            .positions()
+            .filter(|&position| matches!(buf[position].symbol(), "▀" | "▄"))
+            .collect();
+        assert!(!half_blocks.is_empty(), "Talqi is drawn");
+        assert!(
+            half_blocks
+                .iter()
+                .all(|&position| picture.contains(position)),
+            "{picture:?}"
+        );
+        assert_eq!(find(&buf, "Nothing to answer").1, sentence.y);
+        assert_eq!(mascot.shown(), Some(Which::Sleeping));
     }
 }

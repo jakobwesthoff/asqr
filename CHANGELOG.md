@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The empty queue shows Talqi, asqr's mascot, above its sentence in
-  terminals that show images: awake from the start until the first
-  session arrives, asleep once the queue is empty again. Talqi needs a
-  terminal of at least 18 rows; the pictures are built into asqr.
+- The empty queue shows Talqi, asqr's mascot, above its sentence:
+  awake from the start until the first session arrives, asleep once the
+  queue is empty again. Terminals that show images draw the picture;
+  the others draw it in half blocks of its own colours, also under
+  `NO_COLOR`. Talqi needs a terminal of at least 18 rows; the pictures
+  are built into asqr.
 - The terminal title shows how many sessions wait, as
   `asqr · 2 waiting`. On quit asqr clears its title and gives the
   terminal its title from before back where the terminal keeps a title

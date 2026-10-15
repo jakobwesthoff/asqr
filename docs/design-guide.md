@@ -144,6 +144,10 @@ does not set fixed RGB values, and it leaves the background and body text
 at the terminal's defaults. The contrast table above applies to the
 palette's own values, not to a terminal theme.
 
+Illustrations are the exception. Drawn as half blocks, as Talqi is on
+the empty queue in a terminal without an image protocol, they keep
+their own RGB colours, also under `NO_COLOR`.
+
 | Role | Terminal colour | Where |
 |---|---|---|
 | Primary | cyan | the name `asqr` in the title line, the current tab and the line under it, the keys in the key bar, chosen marks, overlay borders, the submit button |

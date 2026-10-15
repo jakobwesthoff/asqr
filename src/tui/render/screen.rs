@@ -3235,6 +3235,9 @@ mod tests {
         assert_only_colours_gone(&coloured, &colourless);
     }
 
+    /// At 80×17 the main area is too small for Talqi, whose half blocks
+    /// keep their colours under NO_COLOR
+    /// (`no_color_keeps_the_rgb_colours_of_talqi_in_half_blocks`).
     #[test]
     fn no_color_takes_the_colour_of_a_notice_over_the_empty_queue() {
         let mut app = App::default();
@@ -3243,14 +3246,21 @@ mod tests {
             "broken is invalid and was answered with an error",
         );
 
-        let (coloured, colourless) = with_and_without_colours(&app, 80, 20);
+        let (coloured, colourless) = with_and_without_colours(&app, 80, 17);
 
         assert_eq!(style_at(&coloured, "broken").fg, Some(Color::Yellow));
         assert_only_colours_gone(&coloured, &colourless);
     }
 
+    /// Whether `cell` holds a half block of a picture drawn without an
+    /// image protocol.
+    fn half_block(cell: &ratatui::buffer::Cell) -> bool {
+        matches!(cell.symbol(), "▀" | "▄")
+    }
+
     /// NO_COLOR keeps every RGB colour, since only images draw with them:
-    /// no screen without an image has one.
+    /// no screen without an image has one, and on the empty queue only
+    /// Talqi's half blocks do.
     #[test]
     fn only_images_draw_in_rgb() {
         let review = include_str!("../../../examples/sessions/retry-review.json");
@@ -3279,7 +3289,19 @@ mod tests {
                 "the session list",
             ),
         ];
-        let mut screens = vec![(screen(&notice, 120, 30), "a notice")];
+        let empty = screen(&notice, 120, 30);
+        assert!(
+            empty.buffer().content().iter().any(half_block),
+            "Talqi is drawn"
+        );
+        for cell in empty.buffer().content() {
+            let rgb = colours(cell)
+                .iter()
+                .any(|colour| matches!(colour, Color::Rgb(..)));
+            assert!(!rgb || half_block(cell), "{cell:?} outside Talqi:\n{empty}");
+        }
+
+        let mut screens = Vec::new();
         for (sessions, typed, what) in shown {
             let mut app = app(&sessions);
             keys(&mut app, typed);
@@ -3317,6 +3339,28 @@ mod tests {
         for cell in placeholders {
             assert!(matches!(cell.fg, Color::Rgb(..)), "{:?}", cell.fg);
         }
+    }
+
+    #[test]
+    fn no_color_keeps_the_rgb_colours_of_talqi_in_half_blocks() {
+        let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks()).no_color(true);
+
+        let backend = screen_in(&App::default(), &mut view, 80, 24);
+
+        let talqi: Vec<_> = backend
+            .buffer()
+            .content()
+            .iter()
+            .filter(|cell| half_block(cell))
+            .collect();
+        assert!(!talqi.is_empty(), "Talqi is drawn");
+        for cell in &talqi {
+            assert!(matches!(cell.fg, Color::Rgb(..)), "{cell:?}");
+        }
+        assert!(
+            talqi.iter().any(|cell| matches!(cell.bg, Color::Rgb(..))),
+            "cells with two opaque halves keep their background"
+        );
     }
 
     #[test]
