@@ -11,7 +11,7 @@
 //! not decode, shows a placeholder and never becomes an error.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::hash::{BuildHasher, RandomState};
 #[cfg(unix)]
 use std::io::{self, Write};
@@ -34,6 +34,10 @@ use super::source_file::{Unreadable, regular_file};
 /// protocol.
 pub struct Image {
     protocol: Box<StatefulProtocol>,
+    /// The id the Kitty protocol sends the image under, `None` under any
+    /// other protocol. It is kept for what its drop does: the image's
+    /// holder decides when the image goes, and with it the id.
+    _kitty_id: Option<HeldId>,
 }
 
 impl Image {
@@ -59,6 +63,7 @@ impl Image {
     pub fn from_picture(picker: &Picker, picture: DynamicImage) -> Image {
         Image {
             protocol: Box::new(picker.new_resize_protocol(picture)),
+            _kitty_id: None,
         }
     }
 
@@ -115,6 +120,20 @@ impl Encoder {
         }
     }
 
+    /// The Kitty ids of the images that went since the last call, for the
+    /// terminal to delete: a context image drops its id when its viewer
+    /// goes, on regaining the focus, when its session leaves or when its
+    /// entry is replaced.
+    pub fn take_dropped(&self) -> Vec<u32> {
+        std::mem::take(&mut self.kitty_ids.borrow_mut().dropped)
+    }
+
+    /// The Kitty ids of the images that exist.
+    #[cfg(test)]
+    pub(super) fn held(&self) -> Vec<u32> {
+        self.kitty_ids.borrow().held.iter().copied().collect()
+    }
+
     /// Encodes `picture` for the picker's protocol.
     ///
     /// Under the Kitty protocol asqr builds the protocol itself, so it
@@ -129,9 +148,9 @@ impl Encoder {
         if picker.protocol_type() != ProtocolType::Kitty {
             return Image::from_picture(picker, picture);
         }
-        let id = self.kitty_ids.borrow_mut().issue();
+        let held = HeldId::issued(&self.kitty_ids);
         let kitty = StatefulKitty::new(
-            id,
+            held.id,
             picker.tmux_detected(),
             picker
                 .capabilities()
@@ -147,6 +166,7 @@ impl Encoder {
         );
         Image {
             protocol: Box::new(protocol),
+            _kitty_id: Some(held),
         }
     }
 }
@@ -172,6 +192,11 @@ struct KittyIds {
     /// a delete for an id written late, or written again, would remove
     /// the image that took it over.
     issued: HashSet<u32>,
+    /// The ids of the images that exist.
+    held: BTreeSet<u32>,
+    /// The ids of the images that went since [`Encoder::take_dropped`]
+    /// last took them.
+    dropped: Vec<u32>,
 }
 
 impl KittyIds {
@@ -179,6 +204,8 @@ impl KittyIds {
         KittyIds {
             source,
             issued: HashSet::new(),
+            held: BTreeSet::new(),
+            dropped: Vec::new(),
         }
     }
 
@@ -188,9 +215,41 @@ impl KittyIds {
         loop {
             let id = (self.source)();
             if id != 0 && self.issued.insert(id) {
+                self.held.insert(id);
                 return id;
             }
         }
+    }
+
+    /// Notes that the image with `id` went, for the terminal to delete.
+    /// Every way an image goes ends here, through the drop of its
+    /// [`HeldId`].
+    fn release(&mut self, id: u32) {
+        if self.held.remove(&id) {
+            self.dropped.push(id);
+        }
+    }
+}
+
+/// The Kitty id of one [`Image`], handed back to its book when the image
+/// goes.
+struct HeldId {
+    id: u32,
+    book: Rc<RefCell<KittyIds>>,
+}
+
+impl HeldId {
+    fn issued(book: &Rc<RefCell<KittyIds>>) -> Self {
+        HeldId {
+            id: book.borrow_mut().issue(),
+            book: Rc::clone(book),
+        }
+    }
+}
+
+impl Drop for HeldId {
+    fn drop(&mut self) {
+        self.book.borrow_mut().release(self.id);
     }
 }
 

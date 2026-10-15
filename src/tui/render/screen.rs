@@ -81,6 +81,11 @@ pub struct Drawn {
     /// Where the field or note that has the keys was drawn, for
     /// [`App::set_field_shape`].
     pub field_shape: Option<FieldShape>,
+    /// The Kitty ids of the images that went since the last draw, for the
+    /// terminal to delete once this frame is on the screen. This frame
+    /// wrote other cells where they showed, so the terminal no longer
+    /// needs them. Every frame says this, whatever it shows.
+    pub deleted_images: Vec<u32>,
 }
 
 /// What the screen shows besides the state, and what it keeps from one
@@ -144,10 +149,11 @@ impl<'a> View<'a> {
 /// way [`draw_screen`] can end, the message of a too small terminal
 /// included.
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
-    let drawn = draw_screen(frame, app, view);
+    let mut drawn = draw_screen(frame, app, view);
     if view.no_color {
         theme::strip_colours(frame.buffer_mut());
     }
+    drawn.deleted_images = view.tab.viewers.dropped_images();
     drawn
 }
 
@@ -155,6 +161,10 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // Whatever returns early draws no pane and no overlay.
     view.overlay_shown = false;
     view.image_shown = false;
+    // Every frame lets the viewers of sessions that left go, also one that
+    // shows no tab: the images of the last session to leave are deleted
+    // once the frame without them is on the screen.
+    view.tab.retain(app.sessions());
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let text = format!(
@@ -207,7 +217,6 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             frame.render_widget(Paragraph::new(header_lines), header);
             frame.render_widget(tab_bar(state), tabs);
 
-            view.tab.retain(app.sessions());
             let main = main.inner(ratatui::layout::Margin::new(1, 0));
             let (pane_page, field_shape) = if state.full_screen() && state.shown_context().is_some()
             {
@@ -244,6 +253,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 intro_page: Some(intro_page),
                 pane_page: Some(pane_page),
                 field_shape,
+                deleted_images: Vec::new(),
             };
             (drawn, hints)
         }
@@ -1686,6 +1696,61 @@ mod tests {
             transmission.contains(&placement),
             "the placement names {placement}"
         );
+    }
+
+    /// The Kitty ids of the images `view` holds after drawing `app` with
+    /// an image shown.
+    fn shown_kitty_images(app: &App, view: &mut View) -> Vec<u32> {
+        let (_, drawn) = measured_in(app, view, 140, 24);
+        assert_eq!(drawn.deleted_images, Vec::<u32>::new(), "nothing went yet");
+        view.tab.viewers.held_images()
+    }
+
+    /// The last session leaving draws the empty queue, which shows no
+    /// tab, and its images still go with it in that frame.
+    #[test]
+    fn the_images_of_the_last_session_are_deleted_after_the_empty_queue_is_drawn() {
+        let file = png();
+        let mut app = with_image(file.path().to_str().expect("UTF-8 path"));
+        let mut view = kitty_view();
+        let shown = shown_kitty_images(&app, &mut view);
+        assert_eq!(shown.len(), 1, "{shown:?}");
+
+        app.remove("pictured");
+        let (_, drawn) = measured_in(&app, &mut view, 140, 24);
+        assert_eq!(drawn.deleted_images, shown);
+
+        let (_, drawn) = measured_in(&app, &mut view, 140, 24);
+        assert_eq!(drawn.deleted_images, Vec::<u32>::new(), "deleted once");
+    }
+
+    #[test]
+    fn the_images_of_a_session_are_deleted_after_a_frame_too_small_to_draw() {
+        let file = png();
+        let mut app = with_image(file.path().to_str().expect("UTF-8 path"));
+        let mut view = kitty_view();
+        let shown = shown_kitty_images(&app, &mut view);
+
+        app.remove("pictured");
+        let (_, drawn) = measured_in(&app, &mut view, 40, 10);
+
+        assert_eq!(drawn.deleted_images, shown);
+    }
+
+    /// Images forgotten on regaining the focus go with the next draw,
+    /// which sends them again.
+    #[test]
+    fn forgotten_images_are_deleted_after_the_next_frame() {
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+        let mut view = kitty_view();
+        let shown = shown_kitty_images(&app, &mut view);
+
+        view.forget_images();
+        let (_, drawn) = measured_in(&app, &mut view, 140, 24);
+
+        assert_eq!(drawn.deleted_images, shown);
+        assert_ne!(view.tab.viewers.held_images(), shown, "sent anew");
     }
 
     #[test]

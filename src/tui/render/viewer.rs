@@ -172,6 +172,18 @@ impl Viewers {
     pub fn retain_sessions(&mut self, waiting: impl Fn(&str) -> bool) {
         self.viewers.retain(|key, _| waiting(&key.session));
     }
+
+    /// The Kitty ids of the images whose viewers went since the last call,
+    /// for the terminal to delete.
+    pub fn dropped_images(&mut self) -> Vec<u32> {
+        self.encoder.take_dropped()
+    }
+
+    /// The Kitty ids of the images the viewers hold.
+    #[cfg(test)]
+    pub(super) fn held_images(&self) -> Vec<u32> {
+        self.encoder.held()
+    }
 }
 
 fn viewer_for(entry: &ContextEntry, encoder: &Encoder) -> Box<dyn Viewer> {
@@ -524,6 +536,135 @@ mod tests {
         built(&mut viewers, "s", OPTION, &text);
 
         assert_eq!(viewers.built, 3, "the image again, the text kept");
+    }
+
+    // -----------------------------------------------------------------
+    // Deleting Kitty images
+    // -----------------------------------------------------------------
+
+    /// Viewers whose terminal speaks the Kitty protocol and whose images
+    /// get the ids 1, 2, 3 and so on.
+    fn kitty_viewers() -> Viewers {
+        let mut picker = Picker::halfblocks();
+        picker.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
+        Viewers {
+            encoder: Encoder::with_ids(picker, (1..=100).collect()),
+            ..viewers()
+        }
+    }
+
+    /// An image entry for a red picture written into `directory` as
+    /// `name`.
+    fn picture(directory: &tempfile::TempDir, name: &str) -> ContextEntry {
+        let path = directory.path().join(name);
+        image::RgbImage::from_pixel(2, 2, image::Rgb([255, 0, 0]))
+            .save(&path)
+            .expect("image written");
+        serde_json::from_value(serde_json::json!({"type": "image", "path": path}))
+            .expect("test entry parses")
+    }
+
+    #[test]
+    fn forgetting_the_images_drops_their_kitty_ids() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewers = kitty_viewers();
+        built(&mut viewers, "s", QUESTION, &picture(&directory, "a.png"));
+        built(
+            &mut viewers,
+            "s",
+            OPTION,
+            &entry(r#"{"type": "code", "content": "x"}"#),
+        );
+        assert_eq!(viewers.held_images(), [1]);
+
+        viewers.forget_images();
+        built(&mut viewers, "s", QUESTION, &picture(&directory, "a.png"));
+
+        assert_eq!(viewers.dropped_images(), [1]);
+        assert_eq!(viewers.held_images(), [2], "sent again under a new id");
+        assert_eq!(
+            viewers.dropped_images(),
+            Vec::<u32>::new(),
+            "handed out once"
+        );
+    }
+
+    #[test]
+    fn a_session_that_leaves_drops_the_kitty_ids_of_its_images() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewers = kitty_viewers();
+        built(
+            &mut viewers,
+            "finished",
+            QUESTION,
+            &picture(&directory, "a.png"),
+        );
+        built(
+            &mut viewers,
+            "waiting",
+            QUESTION,
+            &picture(&directory, "b.png"),
+        );
+
+        viewers.retain_sessions(|session| session == "waiting");
+
+        assert_eq!(viewers.dropped_images(), [1]);
+        assert_eq!(viewers.held_images(), [2]);
+    }
+
+    /// A replaced entry drops the old viewer's image whatever replaces it:
+    /// another image, an image that cannot be read, or another kind.
+    #[test]
+    fn a_replaced_image_entry_drops_its_kitty_id() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewers = kitty_viewers();
+        built(&mut viewers, "s", QUESTION, &picture(&directory, "a.png"));
+        built(&mut viewers, "s", QUESTION, &picture(&directory, "a.png"));
+        assert_eq!(
+            viewers.dropped_images(),
+            Vec::<u32>::new(),
+            "the same entry keeps it"
+        );
+
+        built(&mut viewers, "s", QUESTION, &picture(&directory, "b.png"));
+        assert_eq!(viewers.dropped_images(), [1], "another image");
+        assert_eq!(viewers.held_images(), [2]);
+
+        let missing = entry(r#"{"type": "image", "path": "/nowhere/cat.png"}"#);
+        built(&mut viewers, "s", QUESTION, &missing);
+        assert_eq!(viewers.dropped_images(), [2], "an image not shown");
+        assert_eq!(viewers.held_images(), Vec::<u32>::new());
+
+        built(&mut viewers, "s", QUESTION, &picture(&directory, "c.png"));
+        built(
+            &mut viewers,
+            "s",
+            QUESTION,
+            &entry(r#"{"type": "code", "content": "x"}"#),
+        );
+        assert_eq!(viewers.dropped_images(), [3], "another kind");
+    }
+
+    /// Half blocks and the other protocols carry their picture in the
+    /// cells, so nothing of theirs stays in the terminal to delete.
+    #[test]
+    fn images_without_the_kitty_protocol_drop_no_id() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        for protocol in [
+            ratatui_image::picker::ProtocolType::Halfblocks,
+            ratatui_image::picker::ProtocolType::Iterm2,
+        ] {
+            let mut picker = Picker::halfblocks();
+            picker.set_protocol_type(protocol);
+            let mut viewers = Viewers::new(picker);
+            built(&mut viewers, "s", QUESTION, &picture(&directory, "a.png"));
+            built(&mut viewers, "s", QUESTION, &picture(&directory, "b.png"));
+            built(&mut viewers, "t", QUESTION, &picture(&directory, "c.png"));
+            viewers.forget_images();
+            viewers.retain_sessions(|_| false);
+
+            assert_eq!(viewers.dropped_images(), Vec::<u32>::new(), "{protocol:?}");
+        }
     }
 
     // -----------------------------------------------------------------
