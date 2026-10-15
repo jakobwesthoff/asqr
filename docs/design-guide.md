@@ -137,5 +137,24 @@ is used for text on light backgrounds.
 
 The terminal interface uses the terminal's own colours, named and indexed
 ANSI colours, so the person's terminal theme decides how they look. It
-does not set fixed RGB values. Where it picks a colour for a role, cyan
-stands for teal and magenta for lavender.
+does not set fixed RGB values, and it leaves the background and body text
+at the terminal's defaults. The contrast table above applies to the
+palette's own values, not to a terminal theme.
+
+| Role | Terminal colour | Where |
+|---|---|---|
+| Primary | cyan | the name `asqr` in the title line, the current tab and the line under it, the keys in the key bar, chosen marks, overlay borders, the submit button |
+| Focus | yellow, as a fill | the row under the cursor, the focused field's head, the focused context pane's header |
+| Warning | yellow | a length counter near or past its limit, a key that was refused |
+| Success | green | a length counter in range, a submitted session |
+| Error | red | a failure, such as an inbox that cannot be read |
+| Secondary | dim | hints, unanswered tabs, the descriptions in the key bar |
+
+- Only the focus is a filled area. The title line and the key bar have no
+  fills.
+- Code and Markdown keep the colours their highlighting gives them,
+  including yellow inline code.
+- An answered question is not a status: its tab mark keeps the text
+  colour, and an unanswered one is dim.
+- Meaning never depends on colour alone. Marks, pointers, text and the fill
+  carry it, so the interface reads the same without colours.
