@@ -11,7 +11,8 @@
 //! The decision and the geometry are plain functions of sizes, so every
 //! terminal size can be tested without drawing.
 
-use ratatui::layout::Rect;
+use ratatui::layout::Constraint::{Fill, Length};
+use ratatui::layout::{Layout, Rect};
 
 /// The widest the question gets, in columns. Wider lines are hard to read,
 /// and on a terminal of 230 columns question texts and option descriptions
@@ -32,6 +33,9 @@ pub const MIN_CONTEXT_ROWS: u16 = 8;
 
 /// The blank column between the question and a context area beside it.
 const SEPARATOR: u16 = 1;
+
+/// The narrowest area that holds the question and a context area beside it.
+const MIN_BESIDE_WIDTH: u16 = MIN_QUESTION_WIDTH + SEPARATOR + MIN_CONTEXT_WIDTH;
 
 /// Where the context goes, as asked for with `--layout` or `ASQR_LAYOUT`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -71,7 +75,7 @@ pub fn choose(
     layout: PaneLayout,
     previous: Option<Arrangement>,
 ) -> Arrangement {
-    let beside_fits = width >= MIN_QUESTION_WIDTH + SEPARATOR + MIN_CONTEXT_WIDTH;
+    let beside_fits = width >= MIN_BESIDE_WIDTH;
     // Measured with the question at its largest, so a question that grows
     // while the person types never flips the arrangement.
     let below_fits = height - height / 2 >= MIN_CONTEXT_ROWS;
@@ -108,65 +112,50 @@ pub fn choose(
 /// the most any question with context in the session takes at the width it
 /// gets there, `min(area.width, READING_WIDTH)`, so moving between
 /// questions keeps the split. Only the below arrangement uses it.
+///
+/// The beside arrangement needs an area at least as wide as [`choose`]
+/// asks for it, 101 columns. A narrower area is a caller's error.
 pub fn areas(
     area: Rect,
     arrangement: Option<Arrangement>,
     question_rows: usize,
 ) -> (Rect, Option<Rect>) {
-    let capped = Rect {
-        width: area.width.min(READING_WIDTH),
-        ..area
+    // The question over the context or the hint. The context spans the full
+    // width while the question stops at the reading width.
+    let stacked = |question_height: u16| {
+        let [question, context] = Layout::vertical([Length(question_height), Fill(1)]).areas(area);
+        (capped(question), Some(context))
     };
     match arrangement {
-        None => (capped, None),
+        None => (capped(area), None),
         Some(Arrangement::Beside) => {
+            debug_assert!(
+                area.width >= MIN_BESIDE_WIDTH,
+                "beside needs {MIN_BESIDE_WIDTH} columns, the area has {}",
+                area.width
+            );
             // Half each, the odd column to the context, but never less
             // than the narrowest question nor more than the reading width.
-            let question_width = ((area.width - SEPARATOR) / 2)
-                .clamp(MIN_QUESTION_WIDTH, READING_WIDTH)
-                .min(area.width);
-            let context_x = area.x + question_width + SEPARATOR;
-            (
-                Rect {
-                    width: question_width,
-                    ..area
-                },
-                Some(Rect {
-                    x: context_x,
-                    width: area.right().saturating_sub(context_x),
-                    ..area
-                }),
-            )
+            let question_width =
+                ((area.width - SEPARATOR) / 2).clamp(MIN_QUESTION_WIDTH, READING_WIDTH);
+            let [question, _, context] =
+                Layout::horizontal([Length(question_width), Length(SEPARATOR), Fill(1)])
+                    .areas(area);
+            (question, Some(context))
         }
         Some(Arrangement::Below) => {
             let rows = u16::try_from(question_rows).unwrap_or(u16::MAX);
-            let question_height = rows.min(area.height / 2);
-            (
-                Rect {
-                    height: question_height,
-                    ..capped
-                },
-                Some(Rect {
-                    y: area.y + question_height,
-                    height: area.height - question_height,
-                    ..area
-                }),
-            )
+            stacked(rows.min(area.height / 2))
         }
-        Some(Arrangement::Hint) => {
-            let question_height = area.height.saturating_sub(1);
-            (
-                Rect {
-                    height: question_height,
-                    ..capped
-                },
-                Some(Rect {
-                    y: area.y + question_height,
-                    height: area.height - question_height,
-                    ..area
-                }),
-            )
-        }
+        Some(Arrangement::Hint) => stacked(area.height.saturating_sub(1)),
+    }
+}
+
+/// `area` no wider than the reading width, from its left edge.
+fn capped(area: Rect) -> Rect {
+    Rect {
+        width: area.width.min(READING_WIDTH),
+        ..area
     }
 }
 
@@ -307,8 +296,12 @@ mod tests {
             (123, 61, 61),
             (160, 79, 80),
             (198, 98, 99),
+            (199, 99, 99),
+            (200, 99, 100),
             (201, 100, 100),
+            (202, 100, 101),
             (228, 100, 127),
+            (500, 100, 399),
         ];
         for (width, question, context) in cases {
             let (question_area, context_area) = areas(rect(1, 5, width, 30), Some(Beside), 99);
@@ -321,6 +314,14 @@ mod tests {
         }
     }
 
+    // Only debug builds check the width, so a release test run skips this.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "beside needs 101 columns, the area has 100")]
+    fn beside_in_an_area_choose_would_not_put_it_in_is_a_caller_error() {
+        areas(rect(1, 5, 100, 30), Some(Beside), 99);
+    }
+
     #[test]
     fn below_gives_the_question_its_rows_up_to_half_the_height() {
         // width, height, question rows, question area height
@@ -329,6 +330,10 @@ mod tests {
             (58, 15, 7, 7),
             (58, 15, 8, 7),
             (58, 15, 40, 7),
+            (58, 16, 8, 8),
+            (58, 16, 9, 8),
+            (58, 15, 0, 0),
+            (58, 15, usize::MAX, 7),
             (108, 63, 12, 12),
             (108, 63, 31, 31),
             (108, 63, 60, 31),
@@ -356,7 +361,15 @@ mod tests {
 
     #[test]
     fn a_hint_takes_the_last_line_of_the_area() {
-        for (width, height, question) in [(58, 9, 58), (78, 9, 78), (100, 14, 100)] {
+        let cases = [
+            (58, 9, 58),
+            (78, 9, 78),
+            (100, 14, 100),
+            (101, 2, 100),
+            (59, 1, 59),
+            (0, 3, 0),
+        ];
+        for (width, height, question) in cases {
             assert_eq!(
                 areas(rect(1, 5, width, height), Some(Hint), 30),
                 (
@@ -366,5 +379,13 @@ mod tests {
                 "{width}×{height}"
             );
         }
+    }
+
+    #[test]
+    fn a_hint_in_an_area_without_rows_leaves_both_areas_empty() {
+        assert_eq!(
+            areas(rect(1, 5, 58, 0), Some(Hint), 30),
+            (rect(1, 5, 58, 0), Some(rect(1, 5, 58, 0)))
+        );
     }
 }
