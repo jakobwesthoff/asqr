@@ -9,8 +9,9 @@ repository = "https://github.com/jakobwesthoff/asqr"
 readme = "README.md"
 keywords = ["tui", "terminal", "agent", "questions", "cli"]
 categories = ["command-line-utilities"]
-# The mascot pictures, docs, todos and repository tooling are not needed to
-# build asqr.
+# The mascot's originals, docs, todos and repository tooling are not needed
+# to build asqr. The pictures asqr shows are copies under
+# src/tui/render/mascot/.
 exclude = ["assets/", "docs/", "todos/", ".adr-dir", ".github/", ".githooks/", "Justfile", "scripts/"]
 
 [dependencies]

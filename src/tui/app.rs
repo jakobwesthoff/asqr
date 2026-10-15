@@ -94,6 +94,9 @@ pub struct App {
     /// far its keys can scroll it.
     intro_page: Extent,
     notice: Option<Notice>,
+    /// Whether a session came in since asqr started. The empty queue shows
+    /// Talqi asleep once it did, awake before.
+    had_sessions: bool,
 }
 
 impl App {
@@ -106,6 +109,7 @@ impl App {
     /// take every key. A shorter intro needs nothing here: the draw shows
     /// it from within its length, and the next key scrolls from there.
     pub fn add(&mut self, state: SessionState) {
+        self.had_sessions = true;
         match self.position(state.id()) {
             Some(index) => {
                 self.sessions[index].replace_session(state.session().clone());
@@ -140,6 +144,12 @@ impl App {
         self.sessions
             .iter()
             .position(|state| same_session_id(state.id(), id))
+    }
+
+    /// Whether a session came in since asqr started, also one that is
+    /// finished since.
+    pub fn had_sessions(&self) -> bool {
+        self.had_sessions
     }
 
     pub fn sessions(&self) -> &[SessionState] {
@@ -376,6 +386,18 @@ mod tests {
 
         assert_eq!(active_id(&app), Some("first"));
         assert_eq!(app.sessions().len(), 2);
+    }
+
+    #[test]
+    fn a_session_that_came_and_went_is_remembered() {
+        let mut app = App::default();
+        assert!(!app.had_sessions());
+
+        app.add(state("one"));
+        app.remove("one");
+
+        assert!(app.sessions().is_empty());
+        assert!(app.had_sessions());
     }
 
     #[test]

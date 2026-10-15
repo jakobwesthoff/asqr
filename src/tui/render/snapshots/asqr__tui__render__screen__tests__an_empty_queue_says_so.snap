@@ -1,6 +1,6 @@
 ---
 source: src/tui/render/screen.rs
-expression: "screen(&App::default(), 80, 20)"
+expression: "screen(&App::default(), 80, 17)"
 ---
 " asqr · queue: default · 0 sessions waiting                                     "
 "                                                                                "
@@ -10,10 +10,7 @@ expression: "screen(&App::default(), 80, 20)"
 "                                                                                "
 "                                                                                "
 "                                                                                "
-"                                                                                "
-"                                                                                "
 "      Nothing to answer. New sessions show up here as soon as they arrive.      "
-"                                                                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "

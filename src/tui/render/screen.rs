@@ -17,8 +17,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::content::{TabState, draw_tab};
 use super::context::draw_pane;
+use super::empty::EmptyQueue;
 use super::header::header_lines;
 use super::keys::{draw_help, key_hints, key_line};
+use super::mascot::{Mascot, Which};
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{PaneLayout, READING_WIDTH};
 use super::source_line::columns;
@@ -86,6 +88,8 @@ pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
     queue: &'a str,
     tab: TabState,
+    /// Talqi, drawn while the queue is empty.
+    mascot: Mascot,
     /// Whether the last draw showed the help, the intro or the session
     /// list over the screen.
     overlay_shown: bool,
@@ -101,6 +105,7 @@ impl<'a> View<'a> {
     pub fn new(queue: &'a str, layout: PaneLayout, picker: Picker) -> Self {
         View {
             queue,
+            mascot: Mascot::new(picker.clone()),
             tab: TabState::new(layout, picker),
             overlay_shown: false,
             image_shown: false,
@@ -130,6 +135,7 @@ impl<'a> View<'a> {
     /// Reads and sends every image again as it is next shown (ADR 24).
     pub fn forget_images(&mut self) {
         self.tab.viewers.forget_images();
+        self.mascot.forget();
     }
 }
 
@@ -184,18 +190,16 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     let overlay = app.overlay();
     let (drawn, hints) = match app.active() {
         None => {
-            let empty = Paragraph::new(
-                "Nothing to answer. New sessions show up here as soon as they arrive.",
-            )
-            .centered()
-            .wrap(Wrap { trim: true });
-            frame.render_widget(
-                empty,
-                main.centered(
-                    Constraint::Length(main.width.saturating_sub(4)),
-                    Constraint::Length(3),
-                ),
-            );
+            let which = if app.had_sessions() {
+                Which::Sleeping
+            } else {
+                Which::Base
+            };
+            let empty = EmptyQueue {
+                which,
+                font: view.mascot.font(),
+            };
+            frame.render_stateful_widget(empty, main, &mut view.mascot);
             (Drawn::default(), vec![("q", "quit")])
         }
         Some(state) => {
@@ -316,6 +320,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::{Color, Modifier, Style};
 
+    use super::super::mascot::{self, Which};
     use super::super::test_support::{self, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
@@ -859,7 +864,8 @@ mod tests {
 
     #[test]
     fn an_empty_queue_says_so() {
-        insta::assert_snapshot!(screen(&App::default(), 80, 20));
+        // 17 rows leave the main area 11, one short of Talqi.
+        insta::assert_snapshot!(screen(&App::default(), 80, 17));
     }
 
     #[test]
@@ -891,7 +897,62 @@ mod tests {
             "broken is invalid and was answered with an error: questions[0].min",
         );
 
-        insta::assert_snapshot!(screen(&app, 80, 20));
+        insta::assert_snapshot!(screen(&app, 80, 17));
+    }
+
+    /// A view whose terminal speaks the Kitty protocol.
+    fn kitty_view() -> View<'static> {
+        View::new("q", PaneLayout::Auto, mascot::tests::kitty())
+    }
+
+    #[test]
+    fn talqi_is_awake_until_sessions_came_in_and_asleep_after() {
+        let mut app = App::default();
+        let mut view = kitty_view();
+
+        screen_in(&app, &mut view, 80, 24);
+        assert_eq!(view.mascot.shown(), Some(Which::Base));
+
+        app.add(SessionState::new(
+            "release",
+            serde_json::from_str(RELEASE).expect("example parses"),
+            None,
+        ));
+        app.remove("release");
+        screen_in(&app, &mut view, 80, 24);
+        assert_eq!(view.mascot.shown(), Some(Which::Sleeping));
+    }
+
+    #[test]
+    fn notices_show_over_the_empty_queue_with_talqi() {
+        let mut app = App::default();
+        app.notice(
+            Tone::Warning,
+            "broken is invalid and was answered with an error",
+        );
+
+        let backend = screen_in(&app, &mut kitty_view(), 80, 24);
+
+        let buf = backend.buffer();
+        assert!(mascot::tests::transmission(buf).is_some(), "Talqi is drawn");
+        assert_eq!(
+            row(buf, 22),
+            "broken is invalid and was answered with an error"
+        );
+    }
+
+    #[test]
+    fn talqi_is_sent_again_after_the_images_are_forgotten() {
+        let app = App::default();
+        let mut view = kitty_view();
+        let sent = |view: &mut View| {
+            mascot::tests::transmission(screen_in(&app, view, 80, 24).buffer()).is_some()
+        };
+
+        assert!(sent(&mut view), "first draw");
+        assert!(!sent(&mut view), "kept");
+        view.forget_images();
+        assert!(sent(&mut view), "sent again");
     }
 
     // -----------------------------------------------------------------

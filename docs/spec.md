@@ -741,7 +741,16 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   cursor's line the row above it; where the area has no room for both,
   the cursor's line shows.
 - With nothing waiting, the screen says "Nothing to answer. New sessions
-  show up here as soon as they arrive." Notices still show.
+  show up here as soon as they arrive." Notices still show. Above the
+  sentence, with a blank row between them, Talqi, asqr's mascot, shows
+  as an image (ADR 39): awake from asqr's start until the first session
+  arrives, asleep once sessions came in and the queue is empty again.
+  Every start of asqr begins with Talqi awake. The picture is square,
+  at most 44 columns by 22 rows, smaller where the screen is smaller,
+  and never stretched to fill it. It is centred across, and picture and
+  sentence together are centred down the screen. Talqi shows on
+  terminals of at least 18 rows. On smaller ones, and in terminals
+  without an image protocol (section 7.7), the sentence stands alone.
 
 ### 7.2 Keys
 
@@ -1172,6 +1181,9 @@ Images:
   the terminal for focus reports; on regaining the focus it reads and
   sends every image again as it is next shown. Code, Markdown and diff
   entries keep what asqr derived from them (ADR 31).
+- Talqi on the empty queue (section 7.1) is built into asqr and needs no
+  file. It goes through the same protocol as the images of entries and
+  is sent again in the same way on regaining the focus.
 - A relative path, a missing file, a path that is not a regular file or
   a file that cannot be read or decoded shows a placeholder saying
   "image not shown" with the path and the reason. A path is never resolved against the working directory,
@@ -1359,7 +1371,7 @@ MPL-2.0.
 | Command line | `clap` with the derive feature |
 | Errors | `thiserror` for the typed errors of the format and queue code (validation errors name the field), `anyhow` with context where the running TUI meets the terminal |
 | TUI | `ratatui` with `crossterm`, `ratatui-textarea` (the maintained continuation of `tui-textarea`, ADR 9) |
-| Images | `ratatui-image`, `image` for decoding |
+| Images | `ratatui-image`, `image` for decoding; Talqi's two pictures are built into the executable as 768 px WebP (ADR 39) |
 | Watching the inbox | `notify-debouncer-full` (with `notify`) |
 | Platform paths | `directories` |
 | Lock holder text | `gethostname` |

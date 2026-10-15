@@ -2,7 +2,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Images of context entries (spec section 7.7). The graphics protocol is
+//! Images of context entries (spec section 7.7) and of Talqi on the empty
+//! queue (ADR 39). The graphics protocol is
 //! detected once, in the binary, by querying the terminal; the image
 //! viewers receive the resulting [`Picker`], so tests draw with the
 //! halfblock protocol and never talk to a terminal. A path that is
@@ -14,6 +15,7 @@ use std::io::{self, Write};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
+use image::DynamicImage;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::StatefulWidget;
@@ -42,7 +44,13 @@ impl Image {
             .map_err(|error| unreadable(error.to_string()))?
             .decode()
             .map_err(|error| unreadable(error.to_string()))?;
-        Ok(Image(Box::new(picker.new_resize_protocol(decoded))))
+        Ok(Image::from_picture(picker, decoded))
+    }
+
+    /// Encodes a picture that is decoded already, such as one built into
+    /// asqr, for `picker`'s protocol.
+    pub fn from_picture(picker: &Picker, picture: DynamicImage) -> Image {
+        Image(Box::new(picker.new_resize_protocol(picture)))
     }
 
     /// Draws the image into `area` of `buf`. With `enlarge`, the image is
@@ -118,7 +126,9 @@ const KITTY_PLACEMENT: &str = "a=T,U=1,";
 /// `Cargo.toml` pins it to `=11.1.0`. A version bump has to check this
 /// function, and the test
 /// `a_kitty_image_is_placed_over_exactly_its_placeholder_cells` in
-/// `screen.rs` fails when the command changes shape.
+/// `screen.rs` fails when the command changes shape, as does its twin for
+/// the mascot, `a_kitty_mascot_is_placed_over_exactly_its_placeholder_cells`
+/// in `empty.rs`.
 ///
 /// A version bump also has to check that the crate still names each image
 /// by the `Color::Rgb` foreground of its placeholder cells.
@@ -147,7 +157,7 @@ const KITTY_PLACEMENT: &str = "a=T,U=1,";
 ///    `Picker` API that `src/terminal.rs` and this module use.
 /// 2. Delete this function, its two constants and the call in
 ///    [`Image::draw`].
-/// 3. Run the test named above. It must stay green without this
+/// 3. Run the tests named above. They must stay green without this
 ///    function, as the crate then writes `c=` and `r=` itself.
 fn size_kitty_placement(buffer: &mut Buffer, area: Rect) {
     let area = area.intersection(buffer.area);
