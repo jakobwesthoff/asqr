@@ -216,12 +216,22 @@ impl Mascot {
         }
     }
 
-    /// Drops the picture kept for drawing, so it is sent to the terminal
-    /// again when it is next drawn. The Kitty protocol sends a picture's
-    /// data only on its first draw, and tmux drops that transfer while its
-    /// pane is hidden (ADR 24).
+    /// Drops the picture kept for drawing when it is encoded for the Kitty
+    /// protocol, so it is sent to the terminal again when it is next
+    /// drawn. The Kitty protocol sends a picture's data only on its first
+    /// draw, and tmux drops that transfer while its pane is hidden (ADR
+    /// 24).
+    ///
+    /// Any other picture is kept. Sixel and iTerm2 carry the whole picture
+    /// in one cell of each frame, and encoded again it gives the same
+    /// cell, which ratatui does not write again. Half blocks are text,
+    /// which tmux keeps for a hidden pane.
     pub(super) fn forget(&mut self) {
-        self.ready = None;
+        let sent_once = self.picker.protocol_type() == ProtocolType::Kitty
+            && matches!(self.ready, Some((.., Ready::Encoded(_))));
+        if sent_once {
+            self.ready = None;
+        }
     }
 
     /// The picture last drawn and still kept.
@@ -491,6 +501,8 @@ pub(super) mod tests {
             .collect();
         assert!(!half_blocks.is_empty(), "Talqi is drawn");
         assert!(half_blocks.iter().all(|&position| rect.contains(position)));
+        mascot.forget();
+        assert_eq!(mascot.shown(), Some(Which::Base), "half blocks are kept");
     }
 
     // -----------------------------------------------------------------
@@ -632,7 +644,7 @@ pub(super) mod tests {
         }
         assert_eq!(mascot.shown(), Some(Which::Base));
         mascot.forget();
-        assert_eq!(mascot.shown(), None);
+        assert_eq!(mascot.shown(), Some(Which::Base), "half blocks are kept");
     }
 
     // -----------------------------------------------------------------
@@ -744,5 +756,24 @@ pub(super) mod tests {
         mascot.forget();
         assert_eq!(mascot.shown(), None);
         assert!(sent(&mut mascot, Which::Sleeping, smaller), "forgotten");
+    }
+
+    /// Sixel and iTerm2 carry the whole picture in one cell of each frame.
+    /// Encoded again, it gives the same cell, which ratatui does not write
+    /// again, so forgetting it would only cost a new encoding.
+    #[test]
+    fn sixel_and_iterm2_keep_their_picture() {
+        for protocol in [ProtocolType::Sixel, ProtocolType::Iterm2] {
+            let mut picker = Picker::halfblocks();
+            picker.set_protocol_type(protocol);
+            let mut mascot = Mascot::new(picker);
+            let area = mascot_rect(Rect::new(0, 0, 60, 10), mascot.font());
+            let mut buf = Buffer::empty(Rect::new(0, 0, 60, 10));
+            mascot.draw(Which::Sleeping, area, &mut buf);
+
+            mascot.forget();
+
+            assert_eq!(mascot.shown(), Some(Which::Sleeping), "{protocol:?}");
+        }
     }
 }

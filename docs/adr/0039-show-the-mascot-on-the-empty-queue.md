@@ -83,8 +83,14 @@ Drawing:
   type as the images of context entries. It is decoded, scaled and
   encoded when a picture or a size is drawn for the first time, and
   kept until the next one.
-- When asqr's terminal gains the focus, the encoded picture is dropped
-  like the images of entries (ADR 24), so the next draw sends it again.
+- When asqr's terminal gains the focus, a picture encoded for the Kitty
+  protocol is dropped like the images of entries (ADR 24), so the next
+  draw sends it again. Kitty sends a picture's data only on its first
+  draw, and tmux drops that transfer while its pane is hidden. Sixel
+  and iTerm2 keep the encoded picture: they carry it whole in one cell
+  of each frame, and the same picture encoded again gives the same
+  cell, which ratatui does not write again, so dropping it would only
+  cost a new encoding.
 - Nothing clears the screen when the first session replaces the picture.
   ratatui 0.30.2 (ratatui-core 0.1.2) counts a cell's diff option in
   the cell's equality and leaves out only the cells the new frame marks
@@ -115,7 +121,9 @@ Without an image protocol:
   do (the user, 2026-10-15). Superseded by ADR 41: under `NO_COLOR`,
   Talqi is a braille outline without any colour, with an image protocol
   or without one.
-- The scaled picture is kept and dropped as the encoded one is.
+- The scaled picture is kept until a picture or a size is drawn for
+  the first time. Regaining the focus does not drop it, as tmux keeps
+  the text of a hidden pane.
 
 ## Consequences
 

@@ -1203,12 +1203,12 @@ Images:
   sends every image again as it is next shown. Code, Markdown and diff
   entries keep what asqr derived from them (ADR 31).
 - Talqi on the empty queue (section 7.1) is built into asqr and needs no
-  file. It goes through the same protocol as the images of entries and
-  is sent again in the same way on regaining the focus. Without an
-  image protocol, or with a cell size of zero pixels on a side, Talqi
-  gets its own half blocks, which leave its transparent background
-  blank instead of filling it. Under `NO_COLOR` Talqi is text and uses
-  neither (section 7.1).
+  file. It goes through the same protocol as the images of entries.
+  Under the Kitty protocol it is sent again on regaining the focus, as
+  they are. Without an image protocol, or with a cell size of zero
+  pixels on a side, Talqi gets its own half blocks, which leave its
+  transparent background blank instead of filling it. Under `NO_COLOR`
+  Talqi is text and uses neither (section 7.1).
 - A relative path, a missing file, a path that is not a regular file or
   a file that cannot be read or decoded shows a placeholder saying
   "image not shown" with the path and the reason. A path is never resolved against the working directory,
