@@ -19,6 +19,12 @@ use ratatui_image::picker::{Picker, ProtocolType};
 
 use super::images::Image;
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the empty queue draws it from the switch on")
+)]
+mod template;
+
 /// The most columns and rows the picture takes. 44×22 cells are what a
 /// square picture takes in half blocks, one pixel wide and two tall each,
 /// and Jakob chose to draw the real image at about that size rather than
