@@ -37,6 +37,11 @@ with it, and no step-by-step description of setting it up with an agent.
   related todo), or captures rendered to SVG/PNG as the TUI review did
   (tmux capture plus an ANSI-to-SVG renderer).
 - Language and depth: a single guide, or a quick start plus a reference.
+- Where the rendered mascot picture (`assets/talqi-512.webp`) gets a
+  place of its own. The user wants it shown somewhere in the
+  documentation (2026-10-15). The README's logo is the terminal emblem
+  (`assets/emblem/talqi-terminal.svg`), and the README only links the
+  picture where it explains Talqi's name.
 
 ## Relations
 

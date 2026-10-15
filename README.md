@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/talqi-512.webp" width="256" height="256" alt="Talqi, asqr's mascot: a teal chameleon with lavender accents sitting on a branch and looking at you">
+  <img src="assets/emblem/talqi-terminal.svg" width="256" height="256" alt="asqr's logo: Talqi, a teal chameleon with a lavender crest, peeking over a terminal panel with a prompt">
 </p>
 
 # asqr
@@ -13,7 +13,8 @@ file, asqr shows them in a terminal of its own, and you work through them
 at your own pace. When you submit, asqr writes your answers into a result
 file that the agent reads back. Scripts and builds can ask the same way.
 
-The chameleon above is Talqi (pronounced like "talkie"), asqr's mascot.
+The chameleon in the logo is [Talqi](assets/talqi-512.webp) (pronounced
+like "talkie"), asqr's mascot.
 
 - Any number of questions per session, and any number of options per
   question.
