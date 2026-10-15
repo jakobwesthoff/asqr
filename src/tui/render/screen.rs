@@ -198,6 +198,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             let empty = EmptyQueue {
                 which,
                 font: view.mascot.font(),
+                no_color: view.no_color,
             };
             frame.render_stateful_widget(empty, main, &mut view.mascot);
             (Drawn::default(), vec![("q", "quit")])
@@ -3235,9 +3236,9 @@ mod tests {
         assert_only_colours_gone(&coloured, &colourless);
     }
 
-    /// At 80×17 the main area is too small for Talqi, whose half blocks
-    /// keep their colours under NO_COLOR
-    /// (`no_color_keeps_the_rgb_colours_of_talqi_in_half_blocks`).
+    /// At 80×17 the main area is too small for Talqi, who is drawn in
+    /// half blocks with colours and as an outline under NO_COLOR
+    /// (`no_color_shows_talqi_as_the_colourless_braille_outline`).
     #[test]
     fn no_color_takes_the_colour_of_a_notice_over_the_empty_queue() {
         let mut app = App::default();
@@ -3260,7 +3261,8 @@ mod tests {
 
     /// NO_COLOR keeps every RGB colour, since only images draw with them:
     /// no screen without an image has one, and on the empty queue only
-    /// Talqi's half blocks do.
+    /// Talqi's half blocks do. Under NO_COLOR the empty queue has none at
+    /// all (`no_color_shows_talqi_as_the_colourless_braille_outline`).
     #[test]
     fn only_images_draw_in_rgb() {
         let review = include_str!("../../../examples/sessions/retry-review.json");
@@ -3341,26 +3343,62 @@ mod tests {
         }
     }
 
-    #[test]
-    fn no_color_keeps_the_rgb_colours_of_talqi_in_half_blocks() {
-        let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks()).no_color(true);
+    /// Whether `cell` holds braille with ink, as Talqi's outline does.
+    fn braille_ink(cell: &ratatui::buffer::Cell) -> bool {
+        cell.symbol()
+            .chars()
+            .all(|symbol| ('\u{2801}'..='\u{28FF}').contains(&symbol))
+    }
 
-        let backend = screen_in(&App::default(), &mut view, 80, 24);
-
-        let talqi: Vec<_> = backend
+    /// The empty queue at `width`×`height` under NO_COLOR, with images
+    /// sent in the graphics protocol `picker` speaks.
+    fn empty_without_colours(picker: Picker, width: u16, height: u16) -> Buffer {
+        let mut view = View::new("q", PaneLayout::Auto, picker).no_color(true);
+        screen_in(&App::default(), &mut view, width, height)
             .buffer()
-            .content()
-            .iter()
-            .filter(|cell| half_block(cell))
-            .collect();
-        assert!(!talqi.is_empty(), "Talqi is drawn");
-        for cell in &talqi {
-            assert!(matches!(cell.fg, Color::Rgb(..)), "{cell:?}");
+            .clone()
+    }
+
+    /// Under NO_COLOR, Talqi is the braille outline of the emblem: text
+    /// without a colour or a modifier, also where the terminal has an
+    /// image protocol, and nothing on the screen has a colour.
+    #[test]
+    fn no_color_shows_talqi_as_the_colourless_braille_outline() {
+        let mut kitty = Picker::halfblocks();
+        kitty.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
+        for picker in [Picker::halfblocks(), kitty] {
+            let buf = empty_without_colours(picker, 80, 40);
+
+            let outline: Vec<_> = buf
+                .content()
+                .iter()
+                .filter(|cell| braille_ink(cell))
+                .collect();
+            assert!(!outline.is_empty(), "Talqi is drawn:\n{buf:?}");
+            for cell in outline {
+                let mut plain = ratatui::buffer::Cell::default();
+                plain.set_symbol(cell.symbol());
+                assert_eq!(*cell, plain);
+            }
+            for cell in buf.content() {
+                assert_eq!(colours(cell), [Color::Reset; 3], "{cell:?}");
+                assert!(!half_block(cell), "{cell:?}");
+                assert!(!cell.symbol().contains('\u{10EEEE}'), "{cell:?}");
+            }
         }
-        assert!(
-            talqi.iter().any(|cell| matches!(cell.bg, Color::Rgb(..))),
-            "cells with two opaque halves keep their background"
-        );
+    }
+
+    /// At 80×31 the main area has 25 rows, one too few for the outline,
+    /// the blank row and the sentence.
+    #[test]
+    fn no_color_shows_the_sentence_alone_where_the_outline_does_not_fit() {
+        let small = empty_without_colours(Picker::halfblocks(), 80, 31);
+        let large = empty_without_colours(Picker::halfblocks(), 80, 32);
+
+        assert!(!small.content().iter().any(braille_ink), "{small:?}");
+        assert!(!small.content().iter().any(half_block), "{small:?}");
+        find(&small, "Nothing to answer");
+        assert!(large.content().iter().any(braille_ink), "{large:?}");
     }
 
     #[test]

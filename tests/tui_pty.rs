@@ -550,3 +550,63 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
     assert!(coloured.intro_code.dim());
     assert!(coloured.red_image);
 }
+
+/// The parameters of every SGR sequence (`ESC [ … m`) in `output` that
+/// sets a colour by 38 (foreground) or 48 (background), the forms that
+/// carry an indexed or an RGB colour.
+fn colour_sequences(output: &str) -> Vec<&str> {
+    output
+        .split("\x1b[")
+        .skip(1)
+        .filter_map(|rest| {
+            let end = rest.find(|c: char| ('\x40'..='\x7e').contains(&c))?;
+            rest[end..].starts_with('m').then(|| &rest[..end])
+        })
+        .filter(|parameters| {
+            parameters
+                .split([';', ':'])
+                .any(|parameter| parameter == "38" || parameter == "48")
+        })
+        .collect()
+}
+
+/// Starts asqr on an empty queue under `NO_COLOR` set to `no_color`, in a
+/// terminal of 40 rows, whose main area has room for Talqi at the largest
+/// size, waits until `talqi` shows and quits. Returns all output.
+fn empty_queue_under(no_color: &str, talqi: &str) -> String {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &[
+            "--dir",
+            dir.to_str().expect("UTF-8"),
+            "--no-notify",
+            "--no-title",
+        ],
+        "off 1",
+        &[("NO_COLOR", no_color)],
+    );
+    tui.wait_for("Nothing to answer");
+    tui.resize(40, 100);
+    tui.wait_for(talqi);
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+    tui.output()
+}
+
+#[test]
+fn no_color_shows_talqi_as_an_outline_without_a_colour_sequence() {
+    // A piece of the outline's bottom row.
+    let colourless = empty_queue_under("1", "⣭⣭⣭⣭");
+    assert_eq!(colour_sequences(&colourless), Vec::<&str>::new());
+
+    // With colours, the title bar and Talqi's half blocks write some, so
+    // the search finds what there is.
+    let coloured = empty_queue_under("", "▀");
+    let sequences = colour_sequences(&coloured);
+    assert!(
+        sequences.iter().any(|sgr| sgr.contains("38;2;")),
+        "{sequences:?}"
+    );
+}

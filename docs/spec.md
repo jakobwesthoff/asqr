@@ -753,6 +753,13 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   alone. Terminals without an image protocol (section 7.7) show Talqi
   in half blocks of the picture's own colours, its transparent
   background left blank.
+- Under `NO_COLOR` (section 8), Talqi is the outline of asqr's emblem
+  in braille characters instead (ADR 41): a fixed text of 44 columns by
+  22 rows, without any colour, the same awake and asleep and with or
+  without an image protocol. Cells between its lines keep the
+  background. It is centred across above the sentence as the picture
+  is, and shows on terminals of at least 32 rows; on smaller ones the
+  sentence stands alone.
 
 ### 7.2 Keys
 
@@ -1198,7 +1205,8 @@ Images:
   file. It goes through the same protocol as the images of entries and
   is sent again in the same way on regaining the focus. Without an
   image protocol, Talqi gets its own half blocks, which leave its
-  transparent background blank instead of filling it.
+  transparent background blank instead of filling it. Under `NO_COLOR`
+  Talqi is text and uses neither (section 7.1).
 - A relative path, a missing file, a path that is not a regular file or
   a file that cannot be read or decoded shows a placeholder saying
   "image not shown" with the path and the reason. A path is never resolved against the working directory,
@@ -1265,9 +1273,9 @@ commands ignore the variable.
 `NO_COLOR` (<https://no-color.org>) set to any value but the empty one
 makes the TUI draw without colours, a value that is not UTF-8 included.
 Text, marks, pointers, bold, dim and reversed stay, so the screen says
-the same as with colours. Images keep their colours, and so does Talqi
-on the empty queue, in half blocks too. An empty `NO_COLOR`
-counts as unset.
+the same as with colours. Images keep their colours. Talqi on the
+empty queue is the braille outline of asqr's emblem instead, without
+any colour (section 7.1). An empty `NO_COLOR` counts as unset.
 
 `ask`:
 

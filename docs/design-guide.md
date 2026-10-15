@@ -146,7 +146,8 @@ palette's own values, not to a terminal theme.
 
 Illustrations are the exception. Drawn as half blocks, as Talqi is on
 the empty queue in a terminal without an image protocol, they keep
-their own RGB colours, also under `NO_COLOR`.
+their own RGB colours. Under `NO_COLOR`, Talqi is the outline of the
+terminal emblem in braille characters, without any colour.
 
 | Role | Terminal colour | Where |
 |---|---|---|

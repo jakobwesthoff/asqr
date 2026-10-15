@@ -5,12 +5,13 @@
 //! Talqi, asqr's mascot, as the empty queue shows it (spec section 7.1,
 //! ADR 39): the pictures built into asqr, the cells a picture takes, and
 //! the picture scaled and encoded for the terminal's graphics protocol, or
-//! drawn in half blocks where the terminal has none.
+//! drawn in half blocks where the terminal has none. Under `NO_COLOR`,
+//! Talqi is a braille outline instead (ADR 41).
 
 use image::imageops::{self, FilterType};
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Rect, Size};
+use ratatui::layout::{Constraint, Position, Rect, Size};
 use ratatui::style::Color;
 use ratatui::widgets::Widget;
 use ratatui_image::FontSize;
@@ -214,8 +215,7 @@ const OPAQUE: u8 = 128;
 /// `protocol/halfblocks/primitive.rs` l.29), which paints a transparent
 /// background as coloured blocks. Here a transparent half shows the
 /// cell's background, and a cell with two transparent halves stays as it
-/// was. The RGB colours stay under `NO_COLOR`, as those of images do
-/// ([`theme::strip_colours`](super::theme::strip_colours)).
+/// was. Under `NO_COLOR` the empty queue draws the [`Outline`] instead.
 struct HalfBlocks<'a>(&'a RgbaImage);
 
 impl Widget for HalfBlocks<'_> {
@@ -242,6 +242,39 @@ impl Widget for HalfBlocks<'_> {
                     cell.set_symbol("▄").set_fg(lower);
                 }
                 (None, None) => {}
+            }
+        }
+    }
+}
+
+/// Talqi under `NO_COLOR` (ADR 41): the outline of the terminal emblem
+/// (`assets/emblem/talqi-terminal.svg`) in braille, one text for awake and
+/// asleep and for light and dark terminals. asqr does not generate it;
+/// ADR 41 says how it was made.
+const OUTLINE: &str = include_str!("mascot/talqi-outline.txt");
+
+/// The columns and rows of [`OUTLINE`], a braille character per cell.
+pub(super) const OUTLINE_COLUMNS: u16 = 44;
+pub(super) const OUTLINE_ROWS: u16 = 22;
+
+/// The empty braille pattern, which [`OUTLINE`] has where it has no ink.
+const NO_INK: char = '\u{2800}';
+
+/// [`OUTLINE`] drawn from the area's top-left corner.
+///
+/// A cell with ink gets its braille character and no style at all, so
+/// nothing of the outline carries a colour. A cell without ink stays as
+/// it was, so the background shows between the lines.
+pub(super) struct Outline;
+
+impl Widget for Outline {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        for (y, row) in (area.top()..area.bottom()).zip(OUTLINE.lines()) {
+            for (x, symbol) in (area.left()..area.right()).zip(row.chars()) {
+                if symbol != NO_INK && buf.area.contains(Position { x, y }) {
+                    buf[(x, y)].reset();
+                    buf[(x, y)].set_char(symbol);
+                }
             }
         }
     }
@@ -503,6 +536,79 @@ pub(super) mod tests {
         assert_eq!(mascot.shown(), Some(Which::Base));
         mascot.forget();
         assert_eq!(mascot.shown(), None);
+    }
+
+    // -----------------------------------------------------------------
+    // The outline under NO_COLOR
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn the_outline_is_22_rows_of_44_braille_cells() {
+        let rows: Vec<&str> = OUTLINE.lines().collect();
+
+        assert_eq!(rows.len(), usize::from(OUTLINE_ROWS));
+        for row in rows {
+            assert_eq!(row.chars().count(), usize::from(OUTLINE_COLUMNS), "{row}");
+            assert!(
+                row.chars()
+                    .all(|symbol| ('\u{2800}'..='\u{28FF}').contains(&symbol)),
+                "only braille: {row}"
+            );
+        }
+    }
+
+    /// The outline drawn into a [`marked`] buffer of `width`×`height`
+    /// cells, at `area`.
+    fn outlined(width: u16, height: u16, area: Rect) -> Buffer {
+        let mut buf = marked(width, height);
+        Outline.render(area, &mut buf);
+        buf
+    }
+
+    /// A cell with ink is the template's character and nothing else, no
+    /// colour and no modifier; a cell without ink, U+2800, keeps what the
+    /// buffer held there.
+    #[test]
+    fn the_outline_draws_its_ink_without_a_style_and_leaves_the_rest_alone() {
+        let area = Rect::new(3, 2, OUTLINE_COLUMNS, OUTLINE_ROWS);
+        let buf = outlined(50, 26, area);
+
+        let rows: Vec<Vec<char>> = OUTLINE.lines().map(|row| row.chars().collect()).collect();
+        let mut ink = 0;
+        for position in buf.area.positions() {
+            let template = area
+                .contains(position)
+                .then(|| rows[usize::from(position.y - area.y)][usize::from(position.x - area.x)]);
+            match template {
+                Some(symbol) if symbol != '\u{2800}' => {
+                    ink += 1;
+                    let mut expected = Cell::default();
+                    expected.set_char(symbol);
+                    assert_eq!(buf[position], expected, "{position:?}");
+                }
+                _ => assert_eq!(
+                    drawn_at(&buf, position.x, position.y),
+                    ("x", Color::Blue, Color::White),
+                    "{position:?}"
+                ),
+            }
+        }
+        assert!(ink > 0, "the outline has ink");
+    }
+
+    /// A buffer that ends inside the outline holds the outline's top-left
+    /// part, and nothing is drawn past its edge.
+    #[test]
+    fn the_outline_ends_where_the_buffer_ends() {
+        let area = Rect::new(0, 0, OUTLINE_COLUMNS, OUTLINE_ROWS);
+        let whole = outlined(OUTLINE_COLUMNS, OUTLINE_ROWS, area);
+
+        let part = outlined(20, 10, area);
+
+        assert_ne!(whole[(1, 21)].symbol(), "x", "ink in the bottom row");
+        for position in part.area.positions() {
+            assert_eq!(part[position], whole[position], "{position:?}");
+        }
     }
 
     /// Draws `which` with `mascot` into a 60×30 buffer and says whether

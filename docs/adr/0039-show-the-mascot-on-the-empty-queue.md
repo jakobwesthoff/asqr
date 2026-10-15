@@ -6,6 +6,8 @@ Date: 2026-10-15
 
 Accepted
 
+Talqi under `NO_COLOR` superseded by [41. Show Talqi as a braille outline under NO_COLOR](0041-show-talqi-as-a-braille-outline-under-no-color.md)
+
 ## Context
 
 With no session waiting, the main area held one centred sentence,
@@ -104,7 +106,9 @@ Without an image protocol:
 - asqr draws these half blocks itself, not through ratatui-image's,
   which drop the alpha channel.
 - Their colours are RGB and stay under `NO_COLOR`, as those of images
-  do (the user, 2026-10-15).
+  do (the user, 2026-10-15). Superseded by ADR 41: under `NO_COLOR`,
+  Talqi is a braille outline without any colour, with an image protocol
+  or without one.
 - The scaled picture is kept and dropped as the encoded one is.
 
 ## Consequences
