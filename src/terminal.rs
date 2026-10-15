@@ -17,6 +17,7 @@ use anyhow::Context;
 use asqr::cli::{Exit, Watch};
 use asqr::tui::render::{
     Glyphs, TMUX_STATE_FORMAT, TerminalNames, View, kitty_deletes, may_query_protocol,
+    passthrough_all_for_images,
 };
 #[cfg(unix)]
 use asqr::tui::render::{answers_may_follow_the_query, discard_late_answers, passthrough_answers};
@@ -66,6 +67,21 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // colour loses the bold, dim or reversed set just before it.
     ratatui::crossterm::style::force_color_output(true);
 
+    let tmux = std::env::var("TMUX").ok();
+    let term = std::env::var("TERM").ok();
+    let term_program = std::env::var("TERM_PROGRAM").ok();
+    let names = TerminalNames {
+        tmux: tmux.as_deref(),
+        term: term.as_deref(),
+        term_program: term_program.as_deref(),
+    };
+    // Every `Picker` constructor turns passthrough on for the pane. This
+    // guard gives the pane its own setting back once the picker is built,
+    // or as asqr ends when the pane gets `all` for Kitty images (spec
+    // section 7.7). Made before the terminal guard, it is dropped after
+    // it, so the deletes that guard writes still pass from a hidden pane.
+    let mut passthrough = PassthroughRestore::snapshot(&names, run_tmux);
+
     // `try_init` also installs the panic hook that gives the terminal back
     // before a panic message is printed. That hook knows nothing of focus
     // reports and bracketed paste, so the guard turns those off too, on
@@ -87,25 +103,13 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
 
     // The protocol query reads the terminal's answers from stdin, so it
     // runs before the thread that reads key events starts.
-    let tmux = std::env::var("TMUX").ok();
-    let term = std::env::var("TERM").ok();
-    let term_program = std::env::var("TERM_PROGRAM").ok();
-    let names = TerminalNames {
-        tmux: tmux.as_deref(),
-        term: term.as_deref(),
-        term_program: term_program.as_deref(),
-    };
     // One question to tmux serves both the graphics query and the glyphs
     // of Talqi's emblem.
     let in_tmux = tmux.as_deref().is_some_and(|tmux| !tmux.is_empty());
     let tmux_state = if in_tmux { tmux_state() } else { None };
     let glyphs = Glyphs::for_terminal(|name| std::env::var(name).ok(), tmux_state.as_deref());
     tracing::info!(?glyphs, "glyphs for Talqi's emblem");
-    // Every `Picker` constructor turns passthrough on for the pane; one
-    // guard around both gives the pane its own setting back once the
-    // picker is built (spec section 7.7).
     let picker = {
-        let _passthrough = PassthroughRestore::snapshot(&names, run_tmux);
         if may_query_protocol(&names, || tmux_state.clone(), probe_passthrough) {
             // Silence and an answer without graphics both give a half-block
             // picker; only reading or writing the terminal fails.
@@ -134,6 +138,16 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
             Picker::halfblocks()
         }
     };
+    if passthrough_all_for_images(
+        picker.protocol_type() == ProtocolType::Kitty,
+        picker.tmux_detected(),
+        tmux_state.as_deref(),
+    ) {
+        tracing::info!("allow-passthrough all for the pane while asqr runs");
+        passthrough.allow_all();
+    } else {
+        passthrough.restore();
+    }
     // Images are sized with this cell size for the whole run, so a report
     // of a cropped or shrunken image starts by comparing it with the cell
     // size the terminal reports on a resize.
@@ -410,10 +424,18 @@ impl<R: FnMut(&[&str]) -> Option<String>> PassthroughRestore<R> {
         };
         Self { tmux, before }
     }
-}
 
-impl<R: FnMut(&[&str]) -> Option<String>> Drop for PassthroughRestore<R> {
-    fn drop(&mut self) {
+    /// Sets `allow-passthrough all` for the pane until the guard restores
+    /// it. Without a snapshot there is nothing to restore, and the pane is
+    /// left as it is.
+    fn allow_all(&mut self) {
+        if self.before.is_some() {
+            _ = (self.tmux)(&["set", "-p", "allow-passthrough", "all"]);
+        }
+    }
+
+    /// Puts the pane's value back now; the drop then does nothing more.
+    fn restore(&mut self) {
         // Unsetting lets the pane inherit from its window, session or the
         // global options again, as before.
         match self.before.take() {
@@ -421,6 +443,12 @@ impl<R: FnMut(&[&str]) -> Option<String>> Drop for PassthroughRestore<R> {
             Some(None) => _ = (self.tmux)(&["set", "-pu", "allow-passthrough"]),
             Some(Some(value)) => _ = (self.tmux)(&["set", "-p", "allow-passthrough", &value]),
         }
+    }
+}
+
+impl<R: FnMut(&[&str]) -> Option<String>> Drop for PassthroughRestore<R> {
+    fn drop(&mut self) {
+        self.restore();
     }
 }
 
@@ -638,9 +666,28 @@ mod tests {
         assert!(!pushed.get());
     }
 
+    /// What the run does with a [`PassthroughRestore`] between its
+    /// snapshot and its drop.
+    #[derive(Clone, Copy)]
+    enum Between {
+        Nothing,
+        AllowAll,
+        Restore,
+    }
+
     /// The tmux commands a [`PassthroughRestore`] runs from its snapshot to
     /// its drop, where `show-options` answers `shown`.
     fn passthrough_commands(term: &str, term_program: &str, shown: Option<&str>) -> Vec<String> {
+        passthrough_commands_with(term, term_program, shown, Between::Nothing)
+    }
+
+    /// Like [`passthrough_commands`], with `between` done before the drop.
+    fn passthrough_commands_with(
+        term: &str,
+        term_program: &str,
+        shown: Option<&str>,
+        between: Between,
+    ) -> Vec<String> {
         let commands = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let recorded = std::rc::Rc::clone(&commands);
         let names = TerminalNames {
@@ -648,18 +695,66 @@ mod tests {
             term: Some(term),
             term_program: Some(term_program),
         };
-        drop(PassthroughRestore::snapshot(
-            &names,
-            move |args: &[&str]| {
-                recorded.borrow_mut().push(args.join(" "));
-                if args[0] == "show-options" {
-                    shown.map(str::to_owned)
-                } else {
-                    Some(String::new())
-                }
-            },
-        ));
+        let mut passthrough = PassthroughRestore::snapshot(&names, move |args: &[&str]| {
+            recorded.borrow_mut().push(args.join(" "));
+            if args[0] == "show-options" {
+                shown.map(str::to_owned)
+            } else {
+                Some(String::new())
+            }
+        });
+        match between {
+            Between::Nothing => {}
+            Between::AllowAll => passthrough.allow_all(),
+            Between::Restore => passthrough.restore(),
+        }
+        drop(passthrough);
         commands.take()
+    }
+
+    /// Under the Kitty protocol inside tmux 3.4 or later, the pane gets
+    /// `all` for the run and its own value back at the end.
+    #[test]
+    fn a_pane_set_to_all_gets_its_own_value_back() {
+        assert_eq!(
+            passthrough_commands_with("tmux-256color", "", Some(""), Between::AllowAll),
+            [
+                SHOW,
+                "set -p allow-passthrough all",
+                "set -pu allow-passthrough"
+            ]
+        );
+        assert_eq!(
+            passthrough_commands_with("tmux-256color", "", Some("on\n"), Between::AllowAll),
+            [
+                SHOW,
+                "set -p allow-passthrough all",
+                "set -p allow-passthrough on"
+            ]
+        );
+    }
+
+    /// Without a value to put back, asqr does not set `all` either.
+    #[test]
+    fn a_pane_without_a_snapshot_is_not_set_to_all() {
+        assert_eq!(
+            passthrough_commands_with("tmux", "", None, Between::AllowAll),
+            [SHOW]
+        );
+        assert_eq!(
+            passthrough_commands_with("xterm-ghostty", "ghostty", Some(""), Between::AllowAll),
+            Vec::<String>::new()
+        );
+    }
+
+    /// Restored once the picker is built, the pane is not restored again
+    /// when the guard goes.
+    #[test]
+    fn a_restored_pane_is_restored_once() {
+        assert_eq!(
+            passthrough_commands_with("tmux-256color", "", Some("off"), Between::Restore),
+            [SHOW, "set -p allow-passthrough off"]
+        );
     }
 
     const SHOW: &str = "show-options -p -v allow-passthrough";

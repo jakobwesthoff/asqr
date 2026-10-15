@@ -11,6 +11,10 @@ Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 The consequence that asqr does not delete the earlier copies is
 superseded by [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-images-the-terminal-no-longer-shows.md)
 
+Amended by [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-images-through-tmux-from-a-hidden-pane.md):
+under the Kitty protocol inside tmux 3.4 or later, asqr sets
+`allow-passthrough all` for its pane while it runs
+
 ## Context
 
 The user reported that the image of a session's first question never

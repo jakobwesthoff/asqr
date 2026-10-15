@@ -31,7 +31,7 @@ mod wrap;
 
 pub use images::{
     TMUX_STATE_FORMAT, TerminalNames, answers_may_follow_the_query, kitty_deletes,
-    may_query_protocol,
+    may_query_protocol, passthrough_all_for_images,
 };
 #[cfg(unix)]
 pub use images::{discard_late_answers, passthrough_answers};

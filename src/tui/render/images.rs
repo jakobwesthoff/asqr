@@ -295,10 +295,13 @@ pub struct TerminalNames<'a> {
 
 /// What asqr asks tmux about its pane once at start, for
 /// `tmux display-message -p`: the pane's passthrough option, the number of
-/// clients attached to the session, and the client terminal's answer to
-/// XTVERSION, such as `iTerm2 3.6.7`. That answer holds blanks, so tabs
-/// keep the three apart.
-pub const TMUX_STATE_FORMAT: &str = "#{allow-passthrough}\t#{session_attached}\t#{client_termtype}";
+/// clients attached to the session, the client terminal's answer to
+/// XTVERSION, such as `iTerm2 3.6.7`, whether the pane's window is the
+/// current one of its session, whether the pane is the current one of its
+/// window, whether the window is zoomed, and tmux's version. The answer to
+/// XTVERSION holds blanks, so tabs keep the fields apart.
+pub const TMUX_STATE_FORMAT: &str = "#{allow-passthrough}\t#{session_attached}\t#{client_termtype}\t\
+     #{window_active}\t#{pane_active}\t#{window_zoomed_flag}\t#{version}";
 
 /// The fields of what tmux printed for [`TMUX_STATE_FORMAT`], without the
 /// line break it ends in.
@@ -306,13 +309,71 @@ pub(super) fn tmux_state_fields(state: &str) -> std::str::Split<'_, char> {
     state.trim_end_matches('\n').split('\t')
 }
 
+/// What tmux printed for [`TMUX_STATE_FORMAT`], read for the graphics
+/// query and the pane's passthrough. A field that is missing or reads
+/// otherwise than tmux writes it is `None`.
+struct TmuxState<'a> {
+    passthrough: Option<&'a str>,
+    clients: Option<u32>,
+    /// Whether a client attached to the session shows the pane: its window
+    /// is the session's current one, and no other pane of it is zoomed.
+    shown: Option<bool>,
+    version: Option<&'a str>,
+}
+
+impl<'a> TmuxState<'a> {
+    fn read(state: &'a str) -> Self {
+        let mut fields = tmux_state_fields(state);
+        let passthrough = fields.next();
+        let clients = fields.next().and_then(|clients| clients.parse().ok());
+        let _termtype = fields.next();
+        let mut flag = || match fields.next() {
+            Some("1") => Some(true),
+            Some("0") => Some(false),
+            _ => None,
+        };
+        let (window_active, pane_active, zoomed) = (flag(), flag(), flag());
+        let shown = window_active.zip(pane_active).zip(zoomed).map(
+            |((window_active, pane_active), zoomed)| window_active && (pane_active || !zoomed),
+        );
+        TmuxState {
+            passthrough,
+            clients,
+            shown,
+            version: fields.next(),
+        }
+    }
+
+    /// Whether tmux is 3.4 or later, which knows `allow-passthrough all`.
+    /// A development build names the version it leads to, as `next-3.6`.
+    /// A version tmux names otherwise, as OpenBSD's base system does, does
+    /// not count.
+    fn knows_passthrough_all(&self) -> bool {
+        let Some(version) = self.version else {
+            return false;
+        };
+        let version = version.strip_prefix("next-").unwrap_or(version);
+        let Some((major, rest)) = version.split_once('.') else {
+            return false;
+        };
+        let minor_digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        match (major.parse::<u32>(), rest[..minor_digits].parse::<u32>()) {
+            (Ok(major), Ok(minor)) => (major, minor) >= (3, 4),
+            _ => false,
+        }
+    }
+}
+
 /// Whether the terminal may be asked for its graphics protocol.
 /// `tmux_state` asks tmux for [`TMUX_STATE_FORMAT`], of which this needs
-/// the pane's passthrough option and the number of clients attached to the
-/// session.
+/// the pane's passthrough option, the number of clients attached to the
+/// session and whether a client shows the pane.
 ///
 /// Inside tmux the query only reaches a terminal through passthrough, and
-/// only while a client is attached. A query that gets no answer holds up
+/// only while a client is attached. With `on`, tmux passes sequences only
+/// from a pane a client shows, and ratatui-image sets `on` for the pane
+/// before it queries, also where the pane had `all`. A query that gets no
+/// answer holds up
 /// the start for its whole wait, and an answer later than that may reach
 /// asqr as typed keys ([`answers_may_follow_the_query`]), so where none
 /// can come the query is skipped and images fall back to half blocks
@@ -338,14 +399,26 @@ pub fn may_query_protocol(
     let Some(state) = tmux_state() else {
         return false;
     };
-    let mut fields = tmux_state_fields(&state);
-    // `on` lets the pane pass sequences through, `all` any pane.
-    let passthrough = matches!(fields.next(), Some("on" | "all"));
-    let attached = fields
-        .next()
-        .and_then(|clients| clients.parse::<u32>().ok())
-        .is_some_and(|clients| clients > 0);
-    passthrough && attached
+    let state = TmuxState::read(&state);
+    let attached = state.clients.is_some_and(|clients| clients > 0);
+    let passes = matches!(state.passthrough, Some("on" | "all"));
+    attached && passes && state.shown == Some(true)
+}
+
+/// Whether asqr sets `allow-passthrough all` for its pane for the run:
+/// under the Kitty protocol (`kitty`) with its commands wrapped for tmux
+/// (`wrapped`), inside a tmux 3.4 or later whose pane has no `all` yet, as
+/// `tmux_state` says (spec section 7.7, ADR 44). Transfers and deletes
+/// then reach the terminal from a hidden pane too. Kitty images are drawn
+/// through placeholder cells, which only the pane's own content places.
+/// Sixel and iTerm2 images are written where the cursor is, and from a
+/// hidden pane tmux would paint them over the window that shows, so they
+/// stay at the pane's own setting.
+pub fn passthrough_all_for_images(kitty: bool, wrapped: bool, tmux_state: Option<&str>) -> bool {
+    let Some(state) = tmux_state.map(TmuxState::read) else {
+        return false;
+    };
+    kitty && wrapped && state.passthrough != Some("all") && state.knows_passthrough_all()
 }
 
 /// A device status report request, `ESC [5n`, wrapped for tmux's
@@ -420,8 +493,7 @@ pub fn passthrough_answers(
 /// that answered sends nothing more, and its start costs no wait.
 pub fn answers_may_follow_the_query(found_capabilities: bool, tmux_state: Option<&str>) -> bool {
     let clients = tmux_state
-        .and_then(|state| tmux_state_fields(state).nth(1))
-        .and_then(|clients| clients.parse::<u32>().ok())
+        .and_then(|state| TmuxState::read(state).clients)
         .unwrap_or(0);
     !found_capabilities || clients > 1
 }
@@ -958,38 +1030,78 @@ mod tests {
         assert!(!answers_may_follow_the_query(true, Some("on\tmany\t\n")));
     }
 
+    /// The fields after the client's terminal in what tmux prints for
+    /// [`TMUX_STATE_FORMAT`]: whether the pane's window is the current one
+    /// of its session, whether the pane is the window's current one,
+    /// whether the window is zoomed, and tmux's version.
+    const SHOWN: &str = "1\t1\t0\t3.5";
+
+    /// What tmux prints for [`TMUX_STATE_FORMAT`] with passthrough
+    /// `passthrough`, `clients` attached, no answer to XTVERSION and the
+    /// pane shown as `shown` says.
+    fn state(passthrough: &str, clients: &str, shown: &str) -> Option<String> {
+        Some(format!("{passthrough}\t{clients}\t\t{shown}\n"))
+    }
+
     #[test]
     fn inside_tmux_only_with_passthrough_and_a_client() {
         let tmux_term = (Some("tmux-256color"), Some("tmux"));
-        assert!(may_query(TMUX, tmux_term, || Some("on\t1\t\n".into())));
-        assert!(may_query(TMUX, tmux_term, || Some(
-            "all\t2\tkitty(0.35.2)".into()
-        )));
-        assert!(!may_query(TMUX, tmux_term, || Some("off\t1\t\n".into())));
+        assert!(may_query(TMUX, tmux_term, || state("on", "1", SHOWN)));
+        assert!(may_query(TMUX, tmux_term, || state("all", "2", SHOWN)));
+        assert!(!may_query(TMUX, tmux_term, || state("off", "1", SHOWN)));
         assert!(
-            !may_query(TMUX, tmux_term, || Some("on\t0\t\n".into())),
+            !may_query(TMUX, tmux_term, || state("on", "0", SHOWN)),
             "detached"
         );
         assert!(
-            may_query(TMUX, PLAIN, || Some("on\t1\t\n".into())),
+            may_query(TMUX, PLAIN, || state("on", "1", SHOWN)),
             "TMUX decides, whatever TERM says"
         );
     }
 
-    /// The client's terminal follows the two fields this needs, and its
-    /// answer to XTVERSION holds blanks.
+    /// With `on`, tmux passes nothing through from a pane no client
+    /// shows: one in a window that is not the current one of its session,
+    /// or one that another pane's zoom hides. The query would wait in
+    /// vain. A pane set to `all` gets `on` from ratatui-image for the
+    /// query, so it has to show too.
     #[test]
-    fn inside_tmux_a_termtype_with_blanks_leaves_the_fields_before_it() {
+    fn inside_tmux_only_from_a_pane_that_shows() {
+        for (shown, what) in [
+            ("1\t0\t0\t3.5", "a pane beside the current one"),
+            ("1\t1\t1\t3.5", "the zoomed pane"),
+        ] {
+            assert!(may_query(TMUX, PLAIN, || state("on", "1", shown)), "{what}");
+        }
+        for (shown, what) in [
+            ("0\t1\t0\t3.5", "a window in the background"),
+            ("1\t0\t1\t3.5", "a pane hidden by a zoom"),
+        ] {
+            assert!(
+                !may_query(TMUX, PLAIN, || state("on", "1", shown)),
+                "{what}"
+            );
+            assert!(
+                !may_query(TMUX, PLAIN, || state("all", "1", shown)),
+                "{what}"
+            );
+        }
+    }
+
+    /// The client's terminal follows the two fields the query needs, and
+    /// its answer to XTVERSION holds blanks.
+    #[test]
+    fn inside_tmux_a_termtype_with_blanks_leaves_the_fields_around_it() {
         assert_eq!(
             TMUX_STATE_FORMAT,
-            "#{allow-passthrough}\t#{session_attached}\t#{client_termtype}"
+            "#{allow-passthrough}\t#{session_attached}\t#{client_termtype}\t\
+             #{window_active}\t#{pane_active}\t#{window_zoomed_flag}\t#{version}"
         );
-        assert!(may_query(TMUX, PLAIN, || Some(
-            "on\t1\tWezTerm 20240203-110809-5046fc22\n".into()
-        )));
-        assert!(!may_query(TMUX, PLAIN, || Some(
-            "off\t1\tiTerm2 3.6.7\n".into()
-        )));
+        assert!(may_query(TMUX, PLAIN, || Some(format!(
+            "on\t1\tWezTerm 20240203-110809-5046fc22\t{SHOWN}\n"
+        ))));
+        assert!(!may_query(TMUX, PLAIN, || Some(format!(
+            "off\t1\tiTerm2 3.6.7\t{SHOWN}\n"
+        ))));
     }
 
     #[test]
@@ -997,10 +1109,45 @@ mod tests {
         assert!(!may_query(TMUX, PLAIN, || None));
         assert!(!may_query(TMUX, PLAIN, || Some(String::new())));
         assert!(!may_query(TMUX, PLAIN, || Some("on".into())));
-        assert!(!may_query(TMUX, PLAIN, || Some("on\tmany\t".into())));
+        assert!(!may_query(TMUX, PLAIN, || state("on", "many", SHOWN)));
         assert!(
             !may_query(TMUX, PLAIN, || Some("on 1\n".into())),
             "blanks do not separate the fields"
         );
+        assert!(
+            !may_query(TMUX, PLAIN, || Some("on\t1\t\n".into())),
+            "with on, a pane not known to show"
+        );
+        assert!(!may_query(TMUX, PLAIN, || state(
+            "on",
+            "1",
+            "yes\t1\t0\t3.5"
+        )));
+    }
+
+    /// Under the Kitty protocol inside tmux 3.4 or later, asqr's pane gets
+    /// `all`, so transfers and deletes pass from a hidden pane too. Sixel
+    /// and iTerm2 images are written where the cursor is, and from a
+    /// hidden pane they would paint over the window that shows.
+    #[test]
+    fn kitty_images_inside_tmux_from_3_4_get_passthrough_all() {
+        let all = |kitty: bool, wrapped: bool, state: Option<String>| {
+            passthrough_all_for_images(kitty, wrapped, state.as_deref())
+        };
+        for version in ["3.4", "3.5a", "3.10", "next-3.6"] {
+            let shown = format!("1\t1\t0\t{version}");
+            assert!(all(true, true, state("on", "1", &shown)), "{version}");
+        }
+        for version in ["3.3a", "3.3", "2.9", "openbsd-7.5", "", "three"] {
+            let shown = format!("1\t1\t0\t{version}");
+            assert!(!all(true, true, state("on", "1", &shown)), "{version:?}");
+        }
+        assert!(!all(false, true, state("on", "1", SHOWN)), "not Kitty");
+        assert!(
+            !all(true, false, state("on", "1", SHOWN)),
+            "Kitty commands not wrapped for tmux"
+        );
+        assert!(!all(true, true, state("all", "1", SHOWN)), "all already");
+        assert!(!all(true, true, None), "tmux not asked");
     }
 }

@@ -103,7 +103,9 @@ Without it, asqr shows images as coarse blocks and rings the bell
 instead of sending a notification. With `on` instead of `all`, tmux
 drops what asqr sends while its window is in the background, and an
 image that arrives then stays empty until asqr gets the focus again,
-which it only learns from tmux with `set -g focus-events on`.
+which it only learns from tmux with `set -g focus-events on`. In kitty
+and Ghostty, with tmux 3.4 or later, asqr sets `all` for its own pane
+while it runs and puts the pane's setting back when it quits.
 
 ## Known limitations
 

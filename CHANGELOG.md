@@ -58,6 +58,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   like the placeholders of code, Markdown and diffs. A long reason in a
   short pane was cut off before; now the pane's header says which lines
   show, and the pane scrolls to the rest.
+- Inside tmux 3.4 or later, in kitty and Ghostty, asqr sets
+  `allow-passthrough all` for its own pane while it runs and puts the
+  pane's setting back when it quits. An image that arrives while asqr's
+  window is in the background shows when you switch to it, and the
+  deletes of its images reach the terminal from a hidden pane.
+- Inside tmux, asqr asks the terminal for its graphics protocol only
+  when a client shows asqr's pane; a pane in a background window, or
+  one hidden by another pane's zoom, gets images as blocks at once.
+  Before, asqr waited there for an answer tmux did not pass on.
 - asqr waits up to 5 seconds for the terminal's answer to the graphics
   query, up from 2. Only a terminal that does not answer waits that
   long for the first frame.

@@ -38,6 +38,15 @@ const NO_GRAPHICS: &str = "\x1b[0n";
 /// cells of 10×20 pixels, then the status report.
 const KITTY_GRAPHICS: &str = "\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[0n";
 
+/// What the stand-in tmux reports for a pane with passthrough on, one
+/// client attached, a client terminal that names itself not, the pane
+/// showing in the current window, unzoomed, and tmux 3.5.
+const PASSTHROUGH_ON: &str = "on\t1\t\t1\t1\t0\t3.5";
+
+/// The file in the sandbox's home where the stand-in tmux notes each
+/// command it gets, one line each.
+const TMUX_COMMANDS: &str = "tmux-commands";
+
 /// How long asqr waits for the answer to the graphics query.
 const QUERY_WAIT: Duration = Duration::from_secs(5);
 
@@ -52,7 +61,9 @@ struct Tui {
 
 impl Tui {
     /// Starts `asqr` with `queue` (such as `--dir <path>`) inside a
-    /// stand-in tmux that reports `tmux_state`.
+    /// stand-in tmux that reports `tmux_state`, shows `on` as the pane's
+    /// passthrough and notes every command in [`TMUX_COMMANDS`] in the
+    /// sandbox's home.
     fn start(sandbox: &Sandbox, queue: &[&str], tmux_state: &str) -> Self {
         Self::start_with(sandbox, queue, tmux_state, &[])
     }
@@ -67,8 +78,19 @@ impl Tui {
         let bin = sandbox.home().join("bin");
         std::fs::create_dir_all(&bin).expect("bin dir");
         let viewed = sandbox.home().join("viewed");
+        let commands = sandbox.home().join(TMUX_COMMANDS);
         let scripts = [
-            ("tmux", format!("echo '{tmux_state}'")),
+            (
+                "tmux",
+                format!(
+                    "echo \"$*\" >> '{}'\n\
+                     case \"$1\" in\n\
+                     display-message) echo '{tmux_state}' ;;\n\
+                     show-options) echo on ;;\n\
+                     esac",
+                    commands.display()
+                ),
+            ),
             ("open", format!("echo \"$1\" > '{}'", viewed.display())),
             ("xdg-open", format!("echo \"$1\" > '{}'", viewed.display())),
         ];
@@ -442,7 +464,7 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
     let mut tui = Tui::start(
         &sandbox,
         &["--queue", "pty", "--no-notify", "--no-title"],
-        "on\t1\t",
+        PASSTHROUGH_ON,
     );
     tui.answer_the_query(NO_GRAPHICS);
     tui.wait_for("queue: pty");
@@ -515,7 +537,7 @@ fn a_key_typed_after_an_unanswered_query_reaches_asqr() {
     let mut tui = Tui::start(
         &sandbox,
         &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
-        "on\t1\t",
+        PASSTHROUGH_ON,
     );
     tui.wait_for_the_query();
     let asked = Instant::now();
@@ -546,7 +568,7 @@ fn an_answer_after_the_query_gave_up_picks_no_option() {
     let mut tui = Tui::start(
         &sandbox,
         &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
-        "on\t1\t",
+        PASSTHROUGH_ON,
     );
     tui.wait_for_the_query();
     std::thread::sleep(QUERY_WAIT);
@@ -780,7 +802,7 @@ fn showing_a_kitty_image(sandbox: &Sandbox) -> Tui {
     let mut tui = Tui::start_with(
         sandbox,
         &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
-        "on\t1\t",
+        PASSTHROUGH_ON,
         &[
             ("TERM_PROGRAM", "pty-test"),
             ("WEZTERM_EXECUTABLE", ""),
@@ -871,4 +893,52 @@ fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
             && pop < main_screen,
         "{output:?}"
     );
+}
+
+/// Inside tmux 3.4 or later, asqr sets `allow-passthrough all` for its
+/// pane once the terminal answered as one with Kitty graphics, so images
+/// and their deletes pass while the pane is hidden, and puts the pane's
+/// own value back when it quits. A terminal without Kitty graphics leaves
+/// the pane alone.
+#[test]
+fn inside_tmux_kitty_images_pass_from_a_hidden_pane_until_asqr_quits() {
+    for (answer, all) in [(KITTY_GRAPHICS, true), (NO_GRAPHICS, false)] {
+        let sandbox = Sandbox::new();
+        let dir = sandbox.queue_dir();
+        // `TERM` makes ratatui-image wrap its commands for tmux.
+        let mut tui = Tui::start_with(
+            &sandbox,
+            &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+            "on\t1\t\t1\t1\t0\t3.4",
+            &[
+                ("TERM", "tmux-256color"),
+                ("TERM_PROGRAM", "pty-test"),
+                ("WEZTERM_EXECUTABLE", ""),
+                ("KONSOLE_VERSION", ""),
+            ],
+        );
+        tui.answer_the_query(answer);
+        tui.wait_for("Nothing to answer");
+        tui.press("q");
+        assert_eq!(tui.wait_for_exit(), 0);
+
+        let commands =
+            std::fs::read_to_string(sandbox.home().join(TMUX_COMMANDS)).expect("tmux was run");
+        let sets: Vec<&str> = commands
+            .lines()
+            .filter(|command| command.starts_with("set "))
+            .collect();
+        // ratatui-image sets `on` while it queries, and the stand-in shows
+        // `on` as the pane's own value, which asqr puts back.
+        let expected: &[&str] = if all {
+            &[
+                "set -p allow-passthrough on",
+                "set -p allow-passthrough all",
+                "set -p allow-passthrough on",
+            ]
+        } else {
+            &["set -p allow-passthrough on", "set -p allow-passthrough on"]
+        };
+        assert_eq!(sets, expected, "{answer:?}: {commands}");
+    }
 }

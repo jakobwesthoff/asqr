@@ -9,6 +9,10 @@ Accepted
 Supersedes the consequence "asqr does not ask the terminal to delete the
 earlier copies" of [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md)
 
+Amended by [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-images-through-tmux-from-a-hidden-pane.md):
+inside tmux 3.4 or later, the deletes on quitting from a hidden pane
+reach the terminal
+
 ## Context
 
 The adversarial review of the redesign on 2026-10-15 found that copies

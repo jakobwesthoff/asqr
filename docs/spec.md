@@ -1241,10 +1241,16 @@ the block rendering and the bell. With `on`, tmux passes sequences only
 while asqr's pane is visible: an image first shown while the pane is
 hidden stays empty until the pane gains the focus again, which asqr only
 learns when tmux forwards focus reports (`set -g focus-events on`).
-Inside tmux, asqr asks tmux whether passthrough is on for its pane and
-whether a client is attached, and queries the terminal only when both
-hold: otherwise the query gets no answer and holds up the start for
-its whole wait. Without `TMUX`, when `TERM` starts with `tmux` or
+Under the Kitty protocol inside tmux 3.4 or later, asqr sets
+`allow-passthrough all` for its own pane while it runs, so its images
+and their deletes pass from a hidden pane too (ADR 44). Sixel and
+iTerm2 images keep the pane's setting: from a hidden pane they would
+paint over the window that shows. Inside tmux, asqr asks tmux whether
+passthrough is on for its pane, whether a client is attached and
+whether a client shows the pane, and queries the terminal only when all
+three hold: otherwise the query gets no answer and holds up the start
+for its whole wait. A pane no client shows at start gets its images as
+blocks until asqr restarts. Without `TMUX`, when `TERM` starts with `tmux` or
 `TERM_PROGRAM` is `tmux`, as after ssh from a tmux pane,
 asqr cannot ask that tmux. It sends a device status request through
 tmux's passthrough instead and waits up to 300 ms for the answer: with
@@ -1259,10 +1265,12 @@ ratatui-image, the crate asqr draws images with, sets
 `allow-passthrough on` for the pane while asqr detects the protocol.
 asqr reads the pane's own value first (`tmux show-options -p`) and puts
 it back once detection is done, or unsets it again when the pane had
-none of its own. Without a tmux server, or with a tmux before 3.3 that
-has no such option, there is nothing to put back. Known limitation: the
-pane's passthrough is on while the query runs, and asqr killed in that
-window leaves it on.
+none of its own. Where asqr sets `all` for Kitty images, it puts the
+value back when it quits instead, after it deleted its images. Without
+a tmux server, or with a tmux before 3.3 that has no such option, there
+is nothing to put back, and asqr sets no `all`. Known limitation: the
+pane's passthrough is on while the query runs, or `all` while asqr
+runs, and asqr killed in that window leaves it so.
 
 ## 8. The command line
 
