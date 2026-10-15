@@ -38,6 +38,17 @@ pub enum AppEffect {
     OpenImage(String),
 }
 
+/// What shows over the screen, at most one at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overlay {
+    /// The active session's keys.
+    Help,
+    /// The waiting sessions, with the cursor on this one.
+    SessionList(usize),
+    /// The active session's whole intro, from this line on.
+    Intro(usize),
+}
+
 #[derive(Debug, Default)]
 pub struct App {
     sessions: Vec<SessionState>,
@@ -125,6 +136,24 @@ impl App {
     /// The first line of the intro shown while its overlay is open.
     pub fn intro_scroll(&self) -> Option<usize> {
         self.intro
+    }
+
+    /// The overlay the screen shows, `None` with an empty queue. Keys open
+    /// one at a time, since each takes the key that would open another; were
+    /// several open, the one shown is the one [`App::handle`] gives the keys
+    /// to first. The intro shows only for a session that has one, also an
+    /// empty one; [`App::add`] closes it when a replaced file drops it.
+    pub fn overlay(&self) -> Option<Overlay> {
+        let state = self.active()?;
+        if let Some(scroll) = self.intro
+            && state.session().intro.is_some()
+        {
+            return Some(Overlay::Intro(scroll));
+        }
+        if let Some(cursor) = self.list {
+            return Some(Overlay::SessionList(cursor));
+        }
+        state.help().then_some(Overlay::Help)
     }
 
     /// Takes what the last draw of the intro overlay showed, which depends
@@ -267,10 +296,14 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui_image::picker::Picker;
 
     use super::*;
     use crate::format::Session;
+    use crate::tui::render::{PaneLayout, View, draw};
 
     fn session(question: &str) -> Session {
         serde_json::from_str(&format!(
@@ -712,5 +745,168 @@ mod tests {
 
         app.handle(key('j'));
         assert_eq!(app.current_notice(), None);
+    }
+
+    // -----------------------------------------------------------------
+    // Which overlay shows
+    // -----------------------------------------------------------------
+
+    /// One session with an intro and an image entry, with the help, the
+    /// session list and the intro open as the flags say. Keys open at most
+    /// one of them, since each takes the key that would open another, so
+    /// the tests set the fields to pin which one shows when several are set.
+    fn overlays(help: bool, list: bool, intro: bool) -> App {
+        let session: Session = serde_json::from_str(
+            r#"{"asqr": 2, "intro": "Read this first.", "questions": [{"id": "q", "text": "?",
+                "kind": "single", "context": [{"type": "image", "path": "/nowhere/cat.png"}],
+                "options": [{"id": "a", "label": "A"}]}]}"#,
+        )
+        .expect("parses");
+        let mut state = SessionState::new("over", session, None);
+        if help {
+            state.handle(key('?'));
+            assert!(state.help(), "? opens the help");
+        }
+        let mut app = App::default();
+        app.add(state);
+        app.list = list.then_some(0);
+        app.intro = intro.then_some(0);
+        app
+    }
+
+    /// The rows of `app` drawn at 80×24 with `view`, which remembers the
+    /// draw for [`View::must_clear`].
+    fn drawn(app: &App, view: &mut View) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                draw(frame, app, view);
+            })
+            .expect("draws");
+        let buf = terminal.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    fn view() -> View<'static> {
+        View::new("default", PaneLayout::Auto, Picker::halfblocks())
+    }
+
+    /// Whether the screen must be cleared once every overlay of `app` is
+    /// closed, after a draw with them open over its image.
+    fn clears_after_closing(mut app: App) -> bool {
+        let mut view = view();
+        drawn(&app, &mut view);
+        assert!(!view.must_clear(&app), "nothing to clear while it is open");
+        app.intro = None;
+        app.list = None;
+        if app.sessions[0].help() {
+            app.sessions[0].handle(key('x'));
+        }
+        view.must_clear(&app)
+    }
+
+    #[test]
+    fn the_intro_wins_over_the_other_overlays_as_it_takes_the_keys_first() {
+        for (help, list) in [(true, false), (false, true), (true, true)] {
+            let app = overlays(help, list, true);
+            assert_eq!(app.overlay(), Some(Overlay::Intro(0)));
+            let screen = drawn(&app, &mut view());
+
+            assert!(
+                screen[23].contains(" esc/q/i  close"),
+                "help {help}, list {list}: the key bar is the intro's: {}",
+                screen[23]
+            );
+            assert!(
+                !screen
+                    .iter()
+                    .any(|row| row.contains(" Keys ") || row.contains(" Waiting sessions ")),
+                "help {help}, list {list}: only the intro shows: {screen:#?}"
+            );
+            assert!(clears_after_closing(app));
+        }
+    }
+
+    #[test]
+    fn the_session_list_wins_over_the_help() {
+        let app = overlays(true, true, false);
+        assert_eq!(app.overlay(), Some(Overlay::SessionList(0)));
+        let screen = drawn(&app, &mut view());
+
+        let list_only = drawn(&overlays(false, true, false), &mut view());
+        assert!(
+            screen.iter().any(|row| row.contains(" Waiting sessions ")),
+            "{screen:#?}"
+        );
+        assert_eq!(screen[23], list_only[23], "the key bar is the list's");
+        assert_eq!(screen, list_only, "and the help does not show");
+        assert!(clears_after_closing(app));
+    }
+
+    #[test]
+    fn each_overlay_shows_alone_and_none_without_a_flag() {
+        for (help, list, intro, title, overlay) in [
+            (true, false, false, " Keys ", Overlay::Help),
+            (
+                false,
+                true,
+                false,
+                " Waiting sessions ",
+                Overlay::SessionList(0),
+            ),
+            (false, false, true, " Intro ", Overlay::Intro(0)),
+        ] {
+            let app = overlays(help, list, intro);
+            assert_eq!(app.overlay(), Some(overlay));
+            let screen = drawn(&app, &mut view());
+
+            assert!(
+                screen.iter().any(|row| row.contains(title)),
+                "{title}: {screen:#?}"
+            );
+            assert!(clears_after_closing(app), "{title}");
+        }
+
+        let mut view = view();
+        let app = overlays(false, false, false);
+        assert_eq!(app.overlay(), None);
+        drawn(&app, &mut view);
+        assert!(!view.must_clear(&app), "no overlay, nothing to clear");
+    }
+
+    #[test]
+    fn an_intro_flag_without_an_intro_shows_no_overlay() {
+        let mut app = overlays(true, false, false);
+        let mut view = view();
+        drawn(&app, &mut view);
+        app.sessions[0].handle(key('x'));
+        app.add(SessionState::new("over", session("q"), None));
+        app.intro = Some(0);
+
+        assert_eq!(app.overlay(), None);
+        assert!(view.must_clear(&app), "the help over the image is gone");
+        let screen = drawn(&app, &mut view);
+        assert!(!screen.iter().any(|row| row.contains(" Intro ")));
+    }
+
+    #[test]
+    fn an_empty_queue_shows_no_overlay() {
+        let app = App {
+            list: Some(0),
+            intro: Some(0),
+            ..App::default()
+        };
+
+        assert_eq!(app.overlay(), None);
+        let screen = drawn(&app, &mut view());
+
+        assert!(
+            !screen
+                .iter()
+                .any(|row| row.contains(" Waiting sessions ") || row.contains(" Intro ")),
+            "{screen:#?}"
+        );
     }
 }

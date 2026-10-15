@@ -25,7 +25,7 @@ use super::source_line::columns;
 use super::tabs::draw_tabs;
 use crate::format::ContextEntry;
 use crate::tui::text_field::FieldShape;
-use crate::tui::{App, Extent, Page, SessionState};
+use crate::tui::{App, Extent, Overlay, Page};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -114,7 +114,7 @@ impl<'a> View<'a> {
     /// draw showed under the overlay; a session picked in the list may
     /// have none, and then the clear only costs a full redraw.
     pub fn must_clear(&self, app: &App) -> bool {
-        self.overlay_shown && self.image_shown && !overlay_open(app)
+        self.overlay_shown && self.image_shown && app.overlay().is_none()
     }
 
     /// Reads and sends every image again as it is next shown (ADR 24).
@@ -206,59 +206,50 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     frame.render_widget(Line::from(feedback).fg(Color::Yellow), status);
 
     // The intro overlay leaves the key bar free, which says how to scroll
-    // and close it. It never shows together with the other overlays: while
-    // it is open it takes every key, and any key closes the help.
-    let intro_page = match (app.intro_scroll(), session_intro(state)) {
-        (Some(scroll), Some(intro)) => {
+    // and close it, so it is drawn first: what of it fits decides the key
+    // bar.
+    let overlay = app.overlay();
+    let (intro_page, hints) = match overlay {
+        Some(Overlay::Intro(scroll)) => {
             let above_keys = Rect {
                 height: area.height - 1,
                 ..area
             };
-            draw_intro(above_keys, frame.buffer_mut(), intro, scroll)
+            let intro = state.session().intro.as_deref();
+            let intro = intro.expect("the intro overlay is open only on an intro");
+            let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll);
+            let hints = if page.total > page.shown {
+                vec![
+                    ("↑/↓", "scroll"),
+                    ("pgup/pgdn", "page"),
+                    ("esc/q/i", "close"),
+                ]
+            } else {
+                vec![("esc/q/i", "close")]
+            };
+            (page, hints)
         }
-        _ => Extent::default(),
-    };
-
-    let hints = match app.intro_scroll() {
-        Some(_) if intro_page.total > intro_page.shown => vec![
-            ("↑/↓", "scroll"),
-            ("pgup/pgdn", "page"),
-            ("esc/q/i", "close"),
-        ],
-        Some(_) => vec![("esc/q/i", "close")],
-        None => key_hints(state, app.list_cursor().is_some(), pane_page),
+        Some(Overlay::SessionList(_)) => (Extent::default(), key_hints(state, true, pane_page)),
+        Some(Overlay::Help) | None => (Extent::default(), key_hints(state, false, pane_page)),
     };
     frame.render_widget(key_line(&hints, keys.width), keys);
 
-    // These overlays use the whole screen, so they fit the smallest one.
-    if state.help() {
-        draw_help(area, frame.buffer_mut(), state);
+    // These overlays use the whole screen, key bar included, so they fit
+    // the smallest one.
+    match overlay {
+        Some(Overlay::Help) => draw_help(area, frame.buffer_mut(), state),
+        Some(Overlay::SessionList(cursor)) => {
+            draw_session_list(area, frame.buffer_mut(), app, cursor);
+        }
+        Some(Overlay::Intro(_)) | None => {}
     }
-    if let Some(cursor) = app.list_cursor() {
-        draw_session_list(area, frame.buffer_mut(), app, cursor);
-    }
-    view.overlay_shown = overlay_open(app);
+    view.overlay_shown = overlay.is_some();
 
     Drawn {
         intro_page: Some(intro_page),
         pane_page: Some(pane_page),
         field_shape,
     }
-}
-
-/// Whether `app` shows an overlay over the screen: the help, the intro or
-/// the session list. A screen too small for asqr shows none of them, and
-/// neither does an empty queue.
-fn overlay_open(app: &App) -> bool {
-    app.active().is_some_and(|state| {
-        state.help()
-            || app.list_cursor().is_some()
-            || (app.intro_scroll().is_some() && session_intro(state).is_some())
-    })
-}
-
-fn session_intro(state: &SessionState) -> Option<&str> {
-    state.session().intro.as_deref()
 }
 
 #[cfg(test)]
@@ -273,7 +264,7 @@ mod tests {
     use super::super::test_support::{self, find, find_from, row};
     use super::*;
     use crate::format::{Session, result_answers};
-    use crate::tui::Focus;
+    use crate::tui::{Focus, SessionState};
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
     const RELEASE: &str = include_str!("../../../examples/sessions/release-checklist.json");
