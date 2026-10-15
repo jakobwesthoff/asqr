@@ -434,14 +434,16 @@ pub fn resting_lines(
 /// can count them (spec section 7.1): the lines without the keys, and a
 /// row for the counter when the field has `limits`, so giving it the keys
 /// adds none. Without a cursor, the cursor's blank after a full line is
-/// left out.
+/// left out. A field whose head can take the focus fill is counted
+/// `filled`, as the fill's blanks wrap like text.
 pub fn counted_lines(
     head: Span<'static>,
+    filled: bool,
     text: &str,
     width: usize,
     limits: bool,
 ) -> Vec<Line<'static>> {
-    let mut lines = resting_lines(head, false, text, width);
+    let mut lines = resting_lines(head, filled, text, width);
     if limits {
         lines.push(Line::default());
     }
@@ -1054,7 +1056,7 @@ mod tests {
             "the cursor on the word's first letter"
         );
         assert_eq!(
-            counted_lines(Span::from("> "), &text, 22, false).len(),
+            counted_lines(Span::from("> "), false, &text, 22, false).len(),
             3,
             "counting agrees"
         );
@@ -1455,14 +1457,25 @@ mod tests {
     }
 
     #[test]
+    fn counting_a_filled_head_wraps_its_blanks_like_text() {
+        // `Answer:` ends at the edge of 7 columns. Its blank hangs past the
+        // edge unfilled; filled, it starts the next row, and `abc` no longer
+        // fits after it.
+        let head = || Span::from("Answer: ");
+
+        assert_eq!(counted_lines(head(), false, "abc", 7, false).len(), 2);
+        assert_eq!(counted_lines(head(), true, "abc", 7, false).len(), 3);
+    }
+
+    #[test]
     fn counting_keeps_a_row_for_the_counter_of_a_field_with_limits() {
         let head = || Span::from("> ");
 
-        assert_eq!(counted_lines(head(), "a\nb", 40, false).len(), 2);
-        assert_eq!(counted_lines(head(), "a\nb", 40, true).len(), 3);
+        assert_eq!(counted_lines(head(), false, "a\nb", 40, false).len(), 2);
+        assert_eq!(counted_lines(head(), false, "a\nb", 40, true).len(), 3);
         // A full line of 4 columns: the cursor's blank would take a row of
         // its own, which counting leaves out.
-        assert_eq!(counted_lines(head(), "abcd", 6, false).len(), 1);
+        assert_eq!(counted_lines(head(), false, "abcd", 6, false).len(), 1);
         let field = TextField::new("abcd");
         assert_eq!(
             field

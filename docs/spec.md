@@ -693,10 +693,15 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
     the context pane takes the rest over the whole of W. So the pane
     keeps its place while the person moves between questions (user,
     2026-10-14). A question's rows are counted at that width without a
-    cursor: every field unfocused with the text typed so far, a row for
-    the counter of a field with a length, and no row for the cursor
-    after a full line. While a field or a question's note has the keys,
-    the current question counts as drawn, its text cursor included, so
+    cursor: every field unfocused with the text typed so far, the own
+    answer's label highlighted as under the cursor, a row for the
+    counter of a field with a length, and no row for the cursor after a
+    full line. The blank after a highlighted label shows, so a label
+    ending at the edge moves the answer's text one column right, which
+    can take a row more. Counted highlighted, the question keeps its
+    rows as the cursor moves onto the own answer and off it. While a
+    field or a question's note has the keys, the current question
+    counts as drawn, its text cursor included, so
     a text that fills its line exactly gives the cursor's blank its own
     row at once. Typing moves the pane only when the tallest question
     gains a row, and it moves back up only once no field or note has the

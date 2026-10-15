@@ -130,7 +130,8 @@ type RowsKey = (String, u64, usize, u16);
 /// follows what the person types only line by line.
 #[derive(Default)]
 pub(super) struct QuestionHeight {
-    /// The rows each question takes, counted without a cursor. The current
+    /// The rows each question takes, counted without a cursor and with
+    /// the own answer's head filled (`Pass::Counted`). The current
     /// question is counted on every draw, as typing changes it, and the
     /// others once per width and revision.
     rows: HashMap<RowsKey, usize>,
@@ -384,6 +385,14 @@ enum Pass {
     /// text typed so far. A field with a length keeps a row for its
     /// counter, so focusing it adds none, and the cursor's blank after a
     /// full line is left out.
+    ///
+    /// The own answer's head, the one field head of a question that takes
+    /// the focus fill, is laid out filled, whichever row is current.
+    /// A filled head's blanks show and wrap like text, so a head ending at
+    /// the edge starts the next row with its blank and moves the text
+    /// right. A shown blank only ever moves text right, so the filled
+    /// layout is the most rows the head can take, and the count stays the
+    /// same as the cursor moves onto the own answer and off it.
     Counted,
 }
 
@@ -479,7 +488,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                     live_field(state, row, width, &mut content.shape)
                 } else {
                     let length = question.custom.as_ref().and_then(|custom| custom.length());
-                    let lines = counted_lines(head, text, width, length.is_some());
+                    let lines = counted_lines(head, true, text, width, length.is_some());
                     (lines, None)
                 }
             }
@@ -496,7 +505,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                     };
                     live_field(state, row, width, &mut content.shape)
                 } else {
-                    let lines = counted_lines(head, text, width, question.length.is_some());
+                    let lines = counted_lines(head, false, text, width, question.length.is_some());
                     (lines, None)
                 }
             }
@@ -1186,6 +1195,54 @@ mod tests {
             own_rows(&after("")),
             ["  ( ) ✎ Own answer: ", "    —"],
             "a plain blank hangs past the edge"
+        );
+    }
+
+    #[test]
+    fn a_filled_head_ending_at_the_edge_leaves_room_for_its_last_line_above_the_pane() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        // The own answer's head ends at the edge of 19 columns, and its
+        // text fills the row under it unless the fill's blank goes first.
+        let session = SESSION.replace(
+            r#""custom": true,"#,
+            r#""custom": true, "context": [{"type": "code", "content": "x"}],"#,
+        );
+        let mut state = SessionState::new(
+            "edge",
+            serde_json::from_str(&session).expect("parses"),
+            None,
+        );
+        for key in "jabcdefghijklmno".chars() {
+            state.handle(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+        }
+        state.handle(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        let drawn =
+            test_support::line_texts(&question_content(&state, state.tab(), 19, Pass::Live).lines);
+        assert!(
+            drawn.ends_with(&[
+                "❯ (•) ✎ Own answer:".to_owned(),
+                "     ".to_owned(),
+                "    abcdefghijklmno".to_owned(),
+                String::new(),
+                "Notes: —".to_owned(),
+            ]),
+            "{drawn:?}"
+        );
+
+        let area = Rect::new(0, 0, 19, 30);
+        let mut buf = Buffer::empty(area);
+        let mut tab = TabState::new(PaneLayout::Auto, Picker::halfblocks());
+        draw_tab(area, &mut buf, &state, &mut tab);
+
+        let shown = test_support::rows(&buf);
+        assert_eq!(
+            shown[..drawn.len()]
+                .iter()
+                .map(|row| row.trim_end())
+                .collect::<Vec<_>>(),
+            drawn.iter().map(|line| line.trim_end()).collect::<Vec<_>>(),
+            "the whole question shows above the pane: {shown:#?}"
         );
     }
 

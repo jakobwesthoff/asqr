@@ -64,6 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The notes around a Markdown file cut at 8 MiB are cut at the pane's
   edge, as those of code and diffs are. Before, they wrapped onto
   further rows in a pane narrower than the note.
+- A question with its context pane below shows its last line while the
+  cursor is on its own answer and the own answer's label ends at the
+  right edge. Before, the highlighted label pushed the answer's text one
+  column right, which could take a row more than the question had room
+  for, and the last line was cut.
 
 ## [0.11.0] - 2026-10-15
 
