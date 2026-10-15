@@ -53,11 +53,7 @@ pub fn draw_pane(
         },
     };
     // A smaller terminal may have left the offset past the end.
-    let offset = state.pane_offset();
-    let offset = Offset {
-        top: offset.top.min(page.rows.last_start()),
-        left: offset.left.min(page.columns.last_start()),
-    };
+    let offset = page.clamp(state.pane_offset());
     viewer.draw(body, buf, offset);
     let line = header_line(entry, page, offset, header.width, !state.pane_focused());
     // The focused pane's header stands out the way the current tab does,
@@ -88,16 +84,9 @@ fn header_line(
     offer_tab: bool,
 ) -> Line<'static> {
     let width = usize::from(width);
-    let taller = page.rows.total > page.rows.shown;
+    let position = page.rows.position(offset.top);
+    let taller = position.is_some();
     let wider = page.columns.total > page.columns.shown;
-    let position = taller.then(|| {
-        format!(
-            "{}–{} of {}",
-            offset.top + 1,
-            offset.top + page.rows.shown,
-            page.rows.total
-        )
-    });
     let name = entry_name(entry);
     let with_tab = match &position {
         Some(position) => format!(" {position} · tab"),
@@ -173,6 +162,10 @@ pub fn context_hint(entry: Option<&ContextEntry>, key: &str, width: u16) -> Line
 
 #[cfg(test)]
 mod tests {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui_image::picker::Picker;
+
+    use super::super::test_support::{find, row};
     use super::*;
 
     fn entry(json: &str) -> ContextEntry {
@@ -392,5 +385,39 @@ mod tests {
         ));
         assert_eq!(line, "日本語のとても長…  4–15 of 120");
         assert_eq!(columns(&line), 30);
+    }
+
+    #[test]
+    fn a_pane_scrolled_past_the_end_of_a_taller_body_draws_its_last_page() {
+        let content = (1..=30)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\\n");
+        let json = format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "text",
+                "context": [{{"type": "code", "title": "Log", "content": "{content}"}}]}}]}}"#
+        );
+        let mut state =
+            SessionState::new("batch", serde_json::from_str(&json).expect("parses"), None);
+        // A terminal 5 lines tall let the person scroll down to line 26.
+        state.set_pane_page(Some(Page {
+            rows: Extent {
+                shown: 5,
+                total: 30,
+            },
+            columns: Extent::default(),
+        }));
+        for code in [KeyCode::Tab, KeyCode::End] {
+            state.handle(KeyEvent::new(code, KeyModifiers::NONE));
+        }
+        assert_eq!(state.pane_offset().top, 25);
+
+        let area = Rect::new(0, 0, 40, 11);
+        let mut buf = Buffer::empty(area);
+        let mut viewers = Viewers::new(Picker::halfblocks());
+        draw_pane(area, &mut buf, &state, &mut viewers);
+
+        assert!(row(&buf, 0).ends_with("21–30 of 30"), "{:?}", row(&buf, 0));
+        assert_eq!(find(&buf, "line 21").1, 1);
     }
 }

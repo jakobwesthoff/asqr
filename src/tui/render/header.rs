@@ -43,13 +43,23 @@ pub(super) fn header_lines(state: &SessionState, width: usize, height: u16) -> V
         return lines;
     };
     // Dim comes on top of patine's styles, which still show underneath.
-    let intro: Vec<Line<'static>> = field_lines(intro, room.saturating_sub(1))
+    let intro: Vec<Line<'static>> = intro_lines(intro, room)
         .into_iter()
-        .map(|line| indented(line, 1).dim())
+        .map(Stylize::dim)
         .collect();
     let more = format!("… {}: more", question_key(state, "i"));
     lines.extend(at_most(intro, if short { 1 } else { 3 }, &more, room));
     lines
+}
+
+/// The session's intro in patine's styles, wrapped so that each line,
+/// with the blank column it starts with, takes at most `width` columns.
+/// The header and the intro overlay show it alike.
+pub(super) fn intro_lines(intro: &str, width: usize) -> Vec<Line<'static>> {
+    field_lines(intro, width.saturating_sub(1))
+        .into_iter()
+        .map(|line| indented(line, 1))
+        .collect()
 }
 
 /// The first `count` of `lines`; when that cuts some off, the last one
@@ -104,6 +114,8 @@ fn ending_in(line: Line<'static>, marker: &str, width: usize) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::style::Style;
+
     use super::super::test_support::line_texts;
     use super::*;
 
@@ -125,6 +137,21 @@ mod tests {
         assert_eq!(
             header("").spans,
             [Span::from(" "), Span::from("batch").bold()]
+        );
+    }
+
+    #[test]
+    fn the_intro_wraps_within_its_width_behind_a_blank_column() {
+        let lines = intro_lines("Round **two** of the layout", 12);
+
+        assert_eq!(line_texts(&lines), [" Round two", " of the", " layout"]);
+        assert_eq!(lines[0].spans[0], Span::from(" "));
+        assert!(
+            lines[0]
+                .spans
+                .iter()
+                .any(|span| span.content == "two" && span.style == Style::new().bold()),
+            "{lines:?}"
         );
     }
 

@@ -7,11 +7,12 @@
 //! overlay that lists every key.
 
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
+use ratatui::widgets::{Paragraph, Widget, Wrap};
 
+use super::overlay::{overlay_block, popup};
 use super::source_line::columns;
 use crate::format::Kind;
 use crate::tui::{Focus, Page, Row, SessionState};
@@ -66,16 +67,15 @@ const FULL_SCREEN_HELP: &[(&str, &str)] = &[
 /// pane's while it has the focus, every key otherwise.
 pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
     let (keys, title) = if state.full_screen() {
-        (FULL_SCREEN_HELP, " Keys of the full-screen view ")
+        (FULL_SCREEN_HELP, "Keys of the full-screen view")
     } else if state.pane_focused() {
-        (PANE_HELP, " Keys of the context pane ")
+        (PANE_HELP, "Keys of the context pane")
     } else {
-        (HELP, " Keys ")
+        (HELP, "Keys")
     };
     let height = u16::try_from(keys.len() + 2).expect("a short list");
-    // Narrower than 70 columns, the layout gives the help the whole width.
-    let area = area.centered(Constraint::Length(70), Constraint::Length(height));
-    Clear.render(area, buf);
+    // Narrower than 70 columns, the help takes the whole width.
+    let area = popup(area, 70, height, buf);
     // `format!` pads by characters, and every key is one column per
     // character, so the longest key plus one blank sets the column.
     let key_column = keys
@@ -93,12 +93,9 @@ pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
             ])
         })
         .collect();
-    let block = Block::bordered()
-        .title(title)
-        .title_bottom(Line::from(" any key closes ").right_aligned());
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(block)
+        .block(overlay_block(title, Some(Line::from("any key closes"))))
         .render(area, buf);
 }
 
@@ -268,7 +265,7 @@ fn hint_rank(key: &str) -> u8 {
 mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::super::test_support::line_texts;
+    use super::super::test_support::{find, line_texts, row};
     use super::*;
     use crate::tui::Extent;
 
@@ -393,5 +390,34 @@ mod tests {
         // of which the last two blanks may run past the edge.
         assert_eq!(text(21), " 日本  表示   q  quit");
         assert_eq!(text(20), " q  quit");
+    }
+
+    #[test]
+    fn the_help_frame_names_the_keys_and_how_to_close_it() {
+        let state = SessionState::new(
+            "batch",
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+            )
+            .expect("parses"),
+            None,
+        );
+        let area = Rect::new(0, 0, 74, 15);
+        let mut buf = Buffer::empty(area);
+        draw_help(area, &mut buf, &state);
+
+        assert_eq!(row(&buf, 0), format!("  ┌ Keys {}┐", "─".repeat(62)));
+        assert_eq!(
+            row(&buf, 1),
+            format!("  │↑/↓, k/j   move between the rows{}│", " ".repeat(36))
+        );
+        assert_eq!(
+            row(&buf, 14),
+            format!("  └{} any key closes ┘", "─".repeat(52))
+        );
+        assert_eq!(buf[find(&buf, "Keys")].modifier, Modifier::empty());
+        assert_eq!(buf[find(&buf, "any key")].modifier, Modifier::empty());
+        assert_eq!(buf[find(&buf, "↑/↓, k/j")].modifier, Modifier::BOLD);
+        assert_eq!(buf[find(&buf, "move between")].modifier, Modifier::empty());
     }
 }

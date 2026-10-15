@@ -22,6 +22,13 @@ impl Extent {
     pub fn last_start(self) -> usize {
         self.total.saturating_sub(self.shown)
     }
+
+    /// Which lines show from `start` on, counted from 1, as "4–15 of 120";
+    /// `None` where all of them fit, as then there is nothing to say.
+    pub fn position(self, start: usize) -> Option<String> {
+        (self.total > self.shown)
+            .then(|| format!("{}–{} of {}", start + 1, start + self.shown, self.total))
+    }
 }
 
 /// What one draw of a scrolling view showed, down and sideways.
@@ -29,6 +36,18 @@ impl Extent {
 pub struct Page {
     pub rows: Extent,
     pub columns: Extent,
+}
+
+impl Page {
+    /// `offset` brought back within this page, so that the view stays full.
+    /// An offset goes past the end where a larger terminal shows more of
+    /// the view than the one it was scrolled in.
+    pub fn clamp(self, offset: Offset) -> Offset {
+        Offset {
+            top: offset.top.min(self.rows.last_start()),
+            left: offset.left.min(self.columns.last_start()),
+        }
+    }
 }
 
 /// Where a scrolling view starts: the first line and the first column
@@ -55,8 +74,7 @@ const SIDEWAYS_STEP: usize = 4;
 /// terminal left past the end: it is brought back first, so the first key
 /// after a resize already moves the view.
 pub fn scroll(key: KeyEvent, offset: Offset, page: Page, focused: bool) -> Option<Offset> {
-    let top = offset.top.min(page.rows.last_start());
-    let left = offset.left.min(page.columns.last_start());
+    let Offset { top, left } = page.clamp(offset);
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let (top, left) = match key.code {
         KeyCode::Char('u') if control => (top.saturating_sub(page.rows.shown), left),
@@ -72,10 +90,7 @@ pub fn scroll(key: KeyEvent, offset: Offset, page: Page, focused: bool) -> Optio
         KeyCode::Char('G') | KeyCode::End => (page.rows.last_start(), left),
         _ => return None,
     };
-    Some(Offset {
-        top: top.min(page.rows.last_start()),
-        left: left.min(page.columns.last_start()),
-    })
+    Some(page.clamp(Offset { top, left }))
 }
 
 #[cfg(test)]
@@ -200,6 +215,27 @@ mod tests {
     fn an_offset_past_the_end_comes_back_before_the_key_applies() {
         // A taller terminal had scrolled to line 35; now the last start is 30.
         assert_eq!(scroll(key('k'), at(35, 40), PAGE, true), Some(at(29, 30)));
+    }
+
+    #[test]
+    fn a_page_brings_an_offset_back_within_it_in_both_directions() {
+        assert_eq!(PAGE.clamp(at(5, 8)), at(5, 8), "inside");
+        assert_eq!(PAGE.clamp(at(30, 30)), at(30, 30), "at the last start");
+        assert_eq!(PAGE.clamp(at(35, 8)), at(30, 8), "below");
+        assert_eq!(PAGE.clamp(at(5, 40)), at(5, 30), "to the right");
+        assert_eq!(Page::default().clamp(at(3, 3)), at(0, 0), "nothing shown");
+    }
+
+    #[test]
+    fn the_position_names_the_lines_shown_only_where_some_are_not() {
+        assert_eq!(PAGE.rows.position(0).as_deref(), Some("1–10 of 40"));
+        assert_eq!(PAGE.rows.position(30).as_deref(), Some("31–40 of 40"));
+        let fits = Extent {
+            shown: 10,
+            total: 10,
+        };
+        assert_eq!(fits.position(0), None);
+        assert_eq!(Extent::default().position(0), None);
     }
 
     #[test]
