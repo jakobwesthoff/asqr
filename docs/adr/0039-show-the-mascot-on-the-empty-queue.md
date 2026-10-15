@@ -22,8 +22,12 @@ which decodes and resizes them, behave as follows where it matters here:
 
 - With `Resize::Fit`, ratatui-image never enlarges a picture, and every
   protocol draws from the area's top-left corner. Nothing centres it.
-- ratatui-image resizes a picture before encoding it unless the picture
-  fills its cells exactly on at least one axis.
+- ratatui-image resizes a picture before its first encoding, to the
+  pixels of the cells it takes and keeping its proportions, and pads it
+  with transparent pixels to those cells. image hands back a copy when
+  the new size equals the old one, so a picture that fills its cells
+  exactly on one axis is padded and not resampled. Later draws at the
+  same size keep that encoding.
 - Both resize each channel on its own, without premultiplying alpha. The
   transparent pixels of the mascot store black, so a plain resize
   darkens the picture's edges.
@@ -78,7 +82,8 @@ Drawing:
 - asqr scales the picture to the side in pixels itself, with Lanczos3,
   each colour multiplied by its alpha before and divided by the new
   alpha after. The scaled picture fills its cells exactly on one axis,
-  so ratatui-image's `Resize::Fit` encodes it as it is.
+  so ratatui-image's first encoding pads it to its cells with
+  transparent pixels and does not resample it.
 - With an image protocol, the picture is drawn through the same image
   type as the images of context entries. It is decoded, scaled and
   encoded when a picture or a size is drawn for the first time, and

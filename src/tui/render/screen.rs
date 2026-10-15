@@ -197,7 +197,6 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             };
             let empty = EmptyQueue {
                 which,
-                font: view.mascot.font(),
                 no_color: view.no_color,
             };
             frame.render_stateful_widget(empty, main, &mut view.mascot);

@@ -187,12 +187,18 @@ impl Mascot {
     /// for [`font`](Mascot::font).
     ///
     /// The picture is decoded, scaled and encoded only when `which` or the
-    /// area's size differs from the last draw. Scaled to fill the area on
-    /// one axis, it passes `Resize::Fit` unchanged (ratatui-image 11.1.0
-    /// `lib.rs` l.470-480). `Resize::Scale` would resize it once more,
-    /// without regard to alpha, and bring back the fringe [`scaled`]
-    /// avoids. Without an image protocol, [`HalfBlocks`] draws the scaled
-    /// picture as it is.
+    /// area's size differs from the last draw.
+    ///
+    /// ratatui-image's first encoding resizes the picture to the area's
+    /// pixels, keeping its proportions, and puts it on a transparent
+    /// canvas of the area's cells (ratatui-image 11.1.0 `lib.rs`
+    /// l.413-437). The scaled picture fills the area on one axis, so that
+    /// resize hands back a copy (image 0.25.10 `imageops/sample.rs`
+    /// l.984-989) and does not resample it without regard to alpha, which
+    /// would bring back the fringe [`scaled`] avoids. From the second draw
+    /// at the same size on, `Resize::Fit` keeps that encoding, as the
+    /// picture fits its cells (`lib.rs` l.470-480). Without an image
+    /// protocol, [`HalfBlocks`] draws the scaled picture as it is.
     pub(super) fn draw(&mut self, which: Which, area: Rect, buf: &mut Buffer) {
         let size = area.as_size();
         let kept =
@@ -382,10 +388,12 @@ pub(super) mod tests {
         }
     }
 
-    /// ratatui-image resizes a picture again unless it fits its cells
-    /// exactly on one axis, and it resizes without taking alpha into
-    /// account (ratatui-image 11.1.0 `lib.rs` l.470-480). The scaled
-    /// picture must therefore fit the rect so that it does not.
+    /// ratatui-image's first encoding of a picture resizes it to the
+    /// pixels of its cells, keeping its proportions, without taking alpha
+    /// into account, and pads it with transparent pixels (ratatui-image
+    /// 11.1.0 `lib.rs` l.413-437). A picture that fills its cells on one
+    /// axis already comes back as a copy, so the scaled picture must fill
+    /// the rect on one axis and take exactly its cells.
     #[test]
     fn the_scaled_picture_fits_its_cells_so_ratatui_image_keeps_it() {
         let picture = DynamicImage::new_rgba8(768, 768);
@@ -405,6 +413,38 @@ pub(super) mod tests {
             );
             assert_eq!(Resize::natural_size(&picture, font), rect.as_size());
         }
+    }
+
+    /// The encoding the Kitty protocol sends of the scaled picture is the
+    /// picture unchanged on a transparent canvas of its cells: the same
+    /// as the encoding of that canvas, made by hand, which fills its cells
+    /// on both axes. The image id is random, so the comparison leaves out
+    /// the id and the placeholder after the command, which names it too.
+    #[test]
+    fn the_scaled_picture_is_encoded_unchanged_on_a_transparent_canvas() {
+        // 25 columns of 10 px are 250 px, which take 13 rows of 20 px
+        // (12.5, rounded up), so the canvas is 10 px taller than Talqi.
+        let rect = mascot_rect(Rect::new(0, 0, 25, 30), HALFBLOCKS);
+        assert_eq!(rect, Rect::new(0, 0, 25, 13));
+        let talqi = image::load_from_memory_with_format(Which::Base.webp(), ImageFormat::WebP)
+            .expect("decodes");
+        let picture = scaled(&talqi, 250, 250);
+        let mut canvas = RgbaImage::new(250, 260);
+        imageops::overlay(&mut canvas, &picture, 0, 0);
+
+        let encoded = |picture: RgbaImage| {
+            let mut buf = Buffer::empty(rect);
+            Image::from_picture(&kitty(), picture.into()).draw(rect, &mut buf, false);
+            let cell = transmission(&buf).expect("the first draw sends the picture");
+            let command = &cell[..cell.find('\u{10EEEE}').expect("a placeholder follows")];
+            let id = command.find("i=").expect("the command names its image");
+            let after_id = id + command[id..].find(',').expect("more keys follow the id");
+            format!("{}{}", &command[..id], &command[after_id + 1..])
+        };
+        let sent = encoded(picture);
+
+        assert!(sent.contains("s=250,v=260,"), "the canvas of 25×13 cells");
+        assert_eq!(sent, encoded(canvas));
     }
 
     /// Lossy WebP may store any colour under alpha 0, and the mascot's

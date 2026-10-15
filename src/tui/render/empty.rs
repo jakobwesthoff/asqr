@@ -18,11 +18,11 @@ const SENTENCE: &str = "Nothing to answer. New sessions show up here as soon as 
 /// The rows kept for the sentence, which wraps on a narrow screen.
 const SENTENCE_ROWS: u16 = 3;
 
-/// The empty queue: Talqi, picture `which`, drawn in cells of `font`'s
-/// size in pixels, above the sentence.
+/// The empty queue: Talqi, picture `which`, above the sentence. The
+/// [`Mascot`] it is drawn with gives the size of the cells the picture is
+/// laid out in.
 pub(super) struct EmptyQueue {
     pub(super) which: Which,
-    pub(super) font: FontSize,
     /// Whether the screen is drawn without colours (`NO_COLOR`). Talqi is
     /// then the [`Outline`], the same for `which` awake and asleep, and no
     /// picture is made.
@@ -40,7 +40,7 @@ impl StatefulWidget for EmptyQueue {
             }
             sentence
         } else {
-            let (picture, sentence) = empty_screen_areas(area, self.font);
+            let (picture, sentence) = empty_screen_areas(area, mascot.font());
             if let Some(picture) = picture {
                 mascot.draw(self.which, picture, buf);
             }
@@ -56,6 +56,11 @@ impl StatefulWidget for EmptyQueue {
 /// The fewest rows and columns of the main area that show the picture
 /// (Jakob, 2026-10-15). At the smallest screen asqr draws, 60×15, the main
 /// area has 9 rows, so the smallest terminals show the sentence alone.
+///
+/// The main area of the empty queue is as wide as the screen, which
+/// [`MIN_WIDTH`](super::MIN_WIDTH) keeps at 60 columns or more. The column
+/// bound therefore only matters when [`empty_screen_areas`] is called with
+/// a narrower area, as tests do.
 const PICTURE_MIN_ROWS: u16 = 12;
 const PICTURE_MIN_COLUMNS: u16 = 30;
 
@@ -189,14 +194,12 @@ mod tests {
     fn drawn(which: Which, mascot: &mut Mascot) -> (Buffer, (Option<Rect>, Rect)) {
         let area = Rect::new(0, 0, 80, 30);
         let mut buf = Buffer::empty(area);
-        let font = mascot.font();
         EmptyQueue {
             which,
-            font,
             no_color: false,
         }
         .render(area, &mut buf, mascot);
-        (buf, empty_screen_areas(area, font))
+        (buf, empty_screen_areas(area, mascot.font()))
     }
 
     /// The cells with a Kitty placeholder.
@@ -304,10 +307,8 @@ mod tests {
     fn drawn_without_colours(which: Which, mascot: &mut Mascot, width: u16, height: u16) -> Buffer {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
-        let font = mascot.font();
         EmptyQueue {
             which,
-            font,
             no_color: true,
         }
         .render(area, &mut buf, mascot);
