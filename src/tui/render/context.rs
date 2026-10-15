@@ -9,10 +9,11 @@
 
 use std::path::Path;
 
-use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
+use ratatui::widgets::Widget;
 
 use super::source_line::columns;
 use super::viewer::Viewers;
@@ -25,9 +26,9 @@ use crate::tui::{Extent, Offset, Page, SessionState};
 /// first line and the viewer the rest. A row without context leaves the
 /// pane empty, so it keeps its place while the cursor moves on.
 pub fn draw_pane(
-    frame: &mut Frame,
-    state: &SessionState,
     area: Rect,
+    buf: &mut Buffer,
+    state: &SessionState,
     viewers: &mut Viewers,
 ) -> Option<Page> {
     let (key, entry) = state.shown_entry()?;
@@ -57,7 +58,7 @@ pub fn draw_pane(
         top: offset.top.min(page.rows.last_start()),
         left: offset.left.min(page.columns.last_start()),
     };
-    viewer.draw(body, frame.buffer_mut(), offset);
+    viewer.draw(body, buf, offset);
     let line = header_line(entry, page, offset, header.width, !state.pane_focused());
     // The focused pane's header stands out the way the current tab does,
     // so the person sees where the keys go.
@@ -66,7 +67,7 @@ pub fn draw_pane(
     } else {
         line
     };
-    frame.render_widget(line, header);
+    line.render(header, buf);
     Some(page)
 }
 

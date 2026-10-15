@@ -19,7 +19,7 @@ use super::content::{TabState, draw_tab};
 use super::context::draw_pane;
 use super::header::header_lines;
 use super::keys::{draw_help, key_hints, key_line};
-use super::overlay::{center, draw_intro, draw_session_list};
+use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{PaneLayout, READING_WIDTH};
 use super::source_line::columns;
 use super::tabs::draw_tabs;
@@ -184,7 +184,13 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
             Paragraph::new("Nothing to answer. New sessions show up here as soon as they arrive.")
                 .centered()
                 .wrap(Wrap { trim: true });
-        frame.render_widget(empty, center(main, main.width.saturating_sub(4), 3));
+        frame.render_widget(
+            empty,
+            main.centered(
+                Constraint::Length(main.width.saturating_sub(4)),
+                Constraint::Length(3),
+            ),
+        );
         // A notice matters most here: an invalid session that was the only
         // one leaves the queue empty, and the notice is all that says why.
         let notice = app.current_notice().unwrap_or_default();
@@ -194,14 +200,17 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     };
 
     frame.render_widget(Paragraph::new(header_lines), header);
-    draw_tabs(frame, state, tabs);
+    draw_tabs(tabs, frame.buffer_mut(), state);
 
     view.tab.retain(app.sessions());
     let main = main.inner(ratatui::layout::Margin::new(1, 0));
     let (pane_page, field_shape) = if state.full_screen() && state.shown_context().is_some() {
-        (draw_pane(frame, state, main, &mut view.tab.viewers), None)
+        (
+            draw_pane(main, frame.buffer_mut(), state, &mut view.tab.viewers),
+            None,
+        )
     } else {
-        draw_tab(frame, state, main, &mut view.tab)
+        draw_tab(main, frame.buffer_mut(), state, &mut view.tab)
     };
     view.pane_page = Some(pane_page);
     view.field_shape = field_shape;
@@ -220,7 +229,7 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
                 height: area.height - 1,
                 ..area
             };
-            draw_intro(frame, intro, scroll, above_keys)
+            draw_intro(above_keys, frame.buffer_mut(), intro, scroll)
         }
         _ => Extent::default(),
     };
@@ -238,10 +247,10 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
 
     // These overlays use the whole screen, so they fit the smallest one.
     if state.help() {
-        draw_help(frame, area, state);
+        draw_help(area, frame.buffer_mut(), state);
     }
     if let Some(cursor) = app.list_cursor() {
-        draw_session_list(frame, app, cursor, area);
+        draw_session_list(area, frame.buffer_mut(), app, cursor);
     }
     view.overlay_shown = overlay_open(app);
 }
@@ -1100,6 +1109,34 @@ mod tests {
         let mut app = app(&[("batch", EXAMPLE), ("release", RELEASE)]);
         keys(&mut app, "Lj");
         insta::assert_snapshot!(screen(&app, 80, 24));
+    }
+
+    #[test]
+    fn a_session_list_taller_than_the_screen_fills_it_and_scrolls_to_the_cursor() {
+        let sessions: Vec<(String, String)> = (0..20)
+            .map(|n| {
+                let title = format!("s{n:02}");
+                let json = RELEASE.replace("Release 0.2.0", &title);
+                (title, json)
+            })
+            .collect();
+        let sessions: Vec<(&str, &str)> = sessions
+            .iter()
+            .map(|(id, json)| (id.as_str(), json.as_str()))
+            .collect();
+        let mut app = app(&sessions);
+        keys(&mut app, &format!("L{}", "j".repeat(15)));
+
+        // Twenty sessions and the border want 22 rows; the frame takes the
+        // screen's 15, 56 columns wide in the middle, and the 13 rows inside
+        // end with the cursor's session.
+        let backend = screen(&app, 60, 15);
+        let buf = backend.buffer();
+        assert_eq!(find(buf, "┌ Waiting sessions"), (2, 0), "{backend}");
+        assert_eq!(find(buf, "└"), (2, 14), "{backend}");
+        assert_eq!(find(buf, "┐"), (57, 0), "{backend}");
+        assert_eq!(find(buf, "s03"), (5, 1), "{backend}");
+        assert_eq!(find(buf, "❯ s15"), (3, 13), "{backend}");
     }
 
     #[test]

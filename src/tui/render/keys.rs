@@ -6,13 +6,12 @@
 //! screen, with the hints that work where the focus is, and the help
 //! overlay that lists every key.
 
-use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 
-use super::overlay::center;
 use super::source_line::columns;
 use crate::format::Kind;
 use crate::tui::{Focus, Page, Row, SessionState};
@@ -65,7 +64,7 @@ const FULL_SCREEN_HELP: &[(&str, &str)] = &[
 
 /// The keys that work where the focus is: the full-screen view's, the
 /// pane's while it has the focus, every key otherwise.
-pub(super) fn draw_help(frame: &mut Frame, area: Rect, state: &SessionState) {
+pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
     let (keys, title) = if state.full_screen() {
         (FULL_SCREEN_HELP, " Keys of the full-screen view ")
     } else if state.pane_focused() {
@@ -74,8 +73,9 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect, state: &SessionState) {
         (HELP, " Keys ")
     };
     let height = u16::try_from(keys.len() + 2).expect("a short list");
-    let area = center(area, 70, height);
-    frame.render_widget(Clear, area);
+    // Narrower than 70 columns, the layout gives the help the whole width.
+    let area = area.centered(Constraint::Length(70), Constraint::Length(height));
+    Clear.render(area, buf);
     // `format!` pads by characters, and every key is one column per
     // character, so the longest key plus one blank sets the column.
     let key_column = keys
@@ -96,12 +96,10 @@ pub(super) fn draw_help(frame: &mut Frame, area: Rect, state: &SessionState) {
     let block = Block::bordered()
         .title(title)
         .title_bottom(Line::from(" any key closes ").right_aligned());
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(block),
-        area,
-    );
+    Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(block)
+        .render(area, buf);
 }
 
 /// The keys worth showing right now, without `n` where no note is taken.

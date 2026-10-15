@@ -13,11 +13,11 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, Paragraph};
+use ratatui::widgets::{Clear, Paragraph, Widget};
 use ratatui_image::picker::Picker;
 
 use super::context::{context_hint, draw_pane};
@@ -225,9 +225,9 @@ impl QuestionHeight {
 /// [`panes::choose`] puts it. Says what the pane showed, if one did, and
 /// where the field or note that has the keys was drawn, if one was.
 pub(super) fn draw_tab(
-    frame: &mut Frame,
-    state: &SessionState,
     area: Rect,
+    buf: &mut Buffer,
+    state: &SessionState,
     tab: &mut TabState,
 ) -> (Option<Page>, Option<FieldShape>) {
     let arrangement = state.has_context_area().then(|| {
@@ -252,10 +252,10 @@ pub(super) fn draw_tab(
     let pane = match context_area {
         Some(area) if arrangement == Some(Arrangement::Hint) => {
             let z = question_key(state, "z");
-            frame.render_widget(context_hint(state.shown_context(), &z, area.width), area);
+            context_hint(state.shown_context(), &z, area.width).render(area, buf);
             None
         }
-        Some(area) => draw_pane(frame, state, area, &mut tab.viewers),
+        Some(area) => draw_pane(area, buf, state, &mut tab.viewers),
         None => None,
     };
 
@@ -278,10 +278,9 @@ pub(super) fn draw_tab(
         _ => end.saturating_sub(height.saturating_sub(1)).min(start),
     };
     let total = content.lines.len();
-    frame.render_widget(
-        Paragraph::new(content.lines).scroll((scroll as u16, 0)),
-        text_area,
-    );
+    Paragraph::new(content.lines)
+        .scroll((scroll as u16, 0))
+        .render(text_area, buf);
 
     // Rows cut off above or below the area are marked on its first and
     // last row, so the person knows to move on to see them.
@@ -301,16 +300,10 @@ pub(super) fn draw_tab(
     };
     if height > 0 {
         if scroll > 0 {
-            mark_cut(frame, text_area, 0, "↑ more", cursor_on(0));
+            mark_cut(text_area, buf, 0, "↑ more", cursor_on(0));
         }
         if scroll + height < total {
-            mark_cut(
-                frame,
-                text_area,
-                height - 1,
-                "↓ more",
-                cursor_on(height - 1),
-            );
+            mark_cut(text_area, buf, height - 1, "↓ more", cursor_on(height - 1));
         }
     }
     (pane, content.shape)
@@ -326,7 +319,7 @@ pub(super) fn draw_tab(
 /// The text cursor's cell on the row, the columns `cursor`, is never
 /// covered: where the end chosen holds it, the marker goes to the other
 /// end, and where both do, the row shows none.
-fn mark_cut(frame: &mut Frame, area: Rect, row: usize, marker: &str, cursor: Option<Range<u16>>) {
+fn mark_cut(area: Rect, buf: &mut Buffer, row: usize, marker: &str, cursor: Option<Range<u16>>) {
     let width = u16::try_from(columns(marker) + 1)
         .expect("a short marker")
         .min(area.width);
@@ -339,15 +332,15 @@ fn mark_cut(frame: &mut Frame, area: Rect, row: usize, marker: &str, cursor: Opt
     };
     let (left, right) = (at(area.x), at(area.right() - width));
     // A reversed blank is the text cursor, so it counts as text.
-    let blank = |frame: &mut Frame, cells: Rect| {
+    let blank = |buf: &Buffer, cells: Rect| {
         cells.positions().all(|position| {
-            let cell = &frame.buffer_mut()[position];
+            let cell = &buf[position];
             cell.symbol() == " " && !cell.modifier.contains(Modifier::REVERSED)
         })
     };
     let right_end = (right, format!(" {marker}"));
     let left_end = (left, format!("{marker} "));
-    let (chosen, other) = if blank(frame, right) || !blank(frame, left) {
+    let (chosen, other) = if blank(buf, right) || !blank(buf, left) {
         (right_end, left_end)
     } else {
         (left_end, right_end)
@@ -366,8 +359,8 @@ fn mark_cut(frame: &mut Frame, area: Rect, row: usize, marker: &str, cursor: Opt
     };
     // The cells lose the styles of the text under them first, so a marker
     // over a highlighted row never shows reversed.
-    frame.render_widget(Clear, marked);
-    frame.render_widget(Line::from(text).dim(), marked);
+    Clear.render(marked, buf);
+    Line::from(text).dim().render(marked, buf);
 }
 
 /// The mark in front of an option or the own answer.
@@ -707,30 +700,56 @@ fn review_content(state: &SessionState, width: usize) -> Content {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::Terminal;
-    use ratatui::backend::TestBackend;
-
     use super::super::test_support;
     use super::*;
+
+    /// A one-row buffer as wide as `row`, holding it, with `↓ more` put
+    /// over it by [`mark_cut`], the text cursor at `cursor`.
+    fn marked(row: Line<'static>, cursor: Option<Range<u16>>) -> Buffer {
+        let area = Rect::new(0, 0, u16::try_from(row.width()).expect("a short row"), 1);
+        let mut buf = Buffer::empty(area);
+        row.render(area, &mut buf);
+        mark_cut(area, &mut buf, 0, "↓ more", cursor);
+        buf
+    }
+
+    #[test]
+    fn a_marker_takes_the_blank_end_of_its_row() {
+        let shown = |row: &str| test_support::rows(&marked(Line::from(row.to_owned()), None));
+
+        assert_eq!(shown(&" ".repeat(12)), ["      ↓ more"], "a blank row");
+        assert_eq!(shown("text        "), ["text  ↓ more"], "text at the start");
+        assert_eq!(shown("        text"), ["↓ more  text"], "text at the end");
+        assert_eq!(shown("text at both"), ["text  ↓ more"], "text at both ends");
+    }
+
+    #[test]
+    fn a_reversed_blank_counts_as_text_and_the_marker_drops_the_styles_under_it() {
+        // The text cursor, a reversed blank, at the end of the row.
+        let row = Line::from(vec![Span::from(" ".repeat(11)), Span::from(" ").reversed()]);
+        let buf = marked(row, None);
+        assert_eq!(test_support::rows(&buf), ["↓ more      "]);
+
+        let buf = marked(Line::from("highlighted ").reversed(), None);
+        assert_eq!(test_support::rows(&buf), ["highl ↓ more"]);
+        assert_eq!(
+            buf[test_support::find(&buf, "↓")].modifier,
+            Modifier::DIM,
+            "dim, not reversed"
+        );
+    }
 
     #[test]
     fn a_marker_that_would_cover_the_cursor_at_both_ends_is_left_out() {
         // In 8 columns both ends of the row hold the cell at column 3.
-        let mut terminal = Terminal::new(TestBackend::new(8, 1)).expect("test terminal");
-        terminal
-            .draw(|frame| mark_cut(frame, frame.area(), 0, "↓ more", Some(3..4)))
-            .expect("draws");
+        let blank = || Line::from(" ".repeat(8));
         assert_eq!(
-            test_support::rows(terminal.backend().buffer())[0],
-            " ".repeat(8)
+            test_support::rows(&marked(blank(), Some(3..4))),
+            [" ".repeat(8)]
         );
-
-        terminal
-            .draw(|frame| mark_cut(frame, frame.area(), 0, "↓ more", Some(7..8)))
-            .expect("draws");
         assert_eq!(
-            test_support::rows(terminal.backend().buffer())[0],
-            "↓ more  ",
+            test_support::rows(&marked(blank(), Some(7..8))),
+            ["↓ more  "],
             "the other end"
         );
     }

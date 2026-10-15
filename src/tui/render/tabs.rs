@@ -5,20 +5,20 @@
 //! The tab bar (spec section 7.1): one tab per question and the review,
 //! scrolled so the current tab shows.
 
-use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders};
+use ratatui::widgets::{Block, Borders, Widget};
 
 use super::source_line::columns;
 use crate::tui::{AnswerState, SessionState};
 
-pub(super) fn draw_tabs(frame: &mut Frame, state: &SessionState, area: Rect) {
+pub(super) fn draw_tabs(area: Rect, buf: &mut Buffer, state: &SessionState) {
     let block = Block::new().borders(Borders::BOTTOM);
     let inner = block.inner(area);
-    frame.render_widget(block, area);
-    frame.render_widget(tab_line(state, inner.width as usize), inner);
+    block.render(area, buf);
+    tab_line(state, inner.width as usize).render(inner, buf);
 }
 
 /// The tabs as one line of `width` columns: every question with its mark,

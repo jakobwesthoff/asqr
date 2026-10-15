@@ -5,11 +5,11 @@
 //! Frames drawn over the middle of the screen: the whole intro and the list
 //! of waiting sessions (spec section 7.2).
 
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Constraint, Rect};
 use ratatui::style::Stylize;
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::{Block, Clear, Paragraph, Widget};
 
 use super::panes::READING_WIDTH;
 use super::text::field_lines;
@@ -20,7 +20,7 @@ use crate::tui::{AnswerState, App, Extent};
 /// what of it fits. An intro longer than the frame scrolls, and the frame's
 /// bottom edge says which lines show. The intro shows in patine's styles
 /// without the header's dim.
-pub(super) fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Rect) -> Extent {
+pub(super) fn draw_intro(area: Rect, buf: &mut Buffer, intro: &str, scroll: usize) -> Extent {
     // The text keeps to the reading width, with a blank column inside each
     // border.
     let width = area.width.saturating_sub(4).min(READING_WIDTH + 4);
@@ -30,7 +30,9 @@ pub(super) fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Re
         .map(|line| indented(line, 1))
         .collect();
     let wanted = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
-    let area = center(area, width, wanted);
+    // The layout never makes the frame larger than `area`, so an intro
+    // taller than the screen gets the rows there are and scrolls in them.
+    let area = area.centered(Constraint::Length(width), Constraint::Length(wanted));
     let page = Extent {
         shown: usize::from(area.height.saturating_sub(2)),
         total: lines.len(),
@@ -42,23 +44,20 @@ pub(super) fn draw_intro(frame: &mut Frame, intro: &str, scroll: usize, area: Re
         let position = format!(" {}–{} of {} ", scroll + 1, scroll + page.shown, page.total);
         block = block.title_bottom(Line::from(position).dim().right_aligned());
     }
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Paragraph::new(lines)
-            .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0))
-            .block(block),
-        area,
-    );
+    Clear.render(area, buf);
+    Paragraph::new(lines)
+        .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0))
+        .block(block)
+        .render(area, buf);
     page
 }
 
-pub(super) fn draw_session_list(frame: &mut Frame, app: &App, cursor: usize, area: Rect) {
-    let area = center(
-        area,
-        area.width.saturating_sub(4).min(80),
-        app.sessions().len() as u16 + 2,
+pub(super) fn draw_session_list(area: Rect, buf: &mut Buffer, app: &App, cursor: usize) {
+    let area = area.centered(
+        Constraint::Length(area.width.saturating_sub(4).min(80)),
+        Constraint::Length(app.sessions().len() as u16 + 2),
     );
-    frame.render_widget(Clear, area);
+    Clear.render(area, buf);
     let lines: Vec<Line> = app
         .sessions()
         .iter()
@@ -88,22 +87,8 @@ pub(super) fn draw_session_list(frame: &mut Frame, app: &App, cursor: usize, are
         .collect();
     let visible = area.height.saturating_sub(2) as usize;
     let scroll = (cursor + 1).saturating_sub(visible);
-    frame.render_widget(
-        Paragraph::new(lines)
-            .scroll((scroll as u16, 0))
-            .block(Block::bordered().title(" Waiting sessions ")),
-        area,
-    );
-}
-
-/// A rectangle of `width`×`height` in the middle of `area`, never larger
-/// than `area`.
-pub(super) fn center(area: Rect, width: u16, height: u16) -> Rect {
-    let [area] = Layout::horizontal([Constraint::Length(width.min(area.width))])
-        .flex(Flex::Center)
-        .areas(area);
-    let [area] = Layout::vertical([Constraint::Length(height.min(area.height))])
-        .flex(Flex::Center)
-        .areas(area);
-    area
+    Paragraph::new(lines)
+        .scroll((scroll as u16, 0))
+        .block(Block::bordered().title(" Waiting sessions "))
+        .render(area, buf);
 }
