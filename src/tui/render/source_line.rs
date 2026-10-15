@@ -8,10 +8,17 @@
 //! sideways instead of wrapping. Rendered Markdown, which never scrolls
 //! sideways, breaks such a line into rows instead (ADR 34). Its measure of
 //! columns, [`columns`], is the one the whole screen lays text out by.
+//!
+//! The rows the text viewers draw are made of such lines: a [`GutterRow`]
+//! puts one right of a gutter that stays in place, a [`Note`] says
+//! something about the content that is no line of it, and [`rows_from`]
+//! walks the rows of a viewer from its offset.
 
 use ratatui::buffer::{Buffer, CellWidth};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
+use ratatui::text::Line;
+use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Columns from one tab stop to the next. Panes are often 40 to 60 columns
@@ -229,6 +236,69 @@ impl SourceLine {
     }
 }
 
+// ---------------------------------------------------------------------
+// The rows of a viewer
+// ---------------------------------------------------------------------
+
+/// The rows of `area` from the top, each as an area one row high, paired
+/// with the viewer's `rows` from row `top` on, as far as both go.
+pub fn rows_from<T>(area: Rect, rows: &[T], top: usize) -> impl Iterator<Item = (Rect, &T)> {
+    area.rows().zip(rows.iter().skip(top))
+}
+
+/// A row that keeps a gutter, such as a line's number, at its left edge.
+/// The gutter stays in place while the line right of it scrolls sideways
+/// under `left`, so every line keeps its gutter in sight. A row narrower
+/// than the gutter shows only what fits of the gutter.
+pub struct GutterRow<'a> {
+    /// The gutter in its own styles, as wide as the columns it keeps.
+    pub gutter: Line<'a>,
+    pub line: &'a SourceLine,
+    pub left: usize,
+}
+
+impl Widget for GutterRow<'_> {
+    /// Draws into the first row of `area`.
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        buf.set_line(area.x, area.y, &self.gutter, area.width);
+        let fixed = u16::try_from(self.gutter.width()).unwrap_or(u16::MAX);
+        let text = Rect {
+            x: area.x.saturating_add(fixed).min(area.right()),
+            width: area.width.saturating_sub(fixed),
+            height: 1,
+            ..area
+        };
+        self.line.draw(buf, text, self.left);
+    }
+}
+
+/// A dim row about the content that is no line of it, such as "new file"
+/// or the note of a file cut at 8 MiB. It never scrolls sideways: a body
+/// narrower than the note cuts it at the edge, without a marker, so the
+/// note counts no wider than the body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Note(pub &'static str);
+
+impl Note {
+    /// The columns the note takes in a body `width` columns wide.
+    pub fn columns(self, width: usize) -> usize {
+        columns(self.0).min(width)
+    }
+}
+
+impl Widget for Note {
+    /// Draws into the first row of `area`.
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        buf.set_stringn(
+            area.x,
+            area.y,
+            self.0,
+            usize::from(area.width),
+            Style::new().dim(),
+        );
+    }
+}
+
 /// How many columns `text` takes in a span ratatui draws. ratatui lays a
 /// span out grapheme by grapheme, each as wide as its cell width, so this
 /// sums those: a CJK character or most emoji take two columns, a
@@ -277,7 +347,8 @@ fn picture(control: char) -> char {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::style::{Color, Modifier};
+    use ratatui::style::{Color, Modifier, Stylize};
+    use ratatui::text::Span;
 
     use super::*;
 
@@ -553,5 +624,85 @@ mod tests {
         assert_eq!(buf[(3, 1)].symbol(), "a");
         assert_eq!(buf[(5, 1)].symbol(), "c");
         assert_eq!(buf[(3, 0)].symbol(), " ");
+    }
+
+    // -----------------------------------------------------------------
+    // The rows of a viewer
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn rows_pair_the_areas_rows_with_the_viewers_from_the_offset() {
+        let area = Rect::new(2, 5, 8, 3);
+
+        let walked: Vec<(Rect, &&str)> = rows_from(area, &["a", "b", "c", "d"], 2).collect();
+        assert_eq!(
+            walked,
+            [(Rect::new(2, 5, 8, 1), &"c"), (Rect::new(2, 6, 8, 1), &"d")],
+            "as far as the rows go"
+        );
+
+        assert_eq!(
+            rows_from(area, &["a", "b", "c", "d"], 0).count(),
+            3,
+            "as far as the area goes"
+        );
+        assert_eq!(rows_from(area, &["a"], 4).count(), 0, "past the end");
+    }
+
+    /// The row of `width` cells a `GutterRow` of `gutter` and `line` draws
+    /// from column `left` on.
+    fn gutter_row(gutter: Line<'_>, line: &SourceLine, width: u16, left: usize) -> Buffer {
+        let area = Rect::new(0, 0, width, 1);
+        let mut buf = Buffer::empty(area);
+        GutterRow { gutter, line, left }.render(area, &mut buf);
+        buf
+    }
+
+    /// The symbols of the first row of `buf`.
+    fn symbols(buf: &Buffer) -> String {
+        (0..buf.area.width).map(|x| buf[(x, 0)].symbol()).collect()
+    }
+
+    #[test]
+    fn a_gutter_row_keeps_the_gutter_in_place_and_scrolls_the_line() {
+        let gutter = || Line::from(vec![Span::from("12 ").dim(), Span::from("+").green()]);
+        let line = plain("0123456789");
+
+        let buf = gutter_row(gutter(), &line, 10, 0);
+        assert_eq!(symbols(&buf), "12 +01234›");
+        assert!(
+            buf[(1, 0)].modifier.contains(Modifier::DIM),
+            "the gutter's style"
+        );
+        assert_eq!(buf[(3, 0)].fg, Color::Green);
+        assert!(!buf[(3, 0)].modifier.contains(Modifier::DIM));
+
+        assert_eq!(symbols(&gutter_row(gutter(), &line, 10, 4)), "12 +‹56789");
+    }
+
+    #[test]
+    fn a_gutter_row_narrower_than_its_gutter_shows_what_fits_of_it() {
+        let line = plain("text");
+
+        assert_eq!(symbols(&gutter_row(Line::from("12 "), &line, 2, 0)), "12");
+        assert_eq!(
+            symbols(&gutter_row(Line::from("12 "), &line, 3, 0)),
+            "12 ",
+            "no room is left for the line"
+        );
+    }
+
+    #[test]
+    fn a_note_is_dim_and_cut_at_the_edge_without_a_marker() {
+        let note = Note("first 8 MiB shown");
+        let area = Rect::new(0, 0, 8, 1);
+        let mut buf = Buffer::empty(area);
+
+        note.render(area, &mut buf);
+
+        assert_eq!(symbols(&buf), "first 8 ");
+        assert!(buf[(7, 0)].modifier.contains(Modifier::DIM));
+        assert_eq!(note.columns(8), 8, "no wider than the body");
+        assert_eq!(note.columns(40), 17);
     }
 }

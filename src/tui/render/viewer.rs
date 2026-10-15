@@ -44,8 +44,10 @@ pub trait Viewer {
     /// Prepares everything that does not depend on the body's size: reading
     /// files, decoding images, highlighting, computing a diff. Called once,
     /// before the first `lay_out`. A failure is not returned; the viewer
-    /// keeps it and shows it as its content.
-    fn load(&mut self);
+    /// keeps it and shows it as its content. Content that is complete when
+    /// it is made, such as a placeholder or what a `load` made, has nothing
+    /// to load.
+    fn load(&mut self) {}
 
     /// Lays the content out for a body of `width`×`height` cells and returns
     /// its size: the number of lines and the width of the widest line. The
@@ -187,62 +189,95 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
 }
 
 // ---------------------------------------------------------------------
+// What a viewer loaded
+// ---------------------------------------------------------------------
+
+/// What a viewer's `load` made of its entry: the content it shows, or a
+/// placeholder in its place, such as for a file that cannot be read. The
+/// viewer keeps it and hands laying out and drawing on to it.
+pub(super) enum Loaded<T> {
+    Body(T),
+    Note(Placeholder),
+}
+
+impl<T: Viewer> Viewer for Loaded<T> {
+    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
+        match self {
+            Loaded::Body(body) => body.lay_out(width, height),
+            Loaded::Note(placeholder) => placeholder.lay_out(width, height),
+        }
+    }
+
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+        match self {
+            Loaded::Body(body) => body.draw(area, buf, offset),
+            Loaded::Note(placeholder) => placeholder.draw(area, buf, offset),
+        }
+    }
+}
+
+/// What a viewer's `load` left in `content`. The pane calls `load` before
+/// it lays a viewer out or draws it.
+pub(super) fn loaded<T>(content: &mut Option<Loaded<T>>) -> &mut Loaded<T> {
+    content
+        .as_mut()
+        .expect("the pane loads a viewer before laying it out")
+}
+
+// ---------------------------------------------------------------------
 // Images
 // ---------------------------------------------------------------------
 
 /// An image file, scaled to fill the body as far as its proportions allow,
 /// or, without `enlarge`, at its natural size where that fits. A file that
 /// cannot be shown shows why instead, in the placeholder every viewer of a
-/// file shows.
+/// file shows, which scrolls when its lines do not fit.
 struct ImageViewer {
     path: String,
     enlarge: bool,
     picker: Picker,
-    content: Option<ImageContent>,
-}
-
-/// What `load` made of the image file.
-enum ImageContent {
-    Image(Image),
-    Unreadable(Placeholder),
-}
-
-impl ImageViewer {
-    fn content(&mut self) -> &mut ImageContent {
-        self.content
-            .as_mut()
-            .expect("the pane loads a viewer before laying it out")
-    }
+    content: Option<Loaded<Picture>>,
 }
 
 impl Viewer for ImageViewer {
     fn load(&mut self) {
         self.content = Some(match Image::load(&self.picker, &self.path) {
-            Ok(image) => ImageContent::Image(image),
-            Err(unreadable) => ImageContent::Unreadable(unreadable.placeholder("image not shown")),
+            Ok(image) => Loaded::Body(Picture {
+                image,
+                enlarge: self.enlarge,
+            }),
+            Err(unreadable) => Loaded::Note(unreadable.placeholder("image not shown")),
         });
     }
 
-    /// The image never gets larger than the body, so the body is all the
-    /// room it needs, and it never scrolls. A placeholder scrolls when its
-    /// lines do not fit.
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        match self.content() {
-            ImageContent::Image(_) => ContentSize {
-                lines: usize::from(height),
-                columns: usize::from(width),
-            },
-            ImageContent::Unreadable(placeholder) => placeholder.lay_out(width, height),
+        loaded(&mut self.content).lay_out(width, height)
+    }
+
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+        loaded(&mut self.content).draw(area, buf, offset);
+    }
+}
+
+/// A decoded image and whether it is enlarged to fill the body.
+struct Picture {
+    image: Image,
+    enlarge: bool,
+}
+
+impl Viewer for Picture {
+    /// The image never gets larger than the body, so the body is all the
+    /// room it needs, and it never scrolls.
+    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
+        ContentSize {
+            lines: usize::from(height),
+            columns: usize::from(width),
         }
     }
 
     /// The offset of an image is always zero, as it never scrolls.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        let enlarge = self.enlarge;
-        match self.content() {
-            ImageContent::Image(image) => image.draw(area, buf, enlarge),
-            ImageContent::Unreadable(placeholder) => placeholder.draw(area, buf, offset),
-        }
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, _offset: Offset) {
+        self.image.draw(area, buf, self.enlarge);
     }
 }
 
@@ -282,9 +317,6 @@ impl Placeholder {
 }
 
 impl Viewer for Placeholder {
-    /// The lines are known from the entry alone.
-    fn load(&mut self) {}
-
     fn lay_out(&mut self, width: u16, _height: u16) -> ContentSize {
         self.wrapped = self
             .lines
@@ -620,6 +652,8 @@ mod tests {
     #[test]
     fn a_note_is_one_dim_line() {
         let mut note = Placeholder::note("empty");
+        // Known when made, so loading changes nothing.
+        note.load();
 
         assert_eq!(
             note.lay_out(30, 4),

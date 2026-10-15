@@ -12,6 +12,7 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
 
+use super::source_line::Note;
 use super::viewer::Placeholder;
 
 /// How much of a file a viewer reads. The read happens while the person
@@ -19,13 +20,27 @@ use super::viewer::Placeholder;
 /// to gigabytes must not stall asqr or fill its memory.
 pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
-/// What a viewer shows, as a dim note above the text, when it got only
-/// the first [`MAX_BYTES`] of a file.
-pub const CUT_NOTE: &str = "first 8 MiB shown";
+/// What a viewer shows above the text when it got only the first
+/// [`MAX_BYTES`] of a file.
+const CUT_NOTE: Note = Note("first 8 MiB shown");
 
-/// The dim note after the text of such a file, so its end does not look
-/// like the end of the file.
-pub const END_NOTE: &str = "… the rest is cut after 8 MiB";
+/// What follows the text of such a file, so its end does not look like
+/// the end of the file.
+const END_NOTE: Note = Note("… the rest is cut after 8 MiB");
+
+/// The rows of `body`, the text of a source or what a viewer made of it,
+/// between the notes of a `cut` source: the first comes before the text,
+/// so it shows before the person scrolls to where the text stops, and the
+/// last ends it. `note` makes a row of a note, which every viewer draws
+/// as a [`Note`], one row cut at the body's edge.
+pub fn between_cut_notes<T>(
+    cut: bool,
+    body: impl IntoIterator<Item = T>,
+    note: impl Fn(Note) -> T,
+) -> impl Iterator<Item = T> {
+    let row = |text| cut.then(|| note(text));
+    row(CUT_NOTE).into_iter().chain(body).chain(row(END_NOTE))
+}
 
 /// The text of a source, and whether it is only the start of its file.
 #[derive(Debug, PartialEq, Eq)]
@@ -178,6 +193,22 @@ mod tests {
 
         assert!(!source.cut);
         assert_eq!(source.text.len(), limit);
+    }
+
+    #[test]
+    fn the_notes_of_a_cut_source_come_before_and_after_its_text() {
+        let rows = |cut| between_cut_notes(cut, ["one", "two"], |note| note.0).collect::<Vec<_>>();
+
+        assert_eq!(
+            rows(true),
+            [
+                "first 8 MiB shown",
+                "one",
+                "two",
+                "… the rest is cut after 8 MiB"
+            ]
+        );
+        assert_eq!(rows(false), ["one", "two"], "a whole source has none");
     }
 
     // -----------------------------------------------------------------

@@ -10,12 +10,14 @@ use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Style, Stylize};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Widget;
 use similar::{Algorithm, ChangeTag, InlineChange, InlineChangeOptions, TextDiff};
 
-use super::source_file::{CUT_NOTE, END_NOTE, Source, Unreadable, read_source};
-use super::source_line::{SourceLine, columns};
-use super::viewer::{ContentSize, Placeholder, Viewer};
+use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
+use super::source_line::{GutterRow, Note, SourceLine, rows_from};
+use super::viewer::{ContentSize, Loaded, Viewer, loaded};
 use crate::format::{DiffEntry, DiffSide};
 use crate::tui::Offset;
 
@@ -36,13 +38,8 @@ const SEPARATOR: &str = "┈";
 pub struct DiffViewer {
     old: Option<DiffSide>,
     new: Option<DiffSide>,
-    content: Option<Content>,
-}
-
-/// What `load` made of the entry: the diff's rows, or why it cannot show.
-enum Content {
-    Rows(Rows),
-    Unreadable(Placeholder),
+    /// The diff's rows, or why it cannot show.
+    content: Option<Loaded<Rows>>,
 }
 
 impl DiffViewer {
@@ -52,12 +49,6 @@ impl DiffViewer {
             new: entry.new.clone(),
             content: None,
         }
-    }
-
-    fn content(&mut self) -> &mut Content {
-        self.content
-            .as_mut()
-            .expect("the pane loads a viewer before laying it out")
     }
 }
 
@@ -69,26 +60,18 @@ impl Viewer for DiffViewer {
         self.content = Some(match sides {
             Ok((old, new)) => {
                 let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
-                Content::Rows(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
+                Loaded::Body(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
             }
-            Err(unreadable) => Content::Unreadable(unreadable.placeholder("diff not shown")),
+            Err(unreadable) => Loaded::Note(unreadable.placeholder("diff not shown")),
         });
     }
 
-    /// Lines never wrap, so only notes, which never scroll, depend on the
-    /// width.
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        match self.content() {
-            Content::Unreadable(placeholder) => placeholder.lay_out(width, height),
-            Content::Rows(rows) => rows.size(usize::from(width)),
-        }
+        loaded(&mut self.content).lay_out(width, height)
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        match self.content() {
-            Content::Unreadable(placeholder) => placeholder.draw(area, buf, offset),
-            Content::Rows(rows) => rows.draw(area, buf, offset),
-        }
+        loaded(&mut self.content).draw(area, buf, offset);
     }
 }
 
@@ -127,25 +110,36 @@ enum Row {
     /// The gap between two hunks.
     Separator,
     /// Something to know about the diff that is no line of it.
-    Note(&'static str),
+    Note(Note),
 }
 
 impl Rows {
     /// The rows that show the change from `old` to `new`; a side left out
     /// is a file that did not exist before or no longer does. `cut` says
     /// that a side is only the start of a longer file, so the diff shows
-    /// the rest of the other side as removed or added.
+    /// the rest of the other side as removed or added. Whether the file is
+    /// new or deleted comes first, then the change between the notes of a
+    /// cut file.
     fn of(old: Option<&str>, new: Option<&str>, cut: bool) -> Rows {
-        let mut rows = Vec::new();
         let created_or_deleted = match (old, new) {
-            (None, Some(_)) => Some("new file"),
-            (Some(_), None) => Some("deleted file"),
+            (None, Some(_)) => Some(Note("new file")),
+            (Some(_), None) => Some(Note("deleted file")),
             _ => None,
         };
-        rows.extend(created_or_deleted.map(Row::Note));
-        if cut {
-            rows.push(Row::Note(CUT_NOTE));
-        }
+        let (change, digits) = Rows::change(old, new, created_or_deleted.is_some());
+        let rows = created_or_deleted
+            .map(Row::Note)
+            .into_iter()
+            .chain(between_cut_notes(cut, change, Row::Note))
+            .collect();
+        Rows { rows, digits }
+    }
+
+    /// The rows of the change from `old` to `new`, and how many digits
+    /// their line numbers take. Text alike on both sides of a new or
+    /// deleted file is an empty file.
+    fn change(old: Option<&str>, new: Option<&str>, created_or_deleted: bool) -> (Vec<Row>, usize) {
+        let mut rows = Vec::new();
         // Lines compare without their line ends, so a file saved on
         // Windows does not show every line as removed and added again with
         // the same text. One note says the ends differ, as nothing else
@@ -163,18 +157,15 @@ impl Rows {
         );
         let (old, new) = (old.as_ref(), new.as_ref());
         if old == new {
-            rows.push(Row::Note(if created_or_deleted.is_some() {
+            rows.push(Row::Note(Note(if created_or_deleted {
                 "empty file"
             } else {
                 "no changes"
-            }));
+            })));
             if endings_differ {
                 rows.push(Row::Note(ENDINGS_DIFFER));
             }
-            if cut {
-                rows.push(Row::Note(END_NOTE));
-            }
-            return Rows { rows, digits: 0 };
+            return (rows, 0);
         }
         if endings_differ {
             rows.push(Row::Note(ENDINGS_DIFFER));
@@ -205,21 +196,13 @@ impl Rows {
                 {
                     rows.push(line_row(&change));
                     if newline_differs && change.missing_newline() {
-                        rows.push(Row::Note("no newline at end of file"));
+                        rows.push(Row::Note(Note("no newline at end of file")));
                     }
                 }
             }
         }
-        // The last hunk ends where the cut side stops, which is not where
-        // its file ends.
-        if cut {
-            rows.push(Row::Note(END_NOTE));
-        }
         let longest = diff.old_len().max(diff.new_len());
-        Rows {
-            rows,
-            digits: longest.to_string().len(),
-        }
+        (rows, longest.to_string().len())
     }
 
     /// The columns before a line's text: both numbers, each followed by a
@@ -227,8 +210,12 @@ impl Rows {
     fn gutter_width(&self) -> usize {
         2 * (self.digits + 1) + 2
     }
+}
 
-    fn size(&self, width: usize) -> ContentSize {
+impl Viewer for Rows {
+    /// Lines never wrap, so only notes, which never scroll, depend on the
+    /// width.
+    fn lay_out(&mut self, width: u16, _height: u16) -> ContentSize {
         let columns = self
             .rows
             .iter()
@@ -236,7 +223,7 @@ impl Rows {
                 Row::Line { text, .. } => self.gutter_width() + text.width(),
                 // The separator fills whatever width the body has.
                 Row::Separator => 0,
-                Row::Note(note) => columns(note).min(width),
+                Row::Note(note) => note.columns(usize::from(width)),
             })
             .max()
             .unwrap_or(0);
@@ -246,20 +233,18 @@ impl Rows {
         }
     }
 
-    /// Draws the rows from `offset.top` on. The gutter and the sign stay in
-    /// place while the text scrolls sideways under `offset.left`, so every
-    /// line keeps its numbers in sight.
-    fn draw(&self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        let dim = Style::new().dim();
+    /// Draws the rows from `offset.top` on, each line with its numbers in a
+    /// dim gutter and its sign after them.
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
         let width = usize::from(area.width);
-        for (y, row) in (area.top()..area.bottom()).zip(self.rows.iter().skip(offset.top)) {
+        let digits = self.digits;
+        for (row_area, row) in rows_from(area, &self.rows, offset.top) {
             match row {
                 Row::Separator => {
-                    buf.set_stringn(area.x, y, SEPARATOR.repeat(width), width, dim);
+                    let separator = SEPARATOR.repeat(width);
+                    buf.set_stringn(row_area.x, row_area.y, separator, width, Style::new().dim());
                 }
-                Row::Note(note) => {
-                    buf.set_stringn(area.x, y, note, width, dim);
-                }
+                Row::Note(note) => note.render(row_area, buf),
                 Row::Line {
                     tag,
                     old,
@@ -269,24 +254,23 @@ impl Rows {
                     let number = |number: &Option<usize>| {
                         number.map_or_else(String::new, |number| number.to_string())
                     };
-                    let digits = self.digits;
-                    let gutter = format!("{:>digits$} {:>digits$} ", number(old), number(new));
-                    let (x, _) = buf.set_stringn(area.x, y, gutter, width, dim);
+                    let numbers = format!("{:>digits$} {:>digits$} ", number(old), number(new));
                     let sign = match tag {
                         ChangeTag::Equal => " ",
                         ChangeTag::Delete => "-",
                         ChangeTag::Insert => "+",
                     };
-                    let room = width.saturating_sub(usize::from(x - area.x));
-                    buf.set_stringn(x, y, sign, room, line_style(*tag));
-                    let fixed = u16::try_from(self.gutter_width()).unwrap_or(u16::MAX);
-                    let text_area = Rect {
-                        x: area.x.saturating_add(fixed).min(area.right()),
-                        y,
-                        width: area.width.saturating_sub(fixed),
-                        height: 1,
-                    };
-                    text.draw(buf, text_area, offset.left);
+                    let gutter = Line::from(vec![
+                        Span::from(numbers).dim(),
+                        Span::styled(sign, line_style(*tag)),
+                        Span::from(" "),
+                    ]);
+                    GutterRow {
+                        gutter,
+                        line: text,
+                        left: offset.left,
+                    }
+                    .render(row_area, buf);
                 }
             }
         }
@@ -320,7 +304,7 @@ fn line_row(change: &InlineChange<'_, str>) -> Row {
 }
 
 /// The note shown when the two sides end their lines differently.
-const ENDINGS_DIFFER: &str = "line endings differ";
+const ENDINGS_DIFFER: Note = Note("line endings differ");
 
 /// Which line ends a text uses: `\n` as on Unix, `\r\n` as on Windows, and
 /// a lone `\r` as on classic Mac OS.
@@ -816,7 +800,7 @@ impl Fetcher {
     #[test]
     fn a_side_too_long_to_read_whole_says_so_above_and_below_the_hunks() {
         let mut viewer = inline(None, None);
-        viewer.content = Some(Content::Rows(Rows::of(Some("a\n"), Some("b\n"), true)));
+        viewer.content = Some(Loaded::Body(Rows::of(Some("a\n"), Some("b\n"), true)));
 
         let buf = drawn(&mut viewer, 30, 4, Offset::default());
 
@@ -828,13 +812,32 @@ impl Fetcher {
             with_modifier(&buf, 3, Modifier::DIM),
             "… the rest is cut after 8 MiB"
         );
+
+        assert_eq!(viewer.lay_out(10, 4).columns, 10);
+        let buf = drawn(&mut viewer, 10, 4, Offset::default());
+        assert_eq!(row(&buf, 0), "first 8 Mi", "cut at the width");
+        assert_eq!(row(&buf, 3), "… the rest");
+    }
+
+    #[test]
+    fn a_body_narrower_than_the_gutter_shows_what_fits_of_it() {
+        let mut viewer = inline(Some("a\n"), Some("b\n"));
+
+        let buf = drawn(&mut viewer, 5, 2, Offset::default());
+        assert_eq!(row(&buf, 0), "1   -");
+        assert_eq!(row(&buf, 1), "  1 +");
+        assert_eq!(buf[(4, 1)].fg, Color::Green, "the sign keeps its colour");
+
+        let buf = drawn(&mut viewer, 3, 1, Offset::default());
+        assert_eq!(row(&buf, 0), "1", "the numbers alone");
+        assert_eq!(with_modifier(&buf, 0, Modifier::DIM), "1  ");
     }
 
     #[test]
     fn sides_cut_alike_say_so_after_no_changes() {
         let rows = Rows::of(Some("a\n"), Some("a\n"), true);
         let mut viewer = inline(None, None);
-        viewer.content = Some(Content::Rows(rows));
+        viewer.content = Some(Loaded::Body(rows));
 
         let buf = drawn(&mut viewer, 30, 3, Offset::default());
 

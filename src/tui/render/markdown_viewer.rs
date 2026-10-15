@@ -9,36 +9,18 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::widgets::Widget;
 
 use super::patine_adapter::markdown_rows;
-use super::source_file::{CUT_NOTE, END_NOTE, Source, Unreadable, read_source};
-use super::source_line::SourceLine;
-use super::viewer::{ContentSize, Placeholder, Viewer};
+use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
+use super::source_line::{Note, SourceLine, rows_from};
+use super::viewer::{ContentSize, Loaded, Placeholder, Viewer, loaded};
 use crate::format::MarkdownEntry;
 use crate::tui::Offset;
 
 pub struct MarkdownViewer {
     entry: MarkdownEntry,
-    content: Option<Content>,
-    /// How often patine rendered the text, so tests see a render skipped.
-    #[cfg(test)]
-    renders: usize,
-}
-
-/// What `load` made of the entry: its Markdown with the rows it was last
-/// laid out into, or a note in their place.
-enum Content {
-    Markdown {
-        source: String,
-        /// `source` is only the start of a longer file.
-        cut: bool,
-        rows: Vec<SourceLine>,
-        /// The width `rows` were rendered for and the size they take.
-        laid_out: Option<(u16, ContentSize)>,
-    },
-    /// The file cannot be read, or there is no text at all.
-    Note(Placeholder),
+    content: Option<Loaded<Markdown>>,
 }
 
 impl MarkdownViewer {
@@ -46,31 +28,27 @@ impl MarkdownViewer {
         MarkdownViewer {
             entry: entry.clone(),
             content: None,
-            #[cfg(test)]
-            renders: 0,
         }
-    }
-
-    fn content(&mut self) -> &mut Content {
-        self.content
-            .as_mut()
-            .expect("the pane loads a viewer before laying it out")
     }
 }
 
-/// What the viewer shows of `source`, as read for its entry.
-fn content_of(source: Result<Source, Unreadable>) -> Content {
+/// What the viewer shows of `source`, as read for its entry: its
+/// Markdown, or a note when the file cannot be read or there is no text
+/// at all.
+fn content_of(source: Result<Source, Unreadable>) -> Loaded<Markdown> {
     match source {
-        Err(unreadable) => Content::Note(unreadable.placeholder("markdown not shown")),
+        Err(unreadable) => Loaded::Note(unreadable.placeholder("markdown not shown")),
         Ok(Source { text, .. }) if text.trim().is_empty() => {
-            Content::Note(Placeholder::note("empty"))
+            Loaded::Note(Placeholder::note("empty"))
         }
-        Ok(Source { text, cut }) => Content::Markdown {
+        Ok(Source { text, cut }) => Loaded::Body(Markdown {
             source: text,
             cut,
             rows: Vec::new(),
             laid_out: None,
-        },
+            #[cfg(test)]
+            renders: 0,
+        }),
     }
 }
 
@@ -82,74 +60,76 @@ impl Viewer for MarkdownViewer {
         self.content = Some(content_of(source));
     }
 
+    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
+        loaded(&mut self.content).lay_out(width, height)
+    }
+
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+        loaded(&mut self.content).draw(area, buf, offset);
+    }
+}
+
+/// The Markdown of an entry with the rows it was last laid out into.
+struct Markdown {
+    source: String,
+    /// `source` is only the start of a longer file.
+    cut: bool,
+    rows: Vec<Row>,
+    /// The width `rows` were rendered for and the size they take.
+    laid_out: Option<(u16, ContentSize)>,
+    /// How often patine rendered the text, so tests see a render skipped.
+    #[cfg(test)]
+    renders: usize,
+}
+
+enum Row {
+    Text(SourceLine),
+    Note(Note),
+}
+
+impl Viewer for Markdown {
     /// Renders the Markdown for `width` columns. Every row fits the width,
     /// so the pane never scrolls sideways. The rows depend on the width
     /// alone, so a body that changed only its height keeps the rows
     /// rendered before.
-    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        match self
-            .content
-            .as_mut()
-            .expect("the pane loads a viewer before laying it out")
+    fn lay_out(&mut self, width: u16, _height: u16) -> ContentSize {
+        if let Some((rendered_for, size)) = self.laid_out
+            && rendered_for == width
         {
-            Content::Note(note) => note.lay_out(width, height),
-            Content::Markdown {
-                laid_out: Some((rendered_for, size)),
-                ..
-            } if *rendered_for == width => *size,
-            Content::Markdown {
-                source,
-                cut,
-                rows,
-                laid_out,
-            } => {
-                #[cfg(test)]
-                {
-                    self.renders += 1;
-                }
-                let columns = usize::from(width);
-                let note =
-                    |text| SourceLine::new([(text, Style::new().dim())]).wrap(columns, columns);
-                // The note of a cut file comes first, so it shows before
-                // the person scrolls to where the text stops, and another
-                // one ends the text, so its end does not pass for the
-                // file's.
-                *rows = if *cut { note(CUT_NOTE) } else { Vec::new() };
-                rows.extend(markdown_rows(
-                    &patine::render_lines(source, columns),
-                    columns,
-                ));
-                if *cut {
-                    rows.extend(note(END_NOTE));
-                }
-                // Only a character wider than the whole body is wider than
-                // a row, and it shows cut.
-                let widest = rows.iter().map(SourceLine::width).max().unwrap_or(0);
-                let size = ContentSize {
-                    lines: rows.len(),
-                    columns: widest.min(columns),
-                };
-                *laid_out = Some((width, size));
-                size
-            }
+            return size;
         }
+        #[cfg(test)]
+        {
+            self.renders += 1;
+        }
+        let columns = usize::from(width);
+        let text = markdown_rows(&patine::render_lines(&self.source, columns), columns);
+        self.rows =
+            between_cut_notes(self.cut, text.into_iter().map(Row::Text), Row::Note).collect();
+        // Only a character wider than the whole body is wider than a row,
+        // and it shows cut.
+        let widest = self
+            .rows
+            .iter()
+            .map(|row| match row {
+                Row::Text(text) => text.width(),
+                Row::Note(note) => note.columns(columns),
+            })
+            .max()
+            .unwrap_or(0);
+        let size = ContentSize {
+            lines: self.rows.len(),
+            columns: widest.min(columns),
+        };
+        self.laid_out = Some((width, size));
+        size
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        match self.content() {
-            Content::Note(note) => note.draw(area, buf, offset),
-            Content::Markdown { rows, .. } => {
-                for (y, row) in (area.top()..area.bottom()).zip(rows.iter().skip(offset.top)) {
-                    row.draw(
-                        buf,
-                        Rect {
-                            y,
-                            height: 1,
-                            ..area
-                        },
-                        0,
-                    );
-                }
+        for (row_area, row) in rows_from(area, &self.rows, offset.top) {
+            match row {
+                Row::Text(text) => text.draw(buf, row_area, 0),
+                Row::Note(note) => note.render(row_area, buf),
             }
         }
     }
@@ -201,16 +181,24 @@ mod tests {
         );
     }
 
+    /// How often `viewer`'s Markdown was rendered.
+    fn renders(viewer: &MarkdownViewer) -> usize {
+        match &viewer.content {
+            Some(Loaded::Body(markdown)) => markdown.renders,
+            _ => panic!("the viewer holds Markdown"),
+        }
+    }
+
     #[test]
     fn only_a_new_width_renders_the_markdown_again() {
         let mut viewer = inline(NOTES);
 
         let size = viewer.lay_out(40, 10);
         assert_eq!(viewer.lay_out(40, 12), size, "the rows depend on the width");
-        assert_eq!(viewer.renders, 1);
+        assert_eq!(renders(&viewer), 1);
 
         viewer.lay_out(30, 12);
-        assert_eq!(viewer.renders, 2);
+        assert_eq!(renders(&viewer), 2);
     }
 
     #[test]
@@ -305,9 +293,19 @@ mod tests {
 
         assert_eq!(
             shown(&mut viewer, 10, 0),
-            "\"first 8 Mi\"\n\"B shown   \"\n\"Plan      \"\n\"… the rest\"\n\" is cut af\"\n\"ter 8 MiB \"",
-            "the notes break like a wide line, without a marker"
+            "\"first 8 Mi\"\n\"Plan      \"\n\"… the rest\"",
+            "the notes are cut at the width, as in a diff"
         );
+        assert_eq!(
+            viewer.lay_out(10, 3),
+            ContentSize {
+                lines: 3,
+                columns: 10
+            }
+        );
+        let buf = drawn(&mut viewer, 10, 2, Offset { top: 1, left: 0 });
+        assert_eq!(row(&buf, 1), "… the rest", "the notes scroll with the rows");
+        assert!(buf[(0, 1)].modifier.contains(Modifier::DIM));
     }
 
     #[test]

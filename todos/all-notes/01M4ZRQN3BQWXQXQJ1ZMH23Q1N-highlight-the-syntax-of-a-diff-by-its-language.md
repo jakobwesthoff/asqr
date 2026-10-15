@@ -29,11 +29,6 @@ Highlight the lines of a diff entry in the file's language, as code
 entries are, while keeping what ADR 33 decided: the red and green per
 line, the reversed changed words, the signs and the gutter.
 
-The diff viewer draws its gutter rows, its 8 MiB cut notes and its
-placeholder with code that the code and Markdown viewers repeat in their
-own way. A refactor review on 2026-10-15 proposed sharing those pieces
-first, so the highlighting lands in one shared row drawing.
-
 ## Open questions
 
 - How highlighting and the line colours combine: a tinted background per

@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   short pane was cut off before; now the pane's header says which lines
   show, and the pane scrolls to the rest.
 
+### Fixed
+
+- The notes around a Markdown file cut at 8 MiB are cut at the pane's
+  edge, as those of code and diffs are. Before, they wrapped onto
+  further rows in a pane narrower than the note.
+
 ## [0.11.0] - 2026-10-15
 
 ### Added
