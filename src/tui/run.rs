@@ -958,7 +958,7 @@ mod tests {
         use ratatui_image::protocol::kitty::Kitty;
 
         let picture = image::DynamicImage::new_rgba8(1, 1);
-        let kitty = Kitty::new(picture, area.as_size(), id, false, false)
+        let kitty = Kitty::new(picture, area.as_size(), id, false, false, false)
             .expect("a picture of one pixel encodes");
         ratatui_image::Image::new(&Protocol::Kitty(kitty)).render(area, buf);
     }
@@ -966,7 +966,7 @@ mod tests {
     /// The Kitty ids of the images `buffer` shows: the low three bytes
     /// from the foreground colour of the placeholders, the high byte from
     /// the third mark, which the first placeholder of each row carries
-    /// (ratatui-image 11.1.0 `protocol/kitty.rs` l.176-196).
+    /// (ratatui-image 12.0.0-rc.2 `protocol/kitty.rs` l.169-213).
     fn kitty_images(buffer: &Buffer) -> BTreeSet<u32> {
         buffer
             .content()

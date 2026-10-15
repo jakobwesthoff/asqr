@@ -2436,9 +2436,9 @@ dependencies = [
 
 [[package]]
 name = "ratatui-image"
-version = "11.1.0"
+version = "12.0.0-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9593d10c61ec2007f429d1fafc4f4a19fecdbae4d06b531a2d505227fb82f5ea"
+checksum = "a4a226637f1c19a2883869f56d39855b53e8f568d9df5240e48e014711fbfbf5"
 dependencies = [
  "base64-simd",
  "flate2",

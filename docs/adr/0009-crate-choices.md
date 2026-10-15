@@ -73,3 +73,14 @@ and parses the variant's fields from that buffer, where
 the passthrough probe with `poll` on stdin. crossterm already depends on
 the same version, so it adds no crate to the build; `poll` gives a
 timeout without leaving a thread blocked in a read.
+
+## Amendment (2026-10-16, ratatui-image 12.0.0-rc.2)
+
+`ratatui-image` is pinned to the release candidate `=12.0.0-rc.2`, by
+the user's decision of 2026-10-15. It writes the size of a Kitty
+placement in cells, which asqr had added to the command itself, and
+reads the terminal's answer to its query with `poll` on the calling
+thread, so no reader stays blocked on stdin. Cargo selects a
+pre-release only when it is named exactly. The crate's default features
+stay off: in this version they include `chafa-dyn`, which needs
+pkg-config and a system libchafa.

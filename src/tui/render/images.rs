@@ -79,9 +79,6 @@ impl Image {
         StatefulImage::default()
             .resize(resize)
             .render(area, buf, self.protocol.as_mut());
-        // Works around images cropped by a changed cell size; see the
-        // function for when it can go.
-        size_kitty_placement(buf, area);
     }
 }
 
@@ -149,11 +146,16 @@ impl Encoder {
     ///
     /// Under the Kitty protocol asqr builds the protocol itself, so it
     /// knows the image's id. It passes what
-    /// `Picker::new_resize_protocol` passes (ratatui-image 11.1.0
-    /// `picker.rs` l.291-303) apart from the id: the tmux wrapping, and
-    /// compression only where the terminal said it inflates `o=z`, as a
-    /// terminal that cannot refuses the transmission. Every other
-    /// protocol comes from the picker as it is.
+    /// `Picker::new_resize_protocol` passes (ratatui-image 12.0.0-rc.2
+    /// `picker.rs` l.301-320) apart from the id and shared memory: the
+    /// tmux wrapping, and compression only where the terminal said it
+    /// inflates `o=z`, as a terminal that cannot refuses the
+    /// transmission. Every other protocol comes from the picker as it is.
+    ///
+    /// Shared memory stays off. The picker only reports it when the query
+    /// asked for it, it works only with a terminal on the same machine,
+    /// and every transmission leaves an object behind for the terminal
+    /// to unlink.
     pub fn encode(&self, picture: DynamicImage) -> Image {
         let picker = &self.picker;
         if picker.protocol_type() != ProtocolType::Kitty {
@@ -166,6 +168,7 @@ impl Encoder {
             picker
                 .capabilities()
                 .contains(&Capability::KittyCompression),
+            false,
         );
         // The picker's background colour, which asqr never sets, so it is
         // none, and pictures are padded with transparent pixels.
@@ -280,125 +283,6 @@ pub fn kitty_deletes(ids: &[u32], tmux: bool) -> Vec<u8> {
         .into_bytes()
 }
 
-/// The character the Kitty protocol reserves for image placeholders.
-const KITTY_PLACEHOLDER: char = '\u{10EEEE}';
-
-/// The start of the Kitty command that transmits an image and creates its
-/// virtual placement, as `ratatui-image` 11.1.0 writes it.
-const KITTY_PLACEMENT: &str = "a=T,U=1,";
-
-/// Makes the Kitty placement drawn into `area` span exactly the cells its
-/// placeholders cover, by adding `c=` and `r=` to its command. This is a
-/// workaround for a gap in `ratatui-image` 11.1.0 and is meant to go away:
-/// upstream fixed it in pull request
-/// <https://github.com/ratatui/ratatui-image/pull/215> (commit `2d7d7f6`,
-/// merged on 2026-10-03), which no release contains yet. The newest one
-/// then was 12.0.0-rc.0, which predates the merge.
-///
-/// # The problem
-///
-/// With the Kitty protocol, `ratatui-image` sends the image once, with a
-/// command that also creates a "virtual placement" (`a=T,U=1`), and then
-/// fills the image's area with placeholder characters (`U+10EEEE`) that
-/// tell the terminal which part of the image goes into which cell. The
-/// image is resized beforehand to the area's cells times the cell size in
-/// pixels that asqr asked the terminal for once, at start.
-///
-/// The placement command names the image's pixel size but not its size in
-/// cells. The terminal then works the cells out itself, from the pixels
-/// and the cell size it has right now. As long as both cell sizes agree,
-/// that gives exactly the placeholder cells. When they differ, it does
-/// not:
-///
-/// - after a font size change while asqr runs, as asqr never asks again;
-/// - in tmux with several clients attached whose cell sizes differ, as
-///   only one of them can match the cell size asqr got.
-///
-/// Smaller cells than expected crop the image to its top-left part, larger
-/// ones leave it short of its area. Both were seen in Ghostty, with and
-/// without tmux, on 2026-10-03.
-///
-/// # The workaround
-///
-/// `c=` and `r=` name the placement's size in cells, and the terminal then
-/// scales the image into exactly those cells, whatever its own cell size.
-/// `ratatui-image` writes the command into the symbol of the first
-/// placeholder cell of the frame that sends the image. So after the widget
-/// has drawn, this looks for that cell inside `area`, counts the
-/// placeholder columns and rows around it, and inserts `c=` and `r=` right
-/// after `a=T,U=1,`. Inside tmux the command is wrapped for passthrough,
-/// which doubles the escape characters but leaves this plain-text part
-/// alone. Frames that send nothing, and every other protocol, have no such
-/// cell, and the buffer stays as it is.
-///
-/// This depends on the exact text `ratatui-image` writes, which is why
-/// `Cargo.toml` pins it to `=11.1.0`. A version bump has to check this
-/// function, and the test
-/// `a_kitty_image_is_placed_over_exactly_its_placeholder_cells` in
-/// `screen.rs` fails when the command changes shape.
-///
-/// A version bump also has to check that the crate still names each image
-/// by the `Color::Rgb` foreground of its placeholder cells.
-/// [`theme::strip_colours`](super::theme::strip_colours) keeps RGB colours
-/// under `NO_COLOR` for that, and would take an id written as any other
-/// colour; the test
-/// `no_color_keeps_the_rgb_colour_that_names_a_kitty_image` in `screen.rs`
-/// fails then.
-///
-/// # Why not patch `ratatui-image`
-///
-/// The proper fix belongs in `ratatui-image` itself, which is what pull
-/// request 215 does. Until a release carries it, only a git dependency or
-/// a `[patch.crates-io]` entry would pull it in, and that works for local
-/// builds only: `cargo publish` drops patches, and crates on crates.io
-/// cannot depend on git sources. Releases on crates.io would have kept the
-/// bug.
-///
-/// # Removing it
-///
-/// TODO: Remove this once a `ratatui-image` release contains PR 215 (see
-/// the todo `01M4169ZBJ9P5QFR20761YE0TH-move-to-ratatui-image-1200-rc2-and-drop-the-kitty-placement-workaround.md`):
-///
-/// 1. Bump `ratatui-image` to that release and drop the `=` pin in
-///    `Cargo.toml`. The release is likely a 12.x, which may change the
-///    `Picker` API that `src/terminal.rs` and this module use.
-/// 2. Delete this function, its two constants and the call in
-///    [`Image::draw`].
-/// 3. Run the tests named above. They must stay green without this
-///    function, as the crate then writes `c=` and `r=` itself.
-fn size_kitty_placement(buffer: &mut Buffer, area: Rect) {
-    let area = area.intersection(buffer.area);
-    let mut command = None;
-    let (mut columns, mut rows) = (0, 0);
-    for y in area.top()..area.bottom() {
-        let mut in_row = 0;
-        for x in area.left()..area.right() {
-            let symbol = buffer[(x, y)].symbol();
-            if !symbol.contains(KITTY_PLACEHOLDER) {
-                continue;
-            }
-            in_row += 1;
-            if symbol.contains(KITTY_PLACEMENT) {
-                command = Some((x, y));
-            }
-        }
-        if in_row > 0 {
-            columns = columns.max(in_row);
-            rows += 1;
-        }
-    }
-    let Some(position) = command else {
-        return;
-    };
-    let cell = &mut buffer[position];
-    let symbol = cell.symbol().replacen(
-        KITTY_PLACEMENT,
-        &format!("{KITTY_PLACEMENT}c={columns},r={rows},"),
-        1,
-    );
-    cell.set_symbol(&symbol);
-}
-
 /// The environment variables that tell whether asqr runs inside tmux.
 pub struct TerminalNames<'a> {
     /// `TMUX`, which tmux sets in its panes; empty counts as unset.
@@ -428,8 +312,9 @@ pub(super) fn tmux_state_fields(state: &str) -> std::str::Split<'_, char> {
 /// session.
 ///
 /// Inside tmux the query only reaches a terminal through passthrough, and
-/// only while a client is attached. Without an answer the query's reader
-/// goes on taking the keys the person types, so the query is skipped and
+/// only while a client is attached. A query that gets no answer holds up
+/// the start for its whole wait, and an answer later than that reaches
+/// asqr as typed keys, so where none can come the query is skipped and
 /// images fall back to half blocks (spec section 7.7).
 ///
 /// A `TERM` that starts with `tmux`, or a `TERM_PROGRAM` of `tmux`,
@@ -601,6 +486,9 @@ mod tests {
         picker
     }
 
+    /// The character the Kitty protocol reserves for image placeholders.
+    const KITTY_PLACEHOLDER: char = '\u{10EEEE}';
+
     /// A red picture of 20×40 pixels, which takes 2×2 cells of 10×20.
     fn red() -> DynamicImage {
         image::RgbaImage::from_pixel(20, 40, image::Rgba([255, 0, 0, 255])).into()
@@ -641,8 +529,8 @@ mod tests {
 
     /// The protocol names an image by its id in the transmission and in
     /// the foreground colour of every placeholder, the id's low three
-    /// bytes as red, green and blue (ratatui-image 11.1.0
-    /// `protocol/kitty.rs` l.104-114).
+    /// bytes as red, green and blue (ratatui-image 12.0.0-rc.2
+    /// `protocol/kitty.rs` l.132-143).
     #[test]
     fn a_kitty_image_is_sent_under_the_id_its_encoder_issued() {
         let encoder = Encoder::with_ids(kitty(), vec![0x00AB_CDEF]);

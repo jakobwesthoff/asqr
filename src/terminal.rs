@@ -27,7 +27,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::terminal::SetTitle;
 use ratatui::crossterm::{execute, queue, terminal};
-use ratatui_image::picker::Picker;
+use ratatui_image::picker::{Capability, Picker, ProtocolType};
 
 /// Runs the TUI on the queue `watch` holds, in this process's terminal.
 pub fn run_terminal_ui(watch: Watch) -> Exit {
@@ -106,10 +106,17 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     let picker = {
         let _passthrough = PassthroughRestore::snapshot(&names, run_tmux);
         if may_query_protocol(&names, || tmux_state.clone(), probe_passthrough) {
-            Picker::from_query_stdio().unwrap_or_else(|error| {
-                tracing::info!(%error, "no graphics protocol detected; using half blocks");
+            // Silence and an answer without graphics both give a half-block
+            // picker; only reading or writing the terminal fails.
+            let picker = Picker::from_query_stdio().unwrap_or_else(|error| {
+                tracing::warn!(%error, "could not query the graphics protocol; using half blocks");
                 Picker::halfblocks()
-            })
+            });
+            if let Some(reason) = half_blocks_reason(picker.protocol_type(), picker.capabilities())
+            {
+                tracing::info!(reason, "no graphics protocol detected; using half blocks");
+            }
+            picker
         } else {
             tracing::info!("tmux cannot forward the graphics query; using half blocks");
             Picker::halfblocks()
@@ -321,6 +328,24 @@ fn log_window_size() {
     }
 }
 
+/// Why the queried picker draws images in half blocks, for the log, or
+/// `None` when it speaks a graphics protocol.
+///
+/// A picker without any capability got no answer it could use: none
+/// within the query's wait, or one without a cell size, which the
+/// graphics protocols need. With capabilities, the terminal answered and
+/// named none of the protocols, and the environment hinted at none.
+fn half_blocks_reason(protocol: ProtocolType, capabilities: &[Capability]) -> Option<&'static str> {
+    if protocol != ProtocolType::Halfblocks {
+        return None;
+    }
+    Some(if capabilities.is_empty() {
+        "the terminal answered the graphics query without a cell size, or not at all"
+    } else {
+        "the terminal named no graphics protocol asqr speaks"
+    })
+}
+
 /// What [`may_query_protocol`] and [`Glyphs::for_terminal`] need to know
 /// from tmux.
 fn tmux_state() -> Option<String> {
@@ -345,7 +370,7 @@ fn run_tmux(args: &[&str]) -> Option<String> {
 /// Puts the pane's `allow-passthrough` back as it was before the `Picker`
 /// was built, when dropped.
 ///
-/// ratatui-image 11.1.0 runs `tmux set -p allow-passthrough on` in every
+/// ratatui-image 12.0.0-rc.2 runs `tmux set -p allow-passthrough on` in every
 /// `Picker` constructor when `TERM` starts with `tmux` or `TERM_PROGRAM`
 /// is `tmux`, which would override the person's own setting for the pane
 /// on every start. The same test decides here whether to take a snapshot,
@@ -624,6 +649,31 @@ mod tests {
                 Vec::<String>::new(),
                 "{term} {term_program}"
             );
+        }
+    }
+
+    /// A picker that found no graphics protocol says why in the log: with
+    /// no capability at all the terminal gave no usable answer, which
+    /// includes a timeout and an answer without a cell size.
+    #[test]
+    fn the_log_says_why_images_are_half_blocks() {
+        assert_eq!(
+            half_blocks_reason(ProtocolType::Halfblocks, &[]),
+            Some("the terminal answered the graphics query without a cell size, or not at all")
+        );
+        assert_eq!(
+            half_blocks_reason(
+                ProtocolType::Halfblocks,
+                &[Capability::CellSize(Some((10, 20)))]
+            ),
+            Some("the terminal named no graphics protocol asqr speaks")
+        );
+        for protocol in [
+            ProtocolType::Kitty,
+            ProtocolType::Sixel,
+            ProtocolType::Iterm2,
+        ] {
+            assert_eq!(half_blocks_reason(protocol, &[]), None, "{protocol:?}");
         }
     }
 

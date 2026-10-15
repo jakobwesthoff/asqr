@@ -1195,15 +1195,18 @@ Code and Markdown (ADR 34):
 
 Images:
 
-- Terminals that support the Kitty graphics protocol (Ghostty, kitty,
-  WezTerm), the iTerm2 protocol or Sixel show images inline. Terminals
-  without any of these get a coarse block rendering.
+- Terminals that support the Kitty graphics protocol (Ghostty, kitty),
+  the iTerm2 protocol (iTerm2, WezTerm) or Sixel show images inline.
+  Terminals without any of these get a coarse block rendering.
 - asqr decodes PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO,
   TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld. It detects the format
   from the file's content, and from the extension when the content does
   not match a known signature. SVG and AVIF are not decoded. The set follows
   the features of the `image` crate, and a test fails when it changes.
-- The protocol is detected once at start, by querying the terminal.
+- The protocol is detected once at start, by querying the terminal. A
+  terminal that answers nothing within 2 seconds gets the block
+  rendering, also where its environment names a terminal with the
+  iTerm2 protocol.
 - An image entry is read when it is first shown and kept while its
   session waits, until asqr's terminal gains the focus again. asqr asks
   the terminal for focus reports; on regaining the focus it reads and
@@ -1234,9 +1237,9 @@ hidden stays empty until the pane gains the focus again, which asqr only
 learns when tmux forwards focus reports (`set -g focus-events on`).
 Inside tmux, asqr asks tmux whether passthrough is on for its pane and
 whether a client is attached, and queries the terminal only when both
-hold: otherwise the query gets no answer, and its reader would go on
-taking the keys typed afterwards. Without `TMUX`, when `TERM` starts
-with `tmux` or `TERM_PROGRAM` is `tmux`, as after ssh from a tmux pane,
+hold: otherwise the query gets no answer and holds up the start for
+its whole wait. Without `TMUX`, when `TERM` starts with `tmux` or
+`TERM_PROGRAM` is `tmux`, as after ssh from a tmux pane,
 asqr cannot ask that tmux. It sends a device status request through
 tmux's passthrough instead and waits up to 300 ms for the answer: with
 one, it queries the terminal; without one, images show as blocks. Keys

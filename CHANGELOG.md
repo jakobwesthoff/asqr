@@ -58,6 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   like the placeholders of code, Markdown and diffs. A long reason in a
   short pane was cut off before; now the pane's header says which lines
   show, and the pane scrolls to the rest.
+- A terminal that does not answer the graphics query at all gets its
+  images as blocks, also where its environment names a terminal with
+  the iTerm2 protocol. Before, asqr used the iTerm2 protocol there when
+  the terminal reported its size in pixels. This follows ratatui-image
+  12.0.0-rc.2, which asqr now draws images with.
 
 ### Fixed
 
@@ -80,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports and bracketed paste off and leaves raw mode and the alternate
   screen. Before, a signal such as `kill <pid>` ended asqr at once and
   left the terminal as asqr had set it up. SIGKILL still does.
+- After a graphics query the terminal left unanswered, the first key
+  or paste reaches asqr. Before, the query went on reading and took it,
+  and a paste lost its start marker, so its line breaks arrived as
+  `enter`.
 
 ## [0.11.0] - 2026-10-15
 

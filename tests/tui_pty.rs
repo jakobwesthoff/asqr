@@ -30,6 +30,14 @@ const SESSION: &str = r#"{"asqr": 2, "id": "pty-test", "questions": [{"id": "q",
 
 const PATIENCE: Duration = Duration::from_secs(20);
 
+/// A terminal's answer to the graphics query without any graphics: only
+/// the status report that ends it.
+const NO_GRAPHICS: &str = "\x1b[0n";
+
+/// A terminal's answer to the graphics query with Kitty graphics and
+/// cells of 10×20 pixels, then the status report.
+const KITTY_GRAPHICS: &str = "\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[0n";
+
 struct Tui {
     size: (u16, u16),
     child: Box<dyn Child + Send + Sync>,
@@ -180,9 +188,9 @@ impl Tui {
         }
     }
 
-    /// Answers the terminal query with only the status report that ends
-    /// it, as a terminal without graphics would.
-    fn answer_the_query(&mut self) {
+    /// Waits until asqr has asked the terminal for its graphics protocol.
+    /// The status request ends the query.
+    fn wait_for_the_query(&self) {
         let start = Instant::now();
         while !self.output().contains("[5n") {
             assert!(
@@ -191,8 +199,13 @@ impl Tui {
             );
             std::thread::sleep(Duration::from_millis(20));
         }
-        self.writer.write_all(b"\x1b[0n").expect("answered");
-        self.writer.flush().expect("flushed");
+    }
+
+    /// Answers the terminal query with `answer` in one write, as a
+    /// terminal sends it.
+    fn answer_the_query(&mut self, answer: &str) {
+        self.wait_for_the_query();
+        self.send(answer);
     }
 
     fn resize(&mut self, rows: u16, cols: u16) {
@@ -428,7 +441,7 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
         &["--queue", "pty", "--no-notify", "--no-title"],
         "on\t1\t",
     );
-    tui.answer_the_query();
+    tui.answer_the_query(NO_GRAPHICS);
     tui.wait_for("queue: pty");
 
     // Only a resize that reached the loop draws the size message, and
@@ -487,6 +500,26 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
             "--no-title writes no {name}: {output:?}"
         );
     }
+}
+
+/// A terminal that leaves the graphics query unanswered costs the query's
+/// whole wait, and then the keys typed go to asqr: nothing goes on reading
+/// stdin for the query.
+#[test]
+fn a_key_typed_after_an_unanswered_query_reaches_asqr() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+        "on\t1\t",
+    );
+    tui.wait_for_the_query();
+    tui.wait_for("Nothing to answer");
+
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
 }
 
 /// What a terminal shows of asqr under `NO_COLOR` set to `no_color`.
@@ -691,21 +724,18 @@ fn kitty_delete(id: u32) -> String {
     format!("\x1b_Ga=d,d=I,i={id},q=2\x1b\\")
 }
 
-/// Under the Kitty protocol, an image sent again on regaining the focus
-/// has its old copy deleted after the frame that shows the new one, and
-/// the one shown when asqr quits is deleted before the title is given
-/// back and asqr leaves the alternate screen (ADR 42).
-#[test]
-fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
-    let sandbox = Sandbox::new();
+/// Starts asqr in a terminal that answers the graphics query as one with
+/// Kitty graphics and cells of 10×20 pixels, and has it show a session
+/// with a red image.
+fn showing_a_kitty_image(sandbox: &Sandbox) -> Tui {
     let dir = sandbox.queue_dir();
     // asqr inherits the variables of the terminal the tests run in. A
     // `TERM_PROGRAM` of tmux makes ratatui-image wrap every command for
     // passthrough, and WezTerm's or Konsole's variable rules the Kitty
-    // protocol out whatever the terminal answers (ratatui-image 11.1.0
-    // `picker.rs` l.120-128), where empty counts as unset.
+    // protocol out whatever the terminal answers (ratatui-image
+    // 12.0.0-rc.2 `picker.rs` l.131-138), where empty counts as unset.
     let mut tui = Tui::start_with(
-        &sandbox,
+        sandbox,
         &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
         "on\t1\t",
         &[
@@ -714,16 +744,7 @@ fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
             ("KONSOLE_VERSION", ""),
         ],
     );
-    let start = Instant::now();
-    while !tui.output().contains("[5n") {
-        assert!(
-            start.elapsed() < PATIENCE,
-            "asqr never queried the terminal"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    // Kitty graphics, cells of 10×20 pixels, then the status report.
-    tui.send("\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[0n");
+    tui.answer_the_query(KITTY_GRAPHICS);
     tui.wait_for("Nothing to answer");
 
     let picture = sandbox.home().join("red.png");
@@ -744,6 +765,40 @@ fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
         .assert()
         .success();
     tui.wait_for("Pick a fruit");
+    tui
+}
+
+/// The Kitty placement names its size in cells, so the terminal draws the
+/// image into exactly its placeholder cells, whatever its own cell size.
+#[test]
+fn a_kitty_image_is_placed_with_its_size_in_cells() {
+    let sandbox = Sandbox::new();
+    let mut tui = showing_a_kitty_image(&sandbox);
+    sent_kitty_image(&tui, 0);
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+
+    let output = tui.output();
+    let placement = &output[first(&output, "a=T,U=1,")..];
+    let keys = &placement[..placement.find(';').expect("the keys end before the data")];
+    let cells = |key: &str| {
+        keys.split(',')
+            .find_map(|pair| pair.strip_prefix(key))
+            .unwrap_or_else(|| panic!("no {key} in {keys:?}"))
+            .parse::<u16>()
+            .expect("a number of cells")
+    };
+    assert!(cells("c=") > 0 && cells("r=") > 0, "{keys:?}");
+}
+
+/// Under the Kitty protocol, an image sent again on regaining the focus
+/// has its old copy deleted after the frame that shows the new one, and
+/// the one shown when asqr quits is deleted before the title is given
+/// back and asqr leaves the alternate screen (ADR 42).
+#[test]
+fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
+    let sandbox = Sandbox::new();
+    let mut tui = showing_a_kitty_image(&sandbox);
     let old = sent_kitty_image(&tui, 0);
 
     tui.send("\x1b[I");
