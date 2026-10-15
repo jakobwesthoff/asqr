@@ -152,6 +152,9 @@ palette's own values, not to a terminal theme.
 
 - Only the focus is a filled area. The title line and the key bar have no
   fills.
+- There is one focus fill on the screen at a time. While the context pane
+  has the focus, the question's current row keeps its pointer and bold
+  text but loses its fill.
 - Code and Markdown keep the colours their highlighting gives them,
   including yellow inline code.
 - An answered question is not a status: its tab mark keeps the text

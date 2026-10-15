@@ -36,6 +36,16 @@ As in the chosen prototype variant:
 - Key bar without fills: the key bold cyan, its description dim.
 - Help and session list with rounded borders in cyan, bold titles, the
   help's keys in cyan and one column of padding inside its border.
+- While the context pane has the focus, the question's current row shows
+  its pointer and bold text without a fill, so one focus fill shows at a
+  time. Today, and in the prototype, both the row and the pane header are
+  filled then.
+
+## Decisions
+
+- 2026-10-15, user: inline code in Markdown stays yellow (ADR 35), next to
+  the yellow focus fill.
+- 2026-10-15, user: one focus fill at a time, as above.
 
 ## Open questions
 
@@ -44,6 +54,8 @@ As in the chosen prototype variant:
 - `fg(Yellow).reversed()` puts the terminal's background colour on the
   fill; whether `bg(Yellow).fg(Black)` reads better in some themes, at the
   cost of changing the cursor detection.
+- Whether dropping the fill from the current row while the pane has the
+  focus affects anything that finds that row by its `REVERSED` style.
 
 ## Relations
 
