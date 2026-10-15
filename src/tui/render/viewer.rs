@@ -289,6 +289,7 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
+    use super::super::test_support::{self, row};
     use super::*;
 
     fn entry(json: &str) -> ContextEntry {
@@ -314,22 +315,24 @@ mod tests {
     }
 
     /// The text the viewer for `entry` draws into `width`×`height` cells
-    /// from line `top` on, one string per row.
+    /// from line `top` on, one string per row without the blanks after it.
+    /// The viewer draws as `Viewers` laid it out, with no lay out of the
+    /// test's own, as the pane draws it.
     fn drawn(entry: &ContextEntry, width: u16, height: u16, top: usize) -> Vec<String> {
         let mut viewers = viewers();
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
         let (viewer, _) = viewers.laid_out("s", QUESTION, entry, width, height);
         viewer.draw(area, &mut buf, Offset { top, left: 0 });
-        (0..height)
-            .map(|y| {
-                (0..width)
-                    .map(|x| buf[(x, y)].symbol())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .collect()
+        (0..height).map(|y| row(&buf, y)).collect()
+    }
+
+    /// The text `viewer`, laid out and drawn into `width`×`height` cells
+    /// from line `top` on, shows, one string per row without the blanks
+    /// after it.
+    fn drawn_viewer(viewer: &mut dyn Viewer, width: u16, height: u16, top: usize) -> Vec<String> {
+        let buf = test_support::drawn(viewer, width, height, Offset { top, left: 0 });
+        (0..height).map(|y| row(&buf, y)).collect()
     }
 
     // -----------------------------------------------------------------
@@ -509,24 +512,6 @@ mod tests {
     // -----------------------------------------------------------------
     // Placeholders
     // -----------------------------------------------------------------
-
-    /// The text `viewer`, laid out and drawn into `width`×`height` cells
-    /// from line `top` on, shows, one string per row.
-    fn drawn_viewer(viewer: &mut dyn Viewer, width: u16, height: u16, top: usize) -> Vec<String> {
-        let area = Rect::new(0, 0, width, height);
-        let mut buf = Buffer::empty(area);
-        viewer.lay_out(width, height);
-        viewer.draw(area, &mut buf, Offset { top, left: 0 });
-        (0..height)
-            .map(|y| {
-                (0..width)
-                    .map(|x| buf[(x, y)].symbol())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .collect()
-    }
 
     #[test]
     fn a_placeholder_wraps_to_the_body_and_counts_its_lines() {

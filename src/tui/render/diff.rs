@@ -385,6 +385,7 @@ mod tests {
 
     use ratatui::style::{Color, Modifier};
 
+    use super::super::test_support::{drawn, row, shown};
     use super::*;
 
     /// A loaded viewer of the change from `old` to `new`, given inline.
@@ -425,49 +426,6 @@ mod tests {
             name: None,
             ..DiffEntry::default()
         })
-    }
-
-    /// The viewer drawn into `width`×`height` cells at `offset`.
-    fn drawn(viewer: &mut DiffViewer, width: u16, height: u16, offset: Offset) -> Buffer {
-        let area = Rect::new(0, 0, width, height);
-        let mut buf = Buffer::empty(area);
-        viewer.lay_out(width, height);
-        viewer.draw(area, &mut buf, offset);
-        buf
-    }
-
-    /// The rows of `buf` as the terminal shows them, each in quotes so its
-    /// width shows: a wide character hides the cell after it.
-    fn rows(buf: &Buffer) -> String {
-        let mut rows = Vec::new();
-        for y in 0..buf.area.height {
-            let mut row = String::new();
-            let mut x = 0;
-            while x < buf.area.width {
-                let symbol = buf[(x, y)].symbol();
-                row.push_str(symbol);
-                x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
-            }
-            rows.push(format!("\"{row}\""));
-        }
-        rows.join("\n")
-    }
-
-    /// The whole content, every line of it, `width` columns wide from
-    /// column `left` on.
-    fn shown(viewer: &mut DiffViewer, width: u16, left: usize) -> String {
-        let size = viewer.lay_out(width, 1);
-        let height = u16::try_from(size.lines).expect("a short diff");
-        rows(&drawn(viewer, width, height, Offset { top: 0, left }))
-    }
-
-    /// The text of row `y`, without the blanks after it.
-    fn row(buf: &Buffer, y: u16) -> String {
-        (0..buf.area.width)
-            .map(|x| buf[(x, y)].symbol())
-            .collect::<String>()
-            .trim_end()
-            .to_owned()
     }
 
     /// The columns of row `y` whose cells carry `modifier`.

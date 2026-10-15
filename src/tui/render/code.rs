@@ -184,9 +184,9 @@ impl Lines {
 mod tests {
     use std::fs;
 
-    use super::super::source_line::columns;
     use ratatui::style::{Color, Modifier};
 
+    use super::super::test_support::{drawn, row, shown, style_at};
     use super::*;
 
     fn entry(json: &str) -> CodeEntry {
@@ -197,57 +197,6 @@ mod tests {
         let mut viewer = CodeViewer::new(&entry(json));
         viewer.load();
         viewer
-    }
-
-    /// The viewer drawn into `width`×`height` cells at `offset`.
-    fn drawn(viewer: &mut CodeViewer, width: u16, height: u16, offset: Offset) -> Buffer {
-        let area = Rect::new(0, 0, width, height);
-        let mut buf = Buffer::empty(area);
-        viewer.lay_out(width, height);
-        viewer.draw(area, &mut buf, offset);
-        buf
-    }
-
-    /// The rows of `buf` as the terminal shows them, each in quotes so its
-    /// width shows.
-    fn rows(buf: &Buffer) -> String {
-        let mut rows = Vec::new();
-        for y in 0..buf.area.height {
-            let mut row = String::new();
-            let mut x = 0;
-            while x < buf.area.width {
-                let symbol = buf[(x, y)].symbol();
-                row.push_str(symbol);
-                x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
-            }
-            rows.push(format!("\"{row}\""));
-        }
-        rows.join("\n")
-    }
-
-    /// The whole content, `width` columns wide from column `left` on.
-    fn shown(viewer: &mut CodeViewer, width: u16, left: usize) -> String {
-        let size = viewer.lay_out(width, 1);
-        let height = u16::try_from(size.lines).expect("a short text");
-        rows(&drawn(viewer, width, height, Offset { top: 0, left }))
-    }
-
-    /// The text of row `y`, without the blanks after it.
-    fn row(buf: &Buffer, y: u16) -> String {
-        (0..buf.area.width)
-            .map(|x| buf[(x, y)].symbol())
-            .collect::<String>()
-            .trim_end()
-            .to_owned()
-    }
-
-    /// The colour of the first cell of row `y` that shows `text`.
-    fn colour_of(buf: &Buffer, y: u16, text: &str) -> Option<Color> {
-        let row = (0..buf.area.width)
-            .map(|x| buf[(x, y)].symbol())
-            .collect::<String>();
-        let x = row.find(text).expect("the text is on the row");
-        buf[(u16::try_from(x).expect("a narrow row"), y)].fg.into()
     }
 
     const FETCH: &str = r#"{"type": "code", "title": "fetch.rs", "content": "use std::time::Duration;\n\n// Fetches a page.\npub fn fetch(url: &str) -> Result<Response> {\n    get(url)\n}\n"}"#;
@@ -269,17 +218,17 @@ mod tests {
             "4 pub fn fetch(url: &str) -> Result<Response> {"
         );
         assert_eq!(
-            colour_of(&buf, 3, "fn"),
+            style_at(&buf, "fn").fg,
             Some(Color::Indexed(5)),
             "a keyword"
         );
         assert_eq!(
-            colour_of(&buf, 3, "fetch"),
+            style_at(&buf, "fetch").fg,
             Some(Color::Indexed(4)),
             "a name"
         );
         assert_eq!(
-            colour_of(&buf, 2, "Fetches"),
+            style_at(&buf, "Fetches").fg,
             Some(Color::Indexed(2)),
             "a comment"
         );
@@ -390,7 +339,7 @@ mod tests {
 
         let buf = drawn(&mut viewer, 30, 1, Offset::default());
 
-        assert_eq!(colour_of(&buf, 0, "FROM"), Some(Color::Indexed(5)));
+        assert_eq!(style_at(&buf, "FROM").fg, Some(Color::Indexed(5)));
     }
 
     #[test]
@@ -404,7 +353,7 @@ mod tests {
         assert_eq!(row(&buf, 0), "1 # Retries");
         assert_eq!(row(&buf, 2), "3 **Three** tries.");
         assert_eq!(
-            colour_of(&buf, 2, "**Three**"),
+            style_at(&buf, "**Three**").fg,
             Some(Color::Indexed(3)),
             "highlighted as Markdown source"
         );
@@ -434,7 +383,7 @@ mod tests {
 
         let buf = drawn(&mut viewer, 20, 1, Offset::default());
         assert_eq!(row(&buf, 0), "1 fn main() {}");
-        assert_eq!(colour_of(&buf, 0, "fn"), Some(Color::Indexed(5)));
+        assert_eq!(style_at(&buf, "fn").fg, Some(Color::Indexed(5)));
     }
 
     #[test]

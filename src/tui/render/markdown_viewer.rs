@@ -159,9 +159,9 @@ impl Viewer for MarkdownViewer {
 mod tests {
     use std::fs;
 
-    use super::super::source_line::columns;
     use ratatui::style::{Color, Modifier};
 
+    use super::super::test_support::{drawn, row, shown};
     use super::*;
 
     fn loaded(json: &str) -> MarkdownViewer {
@@ -175,52 +175,14 @@ mod tests {
         loaded(&serde_json::json!({"type": "markdown", "content": markdown}).to_string())
     }
 
-    /// The viewer drawn into `width`×`height` cells at `offset`.
-    fn drawn(viewer: &mut MarkdownViewer, width: u16, height: u16, offset: Offset) -> Buffer {
-        let area = Rect::new(0, 0, width, height);
-        let mut buf = Buffer::empty(area);
-        viewer.lay_out(width, height);
-        viewer.draw(area, &mut buf, offset);
-        buf
-    }
-
-    /// The whole content laid out `width` columns wide, each row in
-    /// quotes so its width shows.
-    fn shown(viewer: &mut MarkdownViewer, width: u16) -> String {
-        let size = viewer.lay_out(width, 1);
-        let height = u16::try_from(size.lines).expect("a short text");
-        let buf = drawn(viewer, width, height, Offset::default());
-        let mut rows = Vec::new();
-        for y in 0..height {
-            let mut row = String::new();
-            let mut x = 0;
-            while x < width {
-                let symbol = buf[(x, y)].symbol();
-                row.push_str(symbol);
-                x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
-            }
-            rows.push(format!("\"{row}\""));
-        }
-        rows.join("\n")
-    }
-
-    /// The text of row `y`, without the blanks after it.
-    fn row(buf: &Buffer, y: u16) -> String {
-        (0..buf.area.width)
-            .map(|x| buf[(x, y)].symbol())
-            .collect::<String>()
-            .trim_end()
-            .to_owned()
-    }
-
     const NOTES: &str = "# Retries\n\nA failed request is tried **again** up to three times, with `delay` doubling.\n\n## Settings\n\n- tries: 3\n- delay: 100 ms\n\n```rust\nlet delay = Duration::from_millis(100);\n```\n";
 
     #[test]
     fn markdown_renders_wrapped_to_the_body() {
         let mut viewer = inline(NOTES);
 
-        insta::assert_snapshot!("notes_40", shown(&mut viewer, 40));
-        insta::assert_snapshot!("notes_24", shown(&mut viewer, 24));
+        insta::assert_snapshot!("notes_40", shown(&mut viewer, 40, 0));
+        insta::assert_snapshot!("notes_24", shown(&mut viewer, 24, 0));
     }
 
     #[test]
@@ -296,7 +258,7 @@ mod tests {
         let mut viewer = inline("```\nlet total = first + second + third;\n```\n");
 
         assert_eq!(
-            shown(&mut viewer, 20),
+            shown(&mut viewer, 20, 0),
             "\"  let total = first \"\n\"  ↪ + second + third\"\n\"  ↪ ;               \""
         );
         let buf = drawn(&mut viewer, 20, 3, Offset::default());
@@ -342,7 +304,7 @@ mod tests {
         assert!(buf[(0, 2)].modifier.contains(Modifier::DIM));
 
         assert_eq!(
-            shown(&mut viewer, 10),
+            shown(&mut viewer, 10, 0),
             "\"first 8 Mi\"\n\"B shown   \"\n\"Plan      \"\n\"… the rest\"\n\" is cut af\"\n\"ter 8 MiB \"",
             "the notes break like a wide line, without a marker"
         );

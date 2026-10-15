@@ -15,6 +15,8 @@ mod patine_adapter;
 mod screen;
 mod source_file;
 mod source_line;
+#[cfg(test)]
+mod test_support;
 mod text;
 mod viewer;
 

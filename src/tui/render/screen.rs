@@ -1615,6 +1615,7 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+    use super::super::test_support::{self, find, find_from, row};
     use super::*;
     use crate::format::{Session, result_answers};
 
@@ -1672,25 +1673,7 @@ mod tests {
     }
 
     fn title_line(backend: &TestBackend) -> String {
-        visible_rows(backend)[0].trim_end().to_owned()
-    }
-
-    /// Each row of the screen as the terminal shows it: a wide character
-    /// hides the cell after it.
-    fn visible_rows(backend: &TestBackend) -> Vec<String> {
-        let buffer = backend.buffer();
-        (0..buffer.area.height)
-            .map(|y| {
-                let mut row = String::new();
-                let mut x = 0;
-                while x < buffer.area.width {
-                    let symbol = buffer[(x, y)].symbol();
-                    row.push_str(symbol);
-                    x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
-                }
-                row
-            })
-            .collect()
+        row(backend.buffer(), 0)
     }
 
     // -----------------------------------------------------------------
@@ -1734,7 +1717,7 @@ mod tests {
     #[test]
     fn the_header_wraps_at_the_reading_width_and_the_tab_bar_does_not() {
         let backend = screen(&long_header(), 160, 30);
-        let lines = screen_lines(&backend);
+        let lines = test_support::rows(backend.buffer());
 
         for (row, line) in lines.iter().enumerate().take(6).skip(1) {
             let used = line.trim_end().chars().count();
@@ -1749,7 +1732,7 @@ mod tests {
             "tabs",
             &format!(r#"{{"asqr": 2, "questions": [{}]}}"#, questions.join(",")),
         )]);
-        let tab_bar = screen_lines(&screen(&many_tabs, 160, 30))[2].clone();
+        let tab_bar = test_support::rows(screen(&many_tabs, 160, 30).buffer())[2].clone();
         assert!(
             tab_bar.trim_end().chars().count() > 150,
             "the tab bar uses the full width: {tab_bar}"
@@ -1759,11 +1742,11 @@ mod tests {
     #[test]
     fn a_long_title_takes_two_lines_or_one_on_short_terminals() {
         let app = long_header();
-        let lines = screen_lines(&screen(&app, 80, 24));
+        let lines = test_support::rows(screen(&app, 80, 24).buffer());
         assert!(lines[2].trim_end().ends_with('…'), "{lines:#?}");
         assert!(lines[5].trim_end().ends_with("… i: more"), "{lines:#?}");
 
-        let lines = screen_lines(&screen(&app, 80, 20));
+        let lines = test_support::rows(screen(&app, 80, 20).buffer());
         assert!(lines[1].trim_end().ends_with('…'), "{lines:#?}");
         assert!(lines[2].trim_end().ends_with("… i: more"), "{lines:#?}");
     }
@@ -1972,27 +1955,6 @@ mod tests {
         app(&[("markdown", &json.to_string())])
     }
 
-    /// The column and row of the first cell where `text` starts, searching
-    /// the rows from `from` on. Every cell in these tests holds one
-    /// character, so a character's index in a row is its column.
-    fn find_from(backend: &TestBackend, from: u16, text: &str) -> (u16, u16) {
-        let lines = screen_lines(backend);
-        for (y, line) in lines.iter().enumerate().skip(usize::from(from)) {
-            if let Some(start) = line.find(text) {
-                let x = line[..start].chars().count();
-                return (
-                    u16::try_from(x).expect("a column on the screen"),
-                    u16::try_from(y).expect("a row on the screen"),
-                );
-            }
-        }
-        panic!("{text:?} is not on the screen:\n{backend}");
-    }
-
-    fn find(backend: &TestBackend, text: &str) -> (u16, u16) {
-        find_from(backend, 0, text)
-    }
-
     const PLAN: &str = "## Plan\n\nRun `cargo test` **now**, see [docs](https://example.com).\n\n> Quoted\n\n```rust\nlet x = 1;\n```";
 
     #[test]
@@ -2004,38 +1966,38 @@ mod tests {
         for source in ["##", "**", "```", "[docs]", "> Quoted"] {
             assert!(!text.contains(source), "{source} shows:\n{backend}");
         }
-        let heading = find(&backend, "Plan");
+        let heading = find(backend.buffer(), "Plan");
         assert!(
             buffer[heading]
                 .modifier
                 .contains(Modifier::BOLD | Modifier::UNDERLINED),
             "a level-two heading"
         );
-        let code = find(&backend, "cargo test");
+        let code = find(backend.buffer(), "cargo test");
         assert_eq!(buffer[code].fg, Color::Indexed(3), "inline code in yellow");
         assert!(
             !buffer[code].modifier.contains(Modifier::REVERSED),
             "inline code is not reversed"
         );
         assert!(
-            buffer[find(&backend, "now")]
+            buffer[find(backend.buffer(), "now")]
                 .modifier
                 .contains(Modifier::BOLD)
         );
         assert!(
-            buffer[find(&backend, "docs")]
+            buffer[find(backend.buffer(), "docs")]
                 .modifier
                 .contains(Modifier::UNDERLINED)
         );
         assert!(
-            buffer[find(&backend, "(https://example.com)")]
+            buffer[find(backend.buffer(), "(https://example.com)")]
                 .modifier
                 .contains(Modifier::DIM)
         );
-        let (x, y) = find(&backend, "│ Quoted");
+        let (x, y) = find(backend.buffer(), "│ Quoted");
         assert!(buffer[(x, y)].modifier.contains(Modifier::DIM), "the bar");
         assert!(buffer[(x + 2, y)].modifier.contains(Modifier::ITALIC));
-        let (x, y) = find(&backend, "let x = 1;");
+        let (x, y) = find(backend.buffer(), "let x = 1;");
         assert_eq!(x, 3, "the block is indented by two after the margin");
         assert_eq!(
             buffer[(x, y)].fg,
@@ -2054,10 +2016,10 @@ mod tests {
         );
         let buffer = backend.buffer();
 
-        let (x, y) = find(&backend, "let total");
+        let (x, y) = find(backend.buffer(), "let total");
         assert_eq!(x, 3);
-        let first = &screen_lines(&backend)[usize::from(y)];
-        let second = &screen_lines(&backend)[usize::from(y) + 1];
+        let first = &test_support::rows(backend.buffer())[usize::from(y)];
+        let second = &test_support::rows(backend.buffer())[usize::from(y) + 1];
         assert!(second.starts_with("   ↪ "), "{backend}");
         assert!(
             buffer[(3, y + 1)].modifier.contains(Modifier::DIM),
@@ -2078,14 +2040,14 @@ mod tests {
         let backend = screen(&app, 80, 24);
         let buffer = backend.buffer();
 
-        let two = find(&backend, "two");
+        let two = find(backend.buffer(), "two");
         assert!(
             buffer[two]
                 .modifier
                 .contains(Modifier::BOLD | Modifier::DIM),
             "{backend}"
         );
-        let layout = find(&backend, "layout");
+        let layout = find(backend.buffer(), "layout");
         assert_eq!(buffer[layout].fg, Color::Indexed(3));
         assert!(buffer[layout].modifier.contains(Modifier::DIM));
         assert!(!backend.to_string().contains('`'), "{backend}");
@@ -2098,11 +2060,11 @@ mod tests {
         let backend = screen(&app, 80, 24);
         let buffer = backend.buffer();
 
-        let (_, y) = find(&backend, "│ Round two");
-        let two = find_from(&backend, y, "two");
+        let (_, y) = find(backend.buffer(), "│ Round two");
+        let two = find_from(backend.buffer(), y, "two");
         assert!(buffer[two].modifier.contains(Modifier::BOLD), "{backend}");
         assert!(!buffer[two].modifier.contains(Modifier::DIM), "{backend}");
-        let (layout, _) = find_from(&backend, y, "layout");
+        let (layout, _) = find_from(backend.buffer(), y, "layout");
         assert_eq!(buffer[(layout, y)].fg, Color::Indexed(3));
     }
 
@@ -2116,22 +2078,30 @@ mod tests {
             20,
         );
         let buffer = backend.buffer();
-        let lines = screen_lines(&backend);
+        let lines = test_support::rows(backend.buffer());
 
         // The margin, then "❯ ( ) 1. Alpha" and two blanks.
-        let (x, y) = find(&backend, "Keeps all of it:");
+        let (x, y) = find(backend.buffer(), "Keeps all of it:");
         assert_eq!(x, 17, "{backend}");
         assert!(
             lines[usize::from(y)].contains("Alpha"),
             "on the label's row"
         );
         assert!(
-            buffer[find(&backend, "all")]
+            buffer[find(backend.buffer(), "all")]
                 .modifier
                 .contains(Modifier::BOLD)
         );
-        assert_eq!(find(&backend, "• first step"), (17, y + 2), "{backend}");
-        assert_eq!(find(&backend, "• second step"), (17, y + 3), "{backend}");
+        assert_eq!(
+            find(backend.buffer(), "• first step"),
+            (17, y + 2),
+            "{backend}"
+        );
+        assert_eq!(
+            find(backend.buffer(), "• second step"),
+            (17, y + 3),
+            "{backend}"
+        );
         assert_eq!(buffer[(19, y + 2)].fg, Color::Indexed(3), "inline code");
         assert!(lines[usize::from(y) + 4].contains("Beta"), "{backend}");
     }
@@ -2141,14 +2111,14 @@ mod tests {
         let label = "Rewrite the parser from scratch, every part of it";
         let backend = screen(&markdown_session("Intro", "Which?", label, STEPS), 60, 24);
 
-        let (_, label_row) = find(&backend, label);
+        let (_, label_row) = find(backend.buffer(), label);
         assert_eq!(
-            find(&backend, "Keeps all of it:"),
+            find(backend.buffer(), "Keeps all of it:"),
             (7, label_row + 1),
             "{backend}"
         );
         assert_eq!(
-            find(&backend, "• first step"),
+            find(backend.buffer(), "• first step"),
             (7, label_row + 3),
             "{backend}"
         );
@@ -2163,9 +2133,13 @@ mod tests {
             20,
         );
 
-        let (x, y) = find(&backend, "word word");
+        let (x, y) = find(backend.buffer(), "word word");
         assert_eq!(x, 19, "the block's indent inside the description column");
-        assert_eq!(find_from(&backend, y + 1, "↪"), (19, y + 1), "{backend}");
+        assert_eq!(
+            find_from(backend.buffer(), y + 1, "↪"),
+            (19, y + 1),
+            "{backend}"
+        );
         assert!(!backend.to_string().contains('›'), "{backend}");
     }
 
@@ -2332,24 +2306,13 @@ mod tests {
         app
     }
 
-    fn screen_lines(backend: &TestBackend) -> Vec<String> {
-        let buffer = backend.buffer();
-        (0..buffer.area.height)
-            .map(|y| {
-                (0..buffer.area.width)
-                    .map(|x| buffer[(x, y)].symbol())
-                    .collect()
-            })
-            .collect()
-    }
-
     #[test]
     fn a_head_leaving_less_than_20_columns_wraps_the_text_under_the_pointer() {
         // The head is the pointer, the mark and `✎ ` (8 columns), the
         // label and `: `; the text area of a 60-column screen is 58 wide.
         for (label_length, indent) in [(28, 38), (29, 4)] {
             let backend = screen(&own_answer_labelled(&"x".repeat(label_length)), 60, 24);
-            let lines = screen_lines(&backend);
+            let lines = test_support::rows(backend.buffer());
 
             let head = lines
                 .iter()
@@ -2438,7 +2401,7 @@ mod tests {
 
         let backend = screen(&app, 80, 24);
 
-        find(&backend, "\"blog ⏎ post\"");
+        find(backend.buffer(), "\"blog ⏎ post\"");
     }
 
     #[test]
@@ -2821,7 +2784,7 @@ mod tests {
                 "{name}: the draft keeps the text as typed"
             );
             let backend = screen(&app, 60, 15);
-            let rows = visible_rows(&backend);
+            let rows = test_support::rows(backend.buffer());
             let own = rows
                 .iter()
                 .find(|row| row.contains('✎'))
@@ -2853,7 +2816,7 @@ mod tests {
         let backend = screen(&app, 80, 24);
 
         for head in ["❯ ✎ ", "Notes: "] {
-            let (x, y) = find(&backend, &format!("{head}—"));
+            let (x, y) = find(backend.buffer(), &format!("{head}—"));
             let dash = x + u16::try_from(columns(head)).expect("a short head");
             assert!(
                 backend.buffer()[(dash, y)].modifier.contains(Modifier::DIM),
@@ -2872,9 +2835,9 @@ mod tests {
         // The counter ends the question's rows above the image and the
         // note is cut off. The marker keeps clear of the counter on the
         // right and goes to the blank start of its line.
-        let (counter, row) = find(&backend, "15/125");
+        let (counter, row) = find(backend.buffer(), "15/125");
         assert_eq!(counter, 93, "{backend}");
-        assert_eq!(find(&backend, "↓ more"), (1, row), "{backend}");
+        assert_eq!(find(backend.buffer(), "↓ more"), (1, row), "{backend}");
     }
 
     #[test]
@@ -2934,7 +2897,7 @@ mod tests {
 
         insta::assert_snapshot!("code_in_pane", backend);
         let row = row_starting_with(&backend, "Keep the retry?");
-        let line = screen_lines(&backend)[usize::from(row) + 1].clone();
+        let line = test_support::rows(backend.buffer())[usize::from(row) + 1].clone();
         assert!(line.contains("1 pub fn fetch"), "{backend}");
         let start = line.find("pub fn").expect("the code line");
         let x = line[..start].chars().count() + "pub ".len();
@@ -2975,7 +2938,7 @@ mod tests {
     /// The row of the screen whose text starts with `start` after the
     /// margin.
     fn row_starting_with(backend: &TestBackend, start: &str) -> u16 {
-        let row = screen_lines(backend)
+        let row = test_support::rows(backend.buffer())
             .iter()
             .position(|line| line.chars().skip(1).collect::<String>().starts_with(start))
             .unwrap_or_else(|| panic!("no row starts with {start}:\n{backend}"));
@@ -3249,7 +3212,7 @@ mod tests {
                 "questions": [{"id": "q", "text": "Which one?", "kind": "single", "custom": true,
                 "context": [{"type": "image", "path": "/pictures/x.png"}], "options": [{"id": "a", "label": "This one"}]}]}"#,
         )]);
-        let rows = |app: &App| screen_lines(&screen(app, 80, 20));
+        let rows = |app: &App| test_support::rows(screen(app, 80, 20).buffer());
         let unfocused = rows(&app);
         assert!(
             unfocused.iter().any(|row| row.contains("… i: more")),
@@ -3263,7 +3226,7 @@ mod tests {
         keys(&mut app, "j");
 
         let backend = screen(&app, 80, 20);
-        let typing = screen_lines(&backend);
+        let typing = test_support::rows(backend.buffer());
         assert!(
             typing.iter().any(|row| row.contains("… esc, i: more")),
             "{typing:#?}"
@@ -3298,7 +3261,7 @@ mod tests {
         )]);
 
         let backend = screen(&app, 80, 24);
-        let rows = screen_lines(&backend);
+        let rows = test_support::rows(backend.buffer());
 
         let key_bar = rows.last().expect("a key bar");
         assert!(!key_bar.contains("tab"), "no room for tab: {key_bar}");
@@ -3480,7 +3443,7 @@ mod tests {
         // blank starts a line of its own on the screen.
         keys(&mut app, &"x".repeat(54));
         let backend = screen_in(&app, &mut view, 60, 30);
-        let rows = visible_rows(&backend);
+        let rows = test_support::rows(backend.buffer());
         let answer = rows
             .iter()
             .position(|row| row.contains('✎'))
@@ -3513,7 +3476,7 @@ mod tests {
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
         let mut view = View::new("q", PaneLayout::Below, Picker::halfblocks());
         let notes = |backend: &TestBackend| {
-            visible_rows(backend)
+            test_support::rows(backend.buffer())
                 .iter()
                 .any(|row| row.starts_with(" Notes: —"))
         };
@@ -3635,7 +3598,7 @@ mod tests {
 
     /// The screen row of the context pane's header, which names `ctx.rs`.
     fn pane_row(backend: &TestBackend) -> usize {
-        visible_rows(backend)
+        test_support::rows(backend.buffer())
             .iter()
             .position(|row| row.contains("ctx.rs"))
             .unwrap_or_else(|| panic!("the pane shows:\n{backend}"))
@@ -3697,7 +3660,7 @@ mod tests {
     /// Whether every cell of `text` on the screen is dim and none reversed,
     /// so a marker never looks like the cursor.
     fn dim_only(backend: &TestBackend, text: &str) -> bool {
-        let (x, y) = find(backend, text);
+        let (x, y) = find(backend.buffer(), text);
         let width = u16::try_from(columns(text)).expect("a short text");
         (x..x + width).all(|x| {
             let modifier = backend.buffer()[(x, y)].modifier;
@@ -3716,9 +3679,9 @@ mod tests {
             // The marker ends at the right edge of the question's area,
             // which is the screen's but for the margin.
             let right = width - 1 - 6;
-            assert_eq!(find(&backend, "ctx.rs").1, 13, "{backend}");
+            assert_eq!(find(backend.buffer(), "ctx.rs").1, 13, "{backend}");
             assert_eq!(
-                find(&backend, "↓ more"),
+                find(backend.buffer(), "↓ more"),
                 (right, 12),
                 "over the blank end of the last row:\n{backend}"
             );
@@ -3729,9 +3692,12 @@ mod tests {
             keys(&mut app, "jjjjj");
             let backend = screen(&app, width, 24);
             insta::assert_snapshot!(format!("cut_both_{width}x24"), backend);
-            assert_eq!(find(&backend, "↑ more"), (right, 5), "{backend}");
-            assert_eq!(find(&backend, "↓ more"), (right, 12), "{backend}");
-            assert!(find(&backend, "❯ ( ) ✎ Own line:").1 == 12, "{backend}");
+            assert_eq!(find(backend.buffer(), "↑ more"), (right, 5), "{backend}");
+            assert_eq!(find(backend.buffer(), "↓ more"), (right, 12), "{backend}");
+            assert!(
+                find(backend.buffer(), "❯ ( ) ✎ Own line:").1 == 12,
+                "{backend}"
+            );
             assert!(dim_only(&backend, "↑ more") && dim_only(&backend, "↓ more"));
         }
     }
@@ -3750,10 +3716,10 @@ mod tests {
         // tab on a 60×15 terminal, so the text's first lines are cut off
         // above, under a full line.
         let backend = screen(&app, 60, 15);
-        let rows = visible_rows(&backend);
-        assert_eq!(find(&backend, "↑ more"), (53, 4), "{backend}");
+        let rows = test_support::rows(backend.buffer());
+        assert_eq!(find(backend.buffer(), "↑ more"), (53, 4), "{backend}");
         assert_eq!(rows[4], format!(" ↪ {} ↑ more ", "x".repeat(49)));
-        assert_eq!(find(&backend, "↓ more"), (53, 12), "{backend}");
+        assert_eq!(find(backend.buffer(), "↓ more"), (53, 12), "{backend}");
     }
 
     #[test]
@@ -3767,10 +3733,10 @@ mod tests {
         // terminal leaves it: its first line and the note and reject rows
         // are cut off.
         let backend = screen(&app, 60, 15);
-        assert_eq!(find(&backend, "[ Submit ]").1, 12, "{backend}");
-        assert_eq!(find(&backend, "↑ more"), (53, 5), "{backend}");
+        assert_eq!(find(backend.buffer(), "[ Submit ]").1, 12, "{backend}");
+        assert_eq!(find(backend.buffer(), "↑ more"), (53, 5), "{backend}");
         assert_eq!(
-            find(&backend, "↓ more"),
+            find(backend.buffer(), "↓ more"),
             (53, 12),
             "beside the button under the cursor:\n{backend}"
         );
@@ -3778,7 +3744,7 @@ mod tests {
         special(&mut app, KeyCode::Down);
         special(&mut app, KeyCode::Down);
         let backend = screen(&app, 60, 15);
-        assert_eq!(find(&backend, "↑ more"), (53, 5), "{backend}");
+        assert_eq!(find(backend.buffer(), "↑ more"), (53, 5), "{backend}");
         assert!(!backend.to_string().contains("↓ more"), "{backend}");
     }
 
@@ -3799,13 +3765,16 @@ mod tests {
         terminal
             .draw(|frame| mark_cut(frame, frame.area(), 0, "↓ more", Some(3..4)))
             .expect("draws");
-        assert_eq!(visible_rows(terminal.backend())[0], " ".repeat(8));
+        assert_eq!(
+            test_support::rows(terminal.backend().buffer())[0],
+            " ".repeat(8)
+        );
 
         terminal
             .draw(|frame| mark_cut(frame, frame.area(), 0, "↓ more", Some(7..8)))
             .expect("draws");
         assert_eq!(
-            visible_rows(terminal.backend())[0],
+            test_support::rows(terminal.backend().buffer())[0],
             "↓ more  ",
             "the other end"
         );
@@ -3855,7 +3824,7 @@ mod tests {
 
         // On the last line, the counter takes the area's last row.
         let backend = drawn(&mut app, &mut view, 80, 24);
-        let rows = visible_rows(&backend);
+        let rows = test_support::rows(backend.buffer());
         assert_eq!(
             cursor_cells(&backend),
             [(12, 11, " ".to_owned())],
@@ -3876,14 +3845,14 @@ mod tests {
                 Some(y16),
                 "line {line}:\n{backend}"
             );
-            let rows = visible_rows(&backend);
+            let rows = test_support::rows(backend.buffer());
             assert!(
                 rows[y].contains(&format!("line {line}")),
                 "line {line}:\n{backend}"
             );
         }
         let backend = drawn(&mut app, &mut view, 80, 24);
-        let rows = visible_rows(&backend);
+        let rows = test_support::rows(backend.buffer());
         assert!(rows[4].starts_with(" ❯ ✎ line 1 "), "{backend}");
         assert!(
             rows[4].contains("↑ more"),
@@ -3904,7 +3873,7 @@ mod tests {
             assert_eq!(cursor.len(), 1, "{name}:\n{backend}");
             let (_, y, symbol) = &cursor[0];
             assert_eq!(symbol, " ", "{name}");
-            let rows = visible_rows(&backend);
+            let rows = test_support::rows(backend.buffer());
             assert!(
                 rows[usize::from(*y)].contains("line 30"),
                 "{name}:\n{backend}"
@@ -3926,7 +3895,7 @@ mod tests {
             // The question's area takes rows 4 to 12; the counter takes the
             // last of them, and the cursor stays on the row above.
             let backend = drawn(&mut app, &mut view, 80, 24);
-            let rows = visible_rows(&backend);
+            let rows = test_support::rows(backend.buffer());
             let cursor = cursor_cells(&backend);
             assert_eq!(cursor.len(), 1, "{name}:\n{backend}");
             assert_eq!(cursor[0].1, 11, "{name}:\n{backend}");
@@ -3982,7 +3951,7 @@ mod tests {
             [(5, 12, " ".to_owned())],
             "{backend}"
         );
-        assert_eq!(find(&backend, "↓ more"), (73, 12), "{backend}");
+        assert_eq!(find(backend.buffer(), "↓ more"), (73, 12), "{backend}");
 
         // On the last letter, the right end holds the cursor, so the marker
         // goes over the start of the row.
@@ -3993,7 +3962,7 @@ mod tests {
             [(78, 12, "x".to_owned())],
             "{backend}"
         );
-        assert_eq!(find(&backend, "↓ more"), (1, 12), "{backend}");
+        assert_eq!(find(backend.buffer(), "↓ more"), (1, 12), "{backend}");
 
         // The same for `↑ more` on the first row, on the first line's last
         // letter.
@@ -4009,7 +3978,7 @@ mod tests {
             [(78, 4, "x".to_owned())],
             "{backend}"
         );
-        assert_eq!(find(&backend, "↑ more"), (1, 4), "{backend}");
+        assert_eq!(find(backend.buffer(), "↑ more"), (1, 4), "{backend}");
     }
 
     #[test]
@@ -4252,7 +4221,7 @@ mod tests {
     #[test]
     fn descriptions_line_up_after_a_label_of_wide_characters() {
         let backend = screen(&wide_session(), 100, 24);
-        let rows = visible_rows(&backend);
+        let rows = test_support::rows(backend.buffer());
 
         // The widest head is `❯ ( ) 1. ` and 今すぐ, 15 columns, and the
         // descriptions start 2 after it, behind the margin of one.
@@ -4272,7 +4241,7 @@ mod tests {
         // columns, and it wraps under its start; 15 leave it 18.
         for (count, indent) in [(14, 38), (15, 4)] {
             let backend = screen(&own_answer_labelled(&"日".repeat(count)), 60, 24);
-            let rows = visible_rows(&backend);
+            let rows = test_support::rows(backend.buffer());
 
             let head = rows
                 .iter()
@@ -4295,7 +4264,7 @@ mod tests {
 
         let backend = screen(&app, 60, 24);
         insta::assert_snapshot!("wide_own_answer_60x24", backend);
-        let rows = visible_rows(&backend);
+        let rows = test_support::rows(backend.buffer());
         assert!(
             rows[4].trim_end().ends_with("… esc, i: more"),
             "the cut intro keeps its marker:\n{backend}"
@@ -4342,7 +4311,7 @@ mod tests {
         // Without blanks, the text is one word longer than the room after
         // `❯ ✎ `, so it starts on the next line, 4 columns in, which leaves
         // 54 of the 58 for 27 characters, the last ending at the edge.
-        let rows = visible_rows(&backend);
+        let rows = test_support::rows(backend.buffer());
         let first = rows
             .iter()
             .position(|row| row.contains('✎'))
@@ -4373,7 +4342,7 @@ mod tests {
 
         let backend = screen(&app, 60, 24);
         insta::assert_snapshot!("wide_review_60x24", backend);
-        let rows = visible_rows(&backend);
+        let rows = test_support::rows(backend.buffer());
         let row = |start: &str| {
             rows.iter()
                 .find(|row| row.contains(start))
