@@ -46,8 +46,9 @@ disposable, as a cache directory implies.
   picture in RGB, and the Kitty protocol of `ratatui-image` 11.1.0 names
   each image by the RGB foreground of its placeholder cells. Images, the
   mascot included, keep their colours under `NO_COLOR` (Jakob,
-  2026-10-15). For the mascot this is superseded by ADR 41: under
-  `NO_COLOR` it is a braille outline without any colour.
+  2026-10-15). For the mascot this is superseded by ADR 41, and that
+  by ADR 43: under `NO_COLOR` the mascot is an outline without any
+  colour.
 - crossterm 0.29 reads `NO_COLOR` too, and then writes every colour as
   an empty SGR sequence, which a terminal reads as a reset of all
   attributes. RGB colours were lost with it, Kitty images with their id,

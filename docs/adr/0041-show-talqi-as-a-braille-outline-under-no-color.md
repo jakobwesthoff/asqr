@@ -10,6 +10,8 @@ Supersedes Talqi under `NO_COLOR` of [39. Show the mascot on the empty queue](00
 
 Supersedes the mascot's colours under `NO_COLOR` of [15. Configure through flags and environment and log into the cache directory](0015-configure-through-flags-and-environment-and-log-into-the-cache-directory.md)
 
+Superseded by [43. Draw Talqi as the emblem in text cells](0043-draw-talqi-as-the-emblem-in-text-cells.md)
+
 ## Context
 
 ADR 39 shows Talqi on the empty queue through the terminal's image
@@ -92,6 +94,9 @@ How the outline was made:
 - The outline does not shrink: below its size there is no Talqi under
   `NO_COLOR`.
 - While the outline shows, asqr writes no colour sequence (SGR 38 or
-  48). A test in a pseudo-terminal checks that.
+  48). A test in a pseudo-terminal checks that. "Without any escape
+  sequence" in the context above is too strong: the outline's cells
+  have no style, and no SGR with a colour other than the terminal's
+  defaults reaches the terminal (ADR 43).
 - asqr does not generate the outline. The text file is its source, and
   the logbook holds the scripts that made it.

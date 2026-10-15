@@ -8,6 +8,8 @@ Accepted
 
 Talqi under `NO_COLOR` superseded by [41. Show Talqi as a braille outline under NO_COLOR](0041-show-talqi-as-a-braille-outline-under-no-color.md)
 
+Superseded by [43. Draw Talqi as the emblem in text cells](0043-draw-talqi-as-the-emblem-in-text-cells.md)
+
 ## Context
 
 With no session waiting, the main area held one centred sentence,
@@ -139,8 +141,8 @@ Without an image protocol:
   again.
 - Under the Kitty protocol, the copies of Talqi's picture sent before
   stay in the terminal. ADR 42, which deletes the copies of context
-  images, leaves Talqi out, as the empty queue is to draw Talqi as text
-  instead (the user, 2026-10-15).
+  images, leaves Talqi out. ADR 43 draws Talqi in text cells, which
+  sends no image.
 - asqr does not check whether the terminal shows 24-bit colour. Where
   it does not, the terminal approximates the half blocks' colours or
   shows them wrong, as it does for the half blocks of context images.

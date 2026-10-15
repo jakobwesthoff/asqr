@@ -79,9 +79,9 @@ Deletes:
   the title back and leaves the alternate screen. The same holds when
   the run ends in an error.
 
-Talqi on the empty queue is left out. Its picture still goes through
-ratatui-image with its own ids, as the user decided on 2026-10-15 that
-the empty queue will draw Talqi as text instead.
+Talqi on the empty queue is left out. Its picture went through
+ratatui-image with its own ids. ADR 43 draws Talqi in text cells, which
+sends no image.
 
 ## Consequences
 
@@ -96,7 +96,8 @@ the empty queue will draw Talqi as text instead.
 - A panic or SIGKILL ends asqr without the deletes on quitting; the
   copies stay until the terminal evicts them. On Unix, SIGTERM, SIGINT
   and SIGHUP end the run as `q` does, and the deletes are written.
-- Talqi's picture is still sent again on every focus gain and every
-  new size under the Kitty protocol, and its copies are never deleted.
+- Until ADR 43, Talqi's picture was sent again on every focus gain and
+  every new size under the Kitty protocol, and its copies were never
+  deleted. Talqi sends no image since.
 - The rule on ids and the order on quitting follow Ghostty. That kitty
   keeps images per screen as well is not checked.

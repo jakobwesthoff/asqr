@@ -592,8 +592,10 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
 }
 
 /// The parameters of every SGR sequence (`ESC [ … m`) in `output` that
-/// sets a colour by 38 (foreground) or 48 (background), the forms that
-/// carry an indexed or an RGB colour.
+/// sets a colour other than the terminal's default: by 38 (foreground) or
+/// 48 (background), the forms that carry an indexed or an RGB colour, or
+/// by one of the palette's codes, 30 to 37, 40 to 47, 90 to 97 and 100 to
+/// 107. 39 and 49, the defaults, do not count.
 fn colour_sequences(output: &str) -> Vec<&str> {
     output
         .split("\x1b[")
@@ -603,17 +605,21 @@ fn colour_sequences(output: &str) -> Vec<&str> {
             rest[end..].starts_with('m').then(|| &rest[..end])
         })
         .filter(|parameters| {
-            parameters
-                .split([';', ':'])
-                .any(|parameter| parameter == "38" || parameter == "48")
+            parameters.split([';', ':']).any(|parameter| {
+                matches!(
+                    parameter.parse::<u16>(),
+                    Ok(30..=38 | 40..=48 | 90..=97 | 100..=107)
+                )
+            })
         })
         .collect()
 }
 
-/// Starts asqr on an empty queue under `NO_COLOR` set to `no_color`, in a
-/// terminal of 40 rows, whose main area has room for Talqi at the largest
-/// size, waits until `talqi` shows and quits. Returns all output.
-fn empty_queue_under(no_color: &str, talqi: &str) -> String {
+/// Starts asqr on an empty queue under `NO_COLOR` set to `no_color`,
+/// inside a stand-in tmux whose client's terminal answered XTVERSION with
+/// `termtype`, in a terminal of 40 rows, whose main area has room for
+/// Talqi. Waits until `talqi` shows and quits. Returns all output.
+fn empty_queue_under(no_color: &str, termtype: &str, talqi: &str) -> String {
     let sandbox = Sandbox::new();
     let dir = sandbox.queue_dir();
     let mut tui = Tui::start_with(
@@ -624,7 +630,7 @@ fn empty_queue_under(no_color: &str, talqi: &str) -> String {
             "--no-notify",
             "--no-title",
         ],
-        "off\t1\t",
+        &format!("off\t1\t{termtype}"),
         &[("NO_COLOR", no_color)],
     );
     tui.wait_for("Nothing to answer");
@@ -637,18 +643,28 @@ fn empty_queue_under(no_color: &str, talqi: &str) -> String {
 
 #[test]
 fn no_color_shows_talqi_as_an_outline_without_a_colour_sequence() {
-    // A piece of the outline's bottom row.
-    let colourless = empty_queue_under("1", "⣭⣭⣭⣭");
+    // A piece of the quadrant outline's bottom row: the stand-in tmux's
+    // client is a terminal asqr does not know.
+    let colourless = empty_queue_under("1", "", "▄▄▄▄▄▄▄▄");
     assert_eq!(colour_sequences(&colourless), Vec::<&str>::new());
 
-    // With colours, the title bar and Talqi's half blocks write some, so
-    // the search finds what there is.
-    let coloured = empty_queue_under("", "▀");
+    // With colours, the title bar and Talqi write some, so the search
+    // finds what there is.
+    let coloured = empty_queue_under("", "", "▀▀▀▀▀▀▀▀");
     let sequences = colour_sequences(&coloured);
     assert!(
         sequences.iter().any(|sgr| sgr.contains("38;2;")),
         "{sequences:?}"
     );
+}
+
+/// Inside tmux, the terminal of the client tmux draws for decides the
+/// glyphs: Ghostty draws sextants itself.
+#[test]
+fn talqi_is_drawn_in_sextants_for_a_terminal_that_draws_them() {
+    // A piece of the sextant outline's bottom row.
+    let output = empty_queue_under("1", "ghostty 1.1.3", "🬹🬹🬹🬹🬹🬹🬹🬹");
+    assert_eq!(colour_sequences(&output), Vec::<&str>::new());
 }
 
 /// The id of the `nth` Kitty image asqr sent, counted from 0, once it is
@@ -728,11 +744,10 @@ fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
         .assert()
         .success();
     tui.wait_for("Pick a fruit");
-    // The first image sent is Talqi on the empty queue.
-    let old = sent_kitty_image(&tui, 1);
+    let old = sent_kitty_image(&tui, 0);
 
     tui.send("\x1b[I");
-    let again = sent_kitty_image(&tui, 2);
+    let again = sent_kitty_image(&tui, 1);
     let start = Instant::now();
     while !tui.output().contains(&kitty_delete(old)) {
         assert!(

@@ -748,24 +748,24 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
 - With nothing waiting, the screen says "Nothing to answer. New sessions
   show up here as soon as they arrive." Notices still show. Above the
   sentence, with a blank row between them, Talqi, asqr's mascot, shows
-  as an image (ADR 39): awake from asqr's start until the first session
-  arrives, asleep once sessions came in and the queue is empty again.
-  Every start of asqr begins with Talqi awake. The picture is square,
-  at most 44 columns by 22 rows, smaller where the screen is smaller,
-  and never stretched to fill it. It is centred across, and picture and
-  sentence together are centred down the screen. Talqi shows on
-  terminals of at least 18 rows; on smaller ones the sentence stands
-  alone. Terminals without an image protocol (section 7.7), and those
-  that report a cell size of zero pixels on a side, show Talqi in half
-  blocks of the picture's own colours, its transparent background left
-  blank.
-- Under `NO_COLOR` (section 8), Talqi is the outline of asqr's emblem
-  in braille characters instead (ADR 41): a fixed text of 44 columns by
-  22 rows, without any colour, the same awake and asleep and with or
-  without an image protocol. Cells between its lines keep the
-  background. It is centred across above the sentence as the picture
-  is, and shows on terminals of at least 32 rows; on smaller ones the
-  sentence stands alone.
+  as asqr's terminal emblem drawn in text cells (ADR 43): a fixed block
+  of 44 columns by 22 rows, each cell a glyph with its own 24-bit
+  foreground and background. Cells outside the figure keep the
+  terminal's background. Talqi is centred across, and Talqi and
+  sentence together are centred down the screen.
+- Talqi shows on terminals of at least 32 rows and 44 columns, with
+  colours and without. On smaller ones, 80×24 included, the sentence
+  stands alone.
+- Terminals asqr recognises as drawing sextant characters themselves
+  (kitty, Ghostty, WezTerm, iTerm2 from 3.6.7, foot, terminals built on
+  VTE, Konsole, Alacritty, Rio and Contour, from the versions ADR 43
+  names) get Talqi in sextants, every other terminal in quadrant
+  blocks. Inside tmux, the terminal of the client tmux draws for
+  decides; inside GNU screen or Zellij, Talqi is drawn in quadrant
+  blocks. There is no setting for it.
+- Under `NO_COLOR` (section 8), Talqi is the outline of the emblem in
+  the same glyphs, without any colour. Cells between its lines keep the
+  background.
 
 ### 7.2 Keys
 
@@ -1217,14 +1217,8 @@ Images:
   again, as tmux with `allow-passthrough on` drops them while asqr's
   pane is hidden. On quitting, asqr deletes every image it sent and has
   not deleted yet, before it leaves the alternate screen (ADR 42).
-- Talqi on the empty queue (section 7.1) is built into asqr and needs no
-  file. It goes through the same protocol as the images of entries.
-  Under the Kitty protocol it is sent again on regaining the focus, as
-  they are, and its earlier copies are not deleted. Without an image
-  protocol, or with a cell size of zero pixels on a side, Talqi gets
-  its own half blocks, which leave its transparent background blank
-  instead of filling it. Under `NO_COLOR` Talqi is text and uses
-  neither (section 7.1).
+- Talqi on the empty queue (section 7.1) is text, built into asqr. It
+  uses no image protocol.
 - A relative path, a missing file, a path that is not a regular file or
   a file that cannot be read or decoded shows a placeholder saying
   "image not shown" with the path and the reason. A path is never resolved against the working directory,
@@ -1292,8 +1286,8 @@ commands ignore the variable.
 makes the TUI draw without colours, a value that is not UTF-8 included.
 Text, marks, pointers, bold, dim and reversed stay, so the screen says
 the same as with colours. Images keep their colours. Talqi on the
-empty queue is the braille outline of asqr's emblem instead, without
-any colour (section 7.1). An empty `NO_COLOR` counts as unset.
+empty queue is the outline of asqr's emblem instead, without any colour
+(section 7.1). An empty `NO_COLOR` counts as unset.
 
 `ask`:
 
@@ -1413,7 +1407,7 @@ MPL-2.0.
 | Command line | `clap` with the derive feature |
 | Errors | `thiserror` for the typed errors of the format and queue code (validation errors name the field), `anyhow` with context where the running TUI meets the terminal |
 | TUI | `ratatui` with `crossterm`, `ratatui-textarea` (the maintained continuation of `tui-textarea`, ADR 9) |
-| Images | `ratatui-image`, `image` for decoding; Talqi's two pictures are built into the executable as 768 px WebP (ADR 39) |
+| Images | `ratatui-image`, `image` for decoding; Talqi is built into the executable as text, made with chafa (ADR 43) |
 | Watching the inbox | `notify-debouncer-full` (with `notify`) |
 | Platform paths | `directories` |
 | Lock holder text | `gethostname` |

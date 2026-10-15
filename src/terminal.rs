@@ -175,7 +175,9 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         },
         kitty_tmux,
     };
-    let mut view = View::new(&queue, watch.layout(), picker).no_color(watch.no_color());
+    let mut view = View::new(&queue, watch.layout(), picker)
+        .no_color(watch.no_color())
+        .glyphs(glyphs);
     let ran = run(
         &mut terminal,
         &mut app,

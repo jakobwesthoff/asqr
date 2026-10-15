@@ -170,9 +170,11 @@ pub(crate) fn for_tone(tone: Tone) -> Style {
 /// roles, those patine gives code and Markdown, and any a later change
 /// writes without a role.
 ///
-/// RGB colours stay. Only images draw with them: half blocks paint the
+/// RGB colours stay. Images draw with them: half blocks paint the
 /// picture in RGB, and the Kitty protocol names each image by the RGB
 /// foreground of its placeholder cells, so taking it would lose the image.
+/// Talqi's emblem draws in RGB too, but only with colours: under
+/// `NO_COLOR` it is an outline without any colour.
 pub(crate) fn strip_colours(buf: &mut Buffer) {
     let plain = |colour: Color| match colour {
         Color::Rgb(..) => colour,

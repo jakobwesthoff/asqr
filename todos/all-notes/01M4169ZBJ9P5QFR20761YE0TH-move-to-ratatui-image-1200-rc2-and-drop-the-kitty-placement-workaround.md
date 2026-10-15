@@ -6,7 +6,7 @@ origin: upstream
 ---
 # Move to ratatui-image 12.0.0-rc.2 and drop the Kitty placement workaround
 
-The user asked for this todo while waiting for a `ratatui-image` release since 2026-10-03. On 2026-10-15 the user decided to move to the release candidate `=12.0.0-rc.2` (2026-10-05), which contains the fix (commit `2d7d7f6` is an ancestor of the `v12.0.0-rc.2` tag), and to keep `ratatui-image` rather than draw images with asqr's own code; the evaluation and its adversarial review are in the logbook `~/playground/2026_10_15_asqr-maskottchen/99-eval-ratatui-image.md` and `99-review-impl-ledger.md` (round 3). Do it after the Kitty-delete item (todo 01M50PJX24T6G6V3DNZKM56K0J) and the emblem item (todo 01M50RJD7AN3H7W76KCDYRQH6Z) have landed.
+The user asked for this todo while waiting for a `ratatui-image` release since 2026-10-03. On 2026-10-15 the user decided to move to the release candidate `=12.0.0-rc.2` (2026-10-05), which contains the fix (commit `2d7d7f6` is an ancestor of the `v12.0.0-rc.2` tag), and to keep `ratatui-image` rather than draw images with asqr's own code; the evaluation and its adversarial review are in the logbook `~/playground/2026_10_15_asqr-maskottchen/99-eval-ratatui-image.md` and `99-review-impl-ledger.md` (round 3). Do it after the Kitty-delete item (todo 01M50PJX24T6G6V3DNZKM56K0J) has landed. The emblem item, which draws Talqi in text cells and took it off ratatui-image (ADR 43), has landed.
 
 ## Why the workaround exists
 

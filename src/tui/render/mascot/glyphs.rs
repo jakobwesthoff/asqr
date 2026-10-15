@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! Which glyphs Talqi's emblem is drawn in: sextants where asqr knows the
-//! terminal draws them itself, quadrants everywhere else.
+//! terminal draws them itself, quadrants everywhere else (ADR 43).
 //!
 //! No escape sequence tells whether a terminal can show a glyph, and
 //! where neither the terminal nor its font draws sextants they come out

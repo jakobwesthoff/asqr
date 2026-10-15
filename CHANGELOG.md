@@ -9,15 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The empty queue shows Talqi, asqr's mascot, above its sentence:
-  awake from the start until the first session arrives, asleep once the
-  queue is empty again. Terminals that show images draw the picture;
-  the others, and those that report a cell size of zero pixels on a
-  side, draw it in half blocks of its own colours. Talqi needs a
-  terminal of at least 18 rows; the pictures are built into asqr. Under
-  `NO_COLOR`, Talqi is the outline of asqr's emblem in braille
-  characters, without any colour and the same awake and asleep, on
-  terminals of at least 32 rows.
+- The empty queue shows Talqi, asqr's mascot, above its sentence, as
+  asqr's terminal emblem drawn in text cells of 24-bit colour. Terminals
+  that draw sextant characters themselves, such as kitty, Ghostty,
+  WezTerm, iTerm2 3.6.7 and later, foot, GNOME Terminal and Konsole,
+  get sextants; all others get quadrant blocks. Under `NO_COLOR`, Talqi
+  is the emblem's outline without any colour. Talqi needs a terminal of
+  at least 32 rows and 44 columns, so a terminal of 80×24 shows the
+  sentence alone.
 - The terminal title shows how many sessions wait, as
   `asqr · 2 waiting`. On quit asqr clears its title and gives the
   terminal its title from before back where the terminal keeps a title

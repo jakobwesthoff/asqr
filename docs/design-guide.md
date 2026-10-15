@@ -144,10 +144,10 @@ does not set fixed RGB values, and it leaves the background and body text
 at the terminal's defaults. The contrast table above applies to the
 palette's own values, not to a terminal theme.
 
-Illustrations are the exception. Drawn as half blocks, as Talqi is on
-the empty queue in a terminal without an image protocol, they keep
-their own RGB colours. Under `NO_COLOR`, Talqi is the outline of the
-terminal emblem in braille characters, without any colour.
+Illustrations are the exception. Talqi on the empty queue is the
+terminal emblem drawn in text cells, each with its own RGB foreground
+and background. Under `NO_COLOR`, Talqi is the outline of the emblem,
+without any colour.
 
 | Role | Terminal colour | Where |
 |---|---|---|

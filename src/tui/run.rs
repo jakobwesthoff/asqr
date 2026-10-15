@@ -1148,8 +1148,7 @@ mod tests {
     /// every way an image of a context entry goes: regaining the focus, an
     /// entry replaced by another image, by another kind, by an image that
     /// cannot be read, a session that leaves while another waits, and the
-    /// last one leaving. Talqi on the empty queue is drawn by ratatui-image
-    /// under ids asqr does not know, and is never deleted.
+    /// last one leaving.
     #[test]
     fn no_kitty_image_is_deleted_while_a_frame_shows_it() {
         let mut watched = Watched::new();

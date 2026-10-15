@@ -16,7 +16,7 @@ The lead decided to do it, after the move to ratatui-image 12.0.0-rc.2
 ## Problem
 
 - `ratatui_image::Picker` is passed by value through `View::new`,
-  `TabState::new`, `Viewers::new`, `Encoder::new` and into `Mascot`, and
+  `TabState::new`, `Viewers::new` and `Encoder::new`, and
   60 test sites build `Picker::halfblocks()`, among them modules with no
   business with images (app.rs, inbox.rs, run.rs). Every picker built
   inside tmux runs `tmux set -p allow-passthrough on` on the pane; the

@@ -49,10 +49,11 @@ CHAFA_VERSION = "1.18.2"
 # name of its set.
 GLYPH_SETS = ("sextant", "quad")
 
-# The body colour of the emblem. chafa blends a cell's edge pixels against
-# its background colour; against the default black, a light terminal would
-# show a dark rim around the emblem.
-EMBLEM_BODY = "#09171a"
+# The background colour chafa is given, the emblem's ink colour. chafa's
+# glyphs at the figure's edge change with it, also for a picture without
+# half transparent pixels, and the templates the user approved were made
+# with this one.
+EMBLEM_INK = "#09171a"
 
 # Both pictures are rendered at this many pixels square, which is far more
 # than the 88x66 sextant pixels the largest template resolves.
@@ -181,6 +182,114 @@ def outline_mask(png):
 
 
 # =====================================================================
+# The colour picture
+# =====================================================================
+#
+# The emblem's first path is an ink silhouette under everything else. Its
+# edge is a dark rim around the figure, which the colour templates leave
+# out (the user, 2026-10-16). The other paths draw the eyes, the mouth,
+# the paws and the panel with ink of their own. Where the silhouette shows
+# through gaps between the other paths on purpose, the picture keeps it:
+# in the band between chin and panel, which is closed all round, and in
+# the line between crest and head, a narrow gap that opens to the outside.
+
+# The comment that stands before the silhouette's path in the SVG.
+SILHOUETTE = "<!-- 1. ink: silhouette -->"
+
+# Gaps narrower than about twice this many pixels of the 800 pixel picture
+# keep the silhouette's ink; wider ones are outside.
+GAP_RADIUS = 9
+
+# chafa works in cells of 8x8 pixels. A picture of exactly that grid, with
+# `--stretch`, is used as it is.
+CHAFA_CELL = 8
+
+
+def without_silhouette(svg):
+    """`svg`'s text without the silhouette's comment and path."""
+    lines = svg.split("\n")
+    at = lines.index(SILHOUETTE)
+    if not lines[at + 1].startswith("<path"):
+        sys.exit("error: no path follows the silhouette's comment")
+    return "\n".join(lines[:at] + lines[at + 2 :])
+
+
+def rgba(png):
+    return np.asarray(Image.open(png).convert("RGBA"), float)
+
+
+def grown(mask, steps):
+    """`mask` grown by `steps` pixels in every direction, in turn across
+    and down, then diagonally too, so the growth is about round."""
+    for step in range(steps):
+        before = mask
+        mask = before.copy()
+        mask[1:] |= before[:-1]
+        mask[:-1] |= before[1:]
+        mask[:, 1:] |= before[:, :-1]
+        mask[:, :-1] |= before[:, 1:]
+        if step % 2:
+            mask[1:, 1:] |= before[:-1, :-1]
+            mask[:-1, :-1] |= before[1:, 1:]
+            mask[1:, :-1] |= before[:-1, 1:]
+            mask[:-1, 1:] |= before[1:, :-1]
+    return mask
+
+
+def outside(clear):
+    """The pixels of `clear` that reach the picture's border through
+    `clear` pixels."""
+    reached = np.zeros_like(clear)
+    reached[[0, -1], :] = clear[[0, -1], :]
+    reached[:, [0, -1]] = clear[:, [0, -1]]
+    while True:
+        more = grown(reached, 1) & clear
+        if (more == reached).all():
+            return reached
+        reached = more
+
+
+def over(top, bottom):
+    """`top` composited over `bottom`, both RGBA with straight alpha."""
+    top_alpha, bottom_alpha = top[..., 3:] / 255, bottom[..., 3:] / 255
+    alpha = top_alpha + bottom_alpha * (1 - top_alpha)
+    colour = (top[..., :3] * top_alpha + bottom[..., :3] * bottom_alpha * (1 - top_alpha)) / np.maximum(
+        alpha, 1e-9
+    )
+    return np.concatenate([colour, alpha * 255], -1)
+
+
+def rimless(whole, bare):
+    """The emblem without its outer ink rim: `bare`, rendered without the
+    silhouette, over the silhouette's ink of `whole` where `bare` has an
+    enclosed hole or a narrow gap."""
+    clear = bare[..., 3] < 8
+    holes = clear & ~outside(clear)
+    # A closing of the figure fills the gaps narrower than about twice
+    # GAP_RADIUS, also those that open to the outside.
+    solid = ~clear
+    closed = ~grown(~grown(solid, GAP_RADIUS), GAP_RADIUS)
+    kept = (holes | (closed & clear)) & (whole[..., 3] > 0)
+    # Two pixels more, so the anti-aliased edges around a hole cover ink
+    # instead of the terminal's background.
+    under = whole.copy()
+    under[..., 3] *= grown(kept, 2)
+    return over(bare, under)
+
+
+def chafa_grid(picture):
+    """`picture` scaled with Lanczos to chafa's own grid of the templates'
+    cells, its alpha cut at half. chafa then neither scales the picture nor
+    blends a half transparent edge with `--bg`, which leaves no fringe of
+    any colour around the figure on a light or a dark terminal."""
+    image = Image.fromarray(np.clip(picture, 0, 255).astype(np.uint8), "RGBA")
+    image = image.resize((COLUMNS * CHAFA_CELL, ROWS * CHAFA_CELL), Image.LANCZOS)
+    cut = np.asarray(image).copy()
+    cut[..., 3] = np.where(cut[..., 3] >= 128, 255, 0)
+    return Image.fromarray(cut, "RGBA")
+
+
+# =====================================================================
 # The templates
 # =====================================================================
 
@@ -202,17 +311,23 @@ def main():
     require_tools()
     with tempfile.TemporaryDirectory() as scratch:
         scratch = Path(scratch)
-        emblem = scratch / "talqi-terminal.png"
+        whole = scratch / "talqi-terminal.png"
+        bare_svg = scratch / "talqi-terminal-bare.svg"
+        bare = scratch / "talqi-terminal-bare.png"
+        colour_picture = scratch / "colour.png"
         hollow = scratch / "talqi-terminal-hollow.png"
         mask = scratch / "outline-mask.png"
-        render_svg(EMBLEM / "talqi-terminal.svg", emblem)
+        render_svg(EMBLEM / "talqi-terminal.svg", whole)
+        bare_svg.write_text(without_silhouette((EMBLEM / "talqi-terminal.svg").read_text()))
+        render_svg(bare_svg, bare)
+        chafa_grid(rimless(rgba(whole), rgba(bare))).save(colour_picture)
         render_svg(EMBLEM / "talqi-terminal-hollow.svg", hollow)
         outline_mask(hollow).save(mask)
 
         for symbols in GLYPH_SETS:
             templates = {
                 f"talqi-colour-{symbols}.ansi": (
-                    chafa(emblem, symbols, "--colors", "full", "--bg", EMBLEM_BODY),
+                    chafa(colour_picture, symbols, "--colors", "full", "--stretch", "--bg", EMBLEM_INK),
                     True,
                 ),
                 f"talqi-outline-{symbols}.txt": (

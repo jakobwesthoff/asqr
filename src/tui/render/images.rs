@@ -2,8 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Images of context entries (spec section 7.7) and of Talqi on the empty
-//! queue (ADR 39). The graphics protocol is
+//! Images of context entries (spec section 7.7). The graphics protocol is
 //! detected once, in the binary, by querying the terminal; the image
 //! viewers receive the resulting [`Picker`], so tests draw with the
 //! halfblock protocol and never talk to a terminal. A path that is
@@ -59,8 +58,8 @@ impl Image {
         Ok(encoder.encode(decoded))
     }
 
-    /// Encodes a picture that is decoded already, such as one built into
-    /// asqr, for `picker`'s protocol, as ratatui-image makes it.
+    /// Encodes a picture that is decoded already for `picker`'s protocol,
+    /// as ratatui-image makes it.
     pub fn from_picture(picker: &Picker, picture: DynamicImage) -> Image {
         Image {
             protocol: Box::new(picker.new_resize_protocol(picture)),
@@ -336,9 +335,7 @@ const KITTY_PLACEMENT: &str = "a=T,U=1,";
 /// `Cargo.toml` pins it to `=11.1.0`. A version bump has to check this
 /// function, and the test
 /// `a_kitty_image_is_placed_over_exactly_its_placeholder_cells` in
-/// `screen.rs` fails when the command changes shape, as does its twin for
-/// the mascot, `a_kitty_mascot_is_placed_over_exactly_its_placeholder_cells`
-/// in `empty.rs`.
+/// `screen.rs` fails when the command changes shape.
 ///
 /// A version bump also has to check that the crate still names each image
 /// by the `Color::Rgb` foreground of its placeholder cells.

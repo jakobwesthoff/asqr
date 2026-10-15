@@ -20,7 +20,7 @@ use super::context::draw_pane;
 use super::empty::EmptyQueue;
 use super::header::header_lines;
 use super::keys::{draw_help, empty_queue_hints, intro_hints, key_hints, key_line};
-use super::mascot::{Mascot, Which};
+use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{PaneLayout, READING_WIDTH};
 use super::source_line::columns;
@@ -94,8 +94,8 @@ pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
     queue: &'a str,
     tab: TabState,
-    /// Talqi, drawn while the queue is empty.
-    mascot: Mascot,
+    /// The glyphs Talqi is drawn in while the queue is empty.
+    glyphs: Glyphs,
     /// Whether the last draw showed the help, the intro or the session
     /// list over the screen.
     overlay_shown: bool,
@@ -111,7 +111,7 @@ impl<'a> View<'a> {
     pub fn new(queue: &'a str, layout: PaneLayout, picker: Picker) -> Self {
         View {
             queue,
-            mascot: Mascot::new(picker.clone()),
+            glyphs: Glyphs::Quadrant,
             tab: TabState::new(layout, picker),
             overlay_shown: false,
             image_shown: false,
@@ -123,6 +123,12 @@ impl<'a> View<'a> {
     #[must_use]
     pub fn no_color(self, no_color: bool) -> Self {
         View { no_color, ..self }
+    }
+
+    /// This view, with Talqi drawn in `glyphs` instead of quadrants.
+    #[must_use]
+    pub fn glyphs(self, glyphs: Glyphs) -> Self {
+        View { glyphs, ..self }
     }
 
     /// Whether the terminal must be cleared before `app` is drawn: an
@@ -140,7 +146,7 @@ impl<'a> View<'a> {
 
     /// The Kitty ids of every image of a context entry the terminal may
     /// still keep, each once, for deleting them before asqr leaves the
-    /// alternate screen (ADR 42). Talqi's picture is not among them.
+    /// alternate screen (ADR 42).
     pub fn take_kitty_images(&mut self) -> Vec<u32> {
         self.tab.viewers.take_all_images()
     }
@@ -148,7 +154,6 @@ impl<'a> View<'a> {
     /// Reads and sends every image again as it is next shown (ADR 24).
     pub fn forget_images(&mut self) {
         self.tab.viewers.forget_images();
-        self.mascot.forget();
     }
 }
 
@@ -208,16 +213,11 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     let overlay = app.overlay();
     let (drawn, hints) = match app.active() {
         None => {
-            let which = if app.had_sessions() {
-                Which::Sleeping
-            } else {
-                Which::Base
-            };
             let empty = EmptyQueue {
-                which,
+                glyphs: view.glyphs,
                 no_color: view.no_color,
             };
-            frame.render_stateful_widget(empty, main, &mut view.mascot);
+            frame.render_widget(empty, main);
             (Drawn::default(), empty_queue_hints())
         }
         Some(state) => {
@@ -339,7 +339,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::{Color, Modifier, Style};
 
-    use super::super::mascot::{self, Which};
+    use super::super::empty::emblem_screen_areas;
     use super::super::test_support::{self, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
@@ -883,7 +883,7 @@ mod tests {
 
     #[test]
     fn an_empty_queue_says_so() {
-        // 17 rows leave the main area 11, one short of Talqi.
+        // 17 rows leave the main area 11; Talqi needs 26 of them.
         insta::assert_snapshot!(screen(&App::default(), 80, 17));
     }
 
@@ -919,27 +919,57 @@ mod tests {
         insta::assert_snapshot!(screen(&app, 80, 17));
     }
 
-    /// A view whose terminal speaks the Kitty protocol.
-    fn kitty_view() -> View<'static> {
-        View::new("q", PaneLayout::Auto, mascot::tests::kitty())
+    /// Where Talqi stands on the empty queue of a screen of
+    /// `width`×`height`: in the main area, below the title bar, an empty
+    /// header row and the two rows of the tab bar, above the status line
+    /// and the key bar.
+    fn emblem_rect(width: u16, height: u16) -> Option<Rect> {
+        emblem_screen_areas(Rect::new(0, 4, width, height - 6)).0
     }
 
+    /// Checks that `buf` holds `template` at `rect`, as it is drawn into
+    /// an empty buffer.
+    fn assert_drawn(buf: &Buffer, glyphs: Glyphs, outline: bool, rect: Rect) {
+        let mut expected = Buffer::empty(buf.area);
+        glyphs.template(outline).render(rect, &mut expected);
+        for position in rect.positions() {
+            assert_eq!(buf[position], expected[position], "{position:?}");
+        }
+    }
+
+    /// Talqi's 22 rows, a blank row and the sentence's 3 rows take 26 rows
+    /// of the main area, which a screen of 32 rows has.
     #[test]
-    fn talqi_is_awake_until_sessions_came_in_and_asleep_after() {
-        let mut app = App::default();
-        let mut view = kitty_view();
+    fn the_empty_queue_shows_talqi_from_32_rows() {
+        let small = screen(&App::default(), 80, 31);
+        let large = screen(&App::default(), 80, 32);
 
-        screen_in(&app, &mut view, 80, 24);
-        assert_eq!(view.mascot.shown(), Some(Which::Base));
+        assert_eq!(emblem_rect(80, 31), None);
+        for cell in small.buffer().content() {
+            let rgb = colours(cell)
+                .iter()
+                .any(|colour| matches!(colour, Color::Rgb(..)));
+            assert!(!rgb && !emblem_glyph(cell), "{cell:?}");
+        }
+        find(small.buffer(), "Nothing to answer");
+        let rect = emblem_rect(80, 32).expect("room for Talqi");
+        assert_eq!(rect, Rect::new(18, 4, 44, 22));
+        assert_drawn(large.buffer(), Glyphs::Quadrant, false, rect);
+        assert_eq!(find(large.buffer(), "Nothing to answer").1, 27);
+    }
 
-        app.add(SessionState::new(
-            "release",
-            serde_json::from_str(RELEASE).expect("example parses"),
-            None,
-        ));
-        app.remove("release");
-        screen_in(&app, &mut view, 80, 24);
-        assert_eq!(view.mascot.shown(), Some(Which::Sleeping));
+    /// A view draws Talqi in quadrants unless it is given other glyphs,
+    /// with colours and without.
+    #[test]
+    fn the_view_draws_talqi_in_the_glyphs_it_is_given() {
+        let rect = emblem_rect(80, 40).expect("room for Talqi");
+        for no_color in [false, true] {
+            let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks())
+                .no_color(no_color)
+                .glyphs(Glyphs::Sextant);
+            let sextants = screen_in(&App::default(), &mut view, 80, 40);
+            assert_drawn(sextants.buffer(), Glyphs::Sextant, no_color, rect);
+        }
     }
 
     #[test]
@@ -950,28 +980,15 @@ mod tests {
             "broken is invalid and was answered with an error",
         );
 
-        let backend = screen_in(&app, &mut kitty_view(), 80, 24);
+        let backend = screen(&app, 80, 32);
 
         let buf = backend.buffer();
-        assert!(mascot::tests::transmission(buf).is_some(), "Talqi is drawn");
+        let rect = emblem_rect(80, 32).expect("room for Talqi");
+        assert_drawn(buf, Glyphs::Quadrant, false, rect);
         assert_eq!(
-            row(buf, 22),
+            row(buf, 30),
             "broken is invalid and was answered with an error"
         );
-    }
-
-    #[test]
-    fn talqi_is_sent_again_after_the_images_are_forgotten() {
-        let app = App::default();
-        let mut view = kitty_view();
-        let sent = |view: &mut View| {
-            mascot::tests::transmission(screen_in(&app, view, 80, 24).buffer()).is_some()
-        };
-
-        assert!(sent(&mut view), "first draw");
-        assert!(!sent(&mut view), "kept");
-        view.forget_images();
-        assert!(sent(&mut view), "sent again");
     }
 
     // -----------------------------------------------------------------
@@ -1703,6 +1720,13 @@ mod tests {
             transmission.contains(&placement),
             "the placement names {placement}"
         );
+    }
+
+    /// A view whose terminal speaks the Kitty protocol.
+    fn kitty_view() -> View<'static> {
+        let mut picker = Picker::halfblocks();
+        picker.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
+        View::new("q", PaneLayout::Auto, picker)
     }
 
     /// The Kitty ids of the images `view` holds after drawing `app` with
@@ -3336,8 +3360,8 @@ mod tests {
     }
 
     /// At 80×17 the main area is too small for Talqi, who is drawn in
-    /// half blocks with colours and as an outline under NO_COLOR
-    /// (`no_color_shows_talqi_as_the_colourless_braille_outline`).
+    /// other glyphs with colours than as the outline under NO_COLOR
+    /// (`no_color_shows_talqi_as_the_colourless_outline`).
     #[test]
     fn no_color_takes_the_colour_of_a_notice_over_the_empty_queue() {
         let mut app = App::default();
@@ -3352,16 +3376,10 @@ mod tests {
         assert_only_colours_gone(&coloured, &colourless);
     }
 
-    /// Whether `cell` holds a half block of a picture drawn without an
-    /// image protocol.
-    fn half_block(cell: &ratatui::buffer::Cell) -> bool {
-        matches!(cell.symbol(), "▀" | "▄")
-    }
-
-    /// NO_COLOR keeps every RGB colour, since only images draw with them:
-    /// no screen without an image has one, and on the empty queue only
-    /// Talqi's half blocks do. Under NO_COLOR the empty queue has none at
-    /// all (`no_color_shows_talqi_as_the_colourless_braille_outline`).
+    /// NO_COLOR keeps every RGB colour, since only images and Talqi draw
+    /// with them: no screen without an image has one, and on the empty
+    /// queue only Talqi's cells do. Under NO_COLOR, Talqi is an outline
+    /// without colours (`no_color_shows_talqi_as_the_colourless_outline`).
     #[test]
     fn only_images_draw_in_rgb() {
         let review = include_str!("../../../examples/sessions/retry-review.json");
@@ -3390,16 +3408,17 @@ mod tests {
                 "the session list",
             ),
         ];
-        let empty = screen(&notice, 120, 30);
-        assert!(
-            empty.buffer().content().iter().any(half_block),
-            "Talqi is drawn"
-        );
-        for cell in empty.buffer().content() {
-            let rgb = colours(cell)
+        let empty = screen(&notice, 120, 40);
+        let talqi = emblem_rect(120, 40).expect("room for Talqi");
+        assert_drawn(empty.buffer(), Glyphs::Quadrant, false, talqi);
+        for position in empty.buffer().area.positions() {
+            let rgb = colours(&empty.buffer()[position])
                 .iter()
                 .any(|colour| matches!(colour, Color::Rgb(..)));
-            assert!(!rgb || half_block(cell), "{cell:?} outside Talqi:\n{empty}");
+            assert!(
+                !rgb || talqi.contains(position),
+                "{position:?} outside Talqi:\n{empty}"
+            );
         }
 
         let mut screens = Vec::new();
@@ -3442,11 +3461,14 @@ mod tests {
         }
     }
 
-    /// Whether `cell` holds braille with ink, as Talqi's outline does.
-    fn braille_ink(cell: &ratatui::buffer::Cell) -> bool {
-        cell.symbol()
-            .chars()
-            .all(|symbol| ('\u{2801}'..='\u{28FF}').contains(&symbol))
+    /// Whether `cell` holds a glyph of Talqi's emblem: a sextant, a
+    /// quadrant or a half or full block.
+    fn emblem_glyph(cell: &ratatui::buffer::Cell) -> bool {
+        cell.symbol().chars().all(|symbol| {
+            ('\u{1FB00}'..='\u{1FB3B}').contains(&symbol)
+                || ('\u{2596}'..='\u{259F}').contains(&symbol)
+                || "▀▄█▌▐".contains(symbol)
+        })
     }
 
     /// The empty queue at `width`×`height` under NO_COLOR, with images
@@ -3458,30 +3480,20 @@ mod tests {
             .clone()
     }
 
-    /// Under NO_COLOR, Talqi is the braille outline of the emblem: text
-    /// without a colour or a modifier, also where the terminal has an
-    /// image protocol, and nothing on the screen has a colour.
+    /// Under NO_COLOR, Talqi is the outline of the emblem: text without a
+    /// colour or a modifier, also where the terminal has an image
+    /// protocol, and nothing on the screen has a colour.
     #[test]
-    fn no_color_shows_talqi_as_the_colourless_braille_outline() {
+    fn no_color_shows_talqi_as_the_colourless_outline() {
         let mut kitty = Picker::halfblocks();
         kitty.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
         for picker in [Picker::halfblocks(), kitty] {
             let buf = empty_without_colours(picker, 80, 40);
 
-            let outline: Vec<_> = buf
-                .content()
-                .iter()
-                .filter(|cell| braille_ink(cell))
-                .collect();
-            assert!(!outline.is_empty(), "Talqi is drawn:\n{buf:?}");
-            for cell in outline {
-                let mut plain = ratatui::buffer::Cell::default();
-                plain.set_symbol(cell.symbol());
-                assert_eq!(*cell, plain);
-            }
+            let rect = emblem_rect(80, 40).expect("room for Talqi");
+            assert_drawn(&buf, Glyphs::Quadrant, true, rect);
             for cell in buf.content() {
                 assert_eq!(colours(cell), [Color::Reset; 3], "{cell:?}");
-                assert!(!half_block(cell), "{cell:?}");
                 assert!(!cell.symbol().contains('\u{10EEEE}'), "{cell:?}");
             }
         }
@@ -3494,10 +3506,14 @@ mod tests {
         let small = empty_without_colours(Picker::halfblocks(), 80, 31);
         let large = empty_without_colours(Picker::halfblocks(), 80, 32);
 
-        assert!(!small.content().iter().any(braille_ink), "{small:?}");
-        assert!(!small.content().iter().any(half_block), "{small:?}");
+        assert!(!small.content().iter().any(emblem_glyph), "{small:?}");
         find(&small, "Nothing to answer");
-        assert!(large.content().iter().any(braille_ink), "{large:?}");
+        assert_drawn(
+            &large,
+            Glyphs::Quadrant,
+            true,
+            emblem_rect(80, 32).expect("room for Talqi"),
+        );
     }
 
     #[test]

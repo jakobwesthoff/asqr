@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Talqi's emblem as a fixed block of text cells: the four
+//! Talqi's emblem as a fixed block of text cells (ADR 43): the four
 //! templates built into asqr, read from the text chafa wrote for them,
 //! and drawn into a buffer. `scripts/emblem-cells.py` makes the templates.
 
@@ -27,7 +27,7 @@ pub enum Glyphs {
 impl Glyphs {
     /// The template of the emblem in these glyphs: in colour, or the
     /// outline for `NO_COLOR`.
-    pub(super) fn template(self, outline: bool) -> &'static Template {
+    pub(in crate::tui::render) fn template(self, outline: bool) -> &'static Template {
         static COLOUR_SEXTANT: LazyLock<Template> =
             LazyLock::new(|| built_in(include_str!("talqi-colour-sextant.ansi")));
         static COLOUR_QUADRANT: LazyLock<Template> =
@@ -52,8 +52,8 @@ fn built_in(text: &str) -> Template {
 }
 
 /// The columns and rows of every template.
-pub(super) const EMBLEM_COLUMNS: u16 = 44;
-pub(super) const EMBLEM_ROWS: u16 = 22;
+pub(in crate::tui::render) const EMBLEM_COLUMNS: u16 = 44;
+pub(in crate::tui::render) const EMBLEM_ROWS: u16 = 22;
 
 /// One cell of a template: its glyph and the colours chafa gave it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +84,7 @@ impl TemplateCell {
 
 /// The emblem as rows of cells, read from the text chafa writes.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Template {
+pub(in crate::tui::render) struct Template {
     rows: Vec<Vec<TemplateCell>>,
 }
 
@@ -310,6 +310,35 @@ mod tests {
             );
             assert!(cells.iter().any(|cell| cell.reversed), "{glyphs:?}");
             assert!(cells.iter().any(|cell| cell.bg.is_some()), "{glyphs:?}");
+        }
+    }
+
+    /// The colour templates leave out the emblem's outer ink rim (ADR 43):
+    /// the first and the last cell of each row that is not transparent
+    /// carries no colour of the ink, `#09171a`. The left paw's own outline
+    /// reaches the figure's edge beside the body, which leaves one such
+    /// cell in the sextant template.
+    #[test]
+    fn the_colour_templates_have_no_outer_ink_rim() {
+        let ink = |colour: Option<Color>| {
+            matches!(colour, Some(Color::Rgb(red, green, blue))
+                if red.abs_diff(0x09) <= 4 && green.abs_diff(0x17) <= 4 && blue.abs_diff(0x1a) <= 4)
+        };
+        for glyphs in [Glyphs::Sextant, Glyphs::Quadrant] {
+            let mut inked = Vec::new();
+            for (y, row) in glyphs.template(false).rows.iter().enumerate() {
+                let visible: Vec<_> = row
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, cell)| !cell.transparent())
+                    .collect();
+                for &(x, cell) in visible.first().into_iter().chain(visible.last()) {
+                    if ink(cell.fg) || ink(cell.bg) {
+                        inked.push((x, y));
+                    }
+                }
+            }
+            assert!(inked.len() <= 1, "{glyphs:?}: {inked:?}");
         }
     }
 
