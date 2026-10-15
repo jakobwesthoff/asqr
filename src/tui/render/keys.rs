@@ -15,7 +15,7 @@ use super::overlay::{overlay_block, popup};
 use super::source_line::columns;
 use super::theme;
 use crate::format::Kind;
-use crate::tui::{Focus, Page, Row, SessionState};
+use crate::tui::{Extent, Focus, Page, Row, SessionState};
 
 /// Every key, in the 13 lines the help has on the smallest screen.
 const HELP: &[(&str, &str)] = &[
@@ -99,130 +99,181 @@ pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
         .render(area, buf);
 }
 
+/// A hint in the key bar: a key, what it does where the focus is, and how
+/// long it stays in a bar too narrow for every hint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Hint {
+    pub(super) key: &'static str,
+    pub(super) what: &'static str,
+    pub(super) rank: Rank,
+}
+
+/// How long a hint stays in a key bar too narrow for all of them; a later
+/// rank stays longer. The help stays longest, as it names every other
+/// key, then the ways out, as quitting or going back is what a lost
+/// person looks for. The keys that act where the cursor is come next,
+/// then `←/→`, then the context pane's `tab`, and a note last, which is
+/// optional on every question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Rank {
+    Note,
+    Context,
+    /// Switching questions, or scrolling the context pane sideways.
+    LeftRight,
+    Cursor,
+    /// Quitting, going back from the context pane or the full-screen view,
+    /// closing an overlay.
+    Leave,
+    Help,
+}
+
+const fn hint(key: &'static str, what: &'static str, rank: Rank) -> Hint {
+    Hint { key, what, rank }
+}
+
+/// The hints that more than one set shares.
+const NOTE_HINT: Hint = hint("n", "note", Rank::Note);
+const CONTEXT_HINT: Hint = hint("tab", "context", Rank::Context);
+const QUESTION_HINT: Hint = hint("←/→", "question", Rank::LeftRight);
+const HELP_HINT: Hint = hint("?", "help", Rank::Help);
+const QUIT_HINT: Hint = hint("q", "quit", Rank::Leave);
+
 /// The keys worth showing right now, without `n` where no note is taken.
 /// `pane` is what the context pane showed in this draw: where one shows,
 /// `tab` leads into it, and while it has the focus its own keys show.
-pub(super) fn key_hints(
-    state: &SessionState,
-    list: bool,
-    pane: Option<Page>,
-) -> Vec<(&'static str, &'static str)> {
+pub(super) fn key_hints(state: &SessionState, list: bool, pane: Option<Page>) -> Vec<Hint> {
     if let Some(page) = pane.filter(|_| state.pane_focused() && !list && !state.help()) {
         return pane_key_hints(state, page);
     }
     let mut hints = all_key_hints(state, list);
     if state.question().is_some_and(|question| !question.note) {
-        hints.retain(|(key, _)| *key != "n");
+        hints.retain(|hint| hint.rank != Rank::Note);
     }
     if pane.is_some() && !list && !state.help() {
         // Before the help, or last in a field, whose keys have no help.
         let at = hints
             .iter()
-            .position(|(key, _)| *key == "?")
+            .position(|hint| hint.rank == Rank::Help)
             .unwrap_or(hints.len());
-        hints.insert(at, ("tab", "context"));
+        hints.insert(at, CONTEXT_HINT);
     }
     hints
+}
+
+/// The keys of the intro overlay. Scrolling shows only where the intro is
+/// longer than the overlay, as `page` says.
+pub(super) fn intro_hints(page: Extent) -> Vec<Hint> {
+    let close = hint("esc/q/i", "close", Rank::Leave);
+    if page.total > page.shown {
+        vec![
+            hint("↑/↓", "scroll", Rank::Cursor),
+            hint("pgup/pgdn", "page", Rank::Cursor),
+            close,
+        ]
+    } else {
+        vec![close]
+    }
+}
+
+/// The keys over an empty queue.
+pub(super) fn empty_queue_hints() -> Vec<Hint> {
+    vec![QUIT_HINT]
 }
 
 /// The keys of the focused pane and the full-screen view, where `z` is
 /// one of the keys that go back. Sideways and `o` only show where they do
 /// something.
-fn pane_key_hints(state: &SessionState, page: Page) -> Vec<(&'static str, &'static str)> {
-    let mut hints = vec![("↑/↓", "scroll")];
+fn pane_key_hints(state: &SessionState, page: Page) -> Vec<Hint> {
+    let mut hints = vec![hint("↑/↓", "scroll", Rank::Cursor)];
     if page.columns.total > page.columns.shown {
-        hints.push(("←/→", "sideways"));
+        hints.push(hint("←/→", "sideways", Rank::LeftRight));
     }
-    hints.push(("pgup/pgdn", "page"));
+    hints.push(hint("pgup/pgdn", "page", Rank::Cursor));
     if !state.full_screen() {
-        hints.push(("z", "full screen"));
+        hints.push(hint("z", "full screen", Rank::Cursor));
     }
     if state.shown_image().is_some() {
-        hints.push(("o", "open"));
+        hints.push(hint("o", "open", Rank::Cursor));
     }
-    hints.push(("?", "help"));
+    hints.push(HELP_HINT);
     hints.push(if state.full_screen() {
-        ("z/esc/q", "back")
+        hint("z/esc/q", "back", Rank::Leave)
     } else {
-        ("tab/esc/q", "back")
+        hint("tab/esc/q", "back", Rank::Leave)
     });
     hints
 }
 
-fn all_key_hints(state: &SessionState, list: bool) -> Vec<(&'static str, &'static str)> {
+fn all_key_hints(state: &SessionState, list: bool) -> Vec<Hint> {
+    let cursor = |key, what| hint(key, what, Rank::Cursor);
     if list {
-        return vec![("↑/↓", "move"), ("enter", "open"), ("esc", "close")];
+        return vec![
+            cursor("↑/↓", "move"),
+            cursor("enter", "open"),
+            hint("esc", "close", Rank::Leave),
+        ];
     }
     if state.help() {
-        return vec![("any key", "close")];
+        return vec![hint("any key", "close", Rank::Leave)];
     }
     let row = state.rows().get(state.row()).copied();
     let kind = state.question().map(|question| question.kind);
+    let typing = |enter| {
+        vec![
+            cursor("ctrl-j", "new line"),
+            cursor("enter", enter),
+            cursor("esc", "stop typing"),
+        ]
+    };
     match (state.focus(), row) {
-        (Focus::Note, _) => vec![("ctrl-j", "new line"), ("enter/esc", "done")],
-        (Focus::Field, Some(Row::Answer)) => vec![
-            ("ctrl-j", "new line"),
-            ("enter", "next"),
-            ("esc", "stop typing"),
-        ],
-        (Focus::Field, Some(Row::Note)) => vec![
-            ("ctrl-j", "new line"),
-            ("enter", "submit"),
-            ("esc", "stop typing"),
-        ],
-        (Focus::Field, Some(Row::Reject)) => vec![
-            ("ctrl-j", "new line"),
-            ("enter", "reject"),
-            ("esc", "stop typing"),
-        ],
-        (Focus::Field, _) => vec![
-            ("ctrl-j", "new line"),
-            ("enter", "pick"),
-            ("esc", "stop typing"),
-        ],
+        (Focus::Note, _) => vec![cursor("ctrl-j", "new line"), cursor("enter/esc", "done")],
+        (Focus::Field, Some(Row::Answer)) => typing("next"),
+        (Focus::Field, Some(Row::Note)) => typing("submit"),
+        (Focus::Field, Some(Row::Reject)) => typing("reject"),
+        (Focus::Field, _) => typing("pick"),
         (Focus::None, _) if state.on_review() => vec![
-            ("↑/↓", "move"),
-            ("enter", "open/submit"),
-            ("←/→", "question"),
-            ("?", "help"),
-            ("q", "quit"),
+            cursor("↑/↓", "move"),
+            cursor("enter", "open/submit"),
+            QUESTION_HINT,
+            HELP_HINT,
+            QUIT_HINT,
         ],
         (Focus::None, _) if kind == Some(Kind::Text) => vec![
-            ("↑/↓", "type"),
-            ("enter", "next"),
-            ("←/→", "question"),
-            ("n", "note"),
-            ("?", "help"),
-            ("q", "quit"),
+            cursor("↑/↓", "type"),
+            cursor("enter", "next"),
+            QUESTION_HINT,
+            NOTE_HINT,
+            HELP_HINT,
+            QUIT_HINT,
         ],
         (Focus::None, _) if kind == Some(Kind::Multi) => vec![
-            ("↑/↓", "move"),
-            ("space", "toggle"),
-            ("enter", "next"),
-            ("←/→", "question"),
-            ("n", "note"),
-            ("?", "help"),
-            ("q", "quit"),
+            cursor("↑/↓", "move"),
+            cursor("space", "toggle"),
+            cursor("enter", "next"),
+            QUESTION_HINT,
+            NOTE_HINT,
+            HELP_HINT,
+            QUIT_HINT,
         ],
         (Focus::None, _) => vec![
-            ("↑/↓", "move"),
-            ("enter", "pick"),
-            ("←/→", "question"),
-            ("n", "note"),
-            ("?", "help"),
-            ("q", "quit"),
+            cursor("↑/↓", "move"),
+            cursor("enter", "pick"),
+            QUESTION_HINT,
+            NOTE_HINT,
+            HELP_HINT,
+            QUIT_HINT,
         ],
     }
 }
 
 /// The key bar in `width` columns. Hints that do not fit whole are left
-/// out rather than cut, the least important first (`hint_rank`), and the
-/// rest keep their order; the help lists every key anyway.
-pub(super) fn key_line(keys: &[(&str, &str)], width: u16) -> Line<'static> {
+/// out rather than cut, the lowest [`Rank`] first, and the rest keep their
+/// order; the help lists every key anyway.
+pub(super) fn key_line(hints: &[Hint], width: u16) -> Line<'static> {
     // Each hint is ` key ` and ` what  `; the blanks after the last one may
     // run past the edge.
-    let hint_width = |(key, what): &(&str, &str)| columns(key) + columns(what) + 5;
-    let mut kept: Vec<&(&str, &str)> = keys.iter().collect();
+    let hint_width = |hint: &Hint| columns(hint.key) + columns(hint.what) + 5;
+    let mut kept: Vec<&Hint> = hints.iter().collect();
     loop {
         let used: usize = kept.iter().map(|hint| hint_width(hint)).sum();
         if used.saturating_sub(2) <= usize::from(width) {
@@ -231,34 +282,20 @@ pub(super) fn key_line(keys: &[(&str, &str)], width: u16) -> Line<'static> {
         // Among hints of the same rank, the one further right goes first.
         let least = (0..kept.len())
             .rev()
-            .min_by_key(|&index| hint_rank(kept[index].0))
+            .min_by_key(|&index| kept[index].rank)
             .expect("no hints at all always fit");
         kept.remove(least);
     }
 
     let mut spans = Vec::new();
-    for (key, what) in kept {
-        spans.push(Span::styled(format!(" {key} "), theme::key()));
-        spans.push(Span::styled(format!(" {what}  "), theme::secondary()));
+    for hint in kept {
+        spans.push(Span::styled(format!(" {} ", hint.key), theme::key()));
+        spans.push(Span::styled(
+            format!(" {}  ", hint.what),
+            theme::secondary(),
+        ));
     }
     Line::from(spans)
-}
-
-/// How long a hint stays in a key bar too narrow for all of them; higher
-/// stays longer. `?` and `q` stay longest, as the help names every other
-/// key and quitting, or going back from the context pane, is what a lost
-/// person looks for. The keys that act where the cursor is come next, then
-/// switching questions, then the context pane's `tab`, and a note last,
-/// which is optional on every question.
-fn hint_rank(key: &str) -> u8 {
-    match key {
-        "?" => 6,
-        "q" | "tab/esc/q" | "z/esc/q" => 5,
-        "←/→" => 3,
-        "tab" => 2,
-        "n" => 1,
-        _ => 4,
-    }
 }
 
 #[cfg(test)]
@@ -293,12 +330,7 @@ mod tests {
         };
         state.set_pane_page(Some(page(20)));
         state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-        let keys_of = |hints: Vec<(&str, &str)>| {
-            hints
-                .iter()
-                .map(|(key, _)| key.to_string())
-                .collect::<Vec<_>>()
-        };
+        let keys_of = |hints: Vec<Hint>| hints.iter().map(|hint| hint.key).collect::<Vec<_>>();
 
         assert_eq!(
             keys_of(key_hints(&state, false, Some(page(20)))),
@@ -308,9 +340,25 @@ mod tests {
             keys_of(key_hints(&state, false, Some(page(50)))),
             ["↑/↓", "←/→", "pgup/pgdn", "z", "o", "?", "tab/esc/q"]
         );
+        let bar = |width: u16| {
+            let hints = key_hints(&state, false, Some(page(50)));
+            line_texts(&[key_line(&hints, width)])[0]
+                .trim_end()
+                .to_owned()
+        };
+        assert_eq!(
+            bar(90),
+            " ↑/↓  scroll   pgup/pgdn  page   z  full screen   o  open   ?  help   tab/esc/q  back",
+            "sideways goes first"
+        );
+        assert_eq!(
+            bar(60),
+            " ↑/↓  scroll   pgup/pgdn  page   ?  help   tab/esc/q  back",
+            "then the keys further right, the help and the way back last"
+        );
         state.handle(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
         assert_eq!(
-            key_hints(&state, false, Some(page(20))),
+            pairs(&key_hints(&state, false, Some(page(20)))),
             [
                 ("↑/↓", "scroll"),
                 ("pgup/pgdn", "page"),
@@ -334,17 +382,75 @@ mod tests {
         );
     }
 
+    /// The keys and descriptions of `hints`, in order.
+    fn pairs(hints: &[Hint]) -> Vec<(&'static str, &'static str)> {
+        hints.iter().map(|hint| (hint.key, hint.what)).collect()
+    }
+
     #[test]
-    fn the_key_bar_leaves_out_what_does_not_fit_whole() {
-        let text = |width: u16| -> String {
-            let hints = [
+    fn the_note_shows_where_one_is_taken_and_tab_where_a_pane_shows() {
+        let session = |note: bool, kind: &str| {
+            let json = format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "{kind}",
+                    "note": {note}, "options": [{{"id": "a", "label": "A"}}]}}]}}"#
+            );
+            SessionState::new("hints", serde_json::from_str(&json).expect("parses"), None)
+        };
+        let page = Page::default();
+
+        assert_eq!(
+            pairs(&key_hints(&session(true, "single"), false, None)),
+            [
                 ("↑/↓", "move"),
                 ("enter", "pick"),
                 ("←/→", "question"),
                 ("n", "note"),
+                ("?", "help"),
+                ("q", "quit")
+            ]
+        );
+        assert_eq!(
+            pairs(&key_hints(&session(false, "single"), false, Some(page))),
+            [
+                ("↑/↓", "move"),
+                ("enter", "pick"),
+                ("←/→", "question"),
                 ("tab", "context"),
                 ("?", "help"),
-                ("q", "quit"),
+                ("q", "quit")
+            ],
+            "no note, and tab before the help"
+        );
+        let mut typing = session(true, "text");
+        typing.handle(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert_eq!(
+            pairs(&key_hints(&typing, false, Some(page))),
+            [
+                ("ctrl-j", "new line"),
+                ("enter", "next"),
+                ("esc", "stop typing"),
+                ("tab", "context")
+            ],
+            "a field's keys have no help, so tab goes last"
+        );
+        assert_eq!(
+            pairs(&key_hints(&session(true, "single"), true, Some(page))),
+            [("↑/↓", "move"), ("enter", "open"), ("esc", "close")],
+            "the session list names no pane"
+        );
+    }
+
+    #[test]
+    fn the_key_bar_leaves_out_what_does_not_fit_whole() {
+        let text = |width: u16| -> String {
+            let hints = [
+                hint("↑/↓", "move", Rank::Cursor),
+                hint("enter", "pick", Rank::Cursor),
+                QUESTION_HINT,
+                NOTE_HINT,
+                CONTEXT_HINT,
+                HELP_HINT,
+                QUIT_HINT,
             ];
             let line = key_line(&hints, width);
             line.spans
@@ -382,7 +488,8 @@ mod tests {
     #[test]
     fn the_key_bar_measures_wide_hints_in_columns() {
         let text = |width: u16| {
-            line_texts(&[key_line(&[("日本", "表示"), ("q", "quit")], width)])[0]
+            let hints = [hint("日本", "表示", Rank::Cursor), QUIT_HINT];
+            line_texts(&[key_line(&hints, width)])[0]
                 .trim_end()
                 .to_owned()
         };
@@ -427,7 +534,7 @@ mod tests {
 
     #[test]
     fn the_key_bar_shows_each_key_bold_in_the_primary_colour_and_no_fill() {
-        let line = key_line(&[("↑/↓", "move"), ("q", "quit")], 40);
+        let line = key_line(&[hint("↑/↓", "move", Rank::Cursor), QUIT_HINT], 40);
         let area = Rect::new(0, 0, 40, 1);
         let mut buf = Buffer::empty(area);
         line.render(area, &mut buf);

@@ -19,7 +19,7 @@ use super::content::{TabState, draw_tab};
 use super::context::draw_pane;
 use super::empty::EmptyQueue;
 use super::header::header_lines;
-use super::keys::{draw_help, key_hints, key_line};
+use super::keys::{draw_help, empty_queue_hints, intro_hints, key_hints, key_line};
 use super::mascot::{Mascot, Which};
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{PaneLayout, READING_WIDTH};
@@ -200,7 +200,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 no_color: view.no_color,
             };
             frame.render_stateful_widget(empty, main, &mut view.mascot);
-            (Drawn::default(), vec![("q", "quit")])
+            (Drawn::default(), empty_queue_hints())
         }
         Some(state) => {
             frame.render_widget(Paragraph::new(header_lines), header);
@@ -232,16 +232,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                     let intro = state.session().intro.as_deref();
                     let intro = intro.expect("the intro overlay is open only on an intro");
                     let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll);
-                    let hints = if page.total > page.shown {
-                        vec![
-                            ("↑/↓", "scroll"),
-                            ("pgup/pgdn", "page"),
-                            ("esc/q/i", "close"),
-                        ]
-                    } else {
-                        vec![("esc/q/i", "close")]
-                    };
-                    (page, hints)
+                    (page, intro_hints(page))
                 }
                 Some(Overlay::SessionList(_)) => {
                     (Extent::default(), key_hints(state, true, pane_page))
