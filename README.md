@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/emblem/talqi-terminal.svg" width="256" height="256" alt="asqr's logo: Talqi, a teal chameleon with a lavender crest, peeking over a terminal panel with a prompt">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/emblem/talqi-terminal-rim-mint.svg">
+    <img src="assets/emblem/talqi-terminal.svg" width="256" height="256" alt="asqr's logo: Talqi, a teal chameleon with a lavender crest, peeking over a terminal panel with a prompt">
+  </picture>
 </p>
 
 # asqr
