@@ -225,10 +225,8 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             // of it fits decides the hints.
             let (intro_page, hints) = match overlay {
                 Some(Overlay::Intro(scroll)) => {
-                    let above_keys = Rect {
-                        height: area.height - 1,
-                        ..area
-                    };
+                    let [above_keys, _] =
+                        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
                     let intro = state.session().intro.as_deref();
                     let intro = intro.expect("the intro overlay is open only on an intro");
                     let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll);

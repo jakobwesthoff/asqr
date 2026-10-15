@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
@@ -32,12 +32,7 @@ pub fn draw_pane(
     viewers: &mut Viewers,
 ) -> Option<Page> {
     let (key, entry) = state.shown_entry()?;
-    let header = Rect { height: 1, ..area };
-    let body = Rect {
-        y: area.y + 1,
-        height: area.height.saturating_sub(1),
-        ..area
-    };
+    let [header, body] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
 
     let (viewer, size) = viewers.laid_out(state.id(), key, entry, body.width, body.height);
     // Content reports lines wider than the body only where it cuts them, so
