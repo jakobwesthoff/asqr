@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 
-use super::{App, AppEffect, Outcome, SessionState};
+use super::{App, AppEffect, Outcome, SessionState, Tone};
 use crate::format::{SessionResult, now_rfc3339, parse_session, same_session_id, validate};
 use crate::queue::{
     QueueLocation, Recovery, Rejected, Waiting, archive_invalid_stem, finish, load_draft, recover,
@@ -88,7 +88,7 @@ impl Inbox {
                 Recovery::Conflict(id) => {
                     tracing::warn!(%id, "archived a session that collided with an unread result");
                     self.forget(app, &id);
-                    app.notice(format!(
+                    app.notice(Tone::Warning, format!(
                         "{id} was archived unanswered: an unread result with that id is in the outbox"
                     ));
                 }
@@ -106,7 +106,10 @@ impl Inbox {
         for path in &scan.invalid_stems {
             tracing::warn!(path = %path.display(), "archived a file whose name is no session id");
             if let Err(error) = archive_invalid_stem(&self.location, path) {
-                app.notice(format!("cannot archive {}: {error}", path.display()));
+                app.notice(
+                    Tone::Error,
+                    format!("cannot archive {}: {error}", path.display()),
+                );
             }
         }
 
@@ -129,7 +132,10 @@ impl Inbox {
         let mut synced = Synced::default();
         for waiting in scan.sessions {
             if let Err(error) = self.load(app, &waiting, &mut synced) {
-                app.notice(format!("cannot read {}: {error}", waiting.path.display()));
+                app.notice(
+                    Tone::Error,
+                    format!("cannot read {}: {error}", waiting.path.display()),
+                );
             }
         }
         Ok(synced)
@@ -206,15 +212,15 @@ impl Inbox {
             &now_rfc3339(),
         ) {
             Ok(Rejected::ErrorResult) => {
-                app.notice(format!(
+                app.notice(Tone::Warning, format!(
                     "{id} is invalid and was answered with an error: {message}"
                 ));
             }
-            Ok(Rejected::Conflict) => app.notice(format!(
+            Ok(Rejected::Conflict) => app.notice(Tone::Warning, format!(
                 "{id} is invalid and was archived without a result, since an unread result with \
                  that id is in the outbox: {message}"
             )),
-            Err(error) => app.notice(format!("cannot reject the invalid {id}: {error}")),
+            Err(error) => app.notice(Tone::Error, format!("cannot reject the invalid {id}: {error}")),
         }
     }
 
@@ -225,7 +231,10 @@ impl Inbox {
             AppEffect::None => {}
             AppEffect::SaveDraft(draft) => {
                 if let Err(error) = save_draft(&self.location, &draft) {
-                    app.notice(format!("cannot save the draft of {}: {error}", draft.id));
+                    app.notice(
+                        Tone::Error,
+                        format!("cannot save the draft of {}: {error}", draft.id),
+                    );
                 }
             }
             AppEffect::Finish { id, outcome } => self.finish(app, &id, outcome),
@@ -246,11 +255,14 @@ impl Inbox {
         // person sees the new version before answering it.
         let current = std::fs::read(&known.path).map(|bytes| session_sha256(&bytes));
         if current.as_ref().ok() != Some(&known.sha256) {
-            app.notice(format!(
-                "{id} changed on disk and was not sent; check the new version"
-            ));
+            app.notice(
+                Tone::Warning,
+                format!("{id} changed on disk and was not sent; check the new version"),
+            );
+            // The status line holds one notice, so an inbox that cannot be
+            // read replaces the warning with its error.
             if let Err(error) = self.sync(app) {
-                app.notice(format!("cannot read the inbox: {error}"));
+                app.notice(Tone::Error, format!("cannot read the inbox: {error}"));
             }
             return;
         }
@@ -269,7 +281,7 @@ impl Inbox {
                 tracing::info!(%id, status = ?result.status, "finished a session");
                 self.forget(app, id);
             }
-            Err(error) => app.notice(format!("cannot finish {id}: {error}")),
+            Err(error) => app.notice(Tone::Error, format!("cannot finish {id}: {error}")),
         }
     }
 }
@@ -327,6 +339,14 @@ mod tests {
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    /// Asserts that the app shows a notice of `tone` whose text passes
+    /// `says`.
+    #[track_caller]
+    fn assert_notice(app: &App, tone: Tone, says: impl Fn(&str) -> bool) {
+        let notice = app.current_notice().expect("a notice is shown");
+        assert!(notice.tone == tone && says(&notice.text), "{notice:?}");
     }
 
     #[test]
@@ -441,12 +461,9 @@ mod tests {
             "{:?}",
             garbage.error
         );
-        assert!(
-            app.current_notice()
-                .is_some_and(|notice| notice.contains("answered with an error")),
-            "{:?}",
-            app.current_notice()
-        );
+        assert_notice(&app, Tone::Warning, |text| {
+            text.contains("answered with an error")
+        });
     }
 
     #[test]
@@ -512,12 +529,7 @@ mod tests {
             "the unread result stays"
         );
         assert_eq!(names(&location.inbox()), Vec::<String>::new());
-        assert!(
-            app.current_notice()
-                .is_some_and(|notice| notice.contains("unread result")),
-            "{:?}",
-            app.current_notice()
-        );
+        assert_notice(&app, Tone::Warning, |text| text.contains("unread result"));
     }
 
     #[test]
@@ -610,12 +622,9 @@ mod tests {
         let effect = app.handle(key('2'));
         inbox.apply(&mut app, effect);
 
-        assert!(
-            app.current_notice()
-                .is_some_and(|notice| notice.starts_with("cannot save the draft")),
-            "{:?}",
-            app.current_notice()
-        );
+        assert_notice(&app, Tone::Error, |text| {
+            text.starts_with("cannot save the draft")
+        });
     }
 
     /// Picks the second option, which moves on to the review and its
@@ -713,12 +722,7 @@ mod tests {
         assert_eq!(names(&location.outbox()), Vec::<String>::new());
         let state = app.active().expect("still waiting");
         assert_eq!(state.session().questions[0].text, "Which one?");
-        assert!(
-            app.current_notice()
-                .is_some_and(|notice| notice.contains("changed on disk")),
-            "{:?}",
-            app.current_notice()
-        );
+        assert_notice(&app, Tone::Warning, |text| text.contains("changed on disk"));
     }
 
     #[test]
@@ -734,16 +738,9 @@ mod tests {
         answer_and(&mut app, &mut inbox, false);
 
         assert_eq!(ids(&app), ["batch"]);
-        assert!(
-            app.current_notice()
-                .is_some_and(|notice| notice.starts_with("cannot finish batch")),
-            "{:?}",
-            app.current_notice()
-        );
-    }
-
-    fn notice(app: &App) -> &str {
-        app.current_notice().expect("a notice is shown")
+        assert_notice(&app, Tone::Error, |text| {
+            text.starts_with("cannot finish batch")
+        });
     }
 
     #[test]
@@ -756,11 +753,7 @@ mod tests {
 
         inbox.sync(&mut app).expect("synced");
 
-        assert!(
-            notice(&app).starts_with("cannot archive"),
-            "{}",
-            notice(&app)
-        );
+        assert_notice(&app, Tone::Error, |text| text.starts_with("cannot archive"));
     }
 
     #[cfg(unix)]
@@ -777,7 +770,7 @@ mod tests {
         let synced = inbox.sync(&mut app).expect("synced");
 
         assert_eq!(synced.arrived, ["open"]);
-        assert!(notice(&app).starts_with("cannot read"), "{}", notice(&app));
+        assert_notice(&app, Tone::Error, |text| text.starts_with("cannot read"));
     }
 
     #[test]
@@ -813,11 +806,9 @@ mod tests {
 
         inbox.reject(&mut app, &waiting, b"{", "broken");
 
-        assert!(
-            notice(&app).contains("without a result"),
-            "{}",
-            notice(&app)
-        );
+        assert_notice(&app, Tone::Warning, |text| {
+            text.contains("without a result")
+        });
         assert_eq!(names(&location.inbox()), Vec::<String>::new());
     }
 
@@ -836,11 +827,7 @@ mod tests {
 
         inbox.reject(&mut app, &waiting, b"{", "broken");
 
-        assert!(
-            notice(&app).starts_with("cannot reject"),
-            "{}",
-            notice(&app)
-        );
+        assert_notice(&app, Tone::Error, |text| text.starts_with("cannot reject"));
     }
 
     #[test]
@@ -855,11 +842,9 @@ mod tests {
 
         answer_and(&mut app, &mut inbox, false);
 
-        assert!(
-            notice(&app).starts_with("cannot read the inbox"),
-            "{}",
-            notice(&app)
-        );
+        assert_notice(&app, Tone::Error, |text| {
+            text.starts_with("cannot read the inbox")
+        });
         assert_eq!(names(&location.outbox()), Vec::<String>::new());
     }
 

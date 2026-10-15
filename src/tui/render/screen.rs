@@ -296,13 +296,15 @@ fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
 /// The status line: the app's notice, else the message of the session
 /// shown, if there is one. A notice matters most over an empty queue: an
 /// invalid session that was the only one leaves the queue empty, and the
-/// notice is all that says why.
+/// notice is all that says why. Its tone gives the line its colour.
 fn status_line<'a>(app: &'a App, state: Option<&'a SessionState>) -> Line<'a> {
-    let text = app
+    match app
         .current_notice()
         .or_else(|| state.and_then(SessionState::message))
-        .unwrap_or_default();
-    Line::styled(text, theme::warning())
+    {
+        Some(notice) => Line::styled(notice.text.as_str(), theme::for_tone(notice.tone)),
+        None => Line::default(),
+    }
 }
 
 #[cfg(test)]
@@ -312,12 +314,12 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui::style::{Color, Modifier};
+    use ratatui::style::{Color, Modifier, Style};
 
     use super::super::test_support::{self, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
-    use crate::tui::{Focus, SessionState};
+    use crate::tui::{Focus, SessionState, Tone};
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
     const RELEASE: &str = include_str!("../../../examples/sessions/release-checklist.json");
@@ -884,7 +886,10 @@ mod tests {
     #[test]
     fn an_empty_queue_still_shows_notices() {
         let mut app = App::default();
-        app.notice("broken is invalid and was answered with an error: questions[0].min");
+        app.notice(
+            Tone::Warning,
+            "broken is invalid and was answered with an error: questions[0].min",
+        );
 
         insta::assert_snapshot!(screen(&app, 80, 20));
     }
@@ -1191,7 +1196,10 @@ mod tests {
         keys(&mut app, "l23");
         insta::assert_snapshot!("message", screen(&app, 80, 24));
 
-        app.notice("batch-01 collided with an unread result and was archived");
+        app.notice(
+            Tone::Warning,
+            "batch-01 collided with an unread result and was archived",
+        );
         insta::assert_snapshot!("notice", screen(&app, 80, 24));
     }
 
@@ -1201,7 +1209,10 @@ mod tests {
         let backend = screen(&app, 80, 20);
         assert_eq!(row(backend.buffer(), 18), "", "{backend}");
 
-        app.notice("broken is invalid and was answered with an error");
+        app.notice(
+            Tone::Warning,
+            "broken is invalid and was answered with an error",
+        );
         let backend = screen(&app, 80, 20);
         let buf = backend.buffer();
         assert_eq!(
@@ -1274,7 +1285,8 @@ mod tests {
             .active()
             .and_then(SessionState::message)
             .expect("the third pick is refused")
-            .to_owned();
+            .text
+            .clone();
         let key_bar =
             " ↑/↓  move   space  toggle   enter  next   ←/→  question   ?  help   q  quit";
 
@@ -1284,7 +1296,10 @@ mod tests {
         assert_eq!(style_at(buf, &message).fg, Some(Color::Yellow));
         assert_eq!(row(buf, 23), key_bar, "{backend}");
 
-        app.notice("batch-01 collided with an unread result and was archived");
+        app.notice(
+            Tone::Warning,
+            "batch-01 collided with an unread result and was archived",
+        );
         let backend = screen(&app, 80, 24);
         let buf = backend.buffer();
         assert_eq!(
@@ -1315,7 +1330,10 @@ mod tests {
             "without a session only a notice shows"
         );
 
-        app.notice("batch-01 collided with an unread result and was archived");
+        app.notice(
+            Tone::Warning,
+            "batch-01 collided with an unread result and was archived",
+        );
         let expected = "batch-01 collided with an unread result and was archived";
         let line = status_line(&app, state.as_ref());
         assert_eq!(text(line.clone()), expected);
@@ -1324,10 +1342,44 @@ mod tests {
     }
 
     #[test]
+    fn the_status_line_colours_a_notice_by_its_tone() {
+        let mut app = App::default();
+        let tones = [
+            (Tone::Info, Style::new()),
+            (Tone::Warning, Style::new().fg(Color::Yellow)),
+            (Tone::Error, Style::new().fg(Color::Red)),
+            (Tone::Success, Style::new().fg(Color::Green)),
+        ];
+        for (tone, style) in tones {
+            app.notice(tone, "news");
+            let line = status_line(&app, None);
+            assert_eq!(line.to_string(), "news");
+            assert_eq!(line.style, style, "{tone:?}");
+        }
+    }
+
+    #[test]
+    fn a_reloaded_session_says_so_in_plain_text() {
+        let mut app = app(&[("release", RELEASE)]);
+        let replaced: Session = serde_json::from_str(RELEASE).expect("example parses");
+        app.add(SessionState::new("release", replaced, None));
+
+        let line = status_line(&app, app.active());
+        assert_eq!(
+            line.to_string(),
+            "Release 0.2.0 changed on disk and was reloaded"
+        );
+        assert_eq!(line.style, Style::new());
+    }
+
+    #[test]
     fn the_intro_overlay_covers_the_status_line_and_leaves_the_key_bar() {
         let mut app = longer_intro();
         keys(&mut app, "i");
-        app.notice("batch-01 collided with an unread result and was archived");
+        app.notice(
+            Tone::Warning,
+            "batch-01 collided with an unread result and was archived",
+        );
 
         // The notice shows only in the margin beside the intro's frame.
         let backend = screen(&app, 60, 15);
@@ -3125,7 +3177,10 @@ mod tests {
     #[test]
     fn no_color_takes_the_colour_of_a_notice_over_the_empty_queue() {
         let mut app = App::default();
-        app.notice("broken is invalid and was answered with an error");
+        app.notice(
+            Tone::Warning,
+            "broken is invalid and was answered with an error",
+        );
 
         let (coloured, colourless) = with_and_without_colours(&app, 80, 20);
 
@@ -3143,7 +3198,10 @@ mod tests {
             "context": [{"type": "code", "title": "fetch.rs",
                          "content": "pub fn fetch(url: &str) -> Response {\n    retry(|| get(url))\n}\n"}]}]}"#;
         let mut notice = App::default();
-        notice.notice("broken is invalid and was answered with an error");
+        notice.notice(
+            Tone::Warning,
+            "broken is invalid and was answered with an error",
+        );
         // Each session, the keys that lead to what it shows, and what that
         // is.
         let shown = [

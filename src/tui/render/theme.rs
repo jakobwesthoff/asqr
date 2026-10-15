@@ -19,6 +19,7 @@ use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+use crate::tui::Tone;
 use crate::tui::text_field::Level;
 
 /// What marks asqr and what can be acted on: the name in the title line,
@@ -76,20 +77,20 @@ pub(crate) fn cursor() -> Style {
     Style::new().reversed()
 }
 
-/// Something to look at but no failure: a notice in the status line, a
-/// length counter above its target.
+/// Something to look at but no failure: a refused key, a session set
+/// aside, a length counter above its target.
 pub(crate) fn warning() -> Style {
     Style::new().fg(Color::Yellow)
 }
 
-/// Something in order: a length counter within its target, an added line
-/// of a diff.
+/// Something in order: a sent session, a length counter within its
+/// target, an added line of a diff.
 pub(crate) fn success() -> Style {
     Style::new().fg(Color::Green)
 }
 
-/// Something wrong or gone: a length counter above `warn`, a removed line
-/// of a diff.
+/// Something wrong or gone: a failure, a length counter above `warn`, a
+/// removed line of a diff.
 pub(crate) fn error() -> Style {
     Style::new().fg(Color::Red)
 }
@@ -107,6 +108,17 @@ pub(crate) fn for_level(level: Level) -> Style {
         Level::Fine => success(),
         Level::Warn => warning(),
         Level::Over => error(),
+    }
+}
+
+/// The style of a notice or a session's message of `tone` in the status
+/// line (ADR 38). Plain news keeps the text colour.
+pub(crate) fn for_tone(tone: Tone) -> Style {
+    match tone {
+        Tone::Info => Style::new(),
+        Tone::Warning => warning(),
+        Tone::Error => error(),
+        Tone::Success => success(),
     }
 }
 
@@ -230,6 +242,14 @@ mod tests {
         assert_eq!(for_level(Level::Fine), Style::new().fg(Color::Green));
         assert_eq!(for_level(Level::Warn), Style::new().fg(Color::Yellow));
         assert_eq!(for_level(Level::Over), Style::new().fg(Color::Red));
+    }
+
+    #[test]
+    fn news_is_plain_a_refusal_yellow_a_failure_red_and_a_sent_session_green() {
+        assert_eq!(for_tone(Tone::Info), Style::new());
+        assert_eq!(for_tone(Tone::Warning), Style::new().fg(Color::Yellow));
+        assert_eq!(for_tone(Tone::Error), Style::new().fg(Color::Red));
+        assert_eq!(for_tone(Tone::Success), Style::new().fg(Color::Green));
     }
 
     #[test]

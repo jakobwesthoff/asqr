@@ -19,7 +19,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
 use super::text_field::cleaned;
-use super::{FieldKey, FieldShape, Leave, Offset, Page, TextField};
+use super::{FieldKey, FieldShape, Leave, Notice, Offset, Page, TextField, Tone};
 
 pub use crate::format::Length;
 use crate::format::{
@@ -154,7 +154,7 @@ pub struct SessionState {
     session_note: String,
     reject_reason: String,
     help: bool,
-    message: Option<String>,
+    message: Option<Notice>,
     /// The context entry shown, drawn over the question's area (`z`). It
     /// reads like a pager, so the pane has the focus while it shows.
     full_screen: Option<FullScreen>,
@@ -312,9 +312,9 @@ impl SessionState {
             .map(|(key, offset)| (*key, *offset))
             .collect();
 
-        replaced.message = Some(format!(
-            "{} changed on disk and was reloaded",
-            replaced.name()
+        replaced.message = Some(Notice::new(
+            Tone::Info,
+            format!("{} changed on disk and was reloaded", replaced.name()),
         ));
         *self = replaced;
     }
@@ -391,8 +391,8 @@ impl SessionState {
     }
 
     /// Feedback on the last key, shown until the next one.
-    pub fn message(&self) -> Option<&str> {
-        self.message.as_deref()
+    pub fn message(&self) -> Option<&Notice> {
+        self.message.as_ref()
     }
 
     pub fn full_screen(&self) -> bool {
@@ -741,12 +741,12 @@ impl SessionState {
                     } else {
                         "o opens images only; z shows this entry full screen"
                     };
-                    self.message = Some(message.to_owned());
+                    self.message = Some(Notice::new(Tone::Warning, message));
                     Effect::None
                 }
             },
             None => {
-                self.message = Some("nothing to open here".to_owned());
+                self.message = Some(Notice::new(Tone::Warning, "nothing to open here"));
                 Effect::None
             }
         }
@@ -941,7 +941,7 @@ impl SessionState {
             if let Some(max) = question.max
                 && working.selected.len() >= max as usize
             {
-                self.message = Some(format!("at most {max} options"));
+                self.message = Some(Notice::new(Tone::Warning, format!("at most {max} options")));
                 return Effect::None;
             }
             working.selected.push(id);
@@ -970,7 +970,7 @@ impl SessionState {
             return Effect::None;
         };
         if !question.note {
-            self.message = Some("this question takes no note".to_owned());
+            self.message = Some(Notice::new(Tone::Warning, "this question takes no note"));
             return Effect::None;
         }
         self.field = Some(TextField::new(&self.working[self.tab].note));
@@ -1043,7 +1043,10 @@ impl SessionState {
             } else {
                 "esc leaves the pane"
             };
-            self.message = Some(format!("a paste goes into a field; {leave}"));
+            self.message = Some(Notice::new(
+                Tone::Warning,
+                format!("a paste goes into a field; {leave}"),
+            ));
             return Effect::None;
         }
         if self.focus == Focus::None {
@@ -1054,7 +1057,7 @@ impl SessionState {
                 } else {
                     "a paste goes into a field"
                 };
-                self.message = Some(message.to_owned());
+                self.message = Some(Notice::new(Tone::Warning, message));
                 return Effect::None;
             }
             self.arrive();
@@ -1162,6 +1165,11 @@ mod tests {
 
     fn code(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    /// The message of a key or a paste the session refused.
+    fn refused(text: &str) -> Notice {
+        Notice::new(Tone::Warning, text)
     }
 
     #[test]
@@ -1385,7 +1393,7 @@ mod tests {
             "kept in option order"
         );
         assert_eq!(press(&mut state, "2"), Effect::None);
-        assert_eq!(state.message(), Some("at most 2 options"));
+        assert_eq!(state.message(), Some(&refused("at most 2 options")));
         press(&mut state, "1");
         assert_eq!(answer(&state, "multi").selected, ["z"]);
         assert_eq!(state.tab(), 1, "toggling stays on the question");
@@ -1812,7 +1820,10 @@ mod tests {
 
         assert_eq!(press(&mut state, "n"), Effect::None);
 
-        assert_eq!(state.message(), Some("this question takes no note"));
+        assert_eq!(
+            state.message(),
+            Some(&refused("this question takes no note"))
+        );
         assert_eq!(state.focus(), Focus::None);
     }
 
@@ -2121,20 +2132,24 @@ mod tests {
     fn o_says_why_it_does_nothing() {
         let mut state = state();
         assert_eq!(press(&mut state, "o"), Effect::None);
-        assert_eq!(state.message(), Some("nothing to open here"));
+        assert_eq!(state.message(), Some(&refused("nothing to open here")));
 
         let mut state = with_pane();
         let code_entry = "o opens images only; z shows this entry full screen";
         assert_eq!(press(&mut state, "o"), Effect::None);
-        assert_eq!(state.message(), Some(code_entry));
+        assert_eq!(state.message(), Some(&refused(code_entry)));
         state.handle(code(KeyCode::Tab));
         assert_eq!(press(&mut state, "o"), Effect::None);
-        assert_eq!(state.message(), Some(code_entry), "from the focused pane");
+        assert_eq!(
+            state.message(),
+            Some(&refused(code_entry)),
+            "from the focused pane"
+        );
         press(&mut state, "z");
         assert_eq!(press(&mut state, "o"), Effect::None);
         assert_eq!(
             state.message(),
-            Some("o opens images only"),
+            Some(&refused("o opens images only")),
             "the full-screen view already shows the entry whole"
         );
     }
@@ -2753,7 +2768,7 @@ mod tests {
         assert_eq!(state.paste("1"), Effect::None);
         assert_eq!(
             state.message(),
-            Some("a paste goes into a field; press n for a note")
+            Some(&refused("a paste goes into a field; press n for a note"))
         );
         assert_eq!(state.answers()[0].selected, ["b"], "nothing picked");
         press(&mut state, "j");
@@ -2767,12 +2782,12 @@ mod tests {
         state.paste("1");
         assert_eq!(
             state.message(),
-            Some("a paste goes into a field"),
+            Some(&refused("a paste goes into a field")),
             "a question without notes"
         );
         review_row(&mut state, Row::Submit);
         state.paste("1");
-        assert_eq!(state.message(), Some("a paste goes into a field"));
+        assert_eq!(state.message(), Some(&refused("a paste goes into a field")));
     }
 
     #[test]
@@ -2784,13 +2799,15 @@ mod tests {
         assert_eq!(state.paste("c"), Effect::None);
         assert_eq!(
             state.message(),
-            Some("a paste goes into a field; esc leaves the pane")
+            Some(&refused("a paste goes into a field; esc leaves the pane"))
         );
         press(&mut state, "z");
         state.paste("c");
         assert_eq!(
             state.message(),
-            Some("a paste goes into a field; z/esc leave the full screen")
+            Some(&refused(
+                "a paste goes into a field; z/esc leave the full screen"
+            ))
         );
 
         state.handle(code(KeyCode::Esc));
@@ -2973,7 +2990,10 @@ mod tests {
         assert_eq!(top(&state), 10, "option b's entry is where it was");
         assert_eq!(
             state.message(),
-            Some("batch changed on disk and was reloaded")
+            Some(&Notice::new(
+                Tone::Info,
+                "batch changed on disk and was reloaded"
+            ))
         );
         state.handle(code(KeyCode::Esc));
         state.handle(code(KeyCode::Esc));
@@ -3017,7 +3037,10 @@ mod tests {
         assert_eq!(state.field_text().as_deref(), Some("stale"), "typed on");
         assert_eq!(
             state.message(),
-            Some("Batch 3 changed on disk and was reloaded")
+            Some(&Notice::new(
+                Tone::Info,
+                "Batch 3 changed on disk and was reloaded"
+            ))
         );
     }
 

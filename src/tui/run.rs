@@ -17,7 +17,7 @@ use ratatui::backend::Backend;
 use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
 
 use super::render::{Drawn, View, draw};
-use super::{App, Applied, Inbox};
+use super::{App, Applied, Inbox, Tone};
 use crate::queue::QueueLocation;
 
 /// What wakes the loop.
@@ -135,7 +135,9 @@ where
                             host.alert(&synced.arrived);
                         }
                     }
-                    Err(error) => app.notice(format!("cannot read the inbox: {error}")),
+                    Err(error) => {
+                        app.notice(Tone::Error, format!("cannot read the inbox: {error}"))
+                    }
                 }
                 continue;
             }
@@ -145,7 +147,7 @@ where
             Applied::Quit => return Ok(()),
             Applied::OpenImage(path) => {
                 if let Err(error) = host.open_image(&path) {
-                    app.notice(format!("cannot open {path}: {error}"));
+                    app.notice(Tone::Error, format!("cannot open {path}: {error}"));
                 }
             }
         }
@@ -619,8 +621,11 @@ mod tests {
         let mut harness = Harness::new();
         harness.host.viewer_missing = true;
         harness.put("batch-01");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
 
-        harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
+        harness
+            .run_started(&mut app, &mut inbox, vec![key(KeyCode::Char('o'))])
+            .expect("runs");
 
         assert!(
             harness
@@ -628,6 +633,10 @@ mod tests {
                 .contains("cannot open /nowhere/cat.png: no viewer"),
             "{}",
             harness.screen()
+        );
+        assert_eq!(
+            app.current_notice().map(|notice| notice.tone),
+            Some(Tone::Error)
         );
     }
 
@@ -711,6 +720,10 @@ mod tests {
             harness.screen().contains("cannot read the inbox"),
             "{}",
             harness.screen()
+        );
+        assert_eq!(
+            app.current_notice().map(|notice| notice.tone),
+            Some(Tone::Error)
         );
     }
 

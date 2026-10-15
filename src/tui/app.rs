@@ -49,6 +49,38 @@ pub enum Overlay {
     Intro(usize),
 }
 
+/// What kind of news a notice or a session's message is, which decides
+/// its colour in the status line (ADR 38).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    /// Plain news, such as a session file that was reloaded.
+    Info,
+    /// asqr refused an action or set something aside on purpose, such as
+    /// a refused key or an invalid session answered with an error.
+    Warning,
+    /// An operation failed and nothing was done, such as a draft that
+    /// could not be saved.
+    Error,
+    /// A session was sent.
+    Success,
+}
+
+/// A line for the status line: an app's notice or a session's message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    pub tone: Tone,
+    pub text: String,
+}
+
+impl Notice {
+    pub fn new(tone: Tone, text: impl Into<String>) -> Self {
+        Notice {
+            tone,
+            text: text.into(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct App {
     sessions: Vec<SessionState>,
@@ -61,7 +93,7 @@ pub struct App {
     /// The intro's lines the overlay showed in the last draw, which is how
     /// far its keys can scroll it.
     intro_page: Extent,
-    notice: Option<String>,
+    notice: Option<Notice>,
 }
 
 impl App {
@@ -123,14 +155,15 @@ impl App {
         self.list
     }
 
-    /// Shows `text` until the next key, such as a session archived because
-    /// it collided with an unread result (spec section 3.7).
-    pub fn notice(&mut self, text: impl Into<String>) {
-        self.notice = Some(text.into());
+    /// Shows `text` as `tone` until the next key or paste, such as a
+    /// session archived because it collided with an unread result (spec
+    /// section 3.7).
+    pub fn notice(&mut self, tone: Tone, text: impl Into<String>) {
+        self.notice = Some(Notice::new(tone, text));
     }
 
-    pub fn current_notice(&self) -> Option<&str> {
-        self.notice.as_deref()
+    pub fn current_notice(&self) -> Option<&Notice> {
+        self.notice.as_ref()
     }
 
     /// The first line of the intro shown while its overlay is open.
@@ -714,11 +747,7 @@ mod tests {
         app.handle(key('i'));
         assert_eq!(app.paste("c"), AppEffect::None, "the intro has the keys");
         assert_eq!(app.intro_scroll(), Some(0), "and stays open");
-        let message = |app: &App| {
-            app.active()
-                .and_then(SessionState::message)
-                .map(str::to_owned)
-        };
+        let message = |app: &App| app.active().and_then(SessionState::message).cloned();
         assert_eq!(message(&app), None, "silently");
         app.handle(code(KeyCode::Esc));
         app.handle(key('L'));
@@ -737,10 +766,14 @@ mod tests {
     fn a_notice_lasts_until_the_next_key() {
         let mut app = app(&["one"]);
 
-        app.notice("batch-01 collided with an unread result and was archived");
+        let text = "batch-01 collided with an unread result and was archived";
+        app.notice(Tone::Warning, text);
         assert_eq!(
             app.current_notice(),
-            Some("batch-01 collided with an unread result and was archived")
+            Some(&Notice {
+                tone: Tone::Warning,
+                text: text.to_owned()
+            })
         );
 
         app.handle(key('j'));

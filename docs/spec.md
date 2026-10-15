@@ -656,7 +656,9 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   of its answer field only.
 - The notes line sits under the options (section 7.3).
 - The line above the key bar shows notices (about the queue) and
-  messages (about the last key) until the next key.
+  messages (about the last key) until the next key or paste, a notice
+  over a message. Each has a kind that gives it its colour (section
+  7.5).
 - The key bar shows the keys that work where the cursor is; they change
   inside a field. Each key is bold in the primary colour and its
   description dim, without a fill. Hints that do not fit its width are left out whole,
@@ -665,8 +667,9 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   (ADR 31).
 - **Colours** (ADR 37) are the terminal's named colours, so its theme
   decides how they look: cyan as the primary colour, yellow for the
-  focus and for notices, green and red for the length counter and diff
-  lines, dim for secondary text. The row under the cursor, a field's
+  focus, green and red for the length counter and diff lines, yellow,
+  red and green for notices and messages by their kind, dim for
+  secondary text. The row under the cursor, a field's
   head under it, the current entry of the session list and the focused
   context pane's header show the focus fill: yellow reversed, the whole
   row in one colour. One focus fill shows at a time. The submit button
@@ -988,6 +991,18 @@ is left.
 - A session colliding with an unread result (section 3.7), an invalid
   file (section 3.8) and a failure to write a draft or a result trigger
   a notice. A failure never ends asqr; answers stay in the TUI.
+- Every notice and message has a kind, which gives it its colour in the
+  status line (ADR 38):
+  - error, red: an operation failed and nothing was done, such as an
+    inbox or a session file that cannot be read, a draft or a result
+    that cannot be written, or an image that cannot be opened;
+  - warning, yellow: asqr refused an action or set something aside on
+    purpose, such as a refused key or paste, a session archived next to
+    an unread result, an invalid session answered with an error, or a
+    submit not sent because the file changed on disk;
+  - information, the text colour: plain news, such as a session file
+    reloaded after it changed;
+  - success, green: a session was sent.
 
 ### 7.6 Markdown
 

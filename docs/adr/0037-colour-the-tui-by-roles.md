@@ -10,6 +10,8 @@ Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
 Amends [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
 
+Amended by [38. Give notices kinds and confirm a finished session](0038-give-notices-kinds-and-confirm-a-finished-session.md)
+
 ## Context
 
 The TUI marked nearly everything the same way, with reversed video: the
