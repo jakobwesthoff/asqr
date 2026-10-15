@@ -105,3 +105,13 @@ sends no image.
   deleted. Talqi sends no image since.
 - The rule on ids and the order on quitting follow Ghostty. That kitty
   keeps images per screen as well is not checked.
+
+## Amendment (2026-10-16, ratatui-image 12.0.0-rc.2)
+
+A context image laid out at another size gets a new id as well. Before
+ratatui-image encodes it again, asqr builds a new protocol under a new
+id from the decoded picture and hands the old id on for deleting after
+the frame. This replaces the consequence that such an image is encoded
+again under the id asqr gave it, which Ghostty showed blank during the
+transfer. ratatui-image does not hand out the picture it keeps, so asqr
+keeps a second decoded copy of each image under the Kitty protocol.

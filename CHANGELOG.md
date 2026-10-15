@@ -97,6 +97,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports and bracketed paste off and leaves raw mode and the alternate
   screen. Before, a signal such as `kill <pid>` ended asqr at once and
   left the terminal as asqr had set it up. SIGKILL still does.
+- In kitty and Ghostty, an image whose pane changes size is sent under
+  a new id, and its old copy is deleted. Before, it was sent again
+  under the same id, and Ghostty showed it blank while the new copy
+  came in.
 - After a graphics query the terminal left unanswered, the first key
   or paste reaches asqr. Before, the query went on reading and took it,
   and a paste lost its start marker, so its line breaks arrived as

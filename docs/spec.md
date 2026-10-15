@@ -1221,8 +1221,8 @@ Images:
 - Under the Kitty protocol, which kitty and Ghostty get, asqr asks the
   terminal to delete an image of an entry once the screen no longer
   needs it, after the next frame: when the image was sent again on
-  regaining the focus, when its entry was replaced, or when its session
-  left. Regaining the focus writes the deletes since the last time
+  regaining the focus or under a new id at another size, when its entry
+  was replaced, or when its session left. Regaining the focus writes the deletes since the last time
   again, as tmux with `allow-passthrough on` drops them while asqr's
   pane is hidden. On quitting, asqr deletes every image it sent and has
   not deleted yet, before it leaves the alternate screen (ADR 42).

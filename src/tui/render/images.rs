@@ -26,7 +26,7 @@ use ratatui_image::picker::cap_parser::Parser;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 use ratatui_image::protocol::kitty::StatefulKitty;
 use ratatui_image::protocol::{StatefulProtocol, StatefulProtocolType};
-use ratatui_image::{Resize, StatefulImage};
+use ratatui_image::{Resize, ResizeEncodeRender, StatefulImage};
 
 use super::source_file::{Unreadable, regular_file};
 
@@ -34,10 +34,24 @@ use super::source_file::{Unreadable, regular_file};
 /// protocol.
 pub struct Image {
     protocol: Box<StatefulProtocol>,
-    /// The id the Kitty protocol sends the image under, `None` under any
-    /// other protocol. It is kept for what its drop does: the image's
-    /// holder decides when the image goes, and with it the id.
-    _kitty_id: Option<HeldId>,
+    /// What the Kitty protocol needs besides the protocol, `None` under
+    /// any other protocol.
+    kitty: Option<KittyImage>,
+}
+
+/// A Kitty image's id and what encodes it again under a new one.
+struct KittyImage {
+    /// The id the protocol sends the image under. Its drop hands the id
+    /// on for deleting, so the image's holder decides when the image goes,
+    /// and with it the id.
+    held: HeldId,
+    /// The decoded picture, a copy of the one the protocol keeps, which
+    /// ratatui-image does not hand out.
+    picture: DynamicImage,
+    encoder: Encoder,
+    /// Whether the protocol has encoded the picture for an area yet. Its
+    /// first encoding goes out under the id the image got.
+    encoded: bool,
 }
 
 impl Image {
@@ -63,7 +77,7 @@ impl Image {
     pub fn from_picture(picker: &Picker, picture: DynamicImage) -> Image {
         Image {
             protocol: Box::new(picker.new_resize_protocol(picture)),
-            _kitty_id: None,
+            kitty: None,
         }
     }
 
@@ -76,6 +90,27 @@ impl Image {
         } else {
             Resize::Fit(None)
         };
+        // ratatui-image encodes the picture again when its area changes
+        // size, under the same Kitty id, and Ghostty deletes an image when
+        // a new transmission under its id begins, blank until it ends.
+        // Under a new id the old copy stays untouched while the new one
+        // comes in, and the old id goes for deleting after the frame
+        // (ADR 42).
+        if let Some(kitty) = &mut self.kitty
+            && !area.is_empty()
+        {
+            if kitty.encoded
+                && self
+                    .protocol
+                    .needs_resize(&resize, area.as_size())
+                    .is_some()
+            {
+                let (protocol, held) = kitty.encoder.kitty_protocol(kitty.picture.clone());
+                *self.protocol = protocol;
+                kitty.held = held;
+            }
+            kitty.encoded = true;
+        }
         StatefulImage::default()
             .resize(resize)
             .render(area, buf, self.protocol.as_mut());
@@ -157,10 +192,24 @@ impl Encoder {
     /// and every transmission leaves an object behind for the terminal
     /// to unlink.
     pub fn encode(&self, picture: DynamicImage) -> Image {
-        let picker = &self.picker;
-        if picker.protocol_type() != ProtocolType::Kitty {
-            return Image::from_picture(picker, picture);
+        if self.picker.protocol_type() != ProtocolType::Kitty {
+            return Image::from_picture(&self.picker, picture);
         }
+        let (protocol, held) = self.kitty_protocol(picture.clone());
+        Image {
+            protocol: Box::new(protocol),
+            kitty: Some(KittyImage {
+                held,
+                picture,
+                encoder: self.clone(),
+                encoded: false,
+            }),
+        }
+    }
+
+    /// The Kitty protocol for `picture` under a new id, and the id.
+    fn kitty_protocol(&self, picture: DynamicImage) -> (StatefulProtocol, HeldId) {
+        let picker = &self.picker;
         let held = HeldId::issued(&self.kitty_ids);
         let kitty = StatefulKitty::new(
             held.id,
@@ -178,10 +227,7 @@ impl Encoder {
             None,
             StatefulProtocolType::Kitty(kitty),
         );
-        Image {
-            protocol: Box::new(protocol),
-            _kitty_id: Some(held),
-        }
+        (protocol, held)
     }
 }
 
@@ -643,6 +689,15 @@ mod tests {
         (command, placeholders.iter().map(|cell| cell.fg).collect())
     }
 
+    /// The id of the image the command in `buf` sends.
+    fn sent_id(buf: &Buffer) -> u32 {
+        let (command, _) = sent(buf);
+        let id = &command[command.find(",i=").expect("the command names its image") + 3..];
+        id[..id.find(',').expect("more keys follow the id")]
+            .parse()
+            .expect("a numeric id")
+    }
+
     #[test]
     fn a_kitty_id_is_never_0_and_never_handed_out_twice() {
         let mut drawn = vec![0, 7, 7, 9, 0, 7, 11].into_iter();
@@ -678,6 +733,34 @@ mod tests {
             [ratatui::style::Color::Rgb(0xAB, 0xCD, 0xEF); 4],
             "one per cell"
         );
+    }
+
+    /// ratatui-image encodes an image again when its area changes size.
+    /// Under the same id, Ghostty would blank the picture for the length
+    /// of the transfer, so the new encoding gets a new id and the old one
+    /// goes for deleting. The first encoding uses the id the image got.
+    #[test]
+    fn a_kitty_image_laid_out_at_another_size_is_sent_under_a_new_id() {
+        let encoder = Encoder::with_ids(kitty(), vec![1, 2]);
+        let mut image = encoder.encode(red());
+
+        let mut buf = Buffer::empty(Rect::new(0, 0, 8, 8));
+        image.draw(Rect::new(0, 0, 2, 2), &mut buf, true);
+        assert_eq!(sent_id(&buf), 1);
+        assert_eq!(encoder.take_dropped(), Vec::<u32>::new());
+
+        let mut buf = Buffer::empty(Rect::new(0, 0, 8, 8));
+        image.draw(Rect::new(0, 0, 2, 2), &mut buf, true);
+        assert_eq!(encoder.take_dropped(), Vec::<u32>::new(), "same size");
+
+        let mut buf = Buffer::empty(Rect::new(0, 0, 8, 8));
+        image.draw(Rect::new(0, 0, 4, 8), &mut buf, true);
+        assert_eq!(sent_id(&buf), 2);
+        assert_eq!(encoder.take_dropped(), [1]);
+        assert_eq!(encoder.held(), [2]);
+
+        drop(image);
+        assert_eq!(encoder.take_dropped(), [2]);
     }
 
     /// asqr builds the Kitty protocol as ratatui-image's picker does, so
