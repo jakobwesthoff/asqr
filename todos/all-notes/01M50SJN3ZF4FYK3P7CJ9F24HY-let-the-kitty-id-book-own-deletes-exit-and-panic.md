@@ -57,6 +57,26 @@ asqr-owned Graphics value").
   without writing a delete.
 - ADR 42 updated (exit and panic now covered).
 
+## Corrections from the cleanup review after rc.2 (2026-10-16)
+
+Review round 6 on main `f853114` (logbook ledger, OA16, OA17, FA):
+- A failed Kitty encode already releases its id without a delete
+  (`f853114`: `Image::after_encoding` → `HeldId::forget`; after the
+  graphics module this happens in `lay_out`), but `forget` works through
+  the `held` set, which this todo removes. Replace it:
+  `HeldId { id, book: Option<..> }`, `forget` sets the book to `None`,
+  `Drop` releases only when it is `Some`. Rewrite
+  `an_image_whose_encoding_failed_draws_nothing_and_sends_no_delete`
+  against `after_frame()`.
+- The full drop order is View → `KittyExit` → `TerminalGuard` →
+  `PassthroughRestore` (`PanePassthrough` after the graphics module), so
+  the exit deletes still pass while `all` is set; the binary test pins
+  all four.
+- In the panic hook the deletes run while `all` is still set; passthrough
+  is restored during unwinding, after the hook. The ADR text says so.
+- The focus-repeat state is needed only for `Passthrough::WhileVisible`;
+  under `Always` `after_frame` skips it.
+
 ## Relations
 
 - Depends on: [Gather image handling into a graphics module around an asqr-owned Graphics value](01M50SJN3A7R62BKXYG89R29PA-gather-image-handling-into-a-graphics-module-around-an-asqr-owned.md)

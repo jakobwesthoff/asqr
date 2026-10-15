@@ -24,6 +24,12 @@ the `Option`, `loaded()` and its panic go; `ImageViewer` holds no
 encoder. Do it after the graphics module todo, so the image viewer takes
 `Images`.
 
+## Note from the cleanup review after rc.2 (2026-10-16)
+
+After the graphics module, `ImageViewer::new` decodes the file and
+`lay_out` encodes for the size (FA8), which is the shape the `Viewer`
+trait describes; this todo then only removes the separate `load` step.
+
 ## Relations
 
 - Depends on: [Gather image handling into a graphics module around an asqr-owned Graphics value](01M50SJN3A7R62BKXYG89R29PA-gather-image-handling-into-a-graphics-module-around-an-asqr-owned.md)
