@@ -10,8 +10,12 @@
 //! relative, missing, unreadable or not a regular file, or a file that does
 //! not decode, shows a placeholder and never becomes an error.
 
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::hash::{BuildHasher, RandomState};
 #[cfg(unix)]
 use std::io::{self, Write};
+use std::rc::Rc;
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
@@ -19,21 +23,24 @@ use image::DynamicImage;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::StatefulWidget;
-use ratatui_image::picker::Picker;
-use ratatui_image::protocol::StatefulProtocol;
+use ratatui_image::picker::{Capability, Picker, ProtocolType};
+use ratatui_image::protocol::kitty::StatefulKitty;
+use ratatui_image::protocol::{StatefulProtocol, StatefulProtocolType};
 use ratatui_image::{Resize, StatefulImage};
 
 use super::source_file::{Unreadable, regular_file};
 
 /// One image file, decoded and encoded for the terminal's graphics
 /// protocol.
-pub struct Image(Box<StatefulProtocol>);
+pub struct Image {
+    protocol: Box<StatefulProtocol>,
+}
 
 impl Image {
-    /// Reads and decodes the image at `path` for `picker`'s protocol, or
+    /// Reads and decodes the image at `path` for `encoder`'s protocol, or
     /// says why it cannot be shown. A path is opened by the rule every
     /// viewer of a file follows.
-    pub fn load(picker: &Picker, path: &str) -> Result<Image, Unreadable> {
+    pub fn load(encoder: &Encoder, path: &str) -> Result<Image, Unreadable> {
         let unreadable = |reason: String| Unreadable {
             path: path.to_owned(),
             reason,
@@ -44,13 +51,15 @@ impl Image {
             .map_err(|error| unreadable(error.to_string()))?
             .decode()
             .map_err(|error| unreadable(error.to_string()))?;
-        Ok(Image::from_picture(picker, decoded))
+        Ok(encoder.encode(decoded))
     }
 
     /// Encodes a picture that is decoded already, such as one built into
-    /// asqr, for `picker`'s protocol.
+    /// asqr, for `picker`'s protocol, as ratatui-image makes it.
     pub fn from_picture(picker: &Picker, picture: DynamicImage) -> Image {
-        Image(Box::new(picker.new_resize_protocol(picture)))
+        Image {
+            protocol: Box::new(picker.new_resize_protocol(picture)),
+        }
     }
 
     /// Draws the image into `area` of `buf`. With `enlarge`, the image is
@@ -64,10 +73,124 @@ impl Image {
         };
         StatefulImage::default()
             .resize(resize)
-            .render(area, buf, self.0.as_mut());
+            .render(area, buf, self.protocol.as_mut());
         // Works around images cropped by a changed cell size; see the
         // function for when it can go.
         size_kitty_placement(buf, area);
+    }
+}
+
+// ---------------------------------------------------------------------
+// Kitty image ids
+// ---------------------------------------------------------------------
+
+/// Makes the [`Image`]s of context entries for the terminal's graphics
+/// protocol, as `picker` speaks it. Its clones share one book of the Kitty
+/// image ids handed out in this run.
+#[derive(Clone)]
+pub struct Encoder {
+    picker: Picker,
+    kitty_ids: Rc<RefCell<KittyIds>>,
+}
+
+impl Encoder {
+    /// An encoder for `picker`'s protocol, with a book of its own.
+    pub fn new(picker: Picker) -> Self {
+        Encoder {
+            picker,
+            kitty_ids: Rc::new(RefCell::new(KittyIds::new(random_ids()))),
+        }
+    }
+
+    /// An encoder whose Kitty ids come from `ids` in turn, so a test knows
+    /// them.
+    #[cfg(test)]
+    pub(super) fn with_ids(picker: Picker, ids: Vec<u32>) -> Self {
+        let mut ids = ids.into_iter();
+        Encoder {
+            picker,
+            kitty_ids: Rc::new(RefCell::new(KittyIds::new(Box::new(move || {
+                ids.next().expect("the test gave enough ids")
+            })))),
+        }
+    }
+
+    /// Encodes `picture` for the picker's protocol.
+    ///
+    /// Under the Kitty protocol asqr builds the protocol itself, so it
+    /// knows the image's id. It passes what
+    /// `Picker::new_resize_protocol` passes (ratatui-image 11.1.0
+    /// `picker.rs` l.291-303) apart from the id: the tmux wrapping, and
+    /// compression only where the terminal said it inflates `o=z`, as a
+    /// terminal that cannot refuses the transmission. Every other
+    /// protocol comes from the picker as it is.
+    pub fn encode(&self, picture: DynamicImage) -> Image {
+        let picker = &self.picker;
+        if picker.protocol_type() != ProtocolType::Kitty {
+            return Image::from_picture(picker, picture);
+        }
+        let id = self.kitty_ids.borrow_mut().issue();
+        let kitty = StatefulKitty::new(
+            id,
+            picker.tmux_detected(),
+            picker
+                .capabilities()
+                .contains(&Capability::KittyCompression),
+        );
+        // The picker's background colour, which asqr never sets, so it is
+        // none, and pictures are padded with transparent pixels.
+        let protocol = StatefulProtocol::new(
+            picture,
+            picker.font_size(),
+            None,
+            StatefulProtocolType::Kitty(kitty),
+        );
+        Image {
+            protocol: Box::new(protocol),
+        }
+    }
+}
+
+/// Where Kitty ids come from: 32 random bits per call. `RandomState` is
+/// seeded from the operating system once per thread, so two asqr
+/// processes, which may share one terminal through tmux, draw different
+/// ids.
+fn random_ids() -> Box<dyn FnMut() -> u32> {
+    let random = RandomState::new();
+    let mut drawn: u64 = 0;
+    Box::new(move || {
+        drawn += 1;
+        let hash = random.hash_one(drawn);
+        u32::try_from(hash >> 32).expect("32 bits are left of 64 shifted by 32")
+    })
+}
+
+/// The book of the Kitty image ids of one run.
+struct KittyIds {
+    source: Box<dyn FnMut() -> u32>,
+    /// Every id handed out in this run. An id is never handed out twice:
+    /// a delete for an id written late, or written again, would remove
+    /// the image that took it over.
+    issued: HashSet<u32>,
+}
+
+impl KittyIds {
+    fn new(source: Box<dyn FnMut() -> u32>) -> Self {
+        KittyIds {
+            source,
+            issued: HashSet::new(),
+        }
+    }
+
+    /// A new id, drawn again while it is 0, which names no image in the
+    /// Kitty protocol, or one handed out before.
+    fn issue(&mut self) -> u32 {
+        loop {
+            let id = (self.source)();
+            if id != 0 && self.issued.insert(id) {
+                return id;
+            }
+        }
     }
 }
 
@@ -309,7 +432,7 @@ mod tests {
 
     /// Why the file at `path` is not shown, or `None` when it loads.
     fn refused(path: &str) -> Option<Unreadable> {
-        Image::load(&Picker::halfblocks(), path).err()
+        Image::load(&Encoder::new(Picker::halfblocks()), path).err()
     }
 
     #[test]
@@ -368,6 +491,130 @@ mod tests {
             .expect("image written");
 
         assert_eq!(refused(path.to_str().expect("a UTF-8 path")), None);
+    }
+
+    // -----------------------------------------------------------------
+    // Kitty image ids
+    // -----------------------------------------------------------------
+
+    /// A picker that speaks the Kitty protocol, with cells of 10×20 pixels.
+    fn kitty() -> Picker {
+        let mut picker = Picker::halfblocks();
+        picker.set_protocol_type(ProtocolType::Kitty);
+        picker
+    }
+
+    /// A red picture of 20×40 pixels, which takes 2×2 cells of 10×20.
+    fn red() -> DynamicImage {
+        image::RgbaImage::from_pixel(20, 40, image::Rgba([255, 0, 0, 255])).into()
+    }
+
+    /// The command that sends the image in `buf`, up to the placeholder
+    /// that follows it, and the colours of the placeholder cells.
+    fn sent(buf: &Buffer) -> (&str, Vec<ratatui::style::Color>) {
+        let placeholders: Vec<_> = buf
+            .content()
+            .iter()
+            .filter(|cell| cell.symbol().contains(KITTY_PLACEHOLDER))
+            .collect();
+        let command = placeholders
+            .iter()
+            .map(|cell| cell.symbol())
+            .find(|symbol| symbol.contains("\x1b_G"))
+            .expect("the first draw sends the image");
+        let command = &command[..command.find(KITTY_PLACEHOLDER).expect("a placeholder")];
+        (command, placeholders.iter().map(|cell| cell.fg).collect())
+    }
+
+    #[test]
+    fn a_kitty_id_is_never_0_and_never_handed_out_twice() {
+        let mut drawn = vec![0, 7, 7, 9, 0, 7, 11].into_iter();
+        let mut ids = KittyIds::new(Box::new(move || drawn.next().expect("enough ids")));
+
+        assert_eq!([ids.issue(), ids.issue(), ids.issue()], [7, 9, 11]);
+    }
+
+    #[test]
+    fn random_kitty_ids_differ() {
+        let mut random = random_ids();
+        let drawn: HashSet<u32> = (0..1000).map(|_| random()).collect();
+
+        assert!(drawn.len() > 990, "{} of 1000 differ", drawn.len());
+    }
+
+    /// The protocol names an image by its id in the transmission and in
+    /// the foreground colour of every placeholder, the id's low three
+    /// bytes as red, green and blue (ratatui-image 11.1.0
+    /// `protocol/kitty.rs` l.104-114).
+    #[test]
+    fn a_kitty_image_is_sent_under_the_id_its_encoder_issued() {
+        let encoder = Encoder::with_ids(kitty(), vec![0x00AB_CDEF]);
+        let mut image = encoder.encode(red());
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 4));
+
+        image.draw(Rect::new(0, 0, 2, 2), &mut buf, false);
+
+        let (command, colours) = sent(&buf);
+        assert!(command.contains(",i=11259375,"), "{command:?}");
+        assert_eq!(
+            colours,
+            [ratatui::style::Color::Rgb(0xAB, 0xCD, 0xEF); 4],
+            "one per cell"
+        );
+    }
+
+    /// asqr builds the Kitty protocol as ratatui-image's picker does, so
+    /// the transmission is the same but for the id. A `Picker` takes the
+    /// compression capability only from the terminal's answer to its
+    /// query, so this compares the transmission without compression.
+    #[test]
+    fn asqr_s_kitty_protocol_transmits_what_ratatui_image_s_does_but_the_id() {
+        let picker = kitty();
+        let area = Rect::new(0, 0, 2, 2);
+        let without_id = |protocol: &mut StatefulProtocol| {
+            let mut buf = Buffer::empty(area);
+            StatefulImage::default()
+                .resize(Resize::Fit(None))
+                .render(area, &mut buf, protocol);
+            let (command, _) = sent(&buf);
+            let id = command.find("i=").expect("the command names its image");
+            let after = id + command[id..].find(',').expect("more keys follow the id");
+            format!("{}{}", &command[..id], &command[after + 1..])
+        };
+
+        let mut ours = Encoder::new(picker.clone()).encode(red());
+        let mut theirs = picker.new_resize_protocol(red());
+
+        assert_eq!(without_id(&mut ours.protocol), without_id(&mut theirs));
+    }
+
+    /// Every other protocol comes from the picker, and the encoder hands
+    /// out no id for it.
+    #[test]
+    fn other_protocols_take_no_kitty_id() {
+        for protocol in [
+            ProtocolType::Halfblocks,
+            ProtocolType::Sixel,
+            ProtocolType::Iterm2,
+        ] {
+            let mut picker = Picker::halfblocks();
+            picker.set_protocol_type(protocol);
+            let encoder = Encoder::with_ids(picker, Vec::new());
+
+            let image = encoder.encode(red());
+
+            assert!(
+                matches!(
+                    (protocol, image.protocol.protocol_type()),
+                    (
+                        ProtocolType::Halfblocks,
+                        StatefulProtocolType::Halfblocks(_)
+                    ) | (ProtocolType::Sixel, StatefulProtocolType::Sixel(_))
+                        | (ProtocolType::Iterm2, StatefulProtocolType::ITerm2(_))
+                ),
+                "{protocol:?}"
+            );
+        }
     }
 
     /// `TERM` and `TERM_PROGRAM` of a terminal that is not tmux.

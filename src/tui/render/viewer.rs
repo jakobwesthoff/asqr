@@ -9,20 +9,20 @@
 
 use std::collections::HashMap;
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
-use ratatui::text::Line;
-use ratatui::widgets::{Paragraph, Widget};
 use ratatui_image::picker::Picker;
 
 use super::code::CodeViewer;
 use super::diff::DiffViewer;
-use super::images::Image;
+use super::images::{Encoder, Image};
 use super::markdown_viewer::MarkdownViewer;
 use super::theme;
 use super::wrap::wrap;
 use crate::format::ContextEntry;
 use crate::tui::{EntryKey, Offset};
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::text::Line;
+use ratatui::widgets::{Paragraph, Widget};
 
 /// The size of a viewer's content in cells: the number of lines and the
 /// width of the widest line.
@@ -78,15 +78,15 @@ struct Kept {
     laid_out: Option<((u16, u16), ContentSize)>,
 }
 
-/// Builds the viewer for an entry, given the terminal's graphics protocol.
-type Build = Box<dyn Fn(&ContextEntry, &Picker) -> Box<dyn Viewer>>;
+/// Builds the viewer for an entry, given what makes its images.
+type Build = Box<dyn Fn(&ContextEntry, &Encoder) -> Box<dyn Viewer>>;
 
 /// One viewer per entry shown, built and loaded when the entry is first
 /// shown and kept while the entry stays the same and its session waits. A
 /// viewer is laid out again only when the body's size changes, as its
 /// content does not.
 pub struct Viewers {
-    picker: Picker,
+    encoder: Encoder,
     build: Build,
     viewers: HashMap<ViewerKey, Kept>,
     /// How many viewers were built, so tests see that one is reused.
@@ -98,7 +98,7 @@ impl Viewers {
     /// Viewers for a terminal whose graphics protocol `picker` speaks.
     pub fn new(picker: Picker) -> Self {
         Viewers {
-            picker,
+            encoder: Encoder::new(picker),
             build: Box::new(viewer_for),
             viewers: HashMap::new(),
             #[cfg(test)]
@@ -132,7 +132,7 @@ impl Viewers {
             {
                 self.built += 1;
             }
-            let mut viewer = (self.build)(entry, &self.picker);
+            let mut viewer = (self.build)(entry, &self.encoder);
             viewer.load();
             let kept = Kept {
                 entry: entry.clone(),
@@ -174,12 +174,12 @@ impl Viewers {
     }
 }
 
-fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
+fn viewer_for(entry: &ContextEntry, encoder: &Encoder) -> Box<dyn Viewer> {
     match entry {
         ContextEntry::Image(image) => Box::new(ImageViewer {
             path: image.path.clone(),
             enlarge: image.enlarge,
-            picker: picker.clone(),
+            encoder: encoder.clone(),
             content: None,
         }),
         ContextEntry::Code(code) => Box::new(CodeViewer::new(code)),
@@ -235,13 +235,13 @@ pub(super) fn loaded<T>(content: &mut Option<Loaded<T>>) -> &mut Loaded<T> {
 struct ImageViewer {
     path: String,
     enlarge: bool,
-    picker: Picker,
+    encoder: Encoder,
     content: Option<Loaded<Picture>>,
 }
 
 impl Viewer for ImageViewer {
     fn load(&mut self) {
-        self.content = Some(match Image::load(&self.picker, &self.path) {
+        self.content = Some(match Image::load(&self.encoder, &self.path) {
             Ok(image) => Loaded::Body(Picture {
                 image,
                 enlarge: self.enlarge,
