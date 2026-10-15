@@ -5,7 +5,8 @@
 //! What the render tests read off a drawn buffer: its rows as text, where a
 //! text starts and the style it starts in. The tests draw into buffers whose
 //! area starts at the origin, so a cell's column and row index the buffer
-//! directly. Tests of lines not yet drawn read their text here too.
+//! directly. Tests of lines not yet drawn read their text here too. Also
+//! the paths that every loader of a file must refuse.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -122,4 +123,23 @@ pub(super) fn find_from(buf: &Buffer, from: u16, text: &str) -> (u16, u16) {
 /// The style of the cell where `text` first starts in `buf`.
 pub(super) fn style_at(buf: &Buffer, text: &str) -> Style {
     buf[find(buf, text)].style()
+}
+
+// ---------------------------------------------------------------------
+// Paths no viewer opens
+// ---------------------------------------------------------------------
+
+/// One path for each reason the rule for opening a file refuses it: a
+/// relative path, a missing file and a directory. The directory lives as
+/// long as the returned one. A FIFO is left out, as a loader that opened
+/// it would hang instead of failing; the rule's own tests cover it.
+pub(super) fn refused_paths() -> (tempfile::TempDir, [String; 3]) {
+    let directory = tempfile::tempdir().expect("temporary directory is creatable");
+    let inside = directory.path().to_str().expect("a UTF-8 path").to_owned();
+    let paths = [
+        "pictures/cat.png".to_owned(),
+        "/nowhere/cat.png".to_owned(),
+        inside,
+    ];
+    (directory, paths)
 }

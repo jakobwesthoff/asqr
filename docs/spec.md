@@ -1128,7 +1128,9 @@ Images:
 - A relative path, a missing file, a path that is not a regular file or
   a file that cannot be read or decoded shows a placeholder saying
   "image not shown" with the path and the reason. A path is never resolved against the working directory,
-  and a broken image never becomes an error result.
+  and a broken image never becomes an error result. The placeholder
+  wraps to the pane like those of code, Markdown and diffs, and scrolls
+  like them when it is taller than the pane.
 
 Known limitation: inside tmux, inline images and OSC notifications need
 `set -g allow-passthrough all`. Without passthrough, asqr falls back to

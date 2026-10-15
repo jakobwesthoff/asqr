@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The placeholder of an image that cannot be shown wraps and scrolls
+  like the placeholders of code, Markdown and diffs. A long reason in a
+  short pane was cut off before; now the pane's header says which lines
+  show, and the pane scrolls to the rest.
+
 ## [0.11.0] - 2026-10-15
 
 ### Added

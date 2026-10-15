@@ -178,7 +178,7 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
             path: image.path.clone(),
             enlarge: image.enlarge,
             picker: picker.clone(),
-            image: None,
+            content: None,
         }),
         ContextEntry::Code(code) => Box::new(CodeViewer::new(code)),
         ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown)),
@@ -192,34 +192,57 @@ fn viewer_for(entry: &ContextEntry, picker: &Picker) -> Box<dyn Viewer> {
 
 /// An image file, scaled to fill the body as far as its proportions allow,
 /// or, without `enlarge`, at its natural size where that fits. A file that
-/// cannot be shown shows why instead.
+/// cannot be shown shows why instead, in the placeholder every viewer of a
+/// file shows.
 struct ImageViewer {
     path: String,
     enlarge: bool,
     picker: Picker,
-    image: Option<Image>,
+    content: Option<ImageContent>,
+}
+
+/// What `load` made of the image file.
+enum ImageContent {
+    Image(Image),
+    Unreadable(Placeholder),
+}
+
+impl ImageViewer {
+    fn content(&mut self) -> &mut ImageContent {
+        self.content
+            .as_mut()
+            .expect("the pane loads a viewer before laying it out")
+    }
 }
 
 impl Viewer for ImageViewer {
     fn load(&mut self) {
-        self.image = Some(Image::load(&self.picker, &self.path));
+        self.content = Some(match Image::load(&self.picker, &self.path) {
+            Ok(image) => ImageContent::Image(image),
+            Err(unreadable) => ImageContent::Unreadable(unreadable.placeholder("image not shown")),
+        });
     }
 
     /// The image never gets larger than the body, so the body is all the
-    /// room it needs.
+    /// room it needs, and it never scrolls. A placeholder scrolls when its
+    /// lines do not fit.
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        ContentSize {
-            lines: usize::from(height),
-            columns: usize::from(width),
+        match self.content() {
+            ImageContent::Image(_) => ContentSize {
+                lines: usize::from(height),
+                columns: usize::from(width),
+            },
+            ImageContent::Unreadable(placeholder) => placeholder.lay_out(width, height),
         }
     }
 
-    /// Nothing scrolls, so the offset is always zero.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, _offset: Offset) {
-        self.image
-            .as_mut()
-            .expect("the pane loads a viewer before drawing it")
-            .draw(&self.path, area, buf, self.enlarge);
+    /// The offset of an image is always zero, as it never scrolls.
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+        let enlarge = self.enlarge;
+        match self.content() {
+            ImageContent::Image(image) => image.draw(area, buf, enlarge),
+            ImageContent::Unreadable(placeholder) => placeholder.draw(area, buf, offset),
+        }
     }
 }
 
@@ -228,8 +251,7 @@ impl Viewer for ImageViewer {
 // ---------------------------------------------------------------------
 
 /// Up to three lines that name a file a viewer cannot read and say why,
-/// the way an image placeholder names its file, or one dim note in place
-/// of content, wrapped to the body.
+/// or one dim note in place of content, wrapped to the body.
 pub(super) struct Placeholder {
     lines: Vec<Line<'static>>,
     wrapped: Vec<Line<'static>>,
@@ -478,14 +500,17 @@ mod tests {
 
     #[test]
     fn an_image_takes_the_body() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("dot.png");
+        image::RgbImage::from_pixel(2, 2, image::Rgb([255, 0, 0]))
+            .save(&path)
+            .expect("image written");
+        let image: ContextEntry =
+            serde_json::from_value(serde_json::json!({"type": "image", "path": path}))
+                .expect("test entry parses");
         let mut viewers = viewers();
-        let (_, size) = viewers.laid_out(
-            "s",
-            QUESTION,
-            &entry(r#"{"type": "image", "path": "/pictures/cat.png"}"#),
-            40,
-            12,
-        );
+
+        let (viewer, size) = viewers.laid_out("s", QUESTION, &image, 40, 12);
 
         assert_eq!(
             size,
@@ -493,6 +518,15 @@ mod tests {
                 lines: 12,
                 columns: 40
             }
+        );
+        let mut buf = Buffer::empty(Rect::new(0, 0, 40, 12));
+        viewer.draw(buf.area, &mut buf, Offset::default());
+        let red = ratatui::style::Color::Rgb(255, 0, 0);
+        assert!(
+            buf.content
+                .iter()
+                .any(|cell| cell.fg == red || cell.bg == red),
+            "the image draws: {buf:?}"
         );
     }
 
@@ -507,6 +541,26 @@ mod tests {
         assert_eq!(rows[0], "image not shown");
         assert_eq!(rows[1], "/nowhere/cat.png");
         assert!(!rows[2].is_empty(), "the reason: {rows:?}");
+    }
+
+    #[test]
+    fn an_image_that_cannot_be_read_scrolls_like_any_placeholder() {
+        let path = "/nowhere/cat.png".to_owned();
+        let reason = std::fs::metadata(&path)
+            .expect_err("the file is missing")
+            .to_string();
+        let mut placeholder = Placeholder::new("image not shown", Some(&path), reason);
+        let image = entry(r#"{"type": "image", "path": "/nowhere/cat.png"}"#);
+
+        let (_, size) = viewers().laid_out("s", QUESTION, &image, 20, 2);
+
+        assert_eq!(size, placeholder.lay_out(20, 2));
+        assert!(size.lines > 2, "taller than the body: {size:?}");
+        assert_eq!(
+            drawn(&image, 20, 2, 2),
+            drawn_viewer(&mut placeholder, 20, 2, 2),
+            "it starts at the offset"
+        );
     }
 
     // -----------------------------------------------------------------

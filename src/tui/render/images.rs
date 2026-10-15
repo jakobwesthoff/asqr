@@ -6,88 +6,60 @@
 //! detected once, in the binary, by querying the terminal; the image
 //! viewers receive the resulting [`Picker`], so tests draw with the
 //! halfblock protocol and never talk to a terminal. A path that is
-//! relative, missing, unreadable or not a regular file shows a placeholder
-//! and never becomes an error.
+//! relative, missing, unreadable or not a regular file, or a file that does
+//! not decode, shows a placeholder and never becomes an error.
 
-use std::fs;
 #[cfg(unix)]
 use std::io::{self, Write};
-use std::path::Path;
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Stylize;
-use ratatui::text::Line;
-use ratatui::widgets::{Paragraph, StatefulWidget, Widget, Wrap};
+use ratatui::widgets::StatefulWidget;
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 use ratatui_image::{Resize, StatefulImage};
 
+use super::source_file::{Unreadable, regular_file};
+
 /// One image file, decoded and encoded for the terminal's graphics
-/// protocol, or the reason it cannot be shown.
-pub enum Image {
-    Ready(Box<StatefulProtocol>),
-    Unavailable(String),
-}
+/// protocol.
+pub struct Image(Box<StatefulProtocol>);
 
 impl Image {
-    /// Reads and decodes the image at `path` for `picker`'s protocol.
-    pub fn load(picker: &Picker, path: &str) -> Image {
-        // A relative path depends on where asqr was started, so it is
-        // never resolved (spec section 7.7).
-        if Path::new(path).is_relative() {
-            return Image::Unavailable("relative path".to_owned());
-        }
-        // Opening a FIFO waits for a writer, so only a regular file is
-        // opened at all, as for the text viewers.
-        match fs::metadata(path) {
-            Err(error) => return Image::Unavailable(error.to_string()),
-            Ok(metadata) if !metadata.is_file() => {
-                return Image::Unavailable("not a regular file".to_owned());
-            }
-            Ok(_) => {}
-        }
-        match image::ImageReader::open(path).and_then(|reader| reader.with_guessed_format()) {
-            Err(error) => Image::Unavailable(error.to_string()),
-            Ok(reader) => match reader.decode() {
-                Ok(decoded) => Image::Ready(Box::new(picker.new_resize_protocol(decoded))),
-                Err(error) => Image::Unavailable(error.to_string()),
-            },
-        }
+    /// Reads and decodes the image at `path` for `picker`'s protocol, or
+    /// says why it cannot be shown. A path is opened by the rule every
+    /// viewer of a file follows.
+    pub fn load(picker: &Picker, path: &str) -> Result<Image, Unreadable> {
+        let unreadable = |reason: String| Unreadable {
+            path: path.to_owned(),
+            reason,
+        };
+        regular_file(path)?;
+        let decoded = image::ImageReader::open(path)
+            .and_then(|reader| reader.with_guessed_format())
+            .map_err(|error| unreadable(error.to_string()))?
+            .decode()
+            .map_err(|error| unreadable(error.to_string()))?;
+        Ok(Image(Box::new(picker.new_resize_protocol(decoded))))
     }
 
-    /// Draws the image into `area` of `buf`, or a placeholder that names
-    /// `path` and the reason it is not shown. With `enlarge`, the image is
+    /// Draws the image into `area` of `buf`. With `enlarge`, the image is
     /// scaled to fill the area as far as its proportions allow; without, it
     /// keeps its natural size and only shrinks when it does not fit.
-    pub fn draw(&mut self, path: &str, area: Rect, buf: &mut Buffer, enlarge: bool) {
-        match self {
-            Image::Ready(protocol) => {
-                let resize = if enlarge {
-                    Resize::Scale(None)
-                } else {
-                    Resize::Fit(None)
-                };
-                StatefulImage::default()
-                    .resize(resize)
-                    .render(area, buf, protocol.as_mut());
-                // Works around images cropped by a changed cell size; see
-                // the function for when it can go.
-                size_kitty_placement(buf, area);
-            }
-            Image::Unavailable(reason) => {
-                let text = vec![
-                    Line::from("image not shown").dim(),
-                    Line::from(path.to_owned()),
-                    Line::from(reason.clone()).dim(),
-                ];
-                Paragraph::new(text)
-                    .wrap(Wrap { trim: false })
-                    .render(area, buf);
-            }
-        }
+    pub fn draw(&mut self, area: Rect, buf: &mut Buffer, enlarge: bool) {
+        let resize = if enlarge {
+            Resize::Scale(None)
+        } else {
+            Resize::Fit(None)
+        };
+        StatefulImage::default()
+            .resize(resize)
+            .render(area, buf, self.0.as_mut());
+        // Works around images cropped by a changed cell size; see the
+        // function for when it can go.
+        size_kitty_placement(buf, area);
     }
 }
 
@@ -310,59 +282,25 @@ pub fn passthrough_answers(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use super::super::test_support;
     use super::*;
 
     const TMUX: Option<&str> = Some("/tmp/tmux-501/default,1234,0");
 
-    /// The reason `path` is not shown, or `None` when it loads.
-    fn refused(path: &str) -> Option<String> {
-        match Image::load(&Picker::halfblocks(), path) {
-            Image::Ready(_) => None,
-            Image::Unavailable(reason) => Some(reason),
+    /// Why the file at `path` is not shown, or `None` when it loads.
+    fn refused(path: &str) -> Option<Unreadable> {
+        Image::load(&Picker::halfblocks(), path).err()
+    }
+
+    #[test]
+    fn an_image_is_refused_by_the_path_rule() {
+        let (_directory, paths) = test_support::refused_paths();
+
+        for path in paths {
+            assert_eq!(refused(&path), regular_file(&path).err(), "{path}");
         }
-    }
-
-    #[test]
-    fn a_directory_is_not_an_image() {
-        let directory = tempfile::tempdir().expect("temporary directory is creatable");
-
-        assert_eq!(
-            refused(directory.path().to_str().expect("a UTF-8 path")).as_deref(),
-            Some("not a regular file")
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_fifo_is_refused_without_waiting_for_a_writer() {
-        let directory = tempfile::tempdir().expect("temporary directory is creatable");
-        let fifo = directory.path().join("pipe.png");
-        let made = std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .expect("mkfifo runs");
-        assert!(made.success());
-        let path = fifo.to_str().expect("a UTF-8 path").to_owned();
-
-        // Opening a FIFO for reading blocks until a writer comes, so the
-        // load runs apart and a hang fails the test instead of stalling it.
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            sender
-                .send(refused(&path))
-                .expect("the test waits for the result");
-        });
-        let reason = receiver
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("loading a FIFO must not block");
-
-        assert_eq!(reason.as_deref(), Some("not a regular file"));
-    }
-
-    #[test]
-    fn a_missing_and_a_relative_file_say_why() {
-        assert!(refused("/nowhere/cat.png").is_some_and(|reason| !reason.is_empty()));
-        assert_eq!(refused("cat.png").as_deref(), Some("relative path"));
     }
 
     #[cfg(unix)]
@@ -375,13 +313,32 @@ mod tests {
         fs::write(&path, b"").expect("file is writable");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o000))
             .expect("permissions are settable");
+        let path = path.to_str().expect("a UTF-8 path");
 
-        let reason = refused(path.to_str().expect("a UTF-8 path")).expect("refused");
+        let unreadable = refused(path).expect("refused");
 
+        assert_eq!(unreadable.path, path);
         assert!(
-            reason.to_lowercase().contains("permission denied"),
-            "{reason}"
+            unreadable
+                .reason
+                .to_lowercase()
+                .contains("permission denied"),
+            "{}",
+            unreadable.reason
         );
+    }
+
+    #[test]
+    fn a_file_that_is_no_image_says_why() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("notes.png");
+        fs::write(&path, b"no picture in here").expect("file is writable");
+        let path = path.to_str().expect("a UTF-8 path");
+
+        let unreadable = refused(path).expect("refused");
+
+        assert_eq!(unreadable.path, path);
+        assert!(!unreadable.reason.is_empty());
     }
 
     #[test]

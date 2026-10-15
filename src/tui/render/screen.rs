@@ -1780,6 +1780,24 @@ mod tests {
     }
 
     #[test]
+    fn an_image_placeholder_taller_than_the_pane_scrolls() {
+        let path = format!("/nonexistent/{}x.png", "deeper/".repeat(120));
+        let mut app = with_image(&path);
+        keys(&mut app, "z");
+
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+        insta::assert_snapshot!(screen_in(&app, &mut view, 80, 16));
+
+        hand_on_pane(&mut app, &view);
+        for _ in 0..4 {
+            special(&mut app, KeyCode::Down);
+        }
+        let text = screen_in(&app, &mut view, 80, 16).to_string();
+        assert!(text.contains("5–13 of 13"), "{text}");
+        assert!(text.contains("No such file"), "the reason: {text}");
+    }
+
+    #[test]
     fn a_relative_image_path_shows_a_placeholder() {
         let text = screen(&with_image("images/x.png"), 80, 24).to_string();
         assert!(text.contains("relative path"), "{text}");

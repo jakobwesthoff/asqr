@@ -6,6 +6,7 @@
 //! 7.7). Every viewer of text reads it the same way: a relative path is
 //! never resolved, only a regular file is read and only its first 8 MiB,
 //! a binary file is not shown, and bytes that are not UTF-8 show as `�`.
+//! The image viewer opens a path by the same rule.
 
 use std::fs::{self, File};
 use std::io::Read;
@@ -49,18 +50,9 @@ impl Unreadable {
     }
 }
 
-/// The text of a source given as `content` or as the file at `path`.
-/// Validation lets exactly one of the two through; a source with neither
-/// never reaches the pane, and would show as empty. Inline content is
-/// taken whole, as it already sits in memory with the session.
-pub fn read_source(path: Option<&str>, content: Option<&str>) -> Result<Source, Unreadable> {
-    let whole = |text: String| Source { text, cut: false };
-    if let Some(content) = content {
-        return Ok(whole(content.to_owned()));
-    }
-    let Some(path) = path else {
-        return Ok(whole(String::new()));
-    };
+/// Whether the file at `path` may be opened at all, which every viewer
+/// that reads a file, images included, asks before it opens one.
+pub fn regular_file(path: &str) -> Result<(), Unreadable> {
     let unreadable = |reason: String| Unreadable {
         path: path.to_owned(),
         reason,
@@ -78,6 +70,26 @@ pub fn read_source(path: Option<&str>, content: Option<&str>) -> Result<Source, 
     if !metadata.is_file() {
         return Err(unreadable("not a regular file".to_owned()));
     }
+    Ok(())
+}
+
+/// The text of a source given as `content` or as the file at `path`.
+/// Validation lets exactly one of the two through; a source with neither
+/// never reaches the pane, and would show as empty. Inline content is
+/// taken whole, as it already sits in memory with the session.
+pub fn read_source(path: Option<&str>, content: Option<&str>) -> Result<Source, Unreadable> {
+    let whole = |text: String| Source { text, cut: false };
+    if let Some(content) = content {
+        return Ok(whole(content.to_owned()));
+    }
+    let Some(path) = path else {
+        return Ok(whole(String::new()));
+    };
+    let unreadable = |reason: String| Unreadable {
+        path: path.to_owned(),
+        reason,
+    };
+    regular_file(path)?;
     // One byte past the limit tells a file that ends there from a longer
     // one.
     let mut bytes = Vec::new();
@@ -102,6 +114,7 @@ pub fn read_source(path: Option<&str>, content: Option<&str>) -> Result<Source, 
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support;
     use super::*;
 
     /// A file holding `bytes` in a fresh directory, kept alive with it.
@@ -167,19 +180,100 @@ mod tests {
         assert_eq!(source.text.len(), limit);
     }
 
+    // -----------------------------------------------------------------
+    // Which paths are opened
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn a_relative_path_is_never_resolved() {
+        assert_eq!(
+            regular_file("Cargo.toml"),
+            Err(Unreadable {
+                path: "Cargo.toml".into(),
+                reason: "relative path".into()
+            })
+        );
+    }
+
+    #[test]
+    fn a_missing_file_says_why() {
+        let reason = fs::metadata("/nowhere/fetch.rs")
+            .expect_err("the file is missing")
+            .to_string();
+
+        assert_eq!(
+            regular_file("/nowhere/fetch.rs"),
+            Err(Unreadable {
+                path: "/nowhere/fetch.rs".into(),
+                reason
+            })
+        );
+    }
+
     #[test]
     fn a_directory_is_not_a_regular_file() {
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
         let path = directory.path().to_str().expect("a UTF-8 path");
 
         assert_eq!(
-            read_source(Some(path), None),
+            regular_file(path),
             Err(Unreadable {
                 path: path.to_owned(),
                 reason: "not a regular file".into()
             })
         );
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_is_refused_without_waiting_for_a_writer() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let fifo = directory.path().join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+        let path = fifo.to_str().expect("a UTF-8 path").to_owned();
+
+        // Opening a FIFO for reading blocks until a writer comes, so the
+        // check runs apart and a hang fails the test instead of stalling it.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            sender
+                .send(regular_file(&path))
+                .expect("the test waits for the result");
+        });
+        let checked = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("checking a FIFO must not block");
+
+        assert_eq!(checked.expect_err("a FIFO").reason, "not a regular file");
+    }
+
+    #[test]
+    fn a_regular_file_may_be_opened() {
+        let (_directory, path) = file(b"one\n");
+
+        assert_eq!(regular_file(&path), Ok(()));
+    }
+
+    #[test]
+    fn a_source_refuses_what_the_path_rule_refuses() {
+        let (_directory, paths) = test_support::refused_paths();
+
+        for path in paths {
+            assert_eq!(
+                read_source(Some(&path), None).map(|_| ()),
+                regular_file(&path),
+                "{path}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Files that are opened but not shown
+    // -----------------------------------------------------------------
 
     #[cfg(unix)]
     #[test]
@@ -202,48 +296,10 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
-    fn a_fifo_is_refused_without_waiting_for_a_writer() {
-        let directory = tempfile::tempdir().expect("temporary directory is creatable");
-        let fifo = directory.path().join("pipe");
-        let made = std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .expect("mkfifo runs");
-        assert!(made.success());
-        let path = fifo.to_str().expect("a UTF-8 path").to_owned();
-
-        // Opening a FIFO for reading blocks until a writer comes, so the
-        // read runs apart and a hang fails the test instead of stalling it.
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            sender
-                .send(read_source(Some(&path), None))
-                .expect("the test waits for the result");
-        });
-        let read = receiver
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("reading a FIFO must not block");
-
-        assert_eq!(read.expect_err("a FIFO").reason, "not a regular file");
-    }
-
-    #[test]
-    fn a_relative_a_missing_and_a_binary_file_say_why_they_do_not_show() {
-        assert_eq!(
-            read_source(Some("Cargo.toml"), None),
-            Err(Unreadable {
-                path: "Cargo.toml".into(),
-                reason: "relative path".into()
-            })
-        );
-
-        let missing = read_source(Some("/nowhere/fetch.rs"), None).expect_err("missing");
-        assert_eq!(missing.path, "/nowhere/fetch.rs");
-        assert!(!missing.reason.is_empty());
-
+    fn a_binary_file_says_why_it_does_not_show() {
         let (_directory, path) = file(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+
         assert_eq!(
             read_source(Some(&path), None).expect_err("binary").reason,
             "binary file"

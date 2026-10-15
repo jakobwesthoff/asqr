@@ -1,0 +1,20 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen_in(&app, &mut view, 80, 16)"
+---
+" asqr · queue: default · 1 session waiting                                      "
+" pictured                                                                       "
+"   ☐ q  ✔ Review                                                                "
+"────────────────────────────────────────────────────────────────────────────────"
+" x.png                                                                1–9 of 13 "
+" image not shown                                                                "
+" /nonexistent/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/de "
+" eper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/dee "
+" per/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deep "
+" er/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deepe "
+" r/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper "
+" /deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/ "
+" deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/d "
+" eeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/de "
+"                                                                                "
+" ↑/↓  scroll   pgup/pgdn  page   o  open   ?  help   z/esc/q  back              "
