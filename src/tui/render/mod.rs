@@ -31,7 +31,8 @@ mod wrap;
 
 #[cfg(unix)]
 pub use images::passthrough_answers;
-pub use images::{TerminalNames, kitty_deletes, may_query_protocol};
+pub use images::{TMUX_STATE_FORMAT, TerminalNames, kitty_deletes, may_query_protocol};
+pub use mascot::Glyphs;
 pub use panes::PaneLayout;
 pub use screen::{Drawn, MIN_HEIGHT, MIN_WIDTH, View, draw};
 pub(crate) use source_line::{TAB_STOP, columns};

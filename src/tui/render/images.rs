@@ -412,8 +412,21 @@ pub struct TerminalNames<'a> {
     pub term_program: Option<&'a str>,
 }
 
+/// What asqr asks tmux about its pane once at start, for
+/// `tmux display-message -p`: the pane's passthrough option, the number of
+/// clients attached to the session, and the client terminal's answer to
+/// XTVERSION, such as `iTerm2 3.6.7`. That answer holds blanks, so tabs
+/// keep the three apart.
+pub const TMUX_STATE_FORMAT: &str = "#{allow-passthrough}\t#{session_attached}\t#{client_termtype}";
+
+/// The fields of what tmux printed for [`TMUX_STATE_FORMAT`], without the
+/// line break it ends in.
+pub(super) fn tmux_state_fields(state: &str) -> std::str::Split<'_, char> {
+    state.trim_end_matches('\n').split('\t')
+}
+
 /// Whether the terminal may be asked for its graphics protocol.
-/// `tmux_state` asks tmux for `#{allow-passthrough} #{session_attached}`:
+/// `tmux_state` asks tmux for [`TMUX_STATE_FORMAT`], of which this needs
 /// the pane's passthrough option and the number of clients attached to the
 /// session.
 ///
@@ -442,10 +455,10 @@ pub fn may_query_protocol(
     let Some(state) = tmux_state() else {
         return false;
     };
-    let mut words = state.split_whitespace();
+    let mut fields = tmux_state_fields(&state);
     // `on` lets the pane pass sequences through, `all` any pane.
-    let passthrough = matches!(words.next(), Some("on" | "all"));
-    let attached = words
+    let passthrough = matches!(fields.next(), Some("on" | "all"));
+    let attached = fields
         .next()
         .and_then(|clients| clients.parse::<u32>().ok())
         .is_some_and(|clients| clients > 0);
@@ -888,17 +901,35 @@ mod tests {
     #[test]
     fn inside_tmux_only_with_passthrough_and_a_client() {
         let tmux_term = (Some("tmux-256color"), Some("tmux"));
-        assert!(may_query(TMUX, tmux_term, || Some("on 1\n".into())));
-        assert!(may_query(TMUX, tmux_term, || Some("all 2".into())));
-        assert!(!may_query(TMUX, tmux_term, || Some("off 1\n".into())));
+        assert!(may_query(TMUX, tmux_term, || Some("on\t1\t\n".into())));
+        assert!(may_query(TMUX, tmux_term, || Some(
+            "all\t2\tkitty(0.35.2)".into()
+        )));
+        assert!(!may_query(TMUX, tmux_term, || Some("off\t1\t\n".into())));
         assert!(
-            !may_query(TMUX, tmux_term, || Some("on 0\n".into())),
+            !may_query(TMUX, tmux_term, || Some("on\t0\t\n".into())),
             "detached"
         );
         assert!(
-            may_query(TMUX, PLAIN, || Some("on 1\n".into())),
+            may_query(TMUX, PLAIN, || Some("on\t1\t\n".into())),
             "TMUX decides, whatever TERM says"
         );
+    }
+
+    /// The client's terminal follows the two fields this needs, and its
+    /// answer to XTVERSION holds blanks.
+    #[test]
+    fn inside_tmux_a_termtype_with_blanks_leaves_the_fields_before_it() {
+        assert_eq!(
+            TMUX_STATE_FORMAT,
+            "#{allow-passthrough}\t#{session_attached}\t#{client_termtype}"
+        );
+        assert!(may_query(TMUX, PLAIN, || Some(
+            "on\t1\tWezTerm 20240203-110809-5046fc22\n".into()
+        )));
+        assert!(!may_query(TMUX, PLAIN, || Some(
+            "off\t1\tiTerm2 3.6.7\n".into()
+        )));
     }
 
     #[test]
@@ -906,6 +937,10 @@ mod tests {
         assert!(!may_query(TMUX, PLAIN, || None));
         assert!(!may_query(TMUX, PLAIN, || Some(String::new())));
         assert!(!may_query(TMUX, PLAIN, || Some("on".into())));
-        assert!(!may_query(TMUX, PLAIN, || Some("on many".into())));
+        assert!(!may_query(TMUX, PLAIN, || Some("on\tmany\t".into())));
+        assert!(
+            !may_query(TMUX, PLAIN, || Some("on 1\n".into())),
+            "blanks do not separate the fields"
+        );
     }
 }

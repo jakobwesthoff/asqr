@@ -249,7 +249,11 @@ impl Drop for Tui {
 fn answers_a_session_that_arrives_while_it_runs() {
     let sandbox = Sandbox::new();
     let dir = sandbox.queue_dir();
-    let mut tui = Tui::start(&sandbox, &["--dir", dir.to_str().expect("UTF-8")], "off 1");
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+    );
     tui.wait_for("Nothing to answer");
 
     let file = sandbox.file("session.json", SESSION);
@@ -345,7 +349,11 @@ const POP_TITLE: &str = "\x1b[23;0t";
 fn the_title_counts_the_waiting_sessions_and_is_given_back_on_quit() {
     let sandbox = Sandbox::new();
     let dir = sandbox.queue_dir();
-    let mut tui = Tui::start(&sandbox, &["--dir", dir.to_str().expect("UTF-8")], "off 1");
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+    );
     tui.wait_for("Nothing to answer");
     let file = sandbox.file("session.json", SESSION);
     sandbox
@@ -418,7 +426,7 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
     let mut tui = Tui::start(
         &sandbox,
         &["--queue", "pty", "--no-notify", "--no-title"],
-        "on 1",
+        "on\t1\t",
     );
     tui.answer_the_query();
     tui.wait_for("queue: pty");
@@ -508,7 +516,7 @@ fn colours_under(no_color: &str) -> Colours {
             "--no-notify",
             "--no-title",
         ],
-        "off 1",
+        "off\t1\t",
         &[("NO_COLOR", no_color)],
     );
     tui.wait_for("Nothing to answer");
@@ -616,7 +624,7 @@ fn empty_queue_under(no_color: &str, talqi: &str) -> String {
             "--no-notify",
             "--no-title",
         ],
-        "off 1",
+        "off\t1\t",
         &[("NO_COLOR", no_color)],
     );
     tui.wait_for("Nothing to answer");
@@ -683,7 +691,7 @@ fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
     let mut tui = Tui::start_with(
         &sandbox,
         &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
-        "on 1",
+        "on\t1\t",
         &[
             ("TERM_PROGRAM", "pty-test"),
             ("WEZTERM_EXECUTABLE", ""),

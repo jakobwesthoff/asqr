@@ -17,7 +17,9 @@ use anyhow::Context;
 use asqr::cli::{Exit, Watch};
 #[cfg(unix)]
 use asqr::tui::render::passthrough_answers;
-use asqr::tui::render::{TerminalNames, View, kitty_deletes, may_query_protocol};
+use asqr::tui::render::{
+    Glyphs, TMUX_STATE_FORMAT, TerminalNames, View, kitty_deletes, may_query_protocol,
+};
 use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -92,12 +94,18 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         term: term.as_deref(),
         term_program: term_program.as_deref(),
     };
+    // One question to tmux serves both the graphics query and the glyphs
+    // of Talqi's emblem.
+    let in_tmux = tmux.as_deref().is_some_and(|tmux| !tmux.is_empty());
+    let tmux_state = if in_tmux { tmux_state() } else { None };
+    let glyphs = Glyphs::for_terminal(|name| std::env::var(name).ok(), tmux_state.as_deref());
+    tracing::info!(?glyphs, "glyphs for Talqi's emblem");
     // Every `Picker` constructor turns passthrough on for the pane; one
     // guard around both gives the pane its own setting back once the
     // picker is built (spec section 7.7).
     let picker = {
         let _passthrough = PassthroughRestore::snapshot(&names, run_tmux);
-        if may_query_protocol(&names, tmux_state, probe_passthrough) {
+        if may_query_protocol(&names, || tmux_state.clone(), probe_passthrough) {
             Picker::from_query_stdio().unwrap_or_else(|error| {
                 tracing::info!(%error, "no graphics protocol detected; using half blocks");
                 Picker::halfblocks()
@@ -311,13 +319,10 @@ fn log_window_size() {
     }
 }
 
-/// What [`may_query_protocol`] needs to know from tmux.
+/// What [`may_query_protocol`] and [`Glyphs::for_terminal`] need to know
+/// from tmux.
 fn tmux_state() -> Option<String> {
-    run_tmux(&[
-        "display-message",
-        "-p",
-        "#{allow-passthrough} #{session_attached}",
-    ])
+    run_tmux(&["display-message", "-p", TMUX_STATE_FORMAT])
 }
 
 /// Runs `tmux` with `args` and returns what it printed, or `None` when it
