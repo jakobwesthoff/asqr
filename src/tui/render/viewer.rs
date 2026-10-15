@@ -179,6 +179,12 @@ impl Viewers {
         self.encoder.take_dropped()
     }
 
+    /// The Kitty ids of every image the viewers sent that the terminal may
+    /// still keep, for deleting them all as asqr quits.
+    pub fn take_all_images(&mut self) -> Vec<u32> {
+        self.encoder.take_all()
+    }
+
     /// The Kitty ids of the images the viewers hold.
     #[cfg(test)]
     pub(super) fn held_images(&self) -> Vec<u32> {

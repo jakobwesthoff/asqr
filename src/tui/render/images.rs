@@ -23,6 +23,7 @@ use image::DynamicImage;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::StatefulWidget;
+use ratatui_image::picker::cap_parser::Parser;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 use ratatui_image::protocol::kitty::StatefulKitty;
 use ratatui_image::protocol::{StatefulProtocol, StatefulProtocolType};
@@ -123,9 +124,20 @@ impl Encoder {
     /// The Kitty ids of the images that went since the last call, for the
     /// terminal to delete: a context image drops its id when its viewer
     /// goes, on regaining the focus, when its session leaves or when its
-    /// entry is replaced.
+    /// entry is replaced (ADR 42).
     pub fn take_dropped(&self) -> Vec<u32> {
         std::mem::take(&mut self.kitty_ids.borrow_mut().dropped)
+    }
+
+    /// The Kitty ids of every image the terminal may still keep, each
+    /// once: those that went since [`Encoder::take_dropped`] last took
+    /// them, then those that exist. asqr deletes them all before it leaves
+    /// the alternate screen, as the images stay there after it (ADR 42).
+    pub fn take_all(&self) -> Vec<u32> {
+        let mut book = self.kitty_ids.borrow_mut();
+        let mut all = std::mem::take(&mut book.dropped);
+        all.extend(std::mem::take(&mut book.held));
+        all
     }
 
     /// The Kitty ids of the images that exist.
@@ -251,6 +263,22 @@ impl Drop for HeldId {
     fn drop(&mut self) {
         self.book.borrow_mut().release(self.id);
     }
+}
+
+/// The Kitty commands that delete the images `ids` names, wrapped for
+/// tmux's passthrough when `tmux` says asqr runs inside tmux, as
+/// ratatui-image wraps the transmissions (ADR 42).
+///
+/// `d=I` with an id and no placement id removes every placement of the
+/// image, the virtual one its placeholders refer to included, and frees
+/// its data. `q=2` keeps the terminal from answering into asqr's input. A
+/// delete of an id the terminal does not know does nothing.
+pub fn kitty_deletes(ids: &[u32], tmux: bool) -> Vec<u8> {
+    let (start, escape, end) = Parser::tmux_start_escape_end(tmux);
+    ids.iter()
+        .map(|id| format!("{start}{escape}_Ga=d,d=I,i={id},q=2{escape}\\{end}"))
+        .collect::<String>()
+        .into_bytes()
 }
 
 /// The character the Kitty protocol reserves for image placeholders.
@@ -645,6 +673,39 @@ mod tests {
         let mut theirs = picker.new_resize_protocol(red());
 
         assert_eq!(without_id(&mut ours.protocol), without_id(&mut theirs));
+    }
+
+    #[test]
+    fn a_delete_names_its_image_and_asks_for_no_answer() {
+        assert_eq!(
+            kitty_deletes(&[7, 4_000_000_000], false),
+            b"\x1b_Ga=d,d=I,i=7,q=2\x1b\\\x1b_Ga=d,d=I,i=4000000000,q=2\x1b\\"
+        );
+        assert_eq!(kitty_deletes(&[], false), b"");
+    }
+
+    /// Inside tmux, each delete is wrapped for passthrough as the
+    /// transmissions are: the escapes inside doubled.
+    #[test]
+    fn a_delete_inside_tmux_goes_through_the_passthrough() {
+        assert_eq!(
+            kitty_deletes(&[7], true),
+            b"\x1bPtmux;\x1b\x1b_Ga=d,d=I,i=7,q=2\x1b\x1b\\\x1b\\"
+        );
+    }
+
+    /// Every id the book handed out and has not handed on as deleted, and
+    /// those it has, once, for deleting all before asqr quits.
+    #[test]
+    fn at_the_end_every_image_is_handed_on_once() {
+        let encoder = Encoder::with_ids(kitty(), vec![3, 1, 2]);
+        let kept = [encoder.encode(red()), encoder.encode(red())];
+        drop(encoder.encode(red()));
+
+        assert_eq!(encoder.take_all(), [2, 1, 3]);
+        drop(kept);
+        assert_eq!(encoder.take_all(), Vec::<u32>::new(), "handed on once");
+        assert_eq!(encoder.take_dropped(), Vec::<u32>::new());
     }
 
     /// Every other protocol comes from the picker, and the encoder hands

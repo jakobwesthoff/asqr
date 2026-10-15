@@ -8,6 +8,9 @@ Accepted
 
 Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
+The consequence that asqr does not delete the earlier copies is
+superseded by [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-images-the-terminal-no-longer-shows.md)
+
 ## Context
 
 The user reported that the image of a session's first question never

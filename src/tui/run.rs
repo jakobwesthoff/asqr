@@ -44,6 +44,9 @@ pub trait Host {
     /// Show `title` as the terminal's title, unless the person switched
     /// titles off.
     fn title(&mut self, title: &str);
+    /// Ask the terminal to delete the Kitty images `ids` names, which the
+    /// frame just written no longer shows (ADR 42).
+    fn delete_images(&mut self, ids: &[u32]);
 }
 
 /// The terminal title for the state of `app`, so a tab in the background
@@ -91,6 +94,11 @@ where
         terminal
             .draw(|frame| drawn = draw(frame, app, view))
             .context("drawing the screen")?;
+        // The frame is flushed and shows no Kitty image that went, so the
+        // terminal may let go of them (ADR 42).
+        if !drawn.deleted_images.is_empty() {
+            host.delete_images(&drawn.deleted_images);
+        }
         // How far the intro overlay and the context pane can scroll depends
         // on the size they were drawn at, and where `↑`/`↓` go in a field
         // on where its rows break. A frame without a tab, as below the
@@ -156,13 +164,18 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::collections::{BTreeSet, HashMap};
     use std::fs;
-    use std::sync::mpsc;
+    use std::rc::Rc;
+    use std::sync::{OnceLock, mpsc};
 
     use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
     use ratatui::crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
+    use ratatui::layout::Rect;
     use ratatui::style::{Color, Modifier};
-    use ratatui_image::picker::Picker;
+    use ratatui_image::picker::{Picker, ProtocolType};
 
     use super::*;
     use crate::format::{SessionResult, Status};
@@ -179,9 +192,16 @@ mod tests {
         titles: Vec<String>,
         /// Opening an image fails with this, when set.
         viewer_missing: bool,
+        /// Where the Kitty images the loop deletes go, among the frames a
+        /// [`Logging`] backend notes.
+        log: Log,
     }
 
     impl Host for Recorder {
+        fn delete_images(&mut self, ids: &[u32]) {
+            self.log.borrow_mut().push(Step::Deleted(ids.to_vec()));
+        }
+
         fn title(&mut self, title: &str) {
             self.titles.push(title.to_owned());
         }
@@ -739,11 +759,24 @@ mod tests {
     // Clearing the screen after an overlay over an image
     // -----------------------------------------------------------------
 
+    /// What a run did to the terminal, in order.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum Step {
+        Clear,
+        /// A frame flushed, with the Kitty ids of the images it shows.
+        Frame(BTreeSet<u32>),
+        /// The host deleted these Kitty images.
+        Deleted(Vec<u32>),
+    }
+
+    type Log = Rc<RefCell<Vec<Step>>>;
+
     /// A test backend that logs each clear of the screen and each frame
-    /// flushed, so a test sees which frame a clear came before.
+    /// flushed into a log it may share with a [`Recorder`], so a test sees
+    /// which frame a clear or a delete came after.
     struct Logging {
         backend: TestBackend,
-        log: Vec<&'static str>,
+        log: Log,
     }
 
     impl Backend for Logging {
@@ -776,7 +809,7 @@ mod tests {
         }
 
         fn clear(&mut self) -> Result<(), Self::Error> {
-            self.log.push("clear");
+            self.log.borrow_mut().push(Step::Clear);
             self.backend.clear()
         }
 
@@ -784,7 +817,7 @@ mod tests {
             &mut self,
             clear_type: ratatui::backend::ClearType,
         ) -> Result<(), Self::Error> {
-            self.log.push("clear");
+            self.log.borrow_mut().push(Step::Clear);
             self.backend.clear_region(clear_type)
         }
 
@@ -797,7 +830,8 @@ mod tests {
         }
 
         fn flush(&mut self) -> Result<(), Self::Error> {
-            self.log.push("frame");
+            let shown = kitty_images(self.backend.buffer());
+            self.log.borrow_mut().push(Step::Frame(shown));
             self.backend.flush()
         }
     }
@@ -808,9 +842,10 @@ mod tests {
         fs::write(harness.location.inbox().join("s.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
         let mut view = View::new("test", PaneLayout::Auto, Picker::halfblocks());
+        let log = Log::default();
         let mut terminal = Terminal::new(Logging {
             backend: TestBackend::new(80, 24),
-            log: Vec::new(),
+            log: Rc::clone(&log),
         })
         .expect("test terminal");
         let (sender, receiver) = mpsc::channel();
@@ -827,7 +862,15 @@ mod tests {
             &mut Recorder::default(),
         )
         .expect("runs");
-        terminal.backend().log.clone()
+        let steps = log.borrow();
+        steps
+            .iter()
+            .map(|step| match step {
+                Step::Clear => "clear",
+                Step::Frame(_) => "frame",
+                Step::Deleted(_) => "delete",
+            })
+            .collect()
     }
 
     #[test]
@@ -863,5 +906,283 @@ mod tests {
         );
 
         assert_eq!(log, ["frame", "frame", "frame"]);
+    }
+
+    // -----------------------------------------------------------------
+    // Deleting Kitty images
+    // -----------------------------------------------------------------
+
+    /// The character the Kitty protocol reserves for image placeholders.
+    const PLACEHOLDER: char = '\u{10EEEE}';
+
+    /// The byte each diacritic stands for as the third mark of a
+    /// placeholder, which carries the high byte of the image's id.
+    /// ratatui-image keeps its table private, so this draws one cell of an
+    /// image with each high byte and reads the mark back.
+    fn high_bytes() -> &'static HashMap<char, u8> {
+        static TABLE: OnceLock<HashMap<char, u8>> = OnceLock::new();
+        TABLE.get_or_init(|| {
+            (0..=u8::MAX)
+                .map(|high| {
+                    let mut buf = Buffer::empty(Rect::new(0, 0, 1, 1));
+                    draw_kitty(&mut buf, u32::from(high) << 24, Rect::new(0, 0, 1, 1));
+                    let mark = buf[(0, 0)].symbol().chars().last().expect("marks");
+                    (mark, high)
+                })
+                .collect()
+        })
+    }
+
+    /// Draws a transparent image under the Kitty `id` into `area` of
+    /// `buf`, through ratatui-image alone.
+    fn draw_kitty(buf: &mut Buffer, id: u32, area: Rect) {
+        use ratatui::widgets::Widget;
+        use ratatui_image::protocol::Protocol;
+        use ratatui_image::protocol::kitty::Kitty;
+
+        let picture = image::DynamicImage::new_rgba8(1, 1);
+        let kitty = Kitty::new(picture, area.as_size(), id, false, false)
+            .expect("a picture of one pixel encodes");
+        ratatui_image::Image::new(&Protocol::Kitty(kitty)).render(area, buf);
+    }
+
+    /// The Kitty ids of the images `buffer` shows: the low three bytes
+    /// from the foreground colour of the placeholders, the high byte from
+    /// the third mark, which the first placeholder of each row carries
+    /// (ratatui-image 11.1.0 `protocol/kitty.rs` l.176-196).
+    fn kitty_images(buffer: &Buffer) -> BTreeSet<u32> {
+        buffer
+            .content()
+            .iter()
+            .filter_map(|cell| {
+                let symbol = cell.symbol();
+                let marks: Vec<char> = symbol[symbol.find(PLACEHOLDER)?..]
+                    .chars()
+                    .skip(1)
+                    .collect();
+                let [_, _, high] = marks[..] else {
+                    return None;
+                };
+                let Color::Rgb(red, green, blue) = cell.fg else {
+                    panic!("a placeholder names its image in RGB: {:?}", cell.fg);
+                };
+                let high = high_bytes()[&high];
+                Some(u32::from_be_bytes([high, red, green, blue]))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_ids_of_kitty_images_are_read_from_the_screen() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 2));
+        draw_kitty(&mut buf, 0x0102_0304, Rect::new(0, 0, 2, 2));
+        draw_kitty(&mut buf, 0xFF00_00FF, Rect::new(3, 0, 1, 2));
+
+        assert_eq!(
+            kitty_images(&buf),
+            BTreeSet::from([0x0102_0304, 0xFF00_00FF])
+        );
+    }
+
+    /// A picker that speaks the Kitty protocol.
+    fn kitty() -> Picker {
+        let mut picker = Picker::halfblocks();
+        picker.set_protocol_type(ProtocolType::Kitty);
+        picker
+    }
+
+    /// A queue whose run is logged, frames and deletes in one log, on a
+    /// terminal that speaks the Kitty protocol.
+    struct Watched {
+        harness: Harness,
+        terminal: Terminal<Logging>,
+        log: Log,
+    }
+
+    impl Watched {
+        fn new() -> Self {
+            let log = Log::default();
+            let mut harness = Harness::new();
+            harness.host.log = Rc::clone(&log);
+            Watched {
+                harness,
+                terminal: Terminal::new(Logging {
+                    backend: TestBackend::new(80, 24),
+                    log: Rc::clone(&log),
+                })
+                .expect("test terminal"),
+                log,
+            }
+        }
+
+        /// Writes a session `id` whose question shows `context`, in which
+        /// `{picture}` stands for a picture of one `colour` written into
+        /// the queue's directory.
+        fn put(&self, id: &str, context: &str, colour: [u8; 3]) {
+            let name = format!("{id}-{}-{}-{}.png", colour[0], colour[1], colour[2]);
+            let picture = self.harness.location.dir().join(name);
+            image::RgbImage::from_pixel(8, 8, image::Rgb(colour))
+                .save(&picture)
+                .expect("image written");
+            let context = context.replace("{picture}", picture.to_str().expect("utf-8 path"));
+            let session =
+                SESSION.replace(r#"{"type": "image", "path": "/nowhere/cat.png"}"#, &context);
+            fs::write(
+                self.harness.location.inbox().join(format!("{id}.json")),
+                session,
+            )
+            .expect("written");
+        }
+
+        fn remove(&self, id: &str) {
+            fs::remove_file(self.harness.location.inbox().join(format!("{id}.json")))
+                .expect("removed");
+        }
+
+        fn run(&mut self, app: &mut App, inbox: &mut Inbox, view: &mut View, events: Vec<Event>) {
+            let (sender, receiver) = mpsc::channel();
+            for event in events {
+                sender.send(event).expect("sent");
+            }
+            drop(sender);
+            run(
+                &mut self.terminal,
+                app,
+                inbox,
+                view,
+                &receiver,
+                &mut self.harness.host,
+            )
+            .expect("runs");
+        }
+
+        fn steps(&self) -> Vec<Step> {
+            self.log.borrow().clone()
+        }
+    }
+
+    const PICTURE: &str = r#"{"type": "image", "path": "{picture}"}"#;
+
+    #[test]
+    fn finishing_the_only_session_deletes_its_image_after_the_empty_queue_frame() {
+        let mut watched = Watched::new();
+        watched.put("only", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, kitty());
+
+        // `2` picks and moves on to the review, where `enter` submits.
+        watched.run(
+            &mut app,
+            &mut inbox,
+            &mut view,
+            vec![key(KeyCode::Char('2')), key(KeyCode::Enter)],
+        );
+
+        let steps = watched.steps();
+        let Some(Step::Frame(shown)) = steps.first() else {
+            panic!("a frame first: {steps:?}");
+        };
+        assert_eq!(shown.len(), 1, "the session's image: {steps:?}");
+        let deleted: Vec<u32> = shown.iter().copied().collect();
+        let at = steps
+            .iter()
+            .position(|step| *step == Step::Deleted(deleted.clone()))
+            .expect("the image is deleted");
+        let Step::Frame(before) = &steps[at - 1] else {
+            panic!("a frame comes before the delete: {steps:?}");
+        };
+        assert!(before.is_disjoint(shown), "the frame of the empty queue");
+        assert!(app.sessions().is_empty());
+    }
+
+    /// Reviewer O's invariant: a delete written after a frame never names
+    /// an image that frame or any later one shows. The run goes through
+    /// every way an image of a context entry goes: regaining the focus, an
+    /// entry replaced by another image, by another kind, by an image that
+    /// cannot be read, a session that leaves while another waits, and the
+    /// last one leaving. Talqi on the empty queue is drawn by ratatui-image
+    /// under ids asqr does not know, and is never deleted.
+    #[test]
+    fn no_kitty_image_is_deleted_while_a_frame_shows_it() {
+        let mut watched = Watched::new();
+        watched.put("a", PICTURE, [255, 0, 0]);
+        watched.put("b", PICTURE, [0, 0, 255]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, kitty());
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+
+        watched.run(app, inbox, view, vec![Event::Resize, Event::FocusGained]);
+        watched.put("a", PICTURE, [0, 255, 0]);
+        watched.run(app, inbox, view, vec![Event::InboxChanged]);
+        watched.put(
+            "a",
+            r#"{"type": "code", "content": "fn main() {}"}"#,
+            [0; 3],
+        );
+        watched.run(app, inbox, view, vec![Event::InboxChanged]);
+        watched.put("a", PICTURE, [255, 255, 0]);
+        watched.run(app, inbox, view, vec![Event::InboxChanged]);
+        watched.put(
+            "a",
+            r#"{"type": "image", "path": "/nowhere/cat.png"}"#,
+            [0; 3],
+        );
+        watched.run(app, inbox, view, vec![Event::InboxChanged]);
+        watched.put("a", PICTURE, [255, 0, 255]);
+        watched.run(
+            app,
+            inbox,
+            view,
+            vec![Event::InboxChanged, Event::FocusGained],
+        );
+        watched.remove("a");
+        watched.run(app, inbox, view, vec![Event::InboxChanged]);
+        watched.remove("b");
+        watched.run(app, inbox, view, vec![Event::InboxChanged, Event::Resize]);
+
+        let steps = watched.steps();
+        let frames: Vec<(usize, &BTreeSet<u32>)> = steps
+            .iter()
+            .enumerate()
+            .filter_map(|(at, step)| match step {
+                Step::Frame(shown) => Some((at, shown)),
+                _ => None,
+            })
+            .collect();
+        let mut deleted = BTreeSet::new();
+        for (at, step) in steps.iter().enumerate() {
+            let Step::Deleted(ids) = step else {
+                continue;
+            };
+            let last_frame = frames
+                .iter()
+                .rposition(|&(frame, _)| frame < at)
+                .expect("a delete follows a frame");
+            for &(frame, shown) in &frames[last_frame..] {
+                for id in ids {
+                    assert!(
+                        !shown.contains(id),
+                        "{id} deleted at step {at} shows in the frame at step {frame}: {steps:?}"
+                    );
+                }
+            }
+            deleted.extend(ids.iter().copied());
+        }
+
+        // Every image a frame showed before the empty queue went, so the
+        // run did go through each way above.
+        let (_, last) = frames.last().expect("frames");
+        let shown_before: BTreeSet<u32> = frames
+            .iter()
+            .flat_map(|(_, shown)| shown.iter().copied())
+            .filter(|id| !last.contains(id))
+            .collect();
+        assert_eq!(deleted, shown_before, "{steps:?}");
+        assert_eq!(
+            shown_before.len(),
+            7,
+            "a, again on focus, green, yellow, magenta, again on focus, b: {steps:?}"
+        );
+        assert!(app.sessions().is_empty());
     }
 }

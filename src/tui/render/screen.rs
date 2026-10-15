@@ -138,6 +138,13 @@ impl<'a> View<'a> {
         self.overlay_shown && self.image_shown && app.overlay().is_none()
     }
 
+    /// The Kitty ids of every image of a context entry the terminal may
+    /// still keep, each once, for deleting them before asqr leaves the
+    /// alternate screen (ADR 42). Talqi's picture is not among them.
+    pub fn take_kitty_images(&mut self) -> Vec<u32> {
+        self.tab.viewers.take_all_images()
+    }
+
     /// Reads and sends every image again as it is next shown (ADR 24).
     pub fn forget_images(&mut self) {
         self.tab.viewers.forget_images();

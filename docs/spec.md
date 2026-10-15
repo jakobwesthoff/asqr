@@ -1209,13 +1209,20 @@ Images:
   the terminal for focus reports; on regaining the focus it reads and
   sends every image again as it is next shown. Code, Markdown and diff
   entries keep what asqr derived from them (ADR 31).
+- Under the Kitty protocol, which kitty and Ghostty get, asqr asks the
+  terminal to delete an image of an entry once the screen no longer
+  needs it, after the next frame: when the image was sent again on
+  regaining the focus, when its entry was replaced, or when its session
+  left. On quitting, asqr deletes every image it sent and has not
+  deleted yet, before it leaves the alternate screen (ADR 42).
 - Talqi on the empty queue (section 7.1) is built into asqr and needs no
   file. It goes through the same protocol as the images of entries.
   Under the Kitty protocol it is sent again on regaining the focus, as
-  they are. Without an image protocol, or with a cell size of zero
-  pixels on a side, Talqi gets its own half blocks, which leave its
-  transparent background blank instead of filling it. Under `NO_COLOR`
-  Talqi is text and uses neither (section 7.1).
+  they are, and its earlier copies are not deleted. Without an image
+  protocol, or with a cell size of zero pixels on a side, Talqi gets
+  its own half blocks, which leave its transparent background blank
+  instead of filling it. Under `NO_COLOR` Talqi is text and uses
+  neither (section 7.1).
 - A relative path, a missing file, a path that is not a regular file or
   a file that cannot be read or decoded shows a placeholder saying
   "image not shown" with the path and the reason. A path is never resolved against the working directory,

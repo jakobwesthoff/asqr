@@ -610,3 +610,112 @@ fn no_color_shows_talqi_as_an_outline_without_a_colour_sequence() {
         "{sequences:?}"
     );
 }
+
+/// The id of the `nth` Kitty image asqr sent, counted from 0, once it is
+/// in `tui`'s output.
+fn sent_kitty_image(tui: &Tui, nth: usize) -> u32 {
+    const SENT: &str = "\x1b_Gq=2,i=";
+    let start = Instant::now();
+    loop {
+        let output = tui.output();
+        if let Some((_, after)) = output.split(SENT).enumerate().nth(nth + 1) {
+            let id = &after[..after.find(',').expect("more keys follow the id")];
+            return id.parse().expect("a numeric id");
+        }
+        assert!(
+            start.elapsed() < PATIENCE,
+            "asqr never sent image {nth}: {output:?}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// The command that deletes the Kitty image `id`.
+fn kitty_delete(id: u32) -> String {
+    format!("\x1b_Ga=d,d=I,i={id},q=2\x1b\\")
+}
+
+/// Under the Kitty protocol, an image sent again on regaining the focus
+/// has its old copy deleted after the frame that shows the new one, and
+/// the one shown when asqr quits is deleted before the title is given
+/// back and asqr leaves the alternate screen (ADR 42).
+#[test]
+fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    // asqr inherits the variables of the terminal the tests run in. A
+    // `TERM_PROGRAM` of tmux makes ratatui-image wrap every command for
+    // passthrough, and WezTerm's or Konsole's variable rules the Kitty
+    // protocol out whatever the terminal answers (ratatui-image 11.1.0
+    // `picker.rs` l.120-128), where empty counts as unset.
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+        "on 1",
+        &[
+            ("TERM_PROGRAM", "pty-test"),
+            ("WEZTERM_EXECUTABLE", ""),
+            ("KONSOLE_VERSION", ""),
+        ],
+    );
+    let start = Instant::now();
+    while !tui.output().contains("[5n") {
+        assert!(
+            start.elapsed() < PATIENCE,
+            "asqr never queried the terminal"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // Kitty graphics, cells of 10×20 pixels, then the status report.
+    tui.send("\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[0n");
+    tui.wait_for("Nothing to answer");
+
+    let picture = sandbox.home().join("red.png");
+    image::RgbImage::from_pixel(40, 40, image::Rgb([255, 0, 0]))
+        .save(&picture)
+        .expect("png is written");
+    let session = SESSION.replace(
+        r#""kind": "single","#,
+        &format!(
+            r#""kind": "single", "context": [{{"type": "image", "path": {:?}}}],"#,
+            picture.to_str().expect("UTF-8")
+        ),
+    );
+    let file = sandbox.file("session.json", &session);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("Pick a fruit");
+    // The first image sent is Talqi on the empty queue.
+    let old = sent_kitty_image(&tui, 1);
+
+    tui.send("\x1b[I");
+    let again = sent_kitty_image(&tui, 2);
+    let start = Instant::now();
+    while !tui.output().contains(&kitty_delete(old)) {
+        assert!(
+            start.elapsed() < PATIENCE,
+            "the first copy is never deleted"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let output = tui.output();
+    assert_ne!(old, again);
+    let sent_again = first(&output, &format!("\x1b_Gq=2,i={again},"));
+    let old_deleted = first(&output, &kitty_delete(old));
+    let again_deleted = first(&output, &kitty_delete(again));
+    let pop = last(&output, POP_TITLE);
+    let main_screen = last(&output, "\x1b[?1049l");
+    assert!(
+        sent_again < old_deleted
+            && old_deleted < again_deleted
+            && again_deleted < pop
+            && pop < main_screen,
+        "{output:?}"
+    );
+}

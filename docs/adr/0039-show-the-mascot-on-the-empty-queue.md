@@ -137,6 +137,10 @@ Without an image protocol:
   60×15, the sentence stands alone.
 - Each new size of the picture decodes and scales the 768 pixel picture
   again.
+- Under the Kitty protocol, the copies of Talqi's picture sent before
+  stay in the terminal. ADR 42, which deletes the copies of context
+  images, leaves Talqi out, as the empty queue is to draw Talqi as text
+  instead (the user, 2026-10-15).
 - asqr does not check whether the terminal shows 24-bit colour. Where
   it does not, the terminal approximates the half blocks' colours or
   shows them wrong, as it does for the half blocks of context images.
