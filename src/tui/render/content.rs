@@ -10,6 +10,7 @@
 //! widget, so the number of lines is known and the row under the cursor
 //! can always be scrolled into view, whatever the size of the terminal.
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use ratatui::Frame;
@@ -17,17 +18,18 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
+use ratatui_image::picker::Picker;
 
 use super::context::{context_hint, draw_pane};
-use super::panes::{self, Arrangement};
+use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{answer_summary, kind_hint, question_key};
-use super::screen::View;
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
+use super::viewer::Viewers;
 use super::wrap::{cut, indented, wrap};
 use crate::format::{Kind, has_text};
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
-use crate::tui::{AnswerState, Focus, Page, Row, SessionState};
+use crate::tui::{AnswerState, Focus, Page, Row, SessionState, has_context};
 
 /// Descriptions start on the label's line only while that leaves them at
 /// least this much room; otherwise they move to their own lines.
@@ -37,8 +39,8 @@ const MIN_DESCRIPTION_WIDTH: usize = 30;
 const DESCRIPTION_INDENT: usize = 6;
 
 /// Lines of a tab and where the row under the cursor sits among them.
-pub(super) struct Content {
-    pub(super) lines: Vec<Line<'static>>,
+struct Content {
+    lines: Vec<Line<'static>>,
     /// The first and last line of the current row.
     cursor: (usize, usize),
     /// Where the field or note that has the keys was drawn.
@@ -85,19 +87,153 @@ impl Content {
     }
 }
 
+/// What the current tab keeps from one draw to the next.
+pub(super) struct TabState {
+    layout: PaneLayout,
+    /// The last arrangement with a context area shown, beside or below;
+    /// [`panes::choose`] keeps it while a resize stays near a square
+    /// shape. A hint leaves it as it is.
+    shown: Option<Arrangement>,
+    pub(super) question_height: QuestionHeight,
+    /// The viewers of the context entries shown so far.
+    pub(super) viewers: Viewers,
+}
+
+impl TabState {
+    /// The state of a tab whose context goes where `layout` says, with
+    /// images sent in the graphics protocol `picker` speaks.
+    pub(super) fn new(layout: PaneLayout, picker: Picker) -> Self {
+        TabState {
+            layout,
+            shown: None,
+            question_height: QuestionHeight::default(),
+            viewers: Viewers::new(picker),
+        }
+    }
+
+    /// Forgets the viewers and rows of sessions that are no longer among
+    /// `sessions`, and the rows of replaced files.
+    pub(super) fn retain(&mut self, sessions: &[SessionState]) {
+        self.viewers
+            .retain_sessions(|id| sessions.iter().any(|waiting| waiting.id() == id));
+        self.question_height.retain(sessions);
+    }
+}
+
+/// What a question's rows are kept by: the session, the revision of its
+/// file, the question's index and the width it was counted at.
+type RowsKey = (String, u64, usize, u16);
+
+/// How many rows the question takes above a context pane below it (spec
+/// section 7.1, ADR 30). It is the most any question with context in the
+/// session needs, so moving between questions never moves the pane, and it
+/// follows what the person types only line by line.
+#[derive(Default)]
+pub(super) struct QuestionHeight {
+    /// The rows each question takes, counted without a cursor. The current
+    /// question is counted on every draw, as typing changes it, and the
+    /// others once per width and revision.
+    rows: HashMap<RowsKey, usize>,
+    /// The tab area's size and the session with its revision that `mark`
+    /// was taken for.
+    measured: Option<(u16, u16, String, u64)>,
+    /// The highest need since a field or note last gave up the keys.
+    mark: usize,
+}
+
+impl QuestionHeight {
+    /// The rows the question asks for above a context pane in `area`. It
+    /// grows as soon as the tallest question with context grows, and
+    /// shrinks only on a draw where no field or note has the keys, so
+    /// deleting a line while typing leaves the pane where it is. A resize,
+    /// another session or a replaced file start afresh.
+    pub(super) fn need(&mut self, state: &SessionState, area: Rect) -> usize {
+        let width = area.width.min(READING_WIDTH);
+        let measured = (
+            area.width,
+            area.height,
+            state.id().to_owned(),
+            state.revision(),
+        );
+        if self.measured.as_ref() != Some(&measured) {
+            let resized = self
+                .measured
+                .as_ref()
+                .is_none_or(|(width, height, ..)| (*width, *height) != (area.width, area.height));
+            if resized {
+                self.rows.clear();
+            }
+            self.measured = Some(measured);
+            self.mark = 0;
+        }
+
+        let typing = state.focus() != Focus::None && !state.pane_focused();
+        let mut most = 0;
+        for (index, question) in state.session().questions.iter().enumerate() {
+            if !has_context(question) {
+                continue;
+            }
+            let key = (state.id().to_owned(), state.revision(), index, width);
+            let count = |drawn| {
+                question_content(state, index, usize::from(width), drawn)
+                    .lines
+                    .len()
+            };
+            let rows = if index == state.tab() {
+                let rows = count(Drawn::Counted);
+                self.rows.insert(key, rows);
+                // While a field or the note has the keys, the question
+                // counts as drawn, its text cursor included: the cursor's
+                // blank after a full line takes a row then, and counted
+                // without it, that row would push the last one out of view.
+                if typing {
+                    rows.max(count(Drawn::Live))
+                } else {
+                    rows
+                }
+            } else {
+                *self
+                    .rows
+                    .entry(key)
+                    .or_insert_with(|| count(Drawn::Counted))
+            };
+            most = most.max(rows);
+        }
+
+        self.mark = if typing { self.mark.max(most) } else { most };
+        self.mark
+    }
+
+    /// How many questions' rows are kept, so tests see what is forgotten.
+    #[cfg(test)]
+    pub(super) fn counted(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Forgets the rows of sessions that are gone and of replaced files.
+    fn retain(&mut self, sessions: &[SessionState]) {
+        self.rows.retain(|(id, revision, ..), _| {
+            sessions
+                .iter()
+                .any(|state| state.id() == id && state.revision() == *revision)
+        });
+    }
+}
+
 /// Draws the current tab into `area`: the question, or the review, at no
 /// more than the reading width, and the context pane where
-/// [`panes::choose`] puts it. Says what the pane showed, if one did.
+/// [`panes::choose`] puts it. Says what the pane showed, if one did, and
+/// where the field or note that has the keys was drawn, if one was.
 pub(super) fn draw_tab(
     frame: &mut Frame,
     state: &SessionState,
     area: Rect,
-    view: &mut View,
-) -> Option<Page> {
+    tab: &mut TabState,
+) -> (Option<Page>, Option<FieldShape>) {
     let arrangement = state.has_context_area().then(|| {
-        let arrangement = panes::choose(area.width, area.height, view.layout, view.shown);
+        let arrangement = panes::choose(area.width, area.height, tab.layout, tab.shown);
         if arrangement != Arrangement::Hint {
-            view.shown = Some(arrangement);
+            tab.shown = Some(arrangement);
         }
         arrangement
     });
@@ -107,12 +243,11 @@ pub(super) fn draw_tab(
         None => review_content(state, usize::from(width)),
     };
     let question_rows = match arrangement {
-        Some(Arrangement::Below) => view.question_height.need(state, area),
+        Some(Arrangement::Below) => tab.question_height.need(state, area),
         _ => 0,
     };
     let (text_area, context_area) = panes::areas(area, arrangement, question_rows);
     let content = content_at(text_area.width);
-    view.field_shape.clone_from(&content.shape);
 
     let pane = match context_area {
         Some(area) if arrangement == Some(Arrangement::Hint) => {
@@ -120,7 +255,7 @@ pub(super) fn draw_tab(
             frame.render_widget(context_hint(state.shown_context(), &z, area.width), area);
             None
         }
-        Some(area) => draw_pane(frame, state, area, &mut view.viewers),
+        Some(area) => draw_pane(frame, state, area, &mut tab.viewers),
         None => None,
     };
 
@@ -178,7 +313,7 @@ pub(super) fn draw_tab(
             );
         }
     }
-    pane
+    (pane, content.shape)
 }
 
 /// Draws `marker` dim over row `row` of `area`, which takes no row of its
@@ -247,7 +382,7 @@ fn mark(kind: Kind, chosen: bool) -> &'static str {
 
 /// How [`question_content`] draws a question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Drawn {
+enum Drawn {
     /// As the person sees the current tab: the row under the cursor
     /// highlighted, and the field or note that has the keys with its text
     /// cursor and counter.
@@ -262,12 +397,7 @@ pub(super) enum Drawn {
 
 /// The lines of question `index`, wrapped to `width`. Counting and drawing
 /// share this function, so the rows counted are the rows drawn.
-pub(super) fn question_content(
-    state: &SessionState,
-    index: usize,
-    width: usize,
-    drawn: Drawn,
-) -> Content {
+fn question_content(state: &SessionState, index: usize, width: usize, drawn: Drawn) -> Content {
     let question = &state.session().questions[index];
     let live = drawn == Drawn::Live;
     let mut content = Content {

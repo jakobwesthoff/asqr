@@ -7,8 +7,6 @@
 //! Each part is drawn by its own module; this one lays them out, picks the
 //! overlay and keeps what the screen remembers from one draw to the next.
 
-use std::collections::HashMap;
-
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Stylize};
@@ -17,18 +15,17 @@ use ratatui::widgets::{Paragraph, Wrap};
 use ratatui_image::picker::Picker;
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::content::{Drawn, draw_tab, question_content};
+use super::content::{TabState, draw_tab};
 use super::context::draw_pane;
 use super::header::header_lines;
 use super::keys::{draw_help, key_hints, key_line};
 use super::overlay::{center, draw_intro, draw_session_list};
-use super::panes::{Arrangement, PaneLayout, READING_WIDTH};
+use super::panes::{PaneLayout, READING_WIDTH};
 use super::source_line::columns;
 use super::tabs::draw_tabs;
-use super::viewer::Viewers;
 use crate::format::ContextEntry;
 use crate::tui::text_field::FieldShape;
-use crate::tui::{App, Extent, Focus, Page, SessionState, has_context};
+use crate::tui::{App, Extent, Page, SessionState};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -66,120 +63,19 @@ fn shorten_from_left(text: &str, room: usize) -> String {
 pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
     queue: &'a str,
-    pub(super) layout: PaneLayout,
-    /// The last arrangement with a context area shown, beside or below;
-    /// [`panes::choose`](super::panes::choose) keeps it while a resize
-    /// stays near a square shape. A hint leaves it as it is.
-    pub(super) shown: Option<Arrangement>,
+    tab: TabState,
     /// What the intro overlay showed in the last draw.
     intro_page: Extent,
-    /// The viewers of the context entries shown so far.
-    pub(super) viewers: Viewers,
     /// What the context pane showed in the last draw; see
     /// [`View::pane_page`].
     pane_page: Option<Option<Page>>,
     /// Where the field or note that has the keys was last drawn.
-    pub(super) field_shape: Option<FieldShape>,
-    pub(super) question_height: QuestionHeight,
+    field_shape: Option<FieldShape>,
     /// Whether the last draw showed the help, the intro or the session
     /// list over the screen.
     overlay_shown: bool,
     /// Whether the last draw showed an image entry in the context pane.
     image_shown: bool,
-}
-
-/// What a question's rows are kept by: the session, the revision of its
-/// file, the question's index and the width it was counted at.
-type RowsKey = (String, u64, usize, u16);
-
-/// How many rows the question takes above a context pane below it (spec
-/// section 7.1, ADR 30). It is the most any question with context in the
-/// session needs, so moving between questions never moves the pane, and it
-/// follows what the person types only line by line.
-#[derive(Default)]
-pub(super) struct QuestionHeight {
-    /// The rows each question takes, counted without a cursor. The current
-    /// question is counted on every draw, as typing changes it, and the
-    /// others once per width and revision.
-    rows: HashMap<RowsKey, usize>,
-    /// The tab area's size and the session with its revision that `mark`
-    /// was taken for.
-    measured: Option<(u16, u16, String, u64)>,
-    /// The highest need since a field or note last gave up the keys.
-    mark: usize,
-}
-
-impl QuestionHeight {
-    /// The rows the question asks for above a context pane in `area`. It
-    /// grows as soon as the tallest question with context grows, and
-    /// shrinks only on a draw where no field or note has the keys, so
-    /// deleting a line while typing leaves the pane where it is. A resize,
-    /// another session or a replaced file start afresh.
-    pub(super) fn need(&mut self, state: &SessionState, area: Rect) -> usize {
-        let width = area.width.min(READING_WIDTH);
-        let measured = (
-            area.width,
-            area.height,
-            state.id().to_owned(),
-            state.revision(),
-        );
-        if self.measured.as_ref() != Some(&measured) {
-            let resized = self
-                .measured
-                .as_ref()
-                .is_none_or(|(width, height, ..)| (*width, *height) != (area.width, area.height));
-            if resized {
-                self.rows.clear();
-            }
-            self.measured = Some(measured);
-            self.mark = 0;
-        }
-
-        let typing = state.focus() != Focus::None && !state.pane_focused();
-        let mut most = 0;
-        for (index, question) in state.session().questions.iter().enumerate() {
-            if !has_context(question) {
-                continue;
-            }
-            let key = (state.id().to_owned(), state.revision(), index, width);
-            let count = |drawn| {
-                question_content(state, index, usize::from(width), drawn)
-                    .lines
-                    .len()
-            };
-            let rows = if index == state.tab() {
-                let rows = count(Drawn::Counted);
-                self.rows.insert(key, rows);
-                // While a field or the note has the keys, the question
-                // counts as drawn, its text cursor included: the cursor's
-                // blank after a full line takes a row then, and counted
-                // without it, that row would push the last one out of view.
-                if typing {
-                    rows.max(count(Drawn::Live))
-                } else {
-                    rows
-                }
-            } else {
-                *self
-                    .rows
-                    .entry(key)
-                    .or_insert_with(|| count(Drawn::Counted))
-            };
-            most = most.max(rows);
-        }
-
-        self.mark = if typing { self.mark.max(most) } else { most };
-        self.mark
-    }
-
-    /// Forgets the rows of sessions that are gone and of replaced files.
-    fn retain(&mut self, sessions: &[SessionState]) {
-        self.rows.retain(|(id, revision, ..), _| {
-            sessions
-                .iter()
-                .any(|state| state.id() == id && state.revision() == *revision)
-        });
-    }
 }
 
 impl<'a> View<'a> {
@@ -188,13 +84,10 @@ impl<'a> View<'a> {
     pub fn new(queue: &'a str, layout: PaneLayout, picker: Picker) -> Self {
         View {
             queue,
-            layout,
-            shown: None,
+            tab: TabState::new(layout, picker),
             intro_page: Extent::default(),
-            viewers: Viewers::new(picker),
             pane_page: None,
             field_shape: None,
-            question_height: QuestionHeight::default(),
             overlay_shown: false,
             image_shown: false,
         }
@@ -237,7 +130,7 @@ impl<'a> View<'a> {
 
     /// Reads and sends every image again as it is next shown (ADR 24).
     pub fn forget_images(&mut self) {
-        self.viewers.forget_images();
+        self.tab.viewers.forget_images();
     }
 }
 
@@ -303,16 +196,15 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) {
     frame.render_widget(Paragraph::new(header_lines), header);
     draw_tabs(frame, state, tabs);
 
-    view.viewers
-        .retain_sessions(|id| app.sessions().iter().any(|waiting| waiting.id() == id));
-    view.question_height.retain(app.sessions());
+    view.tab.retain(app.sessions());
     let main = main.inner(ratatui::layout::Margin::new(1, 0));
-    let pane_page = if state.full_screen() && state.shown_context().is_some() {
-        draw_pane(frame, state, main, &mut view.viewers)
+    let (pane_page, field_shape) = if state.full_screen() && state.shown_context().is_some() {
+        (draw_pane(frame, state, main, &mut view.tab.viewers), None)
     } else {
-        draw_tab(frame, state, main, view)
+        draw_tab(frame, state, main, &mut view.tab)
     };
     view.pane_page = Some(pane_page);
+    view.field_shape = field_shape;
     view.image_shown =
         pane_page.is_some() && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
 
@@ -381,6 +273,7 @@ mod tests {
     use super::super::test_support::{self, find, find_from, row};
     use super::*;
     use crate::format::{Session, result_answers};
+    use crate::tui::Focus;
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
     const RELEASE: &str = include_str!("../../../examples/sessions/release-checklist.json");
@@ -1311,6 +1204,44 @@ mod tests {
         assert!(columns.end() - columns.start() > 16, "{columns:?}");
     }
 
+    #[test]
+    fn a_session_that_comes_back_loads_its_image_afresh() {
+        let file = png();
+        let mut app = with_image(file.path().to_str().expect("UTF-8 path"));
+        let pictured = app.active().expect("the pictured session").clone();
+        let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks());
+        screen_in(&app, &mut view, 140, 20);
+
+        // A green picture under the same path shows only once the image is
+        // read again, so the colours say whether the viewer was kept.
+        image::RgbImage::from_pixel(160, 160, image::Rgb([0, 255, 0]))
+            .save(file.path())
+            .expect("png is written");
+        let green = |backend: &TestBackend| {
+            backend
+                .buffer()
+                .content()
+                .iter()
+                .any(|cell| [cell.bg, cell.fg].contains(&Color::Rgb(0, 255, 0)))
+        };
+        let backend = screen_in(&app, &mut view, 140, 20);
+        assert!(!green(&backend), "a redraw keeps the image as loaded");
+
+        // While the other session is drawn, the pictured one has left the
+        // queue; when it arrives again, its image is read from the file.
+        app.add(SessionState::new(
+            "other",
+            serde_json::from_str(RELEASE).expect("parses"),
+            None,
+        ));
+        app.remove("pictured");
+        screen_in(&app, &mut view, 140, 20);
+        app.add(pictured);
+        app.remove("other");
+        let backend = screen_in(&app, &mut view, 140, 20);
+        assert!(green(&backend), "{backend}");
+    }
+
     /// A session with one question showing `image` at its natural size.
     fn with_image_kept_small(image: &str) -> App {
         app(&[(
@@ -2058,7 +1989,9 @@ mod tests {
     /// tab area of a 60×30 terminal, or `width` columns of it.
     fn need(app: &App, view: &mut View, width: u16) -> usize {
         let state = app.active().expect("a session is waiting");
-        view.question_height.need(state, Rect::new(1, 5, width, 24))
+        view.tab
+            .question_height
+            .need(state, Rect::new(1, 5, width, 24))
     }
 
     fn ctrl_j(app: &mut App) {
@@ -2260,13 +2193,13 @@ mod tests {
 
         assert_eq!(need(&app, &mut view, 58), 7);
         assert_eq!(
-            view.question_height.rows.len(),
+            view.tab.question_height.counted(),
             2,
             "only questions with context"
         );
         assert_eq!(need(&app, &mut view, 78), 7);
         assert_eq!(
-            view.question_height.rows.len(),
+            view.tab.question_height.counted(),
             2,
             "a resize forgets the old width"
         );
@@ -2285,7 +2218,7 @@ mod tests {
         assert_eq!(need(&app, &mut view, 78), 11);
         screen_in(&app, &mut view, 80, 30);
         assert_eq!(
-            view.question_height.rows.len(),
+            view.tab.question_height.counted(),
             2,
             "a draw forgets the replaced revision"
         );
