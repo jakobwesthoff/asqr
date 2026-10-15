@@ -5,11 +5,12 @@
 //! What the render tests read off a drawn buffer: its rows as text, where a
 //! text starts and the style it starts in. The tests draw into buffers whose
 //! area starts at the origin, so a cell's column and row index the buffer
-//! directly.
+//! directly. Tests of lines not yet drawn read their text here too.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
+use ratatui::text::Line;
 
 use super::source_line::columns;
 use super::viewer::Viewer;
@@ -69,6 +70,19 @@ fn shown_row(buf: &Buffer, y: u16) -> String {
         x += u16::try_from(columns(symbol).max(1)).expect("a cell is narrow");
     }
     row
+}
+
+/// The text of each line, spans joined.
+pub(super) fn line_texts(lines: &[Line]) -> Vec<String> {
+    lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect()
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------

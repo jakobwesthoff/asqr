@@ -14,9 +14,9 @@ use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 
-use super::parts::cut;
 use super::source_line::columns;
 use super::viewer::Viewers;
+use super::wrap::cut;
 use crate::format::ContextEntry;
 use crate::tui::{Extent, Offset, Page, SessionState};
 

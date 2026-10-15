@@ -5,7 +5,6 @@
 //! Texts the screen is built from, kept apart from the layout so they can
 //! be tested on their own.
 
-use super::source_line::{columns, fitting};
 use crate::format::{Answer, Kind, Question, is_answered};
 use crate::tui::{Focus, SessionState};
 
@@ -42,17 +41,6 @@ pub fn answer_summary(question: &Question, answer: &Answer) -> String {
         summary.push_str(" +note");
     }
     summary
-}
-
-/// `text` in at most `room` columns, ending in `…` when it had to be cut.
-pub fn cut(text: &str, room: usize) -> String {
-    if columns(text) <= room {
-        return text.to_owned();
-    }
-    if room == 0 {
-        return String::new();
-    }
-    format!("{}…", fitting(text, room - 1))
 }
 
 /// One line under the question text on how to answer it.
@@ -151,30 +139,6 @@ mod tests {
         };
 
         assert_eq!(answer_summary(&text, &typed), "\"done ⏎ and dusted\"");
-    }
-
-    #[test]
-    fn cutting_keeps_text_within_its_room() {
-        assert_eq!(cut("Changelog, Blog post", 30), "Changelog, Blog post");
-        assert_eq!(cut("Changelog, Blog post", 12), "Changelog, …");
-        assert_eq!(cut("Changelog", 1), "…");
-        assert_eq!(cut("Changelog", 0), "");
-    }
-
-    #[test]
-    fn cutting_counts_columns_and_keeps_wide_characters_whole() {
-        assert_eq!(cut("日本語の説明", 12), "日本語の説明", "it fits exactly");
-        assert_eq!(
-            cut("日本語の説明", 11),
-            "日本語の説…",
-            "説 ends where `…` starts"
-        );
-        assert_eq!(
-            cut("日本語の説明", 10),
-            "日本語の…",
-            "説 would cross into it"
-        );
-        assert_eq!(cut("🎉🎉🎉", 4), "🎉…");
     }
 
     #[test]

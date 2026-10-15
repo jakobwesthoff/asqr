@@ -20,7 +20,7 @@ use super::code::CodeViewer;
 use super::diff::DiffViewer;
 use super::images::Image;
 use super::markdown_viewer::MarkdownViewer;
-use super::screen::wrap;
+use super::wrap::wrap;
 use crate::format::ContextEntry;
 use crate::tui::{EntryKey, Offset};
 

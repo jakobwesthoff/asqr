@@ -5,25 +5,31 @@
 //! Drawing the TUI (spec section 7) from the state in [`super::App`].
 
 mod code;
+mod content;
 mod context;
 mod diff;
+mod header;
 mod images;
+mod keys;
 mod markdown_viewer;
+mod overlay;
 mod panes;
 mod parts;
 mod patine_adapter;
 mod screen;
 mod source_file;
 mod source_line;
+mod tabs;
 #[cfg(test)]
 mod test_support;
 mod text;
 mod viewer;
+mod wrap;
 
 #[cfg(unix)]
 pub use images::passthrough_answers;
 pub use images::{TerminalNames, may_query_protocol};
 pub use panes::PaneLayout;
-pub(crate) use screen::{Glyph, styled_line, wrap_rows};
 pub use screen::{MIN_HEIGHT, MIN_WIDTH, View, draw};
-pub(crate) use source_line::columns;
+pub(crate) use source_line::{TAB_STOP, columns};
+pub(crate) use wrap::{Glyph, styled_line, wrap_rows};

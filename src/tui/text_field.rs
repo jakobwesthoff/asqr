@@ -17,7 +17,7 @@ use ratatui::text::{Line, Span};
 use ratatui_textarea::{CursorMove, TextArea};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::render::{Glyph, columns, styled_line, wrap_rows};
+use super::render::{Glyph, TAB_STOP, columns, styled_line, wrap_rows};
 use crate::format::Length;
 
 /// The text of a field wraps under its own start while that leaves it at
@@ -31,10 +31,6 @@ const MIN_TEXT_WIDTH: usize = 20;
 /// The indent of a field's further lines when its head leaves less than
 /// `MIN_TEXT_WIDTH` columns.
 const NARROW_INDENT: usize = 4;
-
-/// A tab that reaches a field becomes blanks up to the next multiple of
-/// this many columns.
-const TAB_STOP: usize = 4;
 
 // ---------------------------------------------------------------------
 // Editing
