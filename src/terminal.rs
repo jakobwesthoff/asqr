@@ -15,15 +15,16 @@ use std::io::{self, IsTerminal, Write};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::mpsc;
+use std::time::Instant;
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
 use asqr::graphics::{
-    Graphics, Images, PanePassthrough, answers_may_follow_the_query, kitty_deletes,
+    Graphics, Images, PanePassthrough, QUERY_WAIT, answers_may_follow_the_query, kitty_deletes,
     may_query_protocol, passthrough_all_for_images, settle_passthrough,
 };
 #[cfg(unix)]
-use asqr::graphics::{discard_late_answers, passthrough_answers};
+use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View};
 use asqr::tui::{Alerts, Event, Host, alert, run, start, watch_inbox};
@@ -110,7 +111,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     };
     let glyphs = Glyphs::for_terminal(&env, tmux.as_ref());
     tracing::info!(?glyphs, "glyphs for Talqi's emblem");
-    let mut graphics = if may_query_protocol(&env, tmux.as_ref(), probe_passthrough) {
+    let mut graphics = if may_query_protocol(&env, tmux.as_ref()) {
         query_graphics(tmux.as_ref())
     } else {
         tracing::info!("tmux cannot forward the graphics query; using half blocks");
@@ -202,10 +203,12 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
 /// terminal fails, and gives them too.
 fn query_graphics(tmux: Option<&TmuxState>) -> Graphics {
     let options = QueryStdioOptions {
-        timeout_ms: QUERY_WAIT_MS,
+        timeout_ms: i32::try_from(QUERY_WAIT.as_millis()).expect("5000 ms fit an i32"),
         ..QueryStdioOptions::default()
     };
+    let started = Instant::now();
     let queried = Picker::from_query_stdio_with_options(options);
+    let query_took = started.elapsed();
     let graphics = match &queried {
         Ok(picker) => {
             if let Some(reason) = half_blocks_reason(picker.protocol_type(), picker.capabilities())
@@ -219,10 +222,7 @@ fn query_graphics(tmux: Option<&TmuxState>) -> Graphics {
             Graphics::HALF_BLOCKS
         }
     };
-    let found = queried
-        .as_ref()
-        .is_ok_and(|picker| !picker.capabilities().is_empty());
-    if answers_may_follow_the_query(found, tmux) {
+    if answers_may_follow_the_query(query_took, tmux) {
         #[cfg(unix)]
         discard_late_answers_on_stdin();
     }
@@ -397,24 +397,6 @@ fn run_tmux(args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// How long the graphics query waits for the terminal's answer, in
-/// milliseconds. A terminal that answers does so well within it, so the
-/// wait only runs out when no answer comes, and a longer one leaves fewer
-/// answers to arrive after it, where they would reach asqr as keys. The
-/// person waits this long for the first frame in such a terminal.
-const QUERY_WAIT_MS: i32 = 5000;
-
-/// How long [`discard_late_answers_on_stdin`] waits for the next byte of
-/// a late answer: a terminal sends its answer in one go, and several
-/// tmux clients answer within a round trip of each other.
-#[cfg(unix)]
-const LATE_ANSWER_QUIET: std::time::Duration = std::time::Duration::from_millis(150);
-
-/// How long [`discard_late_answers_on_stdin`] runs at most, for input that
-/// never pauses.
-#[cfg(unix)]
-const LATE_ANSWER_CAP: std::time::Duration = std::time::Duration::from_secs(1);
-
 /// Discards the answers to the graphics query that are still arriving,
 /// before the key reader starts and takes them for keys. Raw mode is on,
 /// so the terminal hands each byte over as it comes.
@@ -427,29 +409,6 @@ fn discard_late_answers_on_stdin() {
             tracing::warn!(%error, "could not discard late answers to the graphics query")
         }
     }
-}
-
-/// How long [`probe_passthrough`] waits for the answer: long enough for a
-/// round trip over ssh, short enough not to hold up the start noticeably.
-#[cfg(unix)]
-const PROBE_PATIENCE: std::time::Duration = std::time::Duration::from_millis(300);
-
-/// Whether a sequence sent through tmux's passthrough gets an answer, for
-/// [`may_query_protocol`] in a tmux it cannot ask. Raw mode is on, as
-/// `ratatui::try_init` turned it on.
-#[cfg(unix)]
-fn probe_passthrough() -> bool {
-    passthrough_answers(&mut io::stdout(), io::stdin(), PROBE_PATIENCE).unwrap_or_else(|error| {
-        tracing::warn!(%error, "could not probe tmux passthrough");
-        false
-    })
-}
-
-/// Without `poll` on stdin, a probe could leave a read blocked, so the
-/// query is skipped.
-#[cfg(not(unix))]
-fn probe_passthrough() -> bool {
-    false
 }
 
 struct TerminalHost {

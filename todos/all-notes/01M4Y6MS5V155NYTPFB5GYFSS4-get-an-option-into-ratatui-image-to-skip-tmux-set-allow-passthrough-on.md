@@ -15,11 +15,17 @@ l.334-348). Inside tmux that overrides the person's own setting for
 asqr's pane on every start. Without `TMUX`, as over ssh from a tmux
 pane, the command goes to the default tmux server of the host asqr runs
 on, if one is running, and changes an option of a pane that has nothing
-to do with asqr. `PassthroughRestore` (`src/terminal.rs`) reads the
-pane's value before the picker is built and puts it back afterwards, so
-the change lasts only while the query runs, and stays when asqr is
-killed during it. A `cargo test` run inside tmux without the test
+to do with asqr. `PanePassthrough` (`src/graphics/detect.rs`) reads
+the pane's value before the picker is built and puts it back
+afterwards, so the change lasts only while the query runs, and stays
+when asqr is killed during it. A `cargo test` run inside tmux without the test
 recipe's `TERM` sets the test's pane to `on` once per picker.
+
+asqr builds a `Picker` only where it queries the terminal; where it
+skips the query it takes half blocks without one, and no `tmux set`
+runs. Since the passthrough probe went (2026-10-16), asqr queries, and
+so builds a picker, whenever it runs outside a tmux pane, also over ssh
+from one.
 
 ## History
 
@@ -34,7 +40,7 @@ left is the `tmux set`.
 
 Propose upstream an option that skips the `tmux set`, such as a field
 of `QueryStdioOptions` and a constructor for half blocks that runs no
-command, then drop `PassthroughRestore`. Commits for that pull request
+command, then drop `PanePassthrough`. Commits for that pull request
 carry no AI attribution: the maintainer rejects it.
 
 ## Open question

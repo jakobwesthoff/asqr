@@ -1207,8 +1207,9 @@ Images:
   terminal that answers nothing within 5 seconds gets the block
   rendering, also where its environment names a terminal with the
   iTerm2 protocol.
-- When the query got no usable answer, or inside tmux with more than one
-  client attached, whose terminals each answer, asqr discards what
+- When the query got no answer within its 5 seconds, or inside tmux
+  with more than one client attached, whose terminals each answer,
+  asqr discards what
   arrives on its input before it reads keys, until 150 ms pass without a
   byte and for at most 1 second. Keys typed in that time are lost. An
   answer that begins later reaches asqr as typed keys, where its digits
@@ -1262,14 +1263,12 @@ passthrough is on for its pane, whether a client is attached and
 whether a client shows the pane, and queries the terminal only when all
 three hold: otherwise the query gets no answer and holds up the start
 for its whole wait. A pane no client shows at start gets its images as
-blocks until asqr restarts. Without `TMUX`, when `TERM` starts with `tmux` or
-`TERM_PROGRAM` is `tmux`, as after ssh from a tmux pane,
-asqr cannot ask that tmux. It sends a device status request through
-tmux's passthrough instead and waits up to 300 ms for the answer: with
-one, it queries the terminal; without one, images show as blocks. Keys
-typed during that wait are lost, and an answer slower than 300 ms, as
-over a slow ssh link, also means blocks. Outside Unix asqr does not wait
-and shows blocks there. Notifications inside tmux go out in tmux's
+blocks until asqr restarts. Without `TMUX`, when `TERM` starts with
+`tmux` or `TERM_PROGRAM` is `tmux`, as after ssh from a tmux pane, asqr
+cannot ask that tmux and queries the terminal through tmux's
+passthrough. Where that tmux passes nothing on, as from a pane with
+`on` that is hidden at start, the start waits the query's 5 seconds and
+images show as blocks. Notifications inside tmux go out in tmux's
 passthrough wrapper.
 
 Whenever `TERM` starts with `tmux` or `TERM_PROGRAM` is `tmux`,

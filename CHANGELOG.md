@@ -88,6 +88,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Kitty protocol behind tmux with `allow-passthrough on`, or behind a
   tmux asqr cannot ask, as over ssh, where tmux drops a transfer while
   asqr's pane is hidden. Elsewhere it no longer reads every image again.
+- Over ssh from a tmux pane, asqr asks the terminal for its graphics
+  protocol straight away, without first sending a status request
+  through tmux's passthrough and waiting up to 300 ms for its answer.
+  Where that tmux passes nothing on, the start waits the query's 5
+  seconds before it shows images as blocks.
+- asqr discards input after the graphics query only when the query got
+  no answer in time, or inside tmux with several clients attached.
+  Before, it also did so after a quick answer that named no graphics
+  protocol, and a key typed in the first moments after the start was
+  lost.
 
 ### Fixed
 

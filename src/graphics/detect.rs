@@ -9,13 +9,12 @@
 //! the tmux commands; everything they decide on is here.
 
 #[cfg(unix)]
-use std::io::{self, Write};
+use std::io;
+use std::time::Duration;
 #[cfg(unix)]
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use super::{Graphics, Passthrough, Protocol};
-#[cfg(unix)]
-use crate::terminal_env::passthrough;
 use crate::terminal_env::{TerminalEnv, TmuxState};
 
 // ---------------------------------------------------------------------
@@ -37,19 +36,13 @@ use crate::terminal_env::{TerminalEnv, TmuxState};
 /// so where none can come the query is skipped and images fall back to
 /// half blocks (spec section 7.7).
 ///
-/// A terminal that names tmux outside a tmux pane means a tmux that asqr
-/// cannot ask, as after ssh from a tmux pane. ratatui-image wraps its
-/// query for tmux on exactly this test. There `probe` finds out whether a
-/// sequence sent through tmux's passthrough is answered, as
-/// [`passthrough_answers`] does, and the terminal is queried only when it
-/// is. A `screen` `TERM` gets the query unwrapped and without a probe.
-pub fn may_query_protocol(
-    env: &TerminalEnv,
-    tmux: Option<&TmuxState>,
-    probe: impl FnOnce() -> bool,
-) -> bool {
+/// Outside a tmux pane the terminal is always asked. A terminal that names
+/// tmux there is a tmux asqr cannot ask, as after ssh from a tmux pane;
+/// ratatui-image wraps the query for its passthrough, and the answer, or
+/// none within the wait, tells whether that tmux passes it on.
+pub fn may_query_protocol(env: &TerminalEnv, tmux: Option<&TmuxState>) -> bool {
     if !env.in_tmux_pane() {
-        return !env.tmux_like_term() || probe();
+        return true;
     }
     let Some(state) = tmux else {
         return false;
@@ -209,50 +202,26 @@ fn wait_for_input(input: impl std::os::fd::AsFd, wait: Duration) -> io::Result<R
     }
 }
 
-/// The answer to the device status report request `ESC [5n` that
-/// [`passthrough_answers`] sends: the terminal is fine.
-#[cfg(unix)]
-const PROBE_ANSWER: &[u8] = b"\x1b[0n";
+/// How long the graphics query waits for the terminal's answer. A
+/// terminal that answers does so well within it, so the wait only runs
+/// out when no answer comes, and a longer one leaves fewer answers to
+/// arrive after it, where they would reach asqr as keys. The person waits
+/// this long for the first frame in such a terminal.
+pub const QUERY_WAIT: Duration = Duration::from_secs(5);
 
-/// Writes a device status report request, `ESC [5n`, wrapped for tmux's
-/// passthrough to `out`, and whether `input` brings the answer within
-/// `patience`. The terminal outside answers only when the pane passes the
-/// request through to it. It reads a byte at a time only once one is
-/// there, so the bytes after the answer stay for the next reader. Bytes
-/// before the answer, such as keys typed in the meantime, are lost.
-/// `input` must be in raw mode, or a terminal hands the answer over only
-/// with a line.
-#[cfg(unix)]
-pub fn passthrough_answers(
-    out: &mut impl Write,
-    input: impl std::os::fd::AsFd,
-    patience: Duration,
-) -> io::Result<bool> {
-    out.write_all(&passthrough(b"\x1b[5n"))?;
-    out.flush()?;
-    let deadline = Instant::now() + patience;
-    let mut seen = Vec::new();
-    while !seen.ends_with(PROBE_ANSWER) {
-        // Input that keeps coming, such as a paste, or signals that keep
-        // ending the wait must not keep the probe reading past its
-        // deadline.
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            return Ok(false);
-        }
-        match wait_for_input(&input, left)? {
-            Ready::Input => {}
-            Ready::Timeout => return Ok(false),
-            Ready::Interrupted => continue,
-        }
-        let mut byte = [0];
-        if rustix::io::read(&input, &mut byte)? == 0 {
-            return Ok(false);
-        }
-        seen.push(byte[0]);
-    }
-    Ok(true)
-}
+/// How far short of [`QUERY_WAIT`] a query that ran out may come back:
+/// ratatui-image waits the time left in whole milliseconds, rounded down
+/// (12.0.0-rc.2 `picker.rs` l.570-577).
+const QUERY_WAIT_ROUNDING: Duration = Duration::from_millis(10);
+
+/// How long [`discard_late_answers`] waits for the next byte of a late
+/// answer: a terminal sends its answer in one go, and several tmux
+/// clients answer within a round trip of each other.
+pub const LATE_ANSWER_QUIET: Duration = Duration::from_millis(150);
+
+/// How long [`discard_late_answers`] runs at most, for input that never
+/// pauses.
+pub const LATE_ANSWER_CAP: Duration = Duration::from_secs(1);
 
 /// Whether answers to the graphics query may still be on their way once
 /// ratatui-image is done reading, so [`discard_late_answers`] has to run
@@ -261,16 +230,16 @@ pub fn passthrough_answers(
 /// which takes a Kitty answer such as `ESC _Gi=31;OK ESC \` for keys, and
 /// its digits pick options.
 ///
-/// `found_capabilities` is whether the picker found any capability. A
-/// picker without one got no usable answer, which every query that ran
-/// into its deadline is, and its terminal may still answer. Inside tmux,
-/// with more than one client attached, as `tmux` says, each client's
-/// terminal answers the query tmux passed on, and only the first answer
-/// was read. A lone terminal that answered sends nothing more, and its
-/// start costs no wait.
-pub fn answers_may_follow_the_query(found_capabilities: bool, tmux: Option<&TmuxState>) -> bool {
+/// A query that ran into its deadline, as `query_took` says, got no answer
+/// in time, and its terminal may still send one. Inside tmux, with more
+/// than one client attached, as `tmux` says, each client's terminal
+/// answers the query tmux passed on, and only the first answer was read.
+/// A lone terminal that answered in time sends nothing more, whatever its
+/// answer named, and its start costs no wait.
+pub fn answers_may_follow_the_query(query_took: Duration, tmux: Option<&TmuxState>) -> bool {
+    let ran_out = query_took + QUERY_WAIT_ROUNDING >= QUERY_WAIT;
     let clients = tmux.and_then(TmuxState::clients).unwrap_or(0);
-    !found_capabilities || clients > 1
+    ran_out || clients > 1
 }
 
 /// Reads and discards what `input` brings until `quiet` passes without a
@@ -306,6 +275,9 @@ pub fn discard_late_answers(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::io::Write;
+
     use super::*;
 
     // -----------------------------------------------------------------
@@ -341,18 +313,10 @@ mod tests {
     }
 
     /// The decision in the environment `vars`, where tmux said `state`
-    /// about the pane and the probe never runs.
+    /// about the pane.
     fn may_query(vars: &[(&str, &str)], state: Option<String>) -> bool {
         let state = state.as_deref().map(TmuxState::parse);
-        may_query_protocol(&TerminalEnv::from_pairs(vars), state.as_ref(), || {
-            unreachable!("no probe where tmux can be asked or is not there")
-        })
-    }
-
-    /// The decision in the environment `vars` without a tmux pane, where
-    /// the probe gets the `answered` it is given, if it runs.
-    fn probed(vars: &[(&str, &str)], answered: bool) -> bool {
-        may_query_protocol(&TerminalEnv::from_pairs(vars), None, || answered)
+        may_query_protocol(&TerminalEnv::from_pairs(vars), state.as_ref())
     }
 
     #[test]
@@ -362,21 +326,18 @@ mod tests {
     }
 
     /// ratatui-image sends the query unwrapped there, and GNU screen, or a
-    /// tmux reached over ssh with such a `TERM`, answers it, so a probe
-    /// would only cost time and keys.
+    /// tmux reached over ssh with such a `TERM`, answers it.
     #[test]
-    fn a_screen_term_without_tmux_is_asked_without_a_probe() {
+    fn a_screen_term_without_tmux_is_asked() {
         assert!(may_query(&[("TERM", "screen-256color")], None));
     }
 
+    /// A tmux asqr cannot ask, as after ssh from a tmux pane, gets the
+    /// query wrapped for its passthrough. Whether it passes the query on
+    /// shows in the answer, or in none within the wait.
     #[test]
-    fn a_tmux_without_its_variable_is_asked_once_the_probe_is_answered() {
-        assert!(probed(MULTIPLEXED, true));
-    }
-
-    #[test]
-    fn a_tmux_without_its_variable_is_not_asked_without_an_answer() {
-        assert!(!probed(MULTIPLEXED, false));
+    fn a_tmux_without_its_variable_is_asked() {
+        assert!(may_query(MULTIPLEXED, None));
     }
 
     #[test]
@@ -624,58 +585,6 @@ mod tests {
     // Reading what the terminal answers
     // -----------------------------------------------------------------
 
-    #[cfg(unix)]
-    #[test]
-    fn the_probe_asks_through_tmux_passthrough_and_reads_only_up_to_the_answer() {
-        use std::io::Read;
-
-        let (mut input, mut terminal) = std::io::pipe().expect("a pipe");
-        terminal
-            .write_all(b"typed\x1b[0nafter")
-            .expect("the pipe takes it");
-        drop(terminal);
-        let mut sent = Vec::new();
-
-        let answered = passthrough_answers(&mut sent, &input, Duration::from_secs(5));
-
-        assert!(answered.expect("the probe runs"));
-        assert_eq!(sent, b"\x1bPtmux;\x1b\x1b[5n\x1b\\");
-        let mut rest = String::new();
-        input.read_to_string(&mut rest).expect("the pipe reads");
-        assert_eq!(rest, "after", "what comes after the answer stays");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn the_probe_gives_up_without_an_answer() {
-        let (input, mut terminal) = std::io::pipe().expect("a pipe");
-        terminal.write_all(b"typed").expect("the pipe takes it");
-
-        let answered = passthrough_answers(&mut Vec::new(), &input, Duration::from_millis(50));
-        assert!(!answered.expect("the probe runs"), "silence");
-
-        drop(terminal);
-        let answered = passthrough_answers(&mut Vec::new(), &input, Duration::from_secs(5));
-        assert!(!answered.expect("the probe runs"), "the input ended");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn the_probe_reads_nothing_past_its_deadline() {
-        use std::io::Read;
-
-        let (mut input, mut terminal) = std::io::pipe().expect("a pipe");
-        terminal.write_all(b"\x1b[0n").expect("the pipe takes it");
-        drop(terminal);
-
-        let answered = passthrough_answers(&mut Vec::new(), &input, Duration::ZERO);
-
-        assert!(!answered.expect("the probe runs"));
-        let mut rest = Vec::new();
-        input.read_to_end(&mut rest).expect("the pipe reads");
-        assert_eq!(rest, b"\x1b[0n", "the answer stays unread");
-    }
-
     /// A terminal's answer to the graphics query, as kitty gives it.
     #[cfg(unix)]
     const KITTY_ANSWER: &[u8] = b"\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[0n";
@@ -801,19 +710,27 @@ mod tests {
         );
     }
 
-    /// A terminal that gave no usable answer may still send one after the
-    /// query's deadline, and every further tmux client's terminal sends
-    /// one of its own. A lone terminal that answered sends nothing more.
+    /// A terminal that did not answer within the query's wait may still
+    /// answer after it, and every further tmux client's terminal sends an
+    /// answer of its own. A lone terminal that answered in time sends
+    /// nothing more, also where its answer named no capability, such as
+    /// one without a cell size.
     #[test]
-    fn answers_may_follow_without_capabilities_or_with_several_clients() {
-        let follow = |found: bool, state: Option<&str>| {
-            answers_may_follow_the_query(found, state.map(TmuxState::parse).as_ref())
+    fn answers_may_follow_a_query_that_ran_into_its_deadline_or_several_clients() {
+        let follow = |took: Duration, state: Option<&str>| {
+            answers_may_follow_the_query(took, state.map(TmuxState::parse).as_ref())
         };
-        assert!(follow(false, None));
-        assert!(follow(false, Some("on\t1\t\n")));
-        assert!(follow(true, Some("all\t2\t\n")));
-        assert!(!follow(true, None));
-        assert!(!follow(true, Some("on\t1\tkitty\n")));
-        assert!(!follow(true, Some("on\tmany\t\n")));
+        let quick = Duration::from_millis(20);
+
+        assert!(follow(QUERY_WAIT, None));
+        assert!(follow(QUERY_WAIT + quick, Some("on\t1\t\n")));
+        assert!(
+            follow(QUERY_WAIT - Duration::from_millis(1), None),
+            "the query's last wait rounds down to whole milliseconds"
+        );
+        assert!(follow(quick, Some("all\t2\t\n")));
+        assert!(!follow(quick, None), "answered in time");
+        assert!(!follow(quick, Some("on\t1\tkitty\n")));
+        assert!(!follow(quick, Some("on\tmany\t\n")));
     }
 }

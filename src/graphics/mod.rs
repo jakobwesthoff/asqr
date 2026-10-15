@@ -22,12 +22,12 @@ use std::rc::Rc;
 use ::image::{DynamicImage, ImageError};
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 
-pub use detect::{
-    PanePassthrough, answers_may_follow_the_query, may_query_protocol, passthrough_all_for_images,
-    settle_passthrough,
-};
 #[cfg(unix)]
-pub use detect::{discard_late_answers, passthrough_answers};
+pub use detect::discard_late_answers;
+pub use detect::{
+    LATE_ANSWER_CAP, LATE_ANSWER_QUIET, PanePassthrough, QUERY_WAIT, answers_may_follow_the_query,
+    may_query_protocol, passthrough_all_for_images, settle_passthrough,
+};
 pub use image::Image;
 pub use kitty::kitty_deletes;
 use kitty::{KittyIds, random_ids};

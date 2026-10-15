@@ -74,6 +74,14 @@ the passthrough probe with `poll` on stdin. crossterm already depends on
 the same version, so it adds no crate to the build; `poll` gives a
 timeout without leaving a thread blocked in a read.
 
+## Amendment (2026-10-16, graphics module)
+
+The passthrough probe is gone, by the lead's decision of 2026-10-16: it
+was built for the blocked reader of
+ratatui-image 11.1.0, and with 12.0.0-rc.2 the graphics query itself
+tells whether a tmux asqr cannot ask passes sequences on. `rustix`'s
+`poll` stays for discarding late answers to the query.
+
 ## Amendment (2026-10-16, ratatui-image 12.0.0-rc.2)
 
 `ratatui-image` is pinned to the release candidate `=12.0.0-rc.2`, by
