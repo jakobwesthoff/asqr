@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The empty queue shows Talqi, asqr's mascot, above its sentence:
   awake from the start until the first session arrives, asleep once the
   queue is empty again. Terminals that show images draw the picture;
-  the others draw it in half blocks of its own colours. Talqi needs a
+  the others, and those that report a cell size of zero pixels on a
+  side, draw it in half blocks of its own colours. Talqi needs a
   terminal of at least 18 rows; the pictures are built into asqr. Under
   `NO_COLOR`, Talqi is the outline of asqr's emblem in braille
   characters, without any colour and the same awake and asleep, on

@@ -115,12 +115,42 @@ pub(super) fn scaled(picture: &DynamicImage, width: u32, height: u32) -> RgbaIma
 /// the picture has one pixel per half block.
 const HALF_BLOCK_CELL: FontSize = FontSize::new(1, 2);
 
+/// How the picture reaches the screen.
+#[derive(Debug, Clone, Copy)]
+enum Drawing {
+    /// Encoded for the terminal's image protocol and laid out in its
+    /// cells, of this size in pixels.
+    Protocol(FontSize),
+    /// In [`HalfBlocks`], laid out in cells of [`HALF_BLOCK_CELL`].
+    HalfBlocks,
+}
+
+/// How the picture is drawn in a terminal that speaks `protocol` and has
+/// cells of `font`'s size in pixels: in the image protocol only where
+/// both sides of a cell have pixels. A terminal may report a side of zero,
+/// and no picture can be laid out in such cells, so it gets half blocks
+/// as a terminal without an image protocol does.
+fn drawing(protocol: ProtocolType, font: FontSize) -> Drawing {
+    let has_size = font.width > 0 && font.height > 0;
+    match protocol {
+        ProtocolType::Kitty | ProtocolType::Sixel | ProtocolType::Iterm2 if has_size => {
+            Drawing::Protocol(font)
+        }
+        ProtocolType::Kitty
+        | ProtocolType::Sixel
+        | ProtocolType::Iterm2
+        | ProtocolType::Halfblocks => Drawing::HalfBlocks,
+    }
+}
+
 /// Talqi for one terminal: the picture last drawn, kept scaled, and
 /// encoded where the terminal has an image protocol, until another
 /// picture or another size is asked for. It is the state of
 /// [`EmptyQueue`](super::empty::EmptyQueue).
 pub(super) struct Mascot {
     picker: Picker,
+    /// How the picture is drawn, decided once from `picker`.
+    drawing: Drawing,
     /// The picture last drawn, the cells it was scaled for, and the
     /// picture ready to draw again.
     ready: Option<(Which, Size, Ready)>,
@@ -138,6 +168,7 @@ impl Mascot {
     /// Talqi for a terminal whose graphics protocol `picker` speaks.
     pub(super) fn new(picker: Picker) -> Self {
         Mascot {
+            drawing: drawing(picker.protocol_type(), picker.font_size()),
             picker,
             ready: None,
         }
@@ -146,11 +177,9 @@ impl Mascot {
     /// The size in pixels of the cells the picture is laid out in: the
     /// terminal's own for an image protocol, a half block's without one.
     pub(super) fn font(&self) -> FontSize {
-        match self.picker.protocol_type() {
-            ProtocolType::Halfblocks => HALF_BLOCK_CELL,
-            ProtocolType::Kitty | ProtocolType::Sixel | ProtocolType::Iterm2 => {
-                self.picker.font_size()
-            }
+        match self.drawing {
+            Drawing::Protocol(font) => font,
+            Drawing::HalfBlocks => HALF_BLOCK_CELL,
         }
     }
 
@@ -173,9 +202,9 @@ impl Mascot {
                 .expect("the pictures built into asqr decode");
             let side = picture_side(area.width, area.height, self.font());
             let picture = scaled(&picture, side, side);
-            let ready = match self.picker.protocol_type() {
-                ProtocolType::Halfblocks => Ready::HalfBlocks(picture),
-                ProtocolType::Kitty | ProtocolType::Sixel | ProtocolType::Iterm2 => {
+            let ready = match self.drawing {
+                Drawing::HalfBlocks => Ready::HalfBlocks(picture),
+                Drawing::Protocol(_) => {
                     Ready::Encoded(Image::from_picture(&self.picker, picture.into()))
                 }
             };
@@ -394,6 +423,74 @@ pub(super) mod tests {
     fn an_image_protocol_lays_the_picture_out_in_the_terminal_s_cells() {
         let font = Mascot::new(kitty()).font();
         assert_eq!((font.width, font.height), (10, 20));
+    }
+
+    /// The cells `drawing` lays the picture out in, or `None` for half
+    /// blocks. [`FontSize`] cannot be compared.
+    fn protocol_cells(drawing: Drawing) -> Option<(u16, u16)> {
+        match drawing {
+            Drawing::Protocol(font) => Some((font.width, font.height)),
+            Drawing::HalfBlocks => None,
+        }
+    }
+
+    #[test]
+    fn an_image_protocol_with_a_cell_size_draws_in_the_protocol() {
+        for protocol in [
+            ProtocolType::Kitty,
+            ProtocolType::Sixel,
+            ProtocolType::Iterm2,
+        ] {
+            let drawn = drawing(protocol, FontSize::new(10, 20));
+            assert_eq!(protocol_cells(drawn), Some((10, 20)), "{protocol:?}");
+        }
+    }
+
+    /// A terminal may report a cell side of zero, in its answer to the
+    /// cell size query or as a window fewer pixels wide than it has
+    /// columns, which ratatui-image's fallback divides down to zero
+    /// (ratatui-image 11.1.0 `picker.rs` l.468-472, l.557-561). No picture
+    /// can be laid out in such cells, so it is drawn in half blocks.
+    #[test]
+    fn a_cell_side_of_zero_draws_in_half_blocks() {
+        for font in [
+            FontSize::new(0, 20),
+            FontSize::new(8, 0),
+            FontSize::new(0, 0),
+        ] {
+            let drawn = drawing(ProtocolType::Kitty, font);
+            assert_eq!(protocol_cells(drawn), None, "{font:?}");
+        }
+    }
+
+    #[test]
+    fn without_an_image_protocol_talqi_is_drawn_in_half_blocks() {
+        let drawn = drawing(ProtocolType::Halfblocks, FontSize::new(10, 20));
+        assert_eq!(protocol_cells(drawn), None);
+    }
+
+    /// The Kitty protocol with a cell side of zero lays the picture out
+    /// in half blocks, at the largest size, and sends nothing.
+    #[test]
+    fn a_kitty_terminal_without_a_cell_size_gets_talqi_in_half_blocks() {
+        let mut mascot = Mascot {
+            drawing: drawing(ProtocolType::Kitty, FontSize::new(0, 20)),
+            ..Mascot::new(kitty())
+        };
+        let rect = mascot_rect(Rect::new(0, 0, 100, 40), mascot.font());
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 40));
+
+        mascot.draw(Which::Base, rect, &mut buf);
+
+        assert_eq!(rect, Rect::new(28, 0, 44, 22));
+        assert_eq!(transmission(&buf), None);
+        let half_blocks: Vec<_> = buf
+            .area
+            .positions()
+            .filter(|&position| matches!(buf[position].symbol(), "▀" | "▄"))
+            .collect();
+        assert!(!half_blocks.is_empty(), "Talqi is drawn");
+        assert!(half_blocks.iter().all(|&position| rect.contains(position)));
     }
 
     // -----------------------------------------------------------------

@@ -96,6 +96,12 @@ Without an image protocol:
   blocks in the picture's own colours, as the user chose. asqr works
   them out at run time from the same two pictures; nothing else is
   built in.
+- A terminal with an image protocol that reports a cell side of zero
+  pixels gets the half blocks too. ratatui-image takes the cell size
+  from the terminal's answer or, without one, from the window's size in
+  pixels divided by its columns and rows, and either can give zero
+  (ratatui-image 11.1.0 `picker.rs` l.468-472 and l.557-561). No
+  picture can be laid out in cells without pixels.
 - A half block is one pixel wide and two tall. The size rule above,
   with cells of 1×2 pixels, gives at most 44 columns by 22 rows, a
   picture of 44×44 pixels, which asqr scales the same alpha-aware way.
