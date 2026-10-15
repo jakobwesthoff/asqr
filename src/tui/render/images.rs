@@ -22,11 +22,12 @@ use image::DynamicImage;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::StatefulWidget;
+use ratatui_image::errors::Errors;
 use ratatui_image::picker::cap_parser::Parser;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 use ratatui_image::protocol::kitty::StatefulKitty;
 use ratatui_image::protocol::{StatefulProtocol, StatefulProtocolType};
-use ratatui_image::{Resize, ResizeEncodeRender, StatefulImage};
+use ratatui_image::{FilterType, Resize, ResizeEncodeRender, StatefulImage};
 
 use super::source_file::{Unreadable, regular_file};
 
@@ -37,7 +38,16 @@ pub struct Image {
     /// What the Kitty protocol needs besides the protocol, `None` under
     /// any other protocol.
     kitty: Option<KittyImage>,
+    /// Whether an encoding failed. ratatui-image would try again on every
+    /// frame, and log the error each time; the image draws nothing
+    /// instead.
+    failed: bool,
 }
+
+/// The filter that scales a picture to its cells: each pixel of the
+/// result mixes the pixels it covers, where the nearest pixel alone would
+/// drop thin lines and text.
+const SCALING: FilterType = FilterType::Triangle;
 
 /// A Kitty image's id and what encodes it again under a new one.
 struct KittyImage {
@@ -78,6 +88,7 @@ impl Image {
         Image {
             protocol: Box::new(picker.new_resize_protocol(picture)),
             kitty: None,
+            failed: false,
         }
     }
 
@@ -85,10 +96,13 @@ impl Image {
     /// scaled to fill the area as far as its proportions allow; without, it
     /// keeps its natural size and only shrinks when it does not fit.
     pub fn draw(&mut self, area: Rect, buf: &mut Buffer, enlarge: bool) {
+        if self.failed {
+            return;
+        }
         let resize = if enlarge {
-            Resize::Scale(None)
+            Resize::Scale(Some(SCALING))
         } else {
-            Resize::Fit(None)
+            Resize::Fit(Some(SCALING))
         };
         // ratatui-image encodes the picture again when its area changes
         // size, under the same Kitty id, and Ghostty deletes an image when
@@ -114,6 +128,23 @@ impl Image {
         StatefulImage::default()
             .resize(resize)
             .render(area, buf, self.protocol.as_mut());
+        let encoded = self.protocol.last_encoding_result();
+        self.after_encoding(encoded);
+    }
+
+    /// Handles the result of the encoding a draw did, if it did one: a
+    /// failure is logged, and the image draws nothing from then on. A
+    /// Kitty image whose encoding failed never went out, so its id goes
+    /// back without a delete.
+    fn after_encoding(&mut self, result: Option<Result<(), Errors>>) {
+        let Some(Err(error)) = result else {
+            return;
+        };
+        tracing::warn!(%error, "could not encode an image; it stays empty");
+        self.failed = true;
+        if let Some(kitty) = self.kitty.take() {
+            kitty.held.forget();
+        }
     }
 }
 
@@ -204,6 +235,7 @@ impl Encoder {
                 encoder: self.clone(),
                 encoded: false,
             }),
+            failed: false,
         }
     }
 
@@ -304,6 +336,12 @@ impl HeldId {
             id: book.borrow_mut().issue(),
             book: Rc::clone(book),
         }
+    }
+
+    /// Gives the id back without a delete, for an image that never went
+    /// out to the terminal. The drop that follows finds nothing to release.
+    fn forget(self) {
+        self.book.borrow_mut().held.remove(&self.id);
     }
 }
 
@@ -651,6 +689,50 @@ mod tests {
             .expect("image written");
 
         assert_eq!(refused(path.to_str().expect("a UTF-8 path")), None);
+    }
+
+    /// A shrunk image averages its pixels. Columns of one pixel in black
+    /// and white, halved, come out grey; picking every other pixel would
+    /// leave only black or only white.
+    #[test]
+    fn a_shrunk_image_mixes_the_pixels_it_shrinks() {
+        let stripes = image::RgbaImage::from_fn(400, 40, |x, _| {
+            let shade = if x % 2 == 0 { 0 } else { 255 };
+            image::Rgba([shade, shade, shade, 255])
+        });
+        let mut image = Encoder::new(Picker::halfblocks()).encode(stripes.into());
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 2));
+
+        image.draw(buf.area, &mut buf, false);
+
+        let greys: Vec<_> = buf
+            .content()
+            .iter()
+            .flat_map(|cell| [cell.fg, cell.bg])
+            .filter(|colour| matches!(colour, ratatui::style::Color::Rgb(64..=192, _, _)))
+            .collect();
+        assert!(!greys.is_empty(), "{:?}", buf.content()[0]);
+    }
+
+    /// An encoding that fails is logged once, and the image draws nothing
+    /// from then on instead of encoding again on every frame. A Kitty
+    /// image that never went out gives its id back without a delete.
+    #[test]
+    fn an_image_whose_encoding_failed_draws_nothing_and_sends_no_delete() {
+        let encoder = Encoder::with_ids(kitty(), vec![5]);
+        let mut image = encoder.encode(red());
+
+        image.after_encoding(None);
+        image.after_encoding(Some(Ok(())));
+        assert_eq!(encoder.held(), [5], "nothing failed");
+        image.after_encoding(Some(Err(Errors::Sixel("no palette".to_owned()))));
+
+        assert_eq!(encoder.held(), Vec::<u32>::new());
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 4));
+        image.draw(buf.area, &mut buf, false);
+        assert_eq!(buf, Buffer::empty(buf.area), "nothing drawn");
+        drop(image);
+        assert_eq!(encoder.take_all(), Vec::<u32>::new(), "no delete");
     }
 
     // -----------------------------------------------------------------
@@ -1092,7 +1174,14 @@ mod tests {
             discard_late_answers(&input, Duration::from_secs(5), Duration::from_secs(5));
         assert_eq!(discarded.expect("the pipe reads"), 0, "the input ended");
 
-        let (input, _terminal) = std::io::pipe().expect("a pipe");
+        let (input, mut terminal) = std::io::pipe().expect("a pipe");
+        terminal.write_all(b"q").expect("the pipe takes it");
+        let discarded = discard_late_answers(&input, Duration::from_secs(5), Duration::ZERO);
+        assert_eq!(discarded.expect("the pipe reads"), 0, "no time at all");
+        let mut left = [0];
+        rustix::io::read(&input, &mut left).expect("the pipe reads");
+        assert_eq!(&left, b"q", "what came stays");
+
         let started = Instant::now();
         let discarded =
             discard_late_answers(&input, Duration::from_millis(50), Duration::from_secs(5));
@@ -1232,5 +1321,9 @@ mod tests {
         );
         assert!(!all(true, true, state("all", "1", SHOWN)), "all already");
         assert!(!all(true, true, None), "tmux not asked");
+        assert!(
+            !all(true, true, Some("on\t1\t\t1\t1\t0\n".to_owned())),
+            "no version"
+        );
     }
 }

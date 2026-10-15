@@ -1234,6 +1234,9 @@ Images:
   and a broken image never becomes an error result. The placeholder
   wraps to the pane like those of code, Markdown and diffs, and scrolls
   like them when it is taller than the pane.
+- An image is scaled to its cells with a filter that mixes the pixels
+  each one covers. An image the protocol fails to encode stays empty,
+  and the log says why, once.
 
 Known limitation: inside tmux, inline images and OSC notifications need
 `set -g allow-passthrough all`. Without passthrough, asqr falls back to

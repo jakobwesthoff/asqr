@@ -2,7 +2,6 @@
 title: "Gather image handling into a graphics module around an asqr-owned Graphics value"
 kind: refactor
 component: tui
-status: blocked
 origin: review
 ---
 # Gather image handling into a graphics module around an asqr-owned Graphics value
@@ -10,8 +9,8 @@ origin: review
 From the architecture review of image handling on 2026-10-16 (logbook
 `~/playground/2026_10_15_asqr-maskottchen/99-report-bild-architektur.md`,
 ledger round 5, findings OA1, OA2, OA7, OA8, OA10, OA11, OA12, FA1, FA5).
-The lead decided to do it, after the move to ratatui-image 12.0.0-rc.2
-(todo 01M4169ZBJ9P5QFR20761YE0TH), which touches the same lines.
+The lead decided to do it after the move to ratatui-image 12.0.0-rc.2,
+which touched the same lines and has landed.
 
 ## Problem
 
@@ -23,9 +22,11 @@ The lead decided to do it, after the move to ratatui-image 12.0.0-rc.2
   `just test` recipe works around that with `TERM=xterm-256color
   TERM_PROGRAM=` (commit fa9c8c7).
 - `src/tui/render/images.rs` holds four concerns: image load and draw,
-  the Kitty id book, the delete command plus the c=/r= workaround, and
-  terminal detection (`TerminalNames`, `may_query_protocol`,
-  `passthrough_answers`), which is re-exported for the binary. The other
+  the Kitty id book, the delete command, and terminal detection
+  (`TerminalNames`, `TmuxState`, `may_query_protocol`,
+  `passthrough_answers`, `answers_may_follow_the_query`,
+  `discard_late_answers`, `passthrough_all_for_images`), which is
+  re-exported for the binary. The other
   half of detection (`PassthroughRestore`, `tmux_state`, `run_tmux`,
   `probe_passthrough`) lives in `src/terminal.rs`, against ADR 16 and
   that file's own header. The tmux-like `TERM` test exists twice
@@ -34,8 +35,9 @@ The lead decided to do it, after the move to ratatui-image 12.0.0-rc.2
   `TerminalNames` and `AlertTerminal` read the same variables with
   different empty-`TMUX` rules.
 - `Image` can be made three ways, one of which (`Image::from_picture`)
-  bypasses the Kitty id book; `Image::draw` has no access to the book or
-  the source picture, so the rc.2 fresh-id-on-resize has no home.
+  bypasses the Kitty id book. For the fresh Kitty id on resize, a Kitty
+  `Image` keeps a clone of its `Encoder` and a second copy of the
+  decoded picture in `KittyImage`.
 - Each `Encoder::new` creates its own id book although the book is meant
   to span the run.
 - `must_clear` (screen.rs) clears the terminal for every protocol
@@ -81,7 +83,3 @@ A library module `src/graphics/` next to `tui`:
 - The id book's own redesign (deletes after the flush, exit by drop
   order, panic hook, focus repeat) is the follow-up todo "Let the Kitty
   id book own deletes, exit and panic".
-
-## Relations
-
-- Depends on: [Move to ratatui-image 12.0.0-rc.2 and drop the Kitty placement workaround](01M4169ZBJ9P5QFR20761YE0TH-move-to-ratatui-image-1200-rc2-and-drop-the-kitty-placement-workaround.md)

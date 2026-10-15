@@ -67,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when a client shows asqr's pane; a pane in a background window, or
   one hidden by another pane's zoom, gets images as blocks at once.
   Before, asqr waited there for an answer tmux did not pass on.
+- Images scaled to their cells mix the pixels they cover, so thin
+  lines and small text stay visible. Before, each pixel took the
+  nearest one and dropped the others.
+- An image the terminal's protocol fails to encode stays empty, and the
+  log says why, once. Before, nothing said why, and asqr encoded it
+  again on every frame.
 - asqr waits up to 5 seconds for the terminal's answer to the graphics
   query, up from 2. Only a terminal that does not answer waits that
   long for the first frame.
