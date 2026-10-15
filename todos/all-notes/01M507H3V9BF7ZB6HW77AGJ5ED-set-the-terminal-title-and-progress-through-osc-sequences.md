@@ -21,8 +21,16 @@ bell when a session arrives (`src/tui/alert.rs`).
 - Send both through the same path as the notifications in `alert.rs`,
   including its tmux passthrough.
 
+## Decisions
+
+- 2026-10-15, user: the title comes first, as `asqr · {n} waiting`, and a
+  `--no-title` flag switches it off, like `--no-notify` and `--no-bell`.
+  Progress through OSC 9;4 follows only after checking which terminals
+  support it.
+
 ## Open questions
 
 - Which terminals support OSC 9;4, and whether asqr only sends it where it
   is known to work.
 - Restoring the previous title when asqr quits.
+- Whether tmux passes OSC 2 on by itself or needs the passthrough wrapper.
