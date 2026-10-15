@@ -93,8 +93,9 @@ the empty queue will draw Talqi as text instead.
 - Inside tmux with `allow-passthrough on`, the repeat depends on focus
   reports, which tmux forwards only with `focus-events on`. The deletes
   on quitting from a hidden pane are lost.
-- A panic or a signal ends asqr without the deletes on quitting; the
-  copies stay until the terminal evicts them.
+- A panic or SIGKILL ends asqr without the deletes on quitting; the
+  copies stay until the terminal evicts them. On Unix, SIGTERM, SIGINT
+  and SIGHUP end the run as `q` does, and the deletes are written.
 - Talqi's picture is still sent again on every focus gain and every
   new size under the Kitty protocol, and its copies are never deleted.
 - The rule on ids and the order on quitting follow Ghostty. That kitty

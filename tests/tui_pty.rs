@@ -380,6 +380,38 @@ fn the_title_counts_the_waiting_sessions_and_is_given_back_on_quit() {
     assert_eq!(output.matches(POP_TITLE).count(), 1, "{output:?}");
 }
 
+/// A signal sent from outside, as `kill` sends it, quits as `q` does: the
+/// title is given back, focus reports and bracketed paste are off, and the
+/// terminal leaves the alternate screen. ctrl-c from the keyboard is a key
+/// in raw mode, not a SIGINT.
+#[test]
+fn sigterm_sigint_and_sighup_quit_and_give_the_terminal_back() {
+    for signal in ["TERM", "INT", "HUP"] {
+        let sandbox = Sandbox::new();
+        let dir = sandbox.queue_dir();
+        let mut tui = Tui::start(&sandbox, &["--dir", dir.to_str().expect("UTF-8")], "off 1");
+        tui.wait_for("Nothing to answer");
+        let pid = tui.child.process_id().expect("asqr runs");
+
+        let sent = std::process::Command::new("kill")
+            .arg(format!("-{signal}"))
+            .arg(pid.to_string())
+            .status()
+            .expect("kill runs");
+        assert!(sent.success(), "SIG{signal} sent");
+
+        assert_eq!(tui.wait_for_exit(), 0, "SIG{signal}");
+        let output = tui.output();
+        let pop = last(&output, POP_TITLE);
+        let main_screen = last(&output, "\x1b[?1049l");
+        assert!(pop < main_screen, "SIG{signal}: {output:?}");
+        assert!(
+            output.contains("\x1b[?1004l") && output.contains("\x1b[?2004l"),
+            "SIG{signal}: focus reports and bracketed paste off: {output:?}"
+        );
+    }
+}
+
 #[test]
 fn keys_still_arrive_after_the_terminal_answered_the_query() {
     let sandbox = Sandbox::new();

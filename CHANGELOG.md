@@ -76,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session leaves, and on quitting. Inside tmux, regaining the focus
   writes the deletes again, as a hidden pane drops them. Before, every
   copy stayed in the terminal, in Ghostty up to its limit of 320 MB.
+- On Unix, SIGTERM, SIGINT and SIGHUP quit asqr as `q` does, with exit
+  code 0: it deletes its images, gives the title back, turns focus
+  reports and bracketed paste off and leaves raw mode and the alternate
+  screen. Before, a signal such as `kill <pid>` ended asqr at once and
+  left the terminal as asqr had set it up. SIGKILL still does.
 
 ## [0.11.0] - 2026-10-15
 

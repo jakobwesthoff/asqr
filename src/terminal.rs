@@ -66,9 +66,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // `try_init` also installs the panic hook that gives the terminal back
     // before a panic message is printed. That hook knows nothing of focus
     // reports and bracketed paste, so the guard turns those off too, on
-    // every return from this function from here on and on a panic. A
-    // signal such as SIGTERM or SIGHUP ends the process without running
-    // the hook or the guard, and the terminal stays as set up here.
+    // every return from this function from here on and on a panic.
     let mut terminal = ratatui::try_init().context("setting up the terminal")?;
     let title_pushed = Rc::new(Cell::new(false));
     let exit_deletes = Rc::new(RefCell::new(Vec::new()));
@@ -78,6 +76,11 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         title_pushed: Rc::clone(&title_pushed),
         exit_deletes: Rc::clone(&exit_deletes),
     };
+    // SIGTERM, SIGINT and SIGHUP would end the process without the guard.
+    // Caught, they end the run as `q` does, and the guard runs. SIGKILL
+    // cannot be caught and leaves the terminal as set up here.
+    #[cfg(unix)]
+    forward_quit_signals(sender.clone());
 
     // The protocol query reads the terminal's answers from stdin, so it
     // runs before the thread that reads key events starts.
@@ -258,6 +261,32 @@ impl<W: Write> Drop for TerminalGuard<W> {
         }
         (self.restore)();
     }
+}
+
+/// Sends [`Event::Quit`] on `sender` for every SIGTERM, SIGINT and SIGHUP.
+/// signal-hook's handler only writes to a pipe; a thread reads it and sends
+/// the event. In raw mode ctrl-c is a key, so a SIGINT comes from outside,
+/// as from `kill`. A SIGHUP mostly means the terminal is gone; the guard's
+/// writes then fail and are logged. When the handler cannot be installed,
+/// asqr runs on, and a signal ends it at once.
+#[cfg(unix)]
+fn forward_quit_signals(sender: mpsc::Sender<Event>) {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+
+    let mut signals = match signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP]) {
+        Ok(signals) => signals,
+        Err(error) => {
+            tracing::warn!(%error, "could not catch SIGTERM, SIGINT and SIGHUP");
+            return;
+        }
+    };
+    // The thread waits for the life of the process. A signal after the run
+    // ended finds no receiver; the process is on its way out then.
+    std::thread::spawn(move || {
+        for _ in signals.forever() {
+            let _ = sender.send(Event::Quit);
+        }
+    });
 }
 
 /// Logs the terminal's size in cells and pixels, and the cell size they

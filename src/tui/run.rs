@@ -33,6 +33,8 @@ pub enum Event {
     InboxChanged,
     /// The terminal has the focus again.
     FocusGained,
+    /// SIGTERM, SIGINT or SIGHUP asked asqr to quit (spec section 7).
+    Quit,
 }
 
 /// What the app asks of the world around it.
@@ -139,6 +141,8 @@ where
             Event::Key(key) => app.handle(key),
             Event::Paste(text) => app.paste(&text),
             Event::Resize => continue,
+            // The caller gives the terminal back, as after `q`.
+            Event::Quit => return Ok(()),
             // Coming back into view is when a transfer lost in the
             // background can be repeated.
             Event::FocusGained => {
@@ -1106,6 +1110,37 @@ mod tests {
         };
         assert!(before.is_disjoint(shown), "the frame of the empty queue");
         assert!(app.sessions().is_empty());
+    }
+
+    /// A signal ends the run where it is, as `q` does, and leaves the
+    /// images the frame shows for the deletes on quitting (ADR 42).
+    #[test]
+    fn a_quit_event_ends_the_run_and_keeps_the_images_for_the_exit_deletes() {
+        let mut watched = Watched::new();
+        watched.put("only", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, kitty());
+
+        // Should the run go on past the quit, `2` picks and `enter`
+        // submits.
+        watched.run(
+            &mut app,
+            &mut inbox,
+            &mut view,
+            vec![Event::Quit, key(KeyCode::Char('2')), key(KeyCode::Enter)],
+        );
+
+        assert_eq!(app.sessions().len(), 1, "the session still waits");
+        let steps = watched.steps();
+        let [Step::Frame(shown)] = &steps[..] else {
+            panic!("one frame and no delete: {steps:?}");
+        };
+        assert_eq!(shown.len(), 1, "the session's image: {steps:?}");
+        assert_eq!(
+            view.take_kitty_images(),
+            shown.iter().copied().collect::<Vec<_>>(),
+            "the exit deletes name the image still shown"
+        );
     }
 
     /// Reviewer O's invariant: a delete written after a frame never names

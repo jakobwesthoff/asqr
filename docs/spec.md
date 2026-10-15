@@ -589,9 +589,9 @@ wait.
 needs a terminal on stdin and stdout; otherwise it prints "asqr needs a
 terminal" and exits with 1. It creates the queue's directories and
 takes the queue lock (section 3.6). `q` quits with exit code 0 and gives
-the terminal back as it was, also after a panic. A signal that ends
-asqr, such as SIGTERM, SIGHUP or SIGKILL, leaves the terminal as asqr
-had set it up.
+the terminal back as it was, also after a panic. On Unix, SIGTERM,
+SIGINT and SIGHUP quit as `q` does. SIGKILL ends asqr at once and leaves
+the terminal as asqr had set it up.
 
 ### 7.1 Layout
 
@@ -894,7 +894,7 @@ a frame (user, 2026-09-27):
   as a whole. asqr asks the terminal for bracketed paste, so a line
   break in a paste is never an `enter` that picks, submits or rejects.
   It turns bracketed paste and focus reports off again when it quits or
-  panics, not when a signal ends it (section 7). A terminal that
+  panics, not when SIGKILL ends it (section 7). A terminal that
   refuses either runs asqr without it.
   Every field keeps the pasted line breaks; `\r` and `\r\n` become
   `\n` (ADR 36). A tab becomes blanks up to the next multiple of 4
