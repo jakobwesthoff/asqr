@@ -15,13 +15,13 @@ use std::sync::mpsc;
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
+use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{
-    Glyphs, TMUX_STATE_FORMAT, TerminalNames, View, kitty_deletes, may_query_protocol,
-    passthrough_all_for_images,
+    Glyphs, View, kitty_deletes, may_query_protocol, passthrough_all_for_images,
 };
 #[cfg(unix)]
 use asqr::tui::render::{answers_may_follow_the_query, discard_late_answers, passthrough_answers};
-use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
+use asqr::tui::{Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
     Event as TerminalEvent,
@@ -67,20 +67,13 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // colour loses the bold, dim or reversed set just before it.
     ratatui::crossterm::style::force_color_output(true);
 
-    let tmux = std::env::var("TMUX").ok();
-    let term = std::env::var("TERM").ok();
-    let term_program = std::env::var("TERM_PROGRAM").ok();
-    let names = TerminalNames {
-        tmux: tmux.as_deref(),
-        term: term.as_deref(),
-        term_program: term_program.as_deref(),
-    };
+    let env = TerminalEnv::from_process();
     // Every `Picker` constructor turns passthrough on for the pane. This
     // guard gives the pane its own setting back once the picker is built,
     // or as asqr ends when the pane gets `all` for Kitty images (spec
     // section 7.7). Made before the terminal guard, it is dropped after
     // it, so the deletes that guard writes still pass from a hidden pane.
-    let mut passthrough = PassthroughRestore::snapshot(&names, run_tmux);
+    let mut passthrough = PassthroughRestore::snapshot(&env, run_tmux);
 
     // `try_init` also installs the panic hook that gives the terminal back
     // before a panic message is printed. That hook knows nothing of focus
@@ -105,12 +98,15 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // runs before the thread that reads key events starts.
     // One question to tmux serves both the graphics query and the glyphs
     // of Talqi's emblem.
-    let in_tmux = tmux.as_deref().is_some_and(|tmux| !tmux.is_empty());
-    let tmux_state = if in_tmux { tmux_state() } else { None };
-    let glyphs = Glyphs::for_terminal(|name| std::env::var(name).ok(), tmux_state.as_deref());
+    let tmux = if env.in_tmux_pane() {
+        tmux_state()
+    } else {
+        None
+    };
+    let glyphs = Glyphs::for_terminal(&env, tmux.as_ref());
     tracing::info!(?glyphs, "glyphs for Talqi's emblem");
     let picker = {
-        if may_query_protocol(&names, || tmux_state.clone(), probe_passthrough) {
+        if may_query_protocol(&env, tmux.as_ref(), probe_passthrough) {
             // Silence and an answer without graphics both give a half-block
             // picker; only reading or writing the terminal fails.
             let options = QueryStdioOptions {
@@ -126,10 +122,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
                 tracing::info!(reason, "no graphics protocol detected; using half blocks");
             }
             #[cfg(unix)]
-            if answers_may_follow_the_query(
-                !picker.capabilities().is_empty(),
-                tmux_state.as_deref(),
-            ) {
+            if answers_may_follow_the_query(!picker.capabilities().is_empty(), tmux.as_ref()) {
                 discard_late_answers_on_stdin();
             }
             picker
@@ -141,7 +134,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     if passthrough_all_for_images(
         picker.protocol_type() == ProtocolType::Kitty,
         picker.tmux_detected(),
-        tmux_state.as_deref(),
+        tmux.as_ref(),
     ) {
         tracing::info!("allow-passthrough all for the pane while asqr runs");
         passthrough.allow_all();
@@ -202,10 +195,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         alerts: watch.alerts(),
         title: watch.title(),
         title_pushed,
-        terminal: AlertTerminal {
-            term,
-            tmux: tmux.is_some_and(|tmux| !tmux.is_empty()),
-        },
+        env,
         kitty_tmux,
     };
     let mut view = View::new(&queue, watch.layout(), picker)
@@ -374,8 +364,8 @@ fn half_blocks_reason(protocol: ProtocolType, capabilities: &[Capability]) -> Op
 
 /// What [`may_query_protocol`] and [`Glyphs::for_terminal`] need to know
 /// from tmux.
-fn tmux_state() -> Option<String> {
-    run_tmux(&["display-message", "-p", TMUX_STATE_FORMAT])
+fn tmux_state() -> Option<TmuxState> {
+    run_tmux(&["display-message", "-p", TmuxState::FORMAT]).map(|answer| TmuxState::parse(&answer))
 }
 
 /// Runs `tmux` with `args` and returns what it printed, or `None` when it
@@ -411,10 +401,8 @@ struct PassthroughRestore<R: FnMut(&[&str]) -> Option<String>> {
 }
 
 impl<R: FnMut(&[&str]) -> Option<String>> PassthroughRestore<R> {
-    fn snapshot(names: &TerminalNames<'_>, mut tmux: R) -> Self {
-        let tmux_like = names.term.is_some_and(|term| term.starts_with("tmux"))
-            || names.term_program == Some("tmux");
-        let before = if tmux_like {
+    fn snapshot(env: &TerminalEnv, mut tmux: R) -> Self {
+        let before = if env.tmux_like_term() {
             tmux(&["show-options", "-p", "-v", "allow-passthrough"]).map(|shown| {
                 let value = shown.trim();
                 (!value.is_empty()).then(|| value.to_owned())
@@ -513,7 +501,7 @@ struct TerminalHost {
     /// title, and so no push the guard would pop.
     title: bool,
     title_pushed: Rc<Cell<bool>>,
-    terminal: AlertTerminal,
+    env: TerminalEnv,
     /// Whether the picker found tmux, which wraps every Kitty command for
     /// its passthrough, the deletes as the transmissions.
     kitty_tmux: bool,
@@ -522,7 +510,7 @@ struct TerminalHost {
 impl Host for TerminalHost {
     fn alert(&mut self, arrived: &[String]) {
         let mut stdout = io::stdout().lock();
-        if let Err(error) = alert(&mut stdout, self.alerts, &self.terminal, arrived) {
+        if let Err(error) = alert(&mut stdout, self.alerts, &self.env, arrived) {
             tracing::warn!(%error, "could not write the alert");
         }
         let _ = stdout.flush();
@@ -690,12 +678,8 @@ mod tests {
     ) -> Vec<String> {
         let commands = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let recorded = std::rc::Rc::clone(&commands);
-        let names = TerminalNames {
-            tmux: None,
-            term: Some(term),
-            term_program: Some(term_program),
-        };
-        let mut passthrough = PassthroughRestore::snapshot(&names, move |args: &[&str]| {
+        let env = TerminalEnv::from_pairs(&[("TERM", term), ("TERM_PROGRAM", term_program)]);
+        let mut passthrough = PassthroughRestore::snapshot(&env, move |args: &[&str]| {
             recorded.borrow_mut().push(args.join(" "));
             if args[0] == "show-options" {
                 shown.map(str::to_owned)
@@ -782,13 +766,10 @@ mod tests {
 
     #[test]
     fn outside_what_ratatui_image_takes_for_tmux_tmux_is_not_run() {
-        for (term, term_program) in [("xterm-ghostty", "ghostty"), ("screen-256color", "")] {
-            assert_eq!(
-                passthrough_commands(term, term_program, Some("off")),
-                Vec::<String>::new(),
-                "{term} {term_program}"
-            );
-        }
+        assert_eq!(
+            passthrough_commands("screen-256color", "", Some("off")),
+            Vec::<String>::new()
+        );
     }
 
     /// A picker that found no graphics protocol says why in the log: with

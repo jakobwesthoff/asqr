@@ -7,6 +7,8 @@
 
 use std::io::{self, Write};
 
+use crate::terminal_env::{TerminalEnv, passthrough};
+
 /// Which alerts are on; `--no-notify` and `--no-bell` switch them off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Alerts {
@@ -14,23 +16,16 @@ pub struct Alerts {
     pub bell: bool,
 }
 
-/// What the environment says about the terminal the alerts go to.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AlertTerminal {
-    /// The `TERM` variable, which picks the escape sequence.
-    pub term: Option<String>,
-    /// Whether asqr runs inside tmux (`TMUX` is set).
-    pub tmux: bool,
-}
-
-/// Writes the alerts for the sessions in `arrived` to `out`.
+/// Writes the alerts for the sessions in `arrived` to `out`, in the
+/// terminal `env` names: its `TERM` picks the escape sequence, and inside
+/// a tmux pane the notification goes through tmux's passthrough.
 pub fn alert(
     out: &mut impl Write,
     alerts: Alerts,
-    terminal: &AlertTerminal,
+    env: &TerminalEnv,
     arrived: &[String],
 ) -> io::Result<()> {
-    let term = terminal.term.as_deref();
+    let term = env.set("TERM");
     let body = match arrived {
         [] => return Ok(()),
         [id] => format!("new session {id}"),
@@ -47,15 +42,8 @@ pub fn alert(
             } else {
                 format!("\x1b]9;asqr: {body}\x07")
             };
-        if terminal.tmux {
-            // tmux hands a sequence to the outer terminal only inside its
-            // passthrough wrapper, with every escape doubled, and only
-            // with `allow-passthrough on` (spec section 7.7).
-            write!(
-                out,
-                "\x1bPtmux;{}\x1b\\",
-                sequence.replace('\x1b', "\x1b\x1b")
-            )?;
+        if env.in_tmux_pane() {
+            out.write_all(&passthrough(sequence.as_bytes()))?;
         } else {
             out.write_all(sequence.as_bytes())?;
         }
@@ -77,12 +65,9 @@ mod tests {
 
     fn written(alerts: Alerts, term: Option<&str>, arrived: &[&str]) -> String {
         let arrived: Vec<String> = arrived.iter().map(|id| (*id).to_owned()).collect();
-        let terminal = AlertTerminal {
-            term: term.map(str::to_owned),
-            tmux: false,
-        };
+        let env = TerminalEnv::from_pairs(&[("TERM", term.unwrap_or_default())]);
         let mut out = Vec::new();
-        alert(&mut out, alerts, &terminal, &arrived).expect("written");
+        alert(&mut out, alerts, &env, &arrived).expect("written");
         String::from_utf8(out).expect("UTF-8")
     }
 
@@ -139,10 +124,10 @@ mod tests {
     #[test]
     fn inside_tmux_the_notification_is_wrapped_for_passthrough() {
         let mut out = Vec::new();
-        let tmux = AlertTerminal {
-            term: Some("tmux-256color".into()),
-            tmux: true,
-        };
+        let tmux = TerminalEnv::from_pairs(&[
+            ("TERM", "tmux-256color"),
+            ("TMUX", "/tmp/tmux-501/default,1234,0"),
+        ]);
 
         alert(&mut out, ALL, &tmux, &["batch-01".to_owned()]).expect("written");
 

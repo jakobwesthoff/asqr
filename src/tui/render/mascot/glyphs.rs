@@ -13,34 +13,30 @@
 //! even if its font has sextants.
 
 use super::template::Glyphs;
-use crate::tui::render::images::tmux_state_fields;
+use crate::terminal_env::{TerminalEnv, TmuxState};
 
 impl Glyphs {
-    /// The glyphs for the terminal asqr runs in, decided once at start.
-    /// `var` reads an environment variable, and `tmux_state` is what tmux
-    /// said about the pane in the format of
-    /// [`TMUX_STATE_FORMAT`](crate::tui::render::TMUX_STATE_FORMAT), if
-    /// asqr runs inside tmux and tmux answered.
+    /// The glyphs for the terminal asqr runs in, decided once at start
+    /// from `env` and from what tmux said about the pane, if asqr runs in
+    /// a tmux pane and tmux answered.
     ///
     /// Inside tmux, the environment holds what the terminal tmux was
     /// started from set, which may be another than the one a client
     /// attached from later. tmux knows the client's terminal by its
     /// answer to XTVERSION, so that answer decides there. Without one,
     /// as without tmux's answer, the emblem is drawn in quadrants.
-    pub fn for_terminal(var: impl Fn(&str) -> Option<String>, tmux_state: Option<&str>) -> Glyphs {
-        let set = |name: &str| var(name).filter(|value| !value.is_empty());
-        if set("TMUX").is_none() {
-            return Glyphs::from_env(set);
+    pub fn for_terminal(env: &TerminalEnv, tmux: Option<&TmuxState>) -> Glyphs {
+        if !env.in_tmux_pane() {
+            return Glyphs::from_env(env);
         }
-        tmux_state
-            .and_then(|state| tmux_state_fields(state).nth(2))
+        tmux.and_then(TmuxState::termtype)
             .map_or(Glyphs::Quadrant, Glyphs::from_xtversion)
     }
 
-    /// The glyphs for the terminal the environment names through `set`,
-    /// which reads a variable that is set and not empty. The first rule
-    /// that names a terminal decides.
-    fn from_env(set: impl Fn(&str) -> Option<String>) -> Glyphs {
+    /// The glyphs for the terminal `env` names. The first rule that names
+    /// a terminal decides.
+    fn from_env(env: &TerminalEnv) -> Glyphs {
+        let set = |name: &str| env.set(name).map(str::to_owned);
         let term = set("TERM").unwrap_or_default();
         let term_program = set("TERM_PROGRAM");
         let version = || set("TERM_PROGRAM_VERSION").unwrap_or_default();
@@ -175,12 +171,8 @@ mod tests {
     /// The glyphs for a terminal whose environment holds `vars`, where
     /// tmux said `state` about the pane.
     fn inside_tmux(vars: &[(&str, &str)], state: Option<&str>) -> Glyphs {
-        let var = |name: &str| {
-            vars.iter()
-                .find(|(set, _)| *set == name)
-                .map(|(_, value)| (*value).to_owned())
-        };
-        Glyphs::for_terminal(var, state)
+        let state = state.map(TmuxState::parse);
+        Glyphs::for_terminal(&TerminalEnv::from_pairs(vars), state.as_ref())
     }
 
     use Glyphs::{Quadrant, Sextant};
@@ -385,11 +377,6 @@ mod tests {
             assert_eq!(inside_tmux(vars, None), Quadrant, "{vars:?}");
             assert_eq!(inside_tmux(vars, Some(&state(""))), Quadrant, "{vars:?}");
         }
-        assert_eq!(
-            inside_tmux(&[("TMUX", ""), ("TERM", "xterm-kitty")], None),
-            Sextant,
-            "an empty TMUX counts as unset"
-        );
     }
 
     /// The terminal of the client tmux draws for, by its answer to
