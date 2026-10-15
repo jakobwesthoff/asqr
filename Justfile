@@ -18,20 +18,14 @@ clippy:
     cargo clippy --all-targets --all-features -- -D warnings
 
 # `--all-targets` leaves out doctests, so they run as a second step.
-#
-# The tests build ratatui-image pickers, and every picker built inside tmux
-# runs `tmux set -p allow-passthrough on` on the pane the tests run in,
-# which nothing sets back. A plain TERM and an empty TERM_PROGRAM keep
-# ratatui-image from seeing tmux.
 test:
-    TERM=xterm-256color TERM_PROGRAM= cargo test --all-targets
-    TERM=xterm-256color TERM_PROGRAM= cargo test --doc
+    cargo test --all-targets
+    cargo test --doc
 
 # Coverage is reported, not enforced (ADR 21): review checks that every
-# change is covered. CI runs it on every push. The environment is the
-# test recipe's, for the same reason.
+# change is covered. CI runs it on every push.
 coverage:
-    TERM=xterm-256color TERM_PROGRAM= cargo llvm-cov --all-targets --summary-only
+    cargo llvm-cov --all-targets --summary-only
 
 # Run once per clone: points git at the versioned hooks in .githooks/ and
 # names the tools the pipeline needs but cannot find.

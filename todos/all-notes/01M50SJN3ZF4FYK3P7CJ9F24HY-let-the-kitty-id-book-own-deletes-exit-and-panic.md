@@ -2,7 +2,6 @@
 title: "Let the Kitty id book own deletes, exit and panic"
 kind: refactor
 component: tui
-status: blocked
 origin: review
 ---
 # Let the Kitty id book own deletes, exit and panic
@@ -76,7 +75,3 @@ Review round 6 on main `f853114` (logbook ledger, OA16, OA17, FA):
   is restored during unwinding, after the hook. The ADR text says so.
 - The focus-repeat state is needed only for `Passthrough::WhileVisible`;
   under `Always` `after_frame` skips it.
-
-## Relations
-
-- Depends on: [Gather image handling into a graphics module around an asqr-owned Graphics value](01M50SJN3A7R62BKXYG89R29PA-gather-image-handling-into-a-graphics-module-around-an-asqr-owned.md)

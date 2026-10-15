@@ -175,11 +175,12 @@ impl Images {
         let decoded = ::image::ImageReader::open(path)?
             .with_guessed_format()?
             .decode()?;
-        Ok(self.encode(decoded))
+        Ok(self.image(decoded))
     }
 
-    /// Makes an image of `picture`, which is decoded already.
-    pub fn encode(&self, picture: DynamicImage) -> Image {
+    /// Makes an image of `picture`, which is decoded already. It is
+    /// encoded when it is laid out.
+    pub fn image(&self, picture: DynamicImage) -> Image {
         Image::new(self, picture)
     }
 

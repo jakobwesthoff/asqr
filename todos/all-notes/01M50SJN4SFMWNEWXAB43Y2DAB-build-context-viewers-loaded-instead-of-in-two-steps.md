@@ -2,7 +2,6 @@
 title: "Build context viewers loaded instead of in two steps"
 kind: refactor
 component: tui
-status: blocked
 origin: review
 ---
 # Build context viewers loaded instead of in two steps
@@ -29,7 +28,3 @@ encoder. Do it after the graphics module todo, so the image viewer takes
 After the graphics module, `ImageViewer::new` decodes the file and
 `lay_out` encodes for the size (FA8), which is the shape the `Viewer`
 trait describes; this todo then only removes the separate `load` step.
-
-## Relations
-
-- Depends on: [Gather image handling into a graphics module around an asqr-owned Graphics value](01M50SJN3A7R62BKXYG89R29PA-gather-image-handling-into-a-graphics-module-around-an-asqr-owned.md)

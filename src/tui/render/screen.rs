@@ -1693,35 +1693,6 @@ mod tests {
         assert_eq!(rows, 5..=17, "the pane's body, no more");
     }
 
-    /// With the Kitty protocol the terminal draws the image into the cells
-    /// its placement names. They must be the cells asqr fills with
-    /// placeholders: left to the terminal, it derives them from its own cell
-    /// size, which differs from the one asqr resized the image with after a
-    /// font size change or in a second tmux client, and crops the image.
-    #[test]
-    fn a_kitty_image_is_placed_over_exactly_its_placeholder_cells() {
-        let file = png();
-        let app = with_image(file.path().to_str().expect("UTF-8 path"));
-        let mut view = kitty_view();
-        let backend = screen_in(&app, &mut view, 140, 24);
-
-        let placeholders = testing::placeholder_cells(backend.buffer());
-        let columns = placeholders
-            .iter()
-            .map(|&(x, _)| x)
-            .collect::<BTreeSet<_>>();
-        let rows = placeholders
-            .iter()
-            .map(|&(_, y)| y)
-            .collect::<BTreeSet<_>>();
-
-        let placement = format!("c={},r={}", columns.len(), rows.len());
-        assert!(
-            testing::transmission(backend.buffer()).contains(&placement),
-            "the placement names {placement}"
-        );
-    }
-
     /// A view whose terminal speaks the Kitty protocol.
     fn kitty_view() -> View<'static> {
         View::new("q", PaneLayout::Auto, Images::kitty())

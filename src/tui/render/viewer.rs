@@ -19,7 +19,7 @@ use crate::format::ContextEntry;
 use crate::graphics::{Graphics, Image, Images};
 use crate::tui::{EntryKey, Offset};
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Rect, Size};
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -296,9 +296,10 @@ struct Picture {
 }
 
 impl Viewer for Picture {
-    /// The image never gets larger than the body, so the body is all the
-    /// room it needs, and it never scrolls.
+    /// Encodes the image for the body. It never gets larger than the
+    /// body, so the body is all the room it needs, and it never scrolls.
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
+        self.image.lay_out(Size::new(width, height), self.enlarge);
         ContentSize {
             lines: usize::from(height),
             columns: usize::from(width),
@@ -307,7 +308,7 @@ impl Viewer for Picture {
 
     /// The offset of an image is always zero, as it never scrolls.
     fn draw(&mut self, area: Rect, buf: &mut Buffer, _offset: Offset) {
-        self.image.draw(area, buf, self.enlarge);
+        self.image.draw(area, buf);
     }
 }
 

@@ -73,6 +73,16 @@ Amends [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-i
 
 - Outside `graphics`, the binary's start is the only code that sees
   ratatui-image's picker.
+- A test run runs no `tmux` command, also in a terminal that names
+  tmux, and the `just test` and `just coverage` recipes set no `TERM` of
+  their own. Checked on 2026-10-16 with a stand-in `tmux` that notes its
+  calls first on the path and `TERM=tmux-256color`: the whole test run
+  called it 0 times, where the library's tests before this change
+  called `tmux set -p allow-passthrough on` 272 times. The comparison
+  with the picker checks nothing in such a terminal.
+- An image is decoded when its viewer loads and encoded for the body's
+  size when the viewer is laid out, once per size, with ratatui-image's
+  fixed-size protocols. A failed encoding drops the decoded picture.
 - Under half blocks and the Kitty protocol, closing an overlay over an
   image no longer redraws the whole screen. Outside tmux with `on`,
   regaining the focus no longer reads the images again or writes the

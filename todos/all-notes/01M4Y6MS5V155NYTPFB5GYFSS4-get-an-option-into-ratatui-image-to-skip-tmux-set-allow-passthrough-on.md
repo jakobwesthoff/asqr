@@ -18,8 +18,8 @@ on, if one is running, and changes an option of a pane that has nothing
 to do with asqr. `PanePassthrough` (`src/graphics/detect.rs`) reads
 the pane's value before the picker is built and puts it back
 afterwards, so the change lasts only while the query runs, and stays
-when asqr is killed during it. A `cargo test` run inside tmux without the test
-recipe's `TERM` sets the test's pane to `on` once per picker.
+when asqr is killed during it. The tests build no `Picker` in a
+terminal that names tmux (ADR 45), so a test run leaves the pane alone.
 
 asqr builds a `Picker` only where it queries the terminal; where it
 skips the query it takes half blocks without one, and no `tmux set`

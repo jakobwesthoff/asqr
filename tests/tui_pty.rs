@@ -435,7 +435,11 @@ fn sigterm_sigint_and_sighup_quit_and_give_the_terminal_back() {
     for signal in ["TERM", "INT", "HUP"] {
         let sandbox = Sandbox::new();
         let dir = sandbox.queue_dir();
-        let mut tui = Tui::start(&sandbox, &["--dir", dir.to_str().expect("UTF-8")], "off 1");
+        let mut tui = Tui::start(
+            &sandbox,
+            &["--dir", dir.to_str().expect("UTF-8")],
+            "off\t1\t",
+        );
         tui.wait_for("Nothing to answer");
         let pid = tui.child.process_id().expect("asqr runs");
 
@@ -584,6 +588,42 @@ fn an_answer_after_the_query_gave_up_picks_no_option() {
     assert!(
         !sandbox.queue_dir().join("outbox/pty-test.json").exists(),
         "nothing answered"
+    );
+}
+
+/// Over ssh from a tmux pane, `TERM` names tmux and `TMUX` is not there:
+/// asqr cannot ask that tmux, and asks the terminal for its graphics
+/// protocol at once, through tmux's passthrough. Only the query asks for a
+/// status report.
+#[test]
+fn over_ssh_from_a_tmux_pane_the_terminal_is_queried_through_the_passthrough() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+        PASSTHROUGH_ON,
+        &[
+            ("TMUX", ""),
+            ("TERM", "tmux-256color"),
+            ("TERM_PROGRAM", "pty-test"),
+            ("WEZTERM_EXECUTABLE", ""),
+        ],
+    );
+
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("Nothing to answer");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let output = tui.output();
+    assert!(output.contains("\x1bPtmux;"), "wrapped: {output:?}");
+    assert_eq!(output.matches("[5n").count(), 1, "{output:?}");
+    let commands =
+        std::fs::read_to_string(sandbox.home().join(TMUX_COMMANDS)).expect("tmux was run");
+    assert!(
+        !commands.contains("display-message"),
+        "that tmux is not asked: {commands}"
     );
 }
 
