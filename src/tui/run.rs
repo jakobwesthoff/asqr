@@ -388,7 +388,15 @@ mod tests {
         let result = harness.result("batch-01");
         assert_eq!(result.status, Status::Submitted);
         assert_eq!(result.answers[0].selected, ["b"]);
-        assert!(harness.screen().contains("Nothing to answer"));
+        // The confirmation stays in the status line, above the key bar,
+        // over the empty queue.
+        let screen = harness.screen();
+        let rows: Vec<&str> = screen.lines().collect();
+        assert!(screen.contains("Nothing to answer"), "{screen}");
+        assert!(
+            rows[rows.len() - 2].starts_with("✔ sent \"batch-01\" · 1 answered, 0 skipped"),
+            "{screen}"
+        );
     }
 
     #[test]

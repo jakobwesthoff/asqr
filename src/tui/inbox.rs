@@ -267,6 +267,15 @@ impl Inbox {
             return;
         }
 
+        // The confirmation is worded before the finish, as `forget` takes
+        // the session's state, and with it its title and counts, out of
+        // the app.
+        let confirmation = app
+            .sessions()
+            .iter()
+            .find(|state| same_session_id(state.id(), id))
+            .map(|state| confirmation(state, &outcome));
+
         let at = now_rfc3339();
         let result = match outcome {
             Outcome::Submitted { answers, note } => {
@@ -280,9 +289,36 @@ impl Inbox {
             Ok(()) => {
                 tracing::info!(%id, status = ?result.status, "finished a session");
                 self.forget(app, id);
+                // Only a key or a paste clears a notice, so the
+                // confirmation stays over the next session or the empty
+                // queue (ADR 38).
+                if let Some((tone, text)) = confirmation {
+                    app.notice(tone, text);
+                }
             }
             Err(error) => app.notice(Tone::Error, format!("cannot finish {id}: {error}")),
         }
+    }
+}
+
+/// The status line's word that `state` was finished as `outcome`, since
+/// the session leaves the screen at once (spec section 7.4). A sent
+/// session is a success and counts its answers as the review showed
+/// them; a rejected one is plain news (ADR 38).
+fn confirmation(state: &SessionState, outcome: &Outcome) -> (Tone, String) {
+    let name = state.name();
+    match outcome {
+        Outcome::Submitted { .. } => {
+            let counts = state.counts();
+            (
+                Tone::Success,
+                format!(
+                    "✔ sent \"{name}\" · {} answered, {} skipped",
+                    counts.answered, counts.skipped
+                ),
+            )
+        }
+        Outcome::Rejected(_) => (Tone::Info, format!("✗ rejected \"{name}\"")),
     }
 }
 
@@ -296,6 +332,7 @@ mod tests {
     use super::*;
     use crate::format::{Answer, Status};
     use crate::queue::{drop_session, parse_archive_name};
+    use crate::tui::Notice;
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
@@ -707,6 +744,78 @@ mod tests {
 
         assert_eq!(result(&location, "batch").status, Status::Cancelled);
         assert!(app.sessions().is_empty());
+    }
+
+    /// A titled session with two questions, so the confirmation of a
+    /// submit can name the title and count an answer and a skip.
+    const RELEASE: &str = r#"{"asqr": 2, "title": "Release 0.2.0", "questions": [
+        {"id": "q", "text": "?", "kind": "single",
+         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]},
+        {"id": "r", "text": "?", "kind": "single",
+         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
+
+    #[test]
+    fn a_submit_confirms_the_session_with_its_title_and_counts() {
+        let (_scratch, location) = queue();
+        put(&location, "release.json", RELEASE);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        // `2` answers the first question and moves on to the second,
+        // which `→` leaves unanswered for the review and its Submit row.
+        for key in [
+            key('2'),
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        ] {
+            let effect = app.handle(key);
+            inbox.apply(&mut app, effect);
+        }
+
+        assert_eq!(result(&location, "release").status, Status::Submitted);
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(
+                Tone::Success,
+                "✔ sent \"Release 0.2.0\" · 1 answered, 1 skipped"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_reject_confirms_the_session_by_its_id_without_a_title() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        answer_and(&mut app, &mut inbox, true);
+
+        assert_eq!(result(&location, "batch").status, Status::Cancelled);
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(Tone::Info, "✗ rejected \"batch\""))
+        );
+    }
+
+    #[test]
+    fn the_confirmation_stays_over_the_next_session_until_a_key() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        put(&location, "next.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        answer_and(&mut app, &mut inbox, false);
+        // The watcher syncs again after the finish moved the file.
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(ids(&app), ["next"]);
+        assert_notice(&app, Tone::Success, |text| {
+            text.starts_with("✔ sent \"batch\"")
+        });
+        app.handle(key('j'));
+        assert_eq!(app.current_notice(), None);
     }
 
     #[test]

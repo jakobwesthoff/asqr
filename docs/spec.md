@@ -958,7 +958,18 @@ and defaulted questions, the numbers bold and the words dim, then:
 
 After a submit or reject the session after it in the queue takes over,
 or the one before when it was the last, or the empty screen when none
-is left.
+is left. A notice confirms what was written, with the session's title,
+or its id for a session without a title:
+
+    ✔ sent "Release 0.2.0" · 1 answered, 2 skipped
+    ✗ rejected "Release 0.2.0"
+
+The counts are those the review showed, a default counted as answered.
+The line for a sent session is a success, the one for a rejected session
+information (section 7.5). Like every notice, it stays until the next
+key or paste, also over the next session and over the empty screen. A
+submit or reject that does not finish (section 3.7) keeps the session
+and shows its own notice instead.
 
 ### 7.5 Sessions and notifications
 
@@ -1010,8 +1021,8 @@ is left.
     an unread result, an invalid session answered with an error, or a
     submit not sent because the file changed on disk;
   - information, the text colour: plain news, such as a session file
-    reloaded after it changed;
-  - success, green: a session was sent.
+    reloaded after it changed, or a session rejected;
+  - success, green: a session was sent (section 7.4).
 
 ### 7.6 Markdown
 

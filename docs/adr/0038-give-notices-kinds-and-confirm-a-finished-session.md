@@ -50,10 +50,32 @@ By that rule:
   because the file changed on disk, and every refused key or paste
   (`o` without an image, a pick past `max`, `n` on a question without
   notes, a paste where no field takes it).
-- **Info:** a session file that changed on disk and was reloaded.
+- **Info:** a session file that changed on disk and was reloaded, and
+  a session that was rejected.
+- **Success:** a session that was sent.
 
 When a submit finds the file changed and the inbox then cannot be read,
 the error replaces the warning, as the status line holds one notice.
+
+### Confirming a finished session
+
+A submitted or rejected session leaves the screen at once, and the next
+session or the empty queue takes its place. Once the result is written,
+a notice says so, with the session's title, or its id when it has none:
+
+    ✔ sent "Release 0.2.0" · 1 answered, 2 skipped
+    ✗ rejected "Release 0.2.0"
+
+The user chose this format on 2026-10-15, with the sent line in the
+success colour and the rejected line neutral, so the sent line is a
+success and the rejected line information. The counts are the review's
+answered and skipped questions. A submit or reject that does not finish
+shows its error or warning instead.
+
+The user decided on 2026-10-15 that the confirmation stays until the
+next key or paste, also over the next session and over the empty queue.
+A notice is cleared by a key or a paste alone, so reading the inbox
+again after the finish keeps it.
 
 ## Consequences
 
