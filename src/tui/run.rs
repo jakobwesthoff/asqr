@@ -144,10 +144,12 @@ where
             // The caller gives the terminal back, as after `q`.
             Event::Quit => return Ok(()),
             // Coming back into view is when a transfer lost in the
-            // background can be repeated.
+            // background can be repeated, where one can be lost at all.
             Event::FocusGained => {
-                view.forget_images();
-                focus_regained = true;
+                if view.resends_on_focus() {
+                    view.forget_images();
+                    focus_regained = true;
+                }
                 continue;
             }
             // The inbox coming back or not is out of asqr's hands; the
@@ -193,8 +195,8 @@ mod tests {
 
     use super::*;
     use crate::format::{SessionResult, Status};
-    use crate::graphics::Images;
     use crate::graphics::testing::kitty_ids_on_screen;
+    use crate::graphics::{Graphics, Images, Passthrough, Protocol};
     use crate::tui::render::PaneLayout;
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
@@ -696,8 +698,11 @@ mod tests {
         })
     }
 
+    /// Half blocks are drawn into the cells with every frame, and no
+    /// transfer of theirs can be lost, so regaining the focus reads
+    /// nothing again.
     #[test]
-    fn gaining_focus_sends_the_images_again() {
+    fn gaining_focus_keeps_half_block_images() {
         let red: fn(u8, u8, u8) -> bool = |r, g, b| r > 0 && g == 0 && b == 0;
         let blue: fn(u8, u8, u8) -> bool = |r, g, b| r == 0 && g == 0 && b > 0;
         let mut harness = Harness::new();
@@ -718,21 +723,65 @@ mod tests {
             .expect("runs");
         assert!(shows_hue(&harness.terminal, red), "{}", harness.screen());
 
-        // A changed file makes a new transfer visible: the image as loaded
-        // stays in use until focus comes back.
+        // A changed file would show a new read: the image as loaded stays
+        // in use.
         paint([0, 0, 255]);
         harness
-            .run_with_view(&mut app, &mut inbox, &mut view, vec![Event::Resize])
+            .run_with_view(
+                &mut app,
+                &mut inbox,
+                &mut view,
+                vec![Event::Resize, Event::FocusGained],
+            )
             .expect("runs");
-        assert!(
-            shows_hue(&harness.terminal, red),
-            "a redraw alone reuses the image"
-        );
+        assert!(shows_hue(&harness.terminal, red), "{}", harness.screen());
+        assert!(!shows_hue(&harness.terminal, blue), "{}", harness.screen());
+    }
 
-        harness
-            .run_with_view(&mut app, &mut inbox, &mut view, vec![Event::FocusGained])
-            .expect("runs");
-        assert!(shows_hue(&harness.terminal, blue), "{}", harness.screen());
+    /// Only tmux with `allow-passthrough on` drops a Kitty transfer, while
+    /// asqr's pane is hidden. There the images are read and sent again
+    /// under new ids when asqr regains the focus; elsewhere the terminal
+    /// still has them, and they stay as they are (ADR 24).
+    #[test]
+    fn gaining_focus_sends_kitty_images_again_only_where_tmux_drops_them() {
+        for (passthrough, again) in [
+            (Passthrough::WhileVisible, true),
+            (Passthrough::None, false),
+            (Passthrough::Always, false),
+        ] {
+            let mut watched = Watched::new();
+            watched.put("a", PICTURE, [255, 0, 0]);
+            let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+            let mut view = View::new("test", PaneLayout::Auto, Images::kitty_through(passthrough));
+
+            watched.run(&mut app, &mut inbox, &mut view, vec![Event::FocusGained]);
+
+            let shown: Vec<BTreeSet<u32>> = watched
+                .steps()
+                .into_iter()
+                .filter_map(|step| match step {
+                    Step::Frame(shown) => Some(shown),
+                    _ => None,
+                })
+                .collect();
+            let expected = if again { [1, 2] } else { [1, 1] };
+            assert_eq!(
+                shown,
+                expected.map(|id| BTreeSet::from([id])),
+                "{passthrough:?}"
+            );
+            let deleted: Vec<Step> = watched
+                .steps()
+                .into_iter()
+                .filter(|step| matches!(step, Step::Deleted(_)))
+                .collect();
+            let expected = if again {
+                vec![Step::Deleted(vec![1])]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(deleted, expected, "{passthrough:?}");
+        }
     }
 
     #[test]
@@ -852,12 +901,13 @@ mod tests {
         }
     }
 
-    /// The clears and frames of a run over `events` with `session` waiting.
-    fn logged(session: &str, events: Vec<Event>) -> Vec<&'static str> {
+    /// The clears and frames of a run over `events` with `session` waiting,
+    /// its images made by `images`.
+    fn logged(session: &str, images: Images, events: Vec<Event>) -> Vec<&'static str> {
         let harness = Harness::new();
         fs::write(harness.location.inbox().join("s.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::new("test", PaneLayout::Auto, images);
         let log = Log::default();
         let mut terminal = Terminal::new(Logging {
             backend: TestBackend::new(80, 24),
@@ -898,14 +948,39 @@ mod tests {
             ("session list", key(KeyCode::Char('L')), key(KeyCode::Esc)),
         ];
 
-        for (overlay, open, close) in overlays {
-            let log = logged(&session, vec![open, close, Event::Resize]);
+        for protocol in [Protocol::Sixel, Protocol::Iterm2] {
+            for (overlay, open, close) in overlays.clone() {
+                let images = Images::new(Graphics {
+                    protocol,
+                    ..Graphics::HALF_BLOCKS
+                });
+                let log = logged(&session, images, vec![open, close, Event::Resize]);
 
-            assert_eq!(
-                log,
-                ["frame", "frame", "clear", "frame", "frame"],
-                "{overlay}: the first frame without it is drawn afresh, and only that one"
+                assert_eq!(
+                    log,
+                    ["frame", "frame", "clear", "frame", "frame"],
+                    "{protocol:?}, {overlay}: the first frame without it is drawn afresh, \
+                     and only that one"
+                );
+            }
+        }
+    }
+
+    /// Half blocks and the Kitty protocol leave no cell to ratatui that it
+    /// would skip, so the frame after the overlay writes the cells it
+    /// covered again.
+    #[test]
+    fn closing_an_overlay_over_a_half_block_or_kitty_image_keeps_the_screen() {
+        for images in [Images::half_blocks(), Images::kitty()] {
+            let protocol = images.graphics().protocol;
+
+            let log = logged(
+                SESSION,
+                images,
+                vec![key(KeyCode::Char('?')), key(KeyCode::Char('x'))],
             );
+
+            assert_eq!(log, ["frame", "frame", "frame"], "{protocol:?}");
         }
     }
 
@@ -915,9 +990,14 @@ mod tests {
             r#"{"type": "image", "path": "/nowhere/cat.png"}"#,
             r#"{"type": "code", "content": "fn main() {}"}"#,
         );
+        let sixel = Images::new(Graphics {
+            protocol: Protocol::Sixel,
+            ..Graphics::HALF_BLOCKS
+        });
 
         let log = logged(
             &session,
+            sixel,
             vec![key(KeyCode::Char('?')), key(KeyCode::Char('x'))],
         );
 
@@ -1075,7 +1155,11 @@ mod tests {
         watched.put("a", PICTURE, [255, 0, 0]);
         watched.put("b", PICTURE, [0, 0, 255]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
+        let mut view = View::new(
+            "test",
+            PaneLayout::Auto,
+            Images::kitty_through(Passthrough::WhileVisible),
+        );
         let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
 
         watched.run(app, inbox, view, vec![Event::Resize, Event::FocusGained]);
@@ -1162,7 +1246,11 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("a", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
+        let mut view = View::new(
+            "test",
+            PaneLayout::Auto,
+            Images::kitty_through(Passthrough::WhileVisible),
+        );
         let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
 
         watched.run(app, inbox, view, vec![]);

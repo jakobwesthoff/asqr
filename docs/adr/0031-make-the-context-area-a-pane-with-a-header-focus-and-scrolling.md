@@ -20,6 +20,10 @@ Amended by [34. Show code and Markdown entries through patine](0034-show-code-an
 
 Amended by [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md)
 
+Amended by [45. Keep image handling in a graphics module around an asqr-owned value](0045-keep-image-handling-in-a-graphics-module-around-an-asqr-owned-value.md):
+the screen is cleared after an overlay closes over an image entry only
+under Sixel and iTerm2
+
 ## Context
 
 ADR 30 placed the context area beside or below the question. It drew an

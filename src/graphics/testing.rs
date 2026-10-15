@@ -17,7 +17,7 @@ use ratatui::widgets::Widget;
 use ratatui_image::protocol::Protocol as Encoded;
 use ratatui_image::protocol::kitty::Kitty;
 
-use super::{Graphics, Images, Protocol};
+use super::{Graphics, Images, Passthrough, Protocol};
 
 impl Graphics {
     /// The Kitty protocol outside tmux, with cells of 10×20 pixels.
@@ -36,6 +36,15 @@ impl Images {
     /// Images under the Kitty protocol, whose ids are 1, 2, 3 and so on.
     pub(crate) fn kitty() -> Self {
         Images::counting(Graphics::KITTY)
+    }
+
+    /// Like [`Images::kitty`], where tmux passes on what `passthrough`
+    /// says.
+    pub(crate) fn kitty_through(passthrough: Passthrough) -> Self {
+        Images::counting(Graphics {
+            passthrough,
+            ..Graphics::KITTY
+        })
     }
 
     /// Images for `graphics` whose Kitty ids are 1, 2, 3 and so on.

@@ -14,6 +14,10 @@ Amended by [30. Cap the question at a reading width and place context by the ter
 
 Amended by [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md)
 
+Amended by [45. Keep image handling in a graphics module around an asqr-owned value](0045-keep-image-handling-in-a-graphics-module-around-an-asqr-owned-value.md):
+the library takes the detected protocol as asqr's own value, not as a
+`Picker`
+
 ## Context
 
 The person answering has to get through many questions fast, often with

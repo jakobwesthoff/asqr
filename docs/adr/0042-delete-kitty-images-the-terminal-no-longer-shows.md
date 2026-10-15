@@ -13,6 +13,10 @@ Amended by [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kit
 inside tmux 3.4 or later, the deletes on quitting from a hidden pane
 reach the terminal
 
+Amended by [45. Keep image handling in a graphics module around an asqr-owned value](0045-keep-image-handling-in-a-graphics-module-around-an-asqr-owned-value.md):
+the deletes since the last focus gain are written again only where the
+images are sent again on regaining the focus
+
 ## Context
 
 The adversarial review of the redesign on 2026-10-15 found that copies

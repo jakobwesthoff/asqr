@@ -16,7 +16,7 @@ use super::source_file::{Unreadable, regular_file};
 use super::theme;
 use super::wrap::wrap;
 use crate::format::ContextEntry;
-use crate::graphics::{Image, Images};
+use crate::graphics::{Graphics, Image, Images};
 use crate::tui::{EntryKey, Offset};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -153,6 +153,11 @@ impl Viewers {
             }
         };
         (kept.viewer.as_mut(), size)
+    }
+
+    /// The graphics the images are made for.
+    pub fn graphics(&self) -> Graphics {
+        self.images.graphics()
     }
 
     /// Drops every image viewer, so each image is read and sent to the
@@ -370,7 +375,7 @@ mod tests {
 
     use super::super::test_support::{self, row};
     use super::*;
-    use crate::graphics::{Graphics, Protocol};
+    use crate::graphics::Protocol;
 
     fn entry(json: &str) -> ContextEntry {
         serde_json::from_str(json).expect("test entry parses")

@@ -8,6 +8,14 @@ Accepted
 
 Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
+Amends [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md)
+
+Amends [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
+
+Amends [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-images-the-terminal-no-longer-shows.md)
+
+Amends [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-images-through-tmux-from-a-hidden-pane.md)
+
 ## Context
 
 - ADR 8 has the library take the detected image protocol as
@@ -22,9 +30,14 @@ Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 - The image code lived in one file of the screen's module, next to
   terminal detection, while the other half of detection, the snapshot
   and restore of the pane's `allow-passthrough`, lived in the binary.
+- The screen was cleared after an overlay closed over an image under
+  every protocol, although ADR 31 names Sixel and iTerm2 as the reason,
+  and the images were read and sent again on every focus gain, although
+  ADR 24 names Kitty transfers that tmux with `on` drops.
 - The architecture review of 2026-10-16 proposed a module of its own
-  around an asqr-owned value; the lead decided to do it after the move
-  to 12.0.0-rc.2.
+  around an asqr-owned value, and keying both policies on the protocol
+  and the passthrough; the lead decided to do it after the move to
+  12.0.0-rc.2.
 
 ## Decision
 
@@ -37,6 +50,16 @@ Amends [8. TUI interaction model](0008-tui-interaction-model.md)
   passthrough that holds for the run, and whether the terminal inflates
   compressed Kitty transmissions. The binary builds it once from the
   picker, or takes half blocks without one.
+- The wrapping follows what ratatui-image sees: it wraps where the
+  terminal names tmux. The passthrough follows what tmux does with the
+  pane: `all` where asqr set it or found it, `on` where tmux reports
+  `on`, none outside tmux. A terminal that names tmux outside a tmux
+  pane, as after ssh from one, counts as `on`, since that tmux cannot be
+  asked (the lead's decision of 2026-10-16).
+- Two policies key on these facts: the screen is cleared after an
+  overlay over an image only where the protocol leaves skipped cells
+  (Sixel, iTerm2; ADR 31), and images are sent again on regaining the
+  focus only under the Kitty protocol with `on` (ADR 24).
 - `Images` makes the images for a `Graphics` and holds the one Kitty id
   book of the run. The binary makes it once and hands it to the view.
 - Tests build `Graphics` and `Images` directly. One test compares
@@ -50,3 +73,9 @@ Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
 - Outside `graphics`, the binary's start is the only code that sees
   ratatui-image's picker.
+- Under half blocks and the Kitty protocol, closing an overlay over an
+  image no longer redraws the whole screen. Outside tmux with `on`,
+  regaining the focus no longer reads the images again or writes the
+  deletes since the last focus gain again (ADR 42). An image file
+  changed on disk keeps showing what asqr read first, as it does
+  between focus changes.

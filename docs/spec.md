@@ -1214,17 +1214,26 @@ Images:
   answer that begins later reaches asqr as typed keys, where its digits
   can pick options.
 - An image entry is read when it is first shown and kept while its
-  session waits, until asqr's terminal gains the focus again. asqr asks
-  the terminal for focus reports; on regaining the focus it reads and
-  sends every image again as it is next shown. Code, Markdown and diff
-  entries keep what asqr derived from them (ADR 31).
+  session waits. asqr asks the terminal for focus reports. Under the
+  Kitty protocol behind a tmux pane with `allow-passthrough on`, which
+  drops a transfer while the pane is hidden, asqr reads and sends every
+  image again as it is next shown once its terminal regains the focus.
+  A tmux asqr cannot ask, as after ssh from a tmux pane, counts as `on`.
+  Elsewhere the terminal keeps what it got, and regaining the focus
+  changes nothing. Code, Markdown and diff entries keep what asqr
+  derived from them (ADR 31).
+- Closing the help, the intro or the session list over an image entry
+  draws the whole screen afresh under Sixel and iTerm2, which leave the
+  cells under the image to the terminal. Half blocks and the Kitty
+  protocol fill those cells with every frame and need no full redraw.
 - Under the Kitty protocol, which kitty and Ghostty get, asqr asks the
   terminal to delete an image of an entry once the screen no longer
   needs it, after the next frame: when the image was sent again on
   regaining the focus or under a new id at another size, when its entry
-  was replaced, or when its session left. Regaining the focus writes the deletes since the last time
-  again, as tmux with `allow-passthrough on` drops them while asqr's
-  pane is hidden. On quitting, asqr deletes every image it sent and has
+  was replaced, or when its session left. Where regaining the focus
+  sends the images again, it also writes the deletes since the last
+  time again, as tmux with `allow-passthrough on` drops them while
+  asqr's pane is hidden. On quitting, asqr deletes every image it sent and has
   not deleted yet, before it leaves the alternate screen (ADR 42).
 - Talqi on the empty queue (section 7.1) is text, built into asqr. It
   uses no image protocol.
@@ -1241,9 +1250,9 @@ Images:
 Known limitation: inside tmux, inline images and OSC notifications need
 `set -g allow-passthrough all`. Without passthrough, asqr falls back to
 the block rendering and the bell. With `on`, tmux passes sequences only
-while asqr's pane is visible: an image first shown while the pane is
-hidden stays empty until the pane gains the focus again, which asqr only
-learns when tmux forwards focus reports (`set -g focus-events on`).
+while asqr's pane is visible: a Kitty image first shown while the pane
+is hidden stays empty until the pane gains the focus again, which asqr
+only learns when tmux forwards focus reports (`set -g focus-events on`).
 Under the Kitty protocol inside tmux 3.4 or later, asqr sets
 `allow-passthrough all` for its own pane while it runs, so its images
 and their deletes pass from a hidden pane too (ADR 44). Sixel and

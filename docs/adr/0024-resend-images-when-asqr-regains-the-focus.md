@@ -15,6 +15,11 @@ Amended by [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kit
 under the Kitty protocol inside tmux 3.4 or later, asqr sets
 `allow-passthrough all` for its pane while it runs
 
+Amended by [45. Keep image handling in a graphics module around an asqr-owned value](0045-keep-image-handling-in-a-graphics-module-around-an-asqr-owned-value.md):
+asqr sends the images again on regaining the focus only under the Kitty
+protocol behind tmux with `allow-passthrough on`, or behind a tmux it
+cannot ask
+
 ## Context
 
 The user reported that the image of a session's first question never

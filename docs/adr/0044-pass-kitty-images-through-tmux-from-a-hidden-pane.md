@@ -10,6 +10,10 @@ Amends [24. Resend images when asqr regains the focus](0024-resend-images-when-a
 
 Amends [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-images-the-terminal-no-longer-shows.md)
 
+Amended by [45. Keep image handling in a graphics module around an asqr-owned value](0045-keep-image-handling-in-a-graphics-module-around-an-asqr-owned-value.md):
+the focus rule of ADR 24 and the repeated deletes of ADR 42 hold for
+Kitty images only, not for Sixel and iTerm2
+
 ## Context
 
 - tmux with `allow-passthrough on` passes escape sequences only from a

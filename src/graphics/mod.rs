@@ -72,11 +72,13 @@ pub struct Graphics {
     pub protocol: Protocol,
     pub cell: CellSize,
     /// Whether every command goes out wrapped for tmux's passthrough, the
-    /// Kitty deletes as the transmissions. ratatui-image wraps where the
-    /// terminal names tmux.
+    /// Kitty deletes as the transmissions. The wrapping follows what
+    /// ratatui-image sees: it wraps where the terminal names tmux, also
+    /// where asqr runs in no tmux pane it could ask, as over ssh.
     pub tmux_wrapped: bool,
     /// What tmux passes from asqr's pane for the run, settled once the
-    /// pane's setting is (see [`settle_passthrough`]).
+    /// pane's setting is (see [`settle_passthrough`]). It follows what
+    /// tmux does with the pane, whatever the wrapping.
     pub passthrough: Passthrough,
     /// Whether the terminal said it inflates Kitty transmissions sent with
     /// `o=z`. A terminal that cannot refuses a compressed transmission, so
@@ -120,6 +122,23 @@ impl Graphics {
                 .capabilities()
                 .contains(&Capability::KittyCompression),
         }
+    }
+
+    /// Whether the protocol marks the cells an image covers as skipped, so
+    /// ratatui never writes them again, also not where an overlay's text
+    /// stood over the image. The Sixel and iTerm2 protocols of
+    /// ratatui-image write the picture where the cursor is and do; half
+    /// blocks and Kitty placeholders are written into every cell (ADR 31).
+    pub fn cells_are_skipped(self) -> bool {
+        matches!(self.protocol, Protocol::Sixel | Protocol::Iterm2)
+    }
+
+    /// Whether images must be sent again when asqr regains the focus: the
+    /// Kitty protocol sends an image's data once and afterwards only
+    /// refers to it, and tmux with `allow-passthrough on` drops that
+    /// transfer while asqr's pane is hidden (ADR 24).
+    pub fn resends_on_focus(self) -> bool {
+        self.protocol == Protocol::Kitty && self.passthrough == Passthrough::WhileVisible
     }
 }
 
@@ -178,5 +197,54 @@ impl Images {
     /// the alternate screen, as the images stay there after it (ADR 42).
     pub fn take_all(&self) -> Vec<u32> {
         self.book.borrow_mut().take_all()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PROTOCOLS: [Protocol; 4] = [
+        Protocol::HalfBlocks,
+        Protocol::Sixel,
+        Protocol::Kitty,
+        Protocol::Iterm2,
+    ];
+
+    #[test]
+    fn only_sixel_and_iterm2_leave_skipped_cells() {
+        for protocol in PROTOCOLS {
+            let graphics = Graphics {
+                protocol,
+                ..Graphics::HALF_BLOCKS
+            };
+            assert_eq!(
+                graphics.cells_are_skipped(),
+                matches!(protocol, Protocol::Sixel | Protocol::Iterm2),
+                "{protocol:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_kitty_images_behind_passthrough_on_are_sent_again_on_focus() {
+        for protocol in PROTOCOLS {
+            for passthrough in [
+                Passthrough::None,
+                Passthrough::WhileVisible,
+                Passthrough::Always,
+            ] {
+                let graphics = Graphics {
+                    protocol,
+                    passthrough,
+                    ..Graphics::HALF_BLOCKS
+                };
+                assert_eq!(
+                    graphics.resends_on_focus(),
+                    protocol == Protocol::Kitty && passthrough == Passthrough::WhileVisible,
+                    "{protocol:?} {passthrough:?}"
+                );
+            }
+        }
     }
 }

@@ -132,7 +132,8 @@ impl<'a> View<'a> {
     }
 
     /// Whether the terminal must be cleared before `app` is drawn: an
-    /// overlay that the last draw showed over an image entry is closed.
+    /// overlay that the last draw showed over an image entry is closed,
+    /// and the protocol leaves the image's cells to the terminal.
     ///
     /// The Sixel and iTerm2 protocols of `ratatui-image` mark the cells an
     /// image covers as skipped, so ratatui never writes them again, also
@@ -141,7 +142,16 @@ impl<'a> View<'a> {
     /// draw showed under the overlay; a session picked in the list may
     /// have none, and then the clear only costs a full redraw.
     pub fn must_clear(&self, app: &App) -> bool {
-        self.overlay_shown && self.image_shown && app.overlay().is_none()
+        self.overlay_shown
+            && self.image_shown
+            && app.overlay().is_none()
+            && self.tab.viewers.graphics().cells_are_skipped()
+    }
+
+    /// Whether images are read and sent again when asqr regains the focus
+    /// (ADR 24).
+    pub fn resends_on_focus(&self) -> bool {
+        self.tab.viewers.graphics().resends_on_focus()
     }
 
     /// The Kitty ids of every image of a context entry the terminal may

@@ -353,7 +353,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use crate::graphics::Images;
+    use crate::graphics::{Graphics, Images, Protocol};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -856,8 +856,14 @@ mod tests {
             .collect()
     }
 
+    /// A view under the Sixel protocol, whose image cells a closed overlay
+    /// leaves to be cleared.
     fn view() -> View<'static> {
-        View::new("default", PaneLayout::Auto, Images::half_blocks())
+        let sixel = Graphics {
+            protocol: Protocol::Sixel,
+            ..Graphics::HALF_BLOCKS
+        };
+        View::new("default", PaneLayout::Auto, Images::new(sixel))
     }
 
     /// Whether the screen must be cleared once every overlay of `app` is

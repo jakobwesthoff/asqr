@@ -81,6 +81,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the iTerm2 protocol. Before, asqr used the iTerm2 protocol there when
   the terminal reported its size in pixels. This follows ratatui-image
   12.0.0-rc.2, which asqr now draws images with.
+- Closing the help, the intro or the session list over an image redraws
+  the whole screen only under Sixel and iTerm2, which need it. Half
+  blocks and the Kitty protocol redraw only what changed.
+- Regaining the focus reads and sends the images again only under the
+  Kitty protocol behind tmux with `allow-passthrough on`, or behind a
+  tmux asqr cannot ask, as over ssh, where tmux drops a transfer while
+  asqr's pane is hidden. Elsewhere it no longer reads every image again.
 
 ### Fixed
 
