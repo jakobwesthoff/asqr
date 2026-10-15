@@ -59,6 +59,10 @@ struct WatchArgs {
     #[arg(long)]
     no_bell: bool,
 
+    /// Do not show the number of waiting sessions in the terminal title.
+    #[arg(long)]
+    no_title: bool,
+
     /// Show context beside or below the question; auto, the default,
     /// picks by the terminal's shape. ASQR_LAYOUT sets it too.
     #[arg(long, value_enum, value_name = "LAYOUT")]
@@ -214,9 +218,11 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
     let before = cli.watch;
     let command = cli.command.unwrap_or(Command::Watch(WatchArgs::default()));
     if !matches!(command, Command::Watch(_))
-        && (before.no_notify || before.no_bell || before.layout.is_some())
+        && (before.no_notify || before.no_bell || before.no_title || before.layout.is_some())
     {
-        eprintln!("error: --no-notify, --no-bell and --layout only apply to watching the queue");
+        eprintln!(
+            "error: --no-notify, --no-bell, --no-title and --layout only apply to watching the queue"
+        );
         return Exit::Usage;
     }
 
@@ -242,6 +248,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
             let args = WatchArgs {
                 no_notify: before.no_notify || after.no_notify,
                 no_bell: before.no_bell || after.no_bell,
+                no_title: before.no_title || after.no_title,
                 layout: after.layout.or(before.layout).or(variable),
             };
             watch::run(location, &args, terminal_ui)
@@ -301,15 +308,16 @@ mod tests {
     /// alerts the terminal UI was started with, if it was.
     fn watched(dir: &Path, args: &[&str]) -> (Exit, Option<Alerts>) {
         let (exit, started) = watched_in(dir, args, Environment::default());
-        (exit, started.map(|(alerts, _)| alerts))
+        (exit, started.map(|(alerts, _, _)| alerts))
     }
 
-    /// Like [`watched`], with `environment` set, returning the layout too.
+    /// Like [`watched`], with `environment` set, returning the layout and
+    /// whether the terminal title is on too.
     fn watched_in(
         dir: &Path,
         args: &[&str],
         environment: Environment,
-    ) -> (Exit, Option<(Alerts, PaneLayout)>) {
+    ) -> (Exit, Option<(Alerts, PaneLayout, bool)>) {
         let mut argv = vec!["asqr", "--dir", dir.to_str().expect("UTF-8 temp path")];
         argv.extend(args);
         let cli = Cli::try_parse_from(argv).expect("parses");
@@ -321,7 +329,7 @@ mod tests {
                 lock_holder(location).expect("readable").is_some(),
                 "the TUI runs with the queue locked"
             );
-            started = Some((watch.alerts(), watch.layout()));
+            started = Some((watch.alerts(), watch.layout(), watch.title()));
             Exit::Success
         });
         (exit, started)
@@ -335,7 +343,30 @@ mod tests {
             ..Environment::default()
         };
         let (exit, started) = watched_in(scratch.path(), args, environment);
-        (exit, started.map(|(_, layout)| layout))
+        (exit, started.map(|(_, layout, _)| layout))
+    }
+
+    /// Whether `args` start the TUI with the terminal title on.
+    fn titled(args: &[&str]) -> (Exit, Option<bool>) {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let (exit, started) = watched_in(scratch.path(), args, Environment::default());
+        (exit, started.map(|(_, _, title)| title))
+    }
+
+    #[test]
+    fn the_title_is_on_unless_no_title_stands_before_or_after_watch() {
+        assert_eq!(titled(&[]), (Exit::Success, Some(true)));
+        assert_eq!(titled(&["watch"]), (Exit::Success, Some(true)));
+        assert_eq!(titled(&["--no-title"]), (Exit::Success, Some(false)));
+        assert_eq!(
+            titled(&["--no-title", "watch"]),
+            (Exit::Success, Some(false))
+        );
+        assert_eq!(
+            titled(&["watch", "--no-title"]),
+            (Exit::Success, Some(false))
+        );
+        assert_eq!(titled(&["--no-title", "status"]), (Exit::Usage, None));
     }
 
     #[test]

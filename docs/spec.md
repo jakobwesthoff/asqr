@@ -938,6 +938,16 @@ is left.
   arrive at once; OSC 9 puts "asqr: " in front, OSC 777 uses "asqr" as
   the title.
   Sessions waiting when asqr starts, and replaced files, trigger nothing.
+- The terminal title counts the waiting sessions, "asqr · N waiting",
+  and changes with the count (OSC 0, the window and the icon title).
+  Before the first title asqr pushes the terminal's title (`CSI 22;0 t`).
+  On quitting it writes an empty title and then pops the pushed one
+  (`CSI 23;0 t`), both before it leaves the alternate screen: a terminal
+  with a title stack shows its title from before asqr again, one without
+  keeps the empty title, which some show as a title of their own (ADR
+  40). Inside tmux these go to tmux
+  plainly; tmux shows the title as the pane's. `--no-title` switches the
+  title off, and asqr then writes none of these sequences.
 - A replaced session file keeps the answers that still fit and where
   the person was: the question shown, found again by its id, or the
   review; the row with its focus, so a field left with `esc` stays
@@ -1165,7 +1175,7 @@ window leaves it on.
 
 | Command | What it does |
 |---|---|
-| `asqr` / `asqr watch [--no-notify] [--no-bell] [--layout auto\|beside\|below]` | the TUI (section 7) |
+| `asqr` / `asqr watch [--no-notify] [--no-bell] [--no-title] [--layout auto\|beside\|below]` | the TUI (section 7) |
 | `asqr new` | prints a session skeleton without an id, which `asqr ask` assigns |
 | `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file (section 3.5), prints the id |
 | `asqr wait <id> [--timeout <secs>]` | waits for the result and prints it; blocks without `--timeout` |
@@ -1177,8 +1187,9 @@ window leaves it on.
 | `asqr skill [--install <dir>]` | prints the skill, or writes it to `<dir>/asqr/SKILL.md` (section 9) |
 
 Every command takes `--queue` or `--dir` (section 3.2). `--no-notify`,
-`--no-bell` and `--layout` may also stand before `watch` or alone (`asqr
---no-bell`); next to any other command they are a usage error.
+`--no-bell`, `--no-title` and `--layout` may also stand before `watch` or
+alone (`asqr --no-bell`); next to any other command they are a usage
+error. `--no-title` leaves the terminal title alone (section 7.5).
 
 `--layout` places the context pane (section 7.1). Without it,
 `ASQR_LAYOUT` sets the layout, and without either it is `auto`. A

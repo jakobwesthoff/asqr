@@ -7,8 +7,10 @@
 //! thread. Everything it wires together is tested in the library; what is
 //! left here needs a terminal and is kept to the wiring.
 
+use std::cell::Cell;
 use std::io::{self, IsTerminal, Write};
 use std::process::{Command, Stdio};
+use std::rc::Rc;
 use std::sync::mpsc;
 
 use anyhow::Context;
@@ -21,7 +23,8 @@ use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
     Event as TerminalEvent,
 };
-use ratatui::crossterm::{execute, terminal};
+use ratatui::crossterm::terminal::SetTitle;
+use ratatui::crossterm::{execute, queue, terminal};
 use ratatui_image::picker::Picker;
 
 /// Runs the TUI on the queue `watch` holds, in this process's terminal.
@@ -59,9 +62,11 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // signal such as SIGTERM or SIGHUP ends the process without running
     // the hook or the guard, and the terminal stays as set up here.
     let mut terminal = ratatui::try_init().context("setting up the terminal")?;
+    let title_pushed = Rc::new(Cell::new(false));
     let _guard = TerminalGuard {
         out: io::stdout(),
         restore: ratatui::restore,
+        title_pushed: Rc::clone(&title_pushed),
     };
 
     // The protocol query reads the terminal's answers from stdin, so it
@@ -140,6 +145,8 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     };
     let mut host = TerminalHost {
         alerts: watch.alerts(),
+        title: watch.title(),
+        title_pushed,
         terminal: AlertTerminal {
             term,
             tmux: tmux.is_some_and(|tmux| !tmux.is_empty()),
@@ -155,21 +162,59 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     )
 }
 
-/// Gives the terminal back when dropped: turns focus reports and bracketed
-/// paste off, then calls `restore`, which leaves raw mode and the
-/// alternate screen.
+/// Gives the terminal back when dropped: gives back the title asqr pushed,
+/// turns focus reports and bracketed paste off, then calls `restore`,
+/// which leaves raw mode and the alternate screen.
 ///
 /// The guard covers a panic only because a panic unwinds and drops it. A
 /// build with `panic = "abort"` would skip the drop and leave both modes
-/// on in the shell.
+/// on in the shell. On a panic, ratatui's hook leaves the alternate screen
+/// before the unwinding reaches the guard, so there the title is given
+/// back on the main screen.
 struct TerminalGuard<W: Write> {
     out: W,
     /// [`ratatui::restore`]; tests pass a function that only notes the call.
     restore: fn(),
+    /// Whether [`write_title`] pushed the terminal's title, shared with
+    /// the [`TerminalHost`] that writes the titles.
+    title_pushed: Rc<Cell<bool>>,
+}
+
+/// Saves the window and the icon title on the terminal's title stack.
+/// tmux ignores the push without the `;0`.
+const PUSH_TITLE: &[u8] = b"\x1b[22;0t";
+/// Takes back what [`PUSH_TITLE`] saved.
+const POP_TITLE: &[u8] = b"\x1b[23;0t";
+
+/// Writes `title` as the window and the icon title (OSC 0), after pushing
+/// the terminal's own title before the first one. asqr calls it only once
+/// the alternate screen is on, so the push, every title and the pop all
+/// happen on that screen (ADR 40). tmux takes all of them for the pane
+/// itself, so they go out plain there too, not through the passthrough.
+fn write_title(out: &mut impl Write, title: &str, pushed: &Cell<bool>) -> io::Result<()> {
+    if !pushed.get() {
+        out.write_all(PUSH_TITLE)?;
+        pushed.set(true);
+    }
+    queue!(out, SetTitle(title))?;
+    out.flush()
 }
 
 impl<W: Write> Drop for TerminalGuard<W> {
     fn drop(&mut self) {
+        // Only a push is popped, and before `restore` leaves the alternate
+        // screen. The empty title comes first: a terminal without a title
+        // stack keeps it instead of asqr's, and one with a stack then takes
+        // back the pushed title. The other way round, the empty title
+        // would replace the title just taken back (ADR 40).
+        if self.title_pushed.get() {
+            let given_back = queue!(self.out, SetTitle(""))
+                .and_then(|()| self.out.write_all(POP_TITLE))
+                .and_then(|()| self.out.flush());
+            if let Err(error) = given_back {
+                tracing::warn!(%error, "could not give the terminal title back");
+            }
+        }
         // Left on, the shell would receive the reports as typed text, and
         // its pastes wrapped in the markers.
         if let Err(error) = execute!(self.out, DisableFocusChange) {
@@ -298,6 +343,10 @@ fn probe_passthrough() -> bool {
 
 struct TerminalHost {
     alerts: Alerts,
+    /// Off under `--no-title`, which writes no title byte at all: no
+    /// title, and so no push the guard would pop.
+    title: bool,
+    title_pushed: Rc<Cell<bool>>,
     terminal: AlertTerminal,
 }
 
@@ -308,6 +357,16 @@ impl Host for TerminalHost {
             tracing::warn!(%error, "could not write the alert");
         }
         let _ = stdout.flush();
+    }
+
+    fn title(&mut self, title: &str) {
+        if !self.title {
+            return;
+        }
+        let mut stdout = io::stdout().lock();
+        if let Err(error) = write_title(&mut stdout, title, &self.title_pushed) {
+            tracing::warn!(%error, "could not set the terminal title");
+        }
     }
 
     fn open_image(&mut self, path: &str) -> io::Result<()> {
@@ -329,8 +388,6 @@ impl Host for TerminalHost {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
     use super::*;
 
     thread_local! {
@@ -344,14 +401,21 @@ mod tests {
     // The panic path itself is not run here: it needs a real terminal and
     // a panicking TUI. What it relies on is that unwinding drops the guard,
     // and the drop is what this test runs.
-    #[test]
-    fn dropping_the_guard_turns_paste_and_focus_reports_off_and_restores() {
+    /// What dropping a guard writes, when asqr did or did not push the
+    /// title.
+    fn dropped(pushed: bool) -> String {
         let mut written = Vec::new();
         drop(TerminalGuard {
             out: &mut written,
             restore: note_restore,
+            title_pushed: Rc::new(Cell::new(pushed)),
         });
-        let written = String::from_utf8(written).expect("escape sequences are ASCII");
+        String::from_utf8(written).expect("escape sequences are ASCII")
+    }
+
+    #[test]
+    fn dropping_the_guard_turns_paste_and_focus_reports_off_and_restores() {
+        let written = dropped(false);
         assert!(
             written.contains("\x1b[?2004l"),
             "bracketed paste off: {written:?}"
@@ -361,6 +425,46 @@ mod tests {
             "focus reports off: {written:?}"
         );
         assert!(RESTORED.get());
+    }
+
+    #[test]
+    fn the_guard_clears_and_pops_the_title_only_after_a_push() {
+        let written = dropped(true);
+        assert!(
+            written.starts_with("\x1b]0;\x07\x1b[23;0t"),
+            "the empty title, then the pop: {written:?}"
+        );
+
+        let written = dropped(false);
+        assert!(
+            !written.contains("\x1b]0;") && !written.contains("\x1b[23"),
+            "no title bytes without a push: {written:?}"
+        );
+    }
+
+    #[test]
+    fn the_first_title_comes_after_a_push_and_the_others_alone() {
+        let mut written = Vec::new();
+        let pushed = Cell::new(false);
+
+        write_title(&mut written, "asqr · 1 waiting", &pushed).expect("written");
+        write_title(&mut written, "asqr · 0 waiting", &pushed).expect("written");
+
+        assert_eq!(
+            String::from_utf8(written).expect("UTF-8"),
+            "\x1b[22;0t\x1b]0;asqr · 1 waiting\x07\x1b]0;asqr · 0 waiting\x07"
+        );
+        assert!(pushed.get());
+    }
+
+    #[test]
+    fn a_push_the_terminal_refused_is_not_popped() {
+        let mut full: [u8; 0] = [];
+        let pushed = Cell::new(false);
+
+        assert!(write_title(&mut &mut full[..], "asqr · 1 waiting", &pushed).is_err());
+
+        assert!(!pushed.get());
     }
 
     /// The tmux commands a [`PassthroughRestore`] runs from its snapshot to
@@ -428,6 +532,7 @@ mod tests {
         drop(TerminalGuard {
             out: &mut full[..],
             restore: note_restore,
+            title_pushed: Rc::new(Cell::new(true)),
         });
         assert!(RESTORED.get());
     }

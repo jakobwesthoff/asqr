@@ -41,6 +41,15 @@ pub trait Host {
     fn alert(&mut self, arrived: &[String]);
     /// Open the image at `path` in the system viewer.
     fn open_image(&mut self, path: &str) -> io::Result<()>;
+    /// Show `title` as the terminal's title, unless the person switched
+    /// titles off.
+    fn title(&mut self, title: &str);
+}
+
+/// The terminal title for the state of `app`, so a tab in the background
+/// tells how many sessions wait (spec section 7.5).
+pub fn terminal_title(app: &App) -> String {
+    format!("asqr · {} waiting", app.sessions().len())
 }
 
 /// Reads the queue for the first time: what waits when asqr starts is
@@ -64,7 +73,15 @@ pub fn run<B: Backend>(
 where
     B::Error: Send + Sync + 'static,
 {
+    // Every key draws again, but the title goes to the terminal only when
+    // its text changes. No title is empty, so the first pass sends one.
+    let mut sent_title = String::new();
     loop {
+        let title = terminal_title(app);
+        if title != sent_title {
+            host.title(&title);
+            sent_title = title;
+        }
         // An overlay closed over an image leaves its text on the image
         // unless the whole screen is drawn afresh (ADR 31).
         if view.must_clear(app) {
@@ -157,11 +174,16 @@ mod tests {
     struct Recorder {
         alerts: Vec<Vec<String>>,
         opened: Vec<String>,
+        titles: Vec<String>,
         /// Opening an image fails with this, when set.
         viewer_missing: bool,
     }
 
     impl Host for Recorder {
+        fn title(&mut self, title: &str) {
+            self.titles.push(title.to_owned());
+        }
+
         fn alert(&mut self, arrived: &[String]) {
             self.alerts.push(arrived.to_vec());
         }
@@ -296,6 +318,50 @@ mod tests {
 
         assert_eq!(harness.host.alerts, [vec!["late".to_owned()]]);
         assert!(harness.screen().contains("Pick one"));
+    }
+
+    #[test]
+    fn the_title_counts_the_waiting_sessions() {
+        let harness = Harness::new();
+        let titled = |sessions: usize| {
+            for n in 0..sessions {
+                harness.put(&format!("batch-{n}"));
+            }
+            let (app, _) = start(harness.location.clone()).expect("started");
+            terminal_title(&app)
+        };
+
+        assert_eq!(titled(0), "asqr · 0 waiting");
+        assert_eq!(titled(1), "asqr · 1 waiting");
+        assert_eq!(titled(3), "asqr · 3 waiting");
+    }
+
+    #[test]
+    fn the_title_is_sent_when_the_count_changes_and_only_then() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+
+        // `2` picks and moves on to the review, where `enter` submits.
+        harness.put("late");
+        harness
+            .run_started(
+                &mut app,
+                &mut inbox,
+                vec![
+                    Event::Resize,
+                    Event::InboxChanged,
+                    Event::Resize,
+                    key(KeyCode::Char('2')),
+                    key(KeyCode::Enter),
+                    Event::Resize,
+                ],
+            )
+            .expect("runs");
+
+        assert_eq!(
+            harness.host.titles,
+            ["asqr · 0 waiting", "asqr · 1 waiting", "asqr · 0 waiting"]
+        );
     }
 
     #[test]

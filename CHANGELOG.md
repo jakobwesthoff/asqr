@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The terminal title shows how many sessions wait, as
+  `asqr · 2 waiting`. On quit asqr clears its title and gives the
+  terminal its title from before back where the terminal keeps a title
+  stack. `--no-title` leaves the title alone.
+
 ### Changed
 
 - The placeholder of an image that cannot be shown wraps and scrolls

@@ -275,10 +275,71 @@ fn answers_a_session_that_arrives_while_it_runs() {
     assert_eq!(result.answers[0].custom.as_deref(), Some("xy z\nw\nv"));
 }
 
+/// Where `needle` first occurs in `haystack`, failing when it does not.
+fn first(haystack: &str, needle: &str) -> usize {
+    haystack
+        .find(needle)
+        .unwrap_or_else(|| panic!("{needle:?} is missing: {haystack:?}"))
+}
+
+/// Where `needle` last occurs in `haystack`, failing when it does not.
+fn last(haystack: &str, needle: &str) -> usize {
+    haystack
+        .rfind(needle)
+        .unwrap_or_else(|| panic!("{needle:?} is missing: {haystack:?}"))
+}
+
+const PUSH_TITLE: &str = "\x1b[22;0t";
+const EMPTY_TITLE: &str = "\x1b]0;\x07";
+const POP_TITLE: &str = "\x1b[23;0t";
+
+#[test]
+fn the_title_counts_the_waiting_sessions_and_is_given_back_on_quit() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start(&sandbox, &["--dir", dir.to_str().expect("UTF-8")], "off 1");
+    tui.wait_for("Nothing to answer");
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("Pick a fruit");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    // `Tui` runs asqr as if inside tmux, which takes the title as the
+    // pane's own, so it goes out plain, not in the passthrough wrapper.
+    let output = tui.output();
+    let alternate_screen = first(&output, "\x1b[?1049h");
+    let push = first(&output, PUSH_TITLE);
+    let none_waiting = first(&output, "\x1b]0;asqr · 0 waiting\x07");
+    let one_waiting = first(&output, "\x1b]0;asqr · 1 waiting\x07");
+    let cleared = last(&output, EMPTY_TITLE);
+    let pop = last(&output, POP_TITLE);
+    let main_screen = last(&output, "\x1b[?1049l");
+    assert!(
+        alternate_screen < push
+            && push < none_waiting
+            && none_waiting < one_waiting
+            && one_waiting < cleared
+            && cleared < pop
+            && pop < main_screen,
+        "{output:?}"
+    );
+    assert_eq!(output.matches(PUSH_TITLE).count(), 1, "{output:?}");
+    assert_eq!(output.matches(POP_TITLE).count(), 1, "{output:?}");
+}
+
 #[test]
 fn keys_still_arrive_after_the_terminal_answered_the_query() {
     let sandbox = Sandbox::new();
-    let mut tui = Tui::start(&sandbox, &["--queue", "pty", "--no-notify"], "on 1");
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--queue", "pty", "--no-notify", "--no-title"],
+        "on 1",
+    );
     tui.answer_the_query();
     tui.wait_for("queue: pty");
 
@@ -327,4 +388,15 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
         !tui.output().contains("]9;"),
         "--no-notify sends no notification"
     );
+    let output = tui.output();
+    for (sequence, name) in [
+        (PUSH_TITLE, "push"),
+        ("\x1b]0;", "title"),
+        (POP_TITLE, "pop"),
+    ] {
+        assert!(
+            !output.contains(sequence),
+            "--no-title writes no {name}: {output:?}"
+        );
+    }
 }

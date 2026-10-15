@@ -17,6 +17,8 @@ pub struct Watch {
     location: QueueLocation,
     alerts: Alerts,
     layout: PaneLayout,
+    /// Whether asqr sets the terminal title; `--no-title` switches it off.
+    title: bool,
     _lock: QueueLock,
 }
 
@@ -31,6 +33,10 @@ impl Watch {
 
     pub fn layout(&self) -> PaneLayout {
         self.layout
+    }
+
+    pub fn title(&self) -> bool {
+        self.title
     }
 }
 
@@ -65,6 +71,7 @@ pub(super) fn run(
             bell: !args.no_bell,
         },
         layout: args.layout.unwrap_or_default(),
+        title: !args.no_title,
         _lock: lock,
     })
 }
