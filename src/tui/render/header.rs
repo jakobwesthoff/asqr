@@ -59,8 +59,7 @@ pub(super) fn header_lines(state: &SessionState, width: usize, height: u16) -> V
 
 /// The session's intro in patine's styles, wrapped so that each line,
 /// with the blank column it starts with, takes at most `width` columns.
-/// The header and the intro overlay show it alike.
-pub(super) fn intro_lines(intro: &str, width: usize) -> Vec<Line<'static>> {
+fn intro_lines(intro: &str, width: usize) -> Vec<Line<'static>> {
     field_lines(intro, width.saturating_sub(1))
         .into_iter()
         .map(|line| indented(line, 1))

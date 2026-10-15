@@ -2,7 +2,7 @@
 source: src/tui/render/screen.rs
 expression: "drawn(&mut app, &mut view, 60, 15)"
 ---
-" a┌ Intro ───────────────────────────────────────────────┐  "
+" a╭ Intro ───────────────────────────────────────────────╮  "
 " R│ • Round 1 asked about the queue watcher and the      │  "
 " •│   review tab, and the answers went into the plan.    │e "
 "  │ • Round 2 asked about the queue watcher and the      │  "
@@ -15,5 +15,5 @@ expression: "drawn(&mut app, &mut view, 60, 15)"
 "  │   review tab, and the answers went into the plan.    │  "
 "  │ • Round 6 asked about the queue watcher and the      │  "
 "  │   review tab, and the answers went into the plan.    │e "
-"  └────────────────────────────────────────── 1–12 of 16 ┘  "
+"  ╰────────────────────────────────────────── 1–12 of 16 ╯  "
 " ↑/↓  scroll   pgup/pgdn  page   esc/q/i  close             "

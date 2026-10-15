@@ -1,11 +1,11 @@
 ---
 source: src/tui/render/screen.rs
-expression: "screen_in(&app, &mut view, 80, 16)"
+expression: "screen_handing_on_pane(&mut app, &mut view, 80, 16)"
 ---
 " asqr · queue: default · 1 session waiting                                      "
 " pictured                                                                       "
 "   ☐ q  ✔ Review                                                                "
-"────────────────────────────────────────────────────────────────────────────────"
+"──━━━━━─────────────────────────────────────────────────────────────────────────"
 " x.png                                                                1–9 of 13 "
 " image not shown                                                                "
 " /nonexistent/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/deeper/de "

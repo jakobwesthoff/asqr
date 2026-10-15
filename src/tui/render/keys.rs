@@ -8,7 +8,6 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 
@@ -89,14 +88,14 @@ pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
         .iter()
         .map(|(keys, what)| {
             Line::from(vec![
-                Span::from(format!("{keys:<key_column$}")).bold(),
+                Span::styled(format!("{keys:<key_column$}"), theme::primary().bold()),
                 Span::from(*what),
             ])
         })
         .collect();
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(overlay_block(title, Some(Line::from("any key closes"))))
+        .block(overlay_block(title, Some("any key closes")))
         .render(area, buf);
 }
 
@@ -239,8 +238,8 @@ pub(super) fn key_line(keys: &[(&str, &str)], width: u16) -> Line<'static> {
 
     let mut spans = Vec::new();
     for (key, what) in kept {
-        spans.push(Span::styled(format!(" {key} "), theme::focus_fill()));
-        spans.push(Span::from(format!(" {what}  ")));
+        spans.push(Span::styled(format!(" {key} "), theme::primary().bold()));
+        spans.push(Span::styled(format!(" {what}  "), theme::secondary()));
     }
     Line::from(spans)
 }
@@ -265,9 +264,9 @@ fn hint_rank(key: &str) -> u8 {
 #[cfg(test)]
 mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui::style::Modifier;
+    use ratatui::style::{Color, Modifier};
 
-    use super::super::test_support::{find, line_texts, row};
+    use super::super::test_support::{find, line_texts, look_at, row};
     use super::*;
     use crate::tui::Extent;
 
@@ -408,18 +407,44 @@ mod tests {
         let mut buf = Buffer::empty(area);
         draw_help(area, &mut buf, &state);
 
-        assert_eq!(row(&buf, 0), format!("  ┌ Keys {}┐", "─".repeat(62)));
+        assert_eq!(row(&buf, 0), format!("  ╭ Keys {}╮", "─".repeat(62)));
         assert_eq!(
             row(&buf, 1),
-            format!("  │↑/↓, k/j   move between the rows{}│", " ".repeat(36))
+            format!("  │ ↑/↓, k/j   move between the rows{}│", " ".repeat(35))
         );
         assert_eq!(
             row(&buf, 14),
-            format!("  └{} any key closes ┘", "─".repeat(52))
+            format!("  ╰{} any key closes ╯", "─".repeat(52))
         );
-        assert_eq!(buf[find(&buf, "Keys")].modifier, Modifier::empty());
-        assert_eq!(buf[find(&buf, "any key")].modifier, Modifier::empty());
-        assert_eq!(buf[find(&buf, "↑/↓, k/j")].modifier, Modifier::BOLD);
-        assert_eq!(buf[find(&buf, "move between")].modifier, Modifier::empty());
+        assert_eq!(buf[find(&buf, "Keys")].modifier, Modifier::BOLD);
+        assert_eq!(buf[find(&buf, "any key")].modifier, Modifier::DIM);
+        assert_eq!(look_at(&buf, "↑/↓, k/j"), (Color::Cyan, Modifier::BOLD));
+        assert_eq!(
+            look_at(&buf, "move between"),
+            (Color::Reset, Modifier::empty())
+        );
+    }
+
+    #[test]
+    fn the_key_bar_shows_each_key_bold_in_the_primary_colour_and_no_fill() {
+        let line = key_line(&[("↑/↓", "move"), ("q", "quit")], 40);
+        let area = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(area);
+        line.render(area, &mut buf);
+
+        assert_eq!(row(&buf, 0), " ↑/↓  move   q  quit");
+        let key = (Color::Cyan, Modifier::BOLD);
+        assert_eq!(look_at(&buf, " ↑/↓ "), key, "the blank before the key");
+        assert_eq!(look_at(&buf, "↑/↓"), key);
+        assert_eq!(look_at(&buf, "q "), key);
+        let what = (Color::Reset, Modifier::DIM);
+        assert_eq!(look_at(&buf, "move"), what);
+        assert_eq!(look_at(&buf, "quit"), what);
+        assert!(
+            buf.content()
+                .iter()
+                .all(|cell| !cell.modifier.contains(Modifier::REVERSED)),
+            "no fill"
+        );
     }
 }

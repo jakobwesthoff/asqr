@@ -12,6 +12,8 @@ Amended by [24. Resend images when asqr regains the focus](0024-resend-images-wh
 
 Amended by [30. Cap the question at a reading width and place context by the terminal's shape](0030-cap-the-question-at-a-reading-width-and-place-context-by-the-terminals-shape.md)
 
+Amended by [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md)
+
 ## Context
 
 The person answering has to get through many questions fast, often with

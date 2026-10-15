@@ -536,7 +536,7 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
     } = &colourless;
     let default = (vt100::Color::Default, vt100::Color::Default);
     assert_eq!((title.fgcolor(), title.bgcolor()), default);
-    assert!(title.inverse(), "the title bar keeps its fill");
+    assert!(title.bold(), "the name keeps its bold");
     assert_eq!((notice.fgcolor(), notice.bgcolor()), default);
     assert_eq!((intro_code.fgcolor(), intro_code.bgcolor()), default);
     assert!(intro_code.dim(), "the intro stays dim");
@@ -544,6 +544,7 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
 
     // An empty NO_COLOR counts as unset.
     let coloured = colours_under("");
+    assert_eq!(coloured.title.fgcolor(), vt100::Color::Idx(6), "cyan");
     assert_eq!(coloured.notice.fgcolor(), vt100::Color::Idx(3), "yellow");
     assert_ne!(coloured.intro_code.fgcolor(), vt100::Color::Default);
     assert!(coloured.intro_code.dim());

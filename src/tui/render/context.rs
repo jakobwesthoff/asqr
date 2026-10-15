@@ -57,10 +57,10 @@ pub fn draw_pane(
     let offset = page.clamp(state.pane_offset());
     viewer.draw(body, buf, offset);
     let line = header_line(entry, page, offset, header.width, !state.pane_focused());
-    // The focused pane's header stands out the way the current tab does,
-    // so the person sees where the keys go.
+    // The focused pane's header takes the focus fill from the question's
+    // current row, so the person sees where the keys go.
     let line = if state.pane_focused() {
-        line.patch_style(theme::focus_fill())
+        theme::focus_row(line)
     } else {
         line
     };

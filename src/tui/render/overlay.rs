@@ -9,12 +9,16 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Widget};
+use ratatui::style::Stylize;
+use ratatui::text::Line;
+use ratatui::widgets::{
+    Block, BorderType, Clear, HighlightSpacing, List, ListState, Padding, Paragraph,
+    StatefulWidget, Widget,
+};
 
-use super::header::intro_lines;
 use super::panes::READING_WIDTH;
-use super::parts::pointer;
+use super::parts::POINTER;
+use super::text::field_lines;
 use super::theme;
 use crate::tui::{App, Extent};
 
@@ -28,20 +32,21 @@ pub(super) fn popup(area: Rect, width: u16, height: u16, buf: &mut Buffer) -> Re
     area
 }
 
-/// The frame of an overlay: `title` at the top left and, where given,
-/// `footer` at the bottom right, each with a blank on either side so it
-/// stands apart from the border.
-pub(super) fn overlay_block(title: &str, footer: Option<Line<'static>>) -> Block<'static> {
-    let block = Block::bordered().title(format!(" {title} "));
+/// The frame of an overlay: a rounded border in the primary colour,
+/// `title` in bold at the top left and, where given, `footer` dim at the
+/// bottom right, each with a blank on either side so it stands apart from
+/// the border. A blank column inside each side keeps what the overlay shows
+/// off the border. The title and the footer stand on the border and take
+/// its colour.
+pub(super) fn overlay_block(title: &str, footer: Option<&str>) -> Block<'static> {
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme::primary())
+        .title(Line::from(format!(" {title} ")).bold())
+        .padding(Padding::horizontal(1));
     match footer {
-        Some(footer) => {
-            let mut spans = vec![Span::from(" ")];
-            spans.extend(footer.spans);
-            spans.push(Span::from(" "));
-            // The footer's own style spans the blanks too, as it does the
-            // whole line.
-            block.title_bottom(Line::from(spans).style(footer.style).right_aligned())
-        }
+        Some(footer) => block
+            .title_bottom(Line::styled(format!(" {footer} "), theme::secondary()).right_aligned()),
         None => block,
     }
 }
@@ -51,11 +56,12 @@ pub(super) fn overlay_block(title: &str, footer: Option<Line<'static>>) -> Block
 /// bottom edge says which lines show. The intro shows in patine's styles
 /// without the header's dim.
 pub(super) fn draw_intro(area: Rect, buf: &mut Buffer, intro: &str, scroll: usize) -> Extent {
-    // The text keeps to the reading width, with a blank column inside each
-    // border.
+    // The text keeps to the reading width inside the frame.
     let width = area.width.saturating_sub(4).min(READING_WIDTH + 4);
-    let inner = usize::from(width.saturating_sub(2));
-    let lines = intro_lines(intro, inner.saturating_sub(1));
+    let inner = overlay_block("Intro", None)
+        .inner(Rect::new(0, 0, width, 2))
+        .width;
+    let lines = field_lines(intro, usize::from(inner));
     let wanted = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
     // An intro taller than the screen gets the rows there are and scrolls
     // in them.
@@ -66,16 +72,17 @@ pub(super) fn draw_intro(area: Rect, buf: &mut Buffer, intro: &str, scroll: usiz
     };
     let scroll = scroll.min(page.last_start());
 
-    let footer = page
-        .position(scroll)
-        .map(|position| Line::styled(position, theme::secondary()));
+    let footer = page.position(scroll);
     Paragraph::new(lines)
         .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0))
-        .block(overlay_block("Intro", footer))
+        .block(overlay_block("Intro", footer.as_deref()))
         .render(area, buf);
     page
 }
 
+/// The waiting sessions in a frame over the screen, the one under `cursor`
+/// filled. A list taller than the frame scrolls so the cursor's session
+/// shows.
 pub(super) fn draw_session_list(area: Rect, buf: &mut Buffer, app: &App, cursor: usize) {
     let area = popup(
         area,
@@ -83,39 +90,34 @@ pub(super) fn draw_session_list(area: Rect, buf: &mut Buffer, app: &App, cursor:
         app.sessions().len() as u16 + 2,
         buf,
     );
-    let lines: Vec<Line> = app
-        .sessions()
-        .iter()
-        .enumerate()
-        .map(|(index, state)| {
-            let line = Line::from(vec![
-                pointer(index == cursor),
-                Span::from(format!(
-                    "{}  ({}/{} answered)",
-                    state.name(),
-                    state.counts().answered,
-                    state.session().questions.len()
-                )),
-            ]);
-            if index == cursor {
-                line.patch_style(theme::focus_fill())
-            } else {
-                line
-            }
-        })
-        .collect();
-    let visible = area.height.saturating_sub(2) as usize;
-    let scroll = (cursor + 1).saturating_sub(visible);
-    Paragraph::new(lines)
-        .scroll((scroll as u16, 0))
-        .block(overlay_block("Waiting sessions", None))
-        .render(area, buf);
+    let items = app.sessions().iter().map(|state| {
+        format!(
+            "{}  ({}/{} answered)",
+            state.name(),
+            state.counts().answered,
+            state.session().questions.len()
+        )
+    });
+    // Nothing keeps the list's scroll from one draw to the next: the list
+    // scrolls just far enough for the cursor's session, which a fresh
+    // state yields on every draw.
+    let mut state = ListState::default().with_selected(Some(cursor));
+    StatefulWidget::render(
+        List::new(items)
+            .highlight_symbol(POINTER)
+            .highlight_spacing(HighlightSpacing::Always)
+            .highlight_style(theme::focus_fill())
+            .block(overlay_block("Waiting sessions", None)),
+        area,
+        buf,
+        &mut state,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use ratatui::buffer::Cell;
-    use ratatui::style::{Modifier, Stylize};
+    use ratatui::style::{Color, Modifier};
 
     use super::super::test_support::{find, row, rows};
     use super::*;
@@ -141,13 +143,25 @@ mod tests {
     }
 
     #[test]
-    fn an_overlay_frame_sets_its_title_and_footer_apart_by_a_blank() {
-        let area = Rect::new(0, 0, 20, 3);
+    fn an_overlay_frame_is_rounded_and_primary_with_a_bold_title_and_a_dim_footer() {
+        let area = Rect::new(0, 0, 20, 4);
         let mut buf = Buffer::empty(area);
-        overlay_block("Keys", Some(Line::from("esc").dim())).render(area, &mut buf);
+        let block = overlay_block("Keys", Some("esc"));
+        assert_eq!(
+            block.inner(area),
+            Rect::new(2, 1, 16, 2),
+            "a blank column inside"
+        );
+        block.render(area, &mut buf);
 
-        assert_eq!(row(&buf, 0), "┌ Keys ────────────┐");
-        assert_eq!(row(&buf, 2), "└───────────── esc ┘");
+        assert_eq!(row(&buf, 0), "╭ Keys ────────────╮");
+        assert_eq!(row(&buf, 1), "│                  │");
+        assert_eq!(row(&buf, 3), "╰───────────── esc ╯");
+        for corner in [(0, 0), (19, 0), (0, 3), (19, 3), (0, 1), (5, 3)] {
+            assert_eq!(buf[corner].fg, Color::Cyan, "border at {corner:?}");
+        }
+        // The title and the footer stand on the border and keep its colour.
+        assert_eq!(buf[find(&buf, "Keys")].modifier, Modifier::BOLD);
         let (x, y) = find(&buf, "esc");
         for x in x - 1..x + 4 {
             assert_eq!(buf[(x, y)].modifier, Modifier::DIM, "column {x}");
@@ -155,11 +169,11 @@ mod tests {
 
         let mut buf = Buffer::empty(area);
         overlay_block("Keys", None).render(area, &mut buf);
-        assert_eq!(row(&buf, 2), "└──────────────────┘");
+        assert_eq!(row(&buf, 3), "╰──────────────────╯");
     }
 
     #[test]
-    fn the_session_list_names_each_session_and_reverses_the_one_under_the_cursor() {
+    fn the_session_list_names_each_session_and_fills_the_one_under_the_cursor() {
         let mut app = App::default();
         for (id, title) in [("titled", r#""title": "Release","#), ("untitled", "")] {
             let json = format!(
@@ -172,13 +186,22 @@ mod tests {
         let mut buf = Buffer::empty(area);
         draw_session_list(area, &mut buf, &app, 1);
 
-        assert_eq!(row(&buf, 1), "  │  Release  (0/1 answered)         │");
-        assert_eq!(row(&buf, 2), "  │❯ untitled  (0/1 answered)        │");
-        assert!(
-            buf[find(&buf, "❯ untitled")]
-                .modifier
-                .contains(Modifier::REVERSED)
+        assert_eq!(
+            row(&buf, 0),
+            format!("  ╭ Waiting sessions {}╮", "─".repeat(16))
         );
+        assert_eq!(row(&buf, 1), "  │   Release  (0/1 answered)        │");
+        assert_eq!(row(&buf, 2), "  │ ❯ untitled  (0/1 answered)       │");
+        // The fill takes the whole row inside the frame's blank columns.
+        for x in 4..36 {
+            let cell = &buf[(x, 2)];
+            assert_eq!(
+                (cell.fg, cell.modifier),
+                (Color::Yellow, Modifier::REVERSED),
+                "column {x}"
+            );
+        }
+        assert_eq!(buf[(3, 2)].modifier, Modifier::empty(), "the blank column");
         assert_eq!(buf[find(&buf, "Release")].modifier, Modifier::empty());
     }
 
@@ -199,7 +222,7 @@ mod tests {
         let mut buf = Buffer::empty(area);
         draw_session_list(area, &mut buf, &app, 0);
 
-        assert_eq!(row(&buf, 1), "  │❯ batch  (1/3 answered)           │");
+        assert_eq!(row(&buf, 1), "  │ ❯ batch  (1/3 answered)          │");
     }
 
     #[test]
@@ -219,10 +242,10 @@ mod tests {
                 total: 17
             }
         );
-        assert_eq!(row(&buf, 0), "  ┌ Intro ─────────────────┐");
+        assert_eq!(row(&buf, 0), "  ╭ Intro ─────────────────╮");
         assert_eq!(row(&buf, 1), "  │ Line 7                 │");
-        assert_eq!(row(&buf, 6), "  └─────────── 13–17 of 17 ┘");
-        assert_eq!(buf[find(&buf, "Intro")].modifier, Modifier::empty());
+        assert_eq!(row(&buf, 6), "  ╰─────────── 13–17 of 17 ╯");
+        assert_eq!(buf[find(&buf, "Intro")].modifier, Modifier::BOLD);
         let (x, y) = find(&buf, "13–17");
         for x in x - 1..x + 12 {
             assert_eq!(buf[(x, y)].modifier, Modifier::DIM, "column {x}");

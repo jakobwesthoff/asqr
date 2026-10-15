@@ -10,7 +10,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 
 use super::source_line::columns;
@@ -123,6 +123,14 @@ pub(super) fn find_from(buf: &Buffer, from: u16, text: &str) -> (u16, u16) {
 /// The style of the cell where `text` first starts in `buf`.
 pub(super) fn style_at(buf: &Buffer, text: &str) -> Style {
     buf[find(buf, text)].style()
+}
+
+/// The text colour and the modifiers of the cell where `text` first
+/// starts in `buf`: what a colour role sets, without the background no
+/// role touches.
+pub(super) fn look_at(buf: &Buffer, text: &str) -> (Color, Modifier) {
+    let cell = &buf[find(buf, text)];
+    (cell.fg, cell.modifier)
 }
 
 // ---------------------------------------------------------------------

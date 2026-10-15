@@ -18,6 +18,8 @@ Amended by [33. Show diffs as a unified diff computed with similar](0033-show-di
 
 Amended by [34. Show code and Markdown entries through patine](0034-show-code-and-markdown-entries-through-patine.md)
 
+Amended by [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md)
+
 ## Context
 
 ADR 30 placed the context area beside or below the question. It drew an

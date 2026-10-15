@@ -9,7 +9,7 @@ expression: backend
 " each with its own question. Three decisions before the release, each with its own question. Three                                                              "
 " decisions before the release, each with its own question.                                                                                                      "
 "   ☐ Go?  ☒ Channels  ☐ Highlights  ✔ Review                                                                                                                    "
-"────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
+"──━━━━━━━───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
 " All checks passed. Publish 0.2.0 now?                                                                                                                          "
 " pick one                                                                                                                                                       "
 "                                                                                                                                                                "

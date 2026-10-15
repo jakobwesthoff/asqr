@@ -419,6 +419,10 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
         .unwrap_or(0);
     for (row_index, row) in state.rows_of(index).iter().enumerate() {
         let current = live && row_index == state.row();
+        // One focus fill shows at a time: while the context pane has the
+        // focus, its header has the fill, and the current row keeps only
+        // its pointer.
+        let filled = current && !state.pane_focused();
         let editing = current && state.focus() == Focus::Field;
         let (lines, text_cursor) = match *row {
             Row::Option(option_index) => {
@@ -427,13 +431,15 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                     .as_ref()
                     .expect("option rows come from options")[option_index];
                 let chosen = answer.selected.contains(&option.id);
+                let mark = Span::from(mark(question.kind, chosen));
                 let head = vec![
                     pointer(current),
-                    Span::from(format!(
-                        "{} {}. ",
-                        mark(question.kind, chosen),
-                        option_index + 1
-                    )),
+                    if chosen {
+                        mark.patch_style(theme::primary().bold())
+                    } else {
+                        mark
+                    },
+                    Span::styled(format!(" {}. ", option_index + 1), theme::secondary()),
                     Span::from(option.label.clone()).bold(),
                 ];
                 let lines = option_lines(
@@ -441,7 +447,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                     label_column,
                     option.description.as_deref(),
                     width,
-                    current,
+                    filled,
                 );
                 (lines, None)
             }
@@ -468,7 +474,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                         head,
                         text,
                         editing,
-                        fill: current,
+                        fill: filled,
                         limits: state.field_limits(),
                     };
                     live_field(state, row, width, &mut content.shape)
@@ -525,23 +531,21 @@ fn option_head_width(index: usize, label: &str) -> usize {
     columns(POINTER) + columns(&format!("( ) {}. ", index + 1)) + columns(label)
 }
 
-/// An option: pointer, mark, number and label, then the description from
-/// `label_column` on, rendered for the columns from there to the end and
-/// so wrapped under its own start. When that leaves too little room, the
-/// descriptions go on the lines below instead, from `DESCRIPTION_INDENT`
-/// on.
+/// An option: pointer, mark, number and label, under the focus fill where
+/// `filled`, then the description from `label_column` on, rendered for the
+/// columns from there to the end and so wrapped under its own start. When
+/// that leaves too little room, the descriptions go on the lines below
+/// instead, from `DESCRIPTION_INDENT` on.
 fn option_lines(
     head: Vec<Span<'static>>,
     label_column: usize,
     description: Option<&str>,
     width: usize,
-    current: bool,
+    filled: bool,
 ) -> Vec<Line<'static>> {
     let head_width: usize = head.iter().map(|span| columns(&span.content)).sum();
-    let head = if current {
-        head.into_iter()
-            .map(|span| span.patch_style(theme::focus_fill()))
-            .collect()
+    let head = if filled {
+        head.into_iter().map(theme::focus_span).collect()
     } else {
         head
     };
@@ -587,7 +591,8 @@ struct FieldRow<'a> {
     /// Whether the field has the keys, so the session's field is drawn
     /// here with its text cursor.
     editing: bool,
-    /// Whether the head is reversed while the field does not have the keys.
+    /// Whether the head is under the focus fill while the field does not
+    /// have the keys.
     fill: bool,
     /// What the counter under the field counts against while it has the
     /// keys; without limits there is no counter.
@@ -618,12 +623,7 @@ fn live_field(
             (lines, Some(cursor))
         }
         None if row.fill => (
-            resting_lines(
-                row.head.patch_style(theme::focus_fill()),
-                true,
-                row.text,
-                width,
-            ),
+            resting_lines(theme::focus_span(row.head), true, row.text, width),
             None,
         ),
         None => (resting_lines(row.head, false, row.text, width), None),
@@ -666,12 +666,13 @@ fn review_content(state: &SessionState, width: usize) -> Content {
 
     for (index, row) in state.rows().iter().enumerate() {
         let current = index == state.row();
+        let filled = current && !state.pane_focused();
         // The session note and the reject reason are fields.
         let field_row = |head: String, text| FieldRow {
             head: Span::from(head),
             text,
             editing: current && state.focus() == Focus::Field,
-            fill: current,
+            fill: filled,
             limits: state.field_limits(),
         };
         let (lines, text_cursor) = match *row {
@@ -697,29 +698,30 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 let mut spans = lead;
                 spans.push(Span::styled(summary, theme::secondary()));
                 let line = Line::from(spans);
-                let line = if current {
-                    line.patch_style(theme::focus_fill())
-                } else {
-                    line
-                };
+                let line = if filled { theme::focus_row(line) } else { line };
                 (vec![line], None)
             }
             Row::Submit => {
                 let counts = state.counts();
-                let button = Line::from(format!("{}[ Submit ]", pointer(current))).bold();
-                let lines = vec![
-                    Line::default(),
-                    Line::from(format!(
-                        "answered {} · skipped {} · defaulted {}",
-                        counts.answered, counts.skipped, counts.defaulted
-                    )),
-                    Line::default(),
-                    if current {
-                        button.patch_style(theme::focus_fill())
-                    } else {
-                        button
-                    },
-                ];
+                let words = |text: &str| Span::styled(text.to_owned(), theme::secondary());
+                let number = |count: usize| Span::from(count.to_string()).bold();
+                let tally = Line::from(vec![
+                    words("answered "),
+                    number(counts.answered),
+                    words(" · skipped "),
+                    number(counts.skipped),
+                    words(" · defaulted "),
+                    number(counts.defaulted),
+                ]);
+                // The button is always filled, so the cursor on it shows
+                // in its pointer alone, in the focus colour.
+                let pointer = if current {
+                    pointer(true).patch_style(theme::focus().bold())
+                } else {
+                    pointer(false)
+                };
+                let button = Line::from(vec![pointer, Span::styled("[ Submit ]", theme::button())]);
+                let lines = vec![Line::default(), tally, Line::default(), button];
                 (lines, None)
             }
             Row::Note => {
@@ -743,7 +745,9 @@ fn review_content(state: &SessionState, width: usize) -> Content {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::style::Modifier;
+    use std::collections::BTreeSet;
+
+    use ratatui::style::{Color, Modifier};
 
     use super::super::test_support;
     use super::*;
@@ -907,14 +911,21 @@ mod tests {
         );
     }
 
+    /// The colour and modifiers of a cell under the focus fill.
+    const FILLED: (Color, Modifier) = (Color::Yellow, Modifier::REVERSED);
+
     #[test]
-    fn a_resting_field_head_under_the_cursor_is_reversed_where_it_highlights() {
+    fn a_resting_field_head_under_the_cursor_is_filled_where_it_highlights() {
         let (_, buf) = tab_of(&after("jE"));
-        assert_eq!(
-            modifier_at(&buf, "❯ ( ) ✎ Own answer: "),
-            Modifier::REVERSED,
-            "the own answer"
-        );
+        let (start, y) = test_support::find(&buf, "❯ ( ) ✎ Own answer: ");
+        for x in start..start + 20 {
+            let cell = &buf[(x, y)];
+            assert_eq!(
+                (cell.fg, cell.modifier),
+                FILLED,
+                "the own answer, column {x}"
+            );
+        }
         let (_, buf) = tab_of(&after("lE"));
         assert_eq!(
             modifier_at(&buf, "❯ ✎ "),
@@ -923,10 +934,233 @@ mod tests {
         );
         let (_, buf) = tab_of(&after("lEljE"));
         assert_eq!(
-            modifier_at(&buf, "❯ ✎ Note to the asker"),
-            Modifier::REVERSED,
+            test_support::look_at(&buf, "❯ ✎ Note to the asker"),
+            FILLED,
             "the session note"
         );
+    }
+
+    /// A multi question of two options, without notes, after `keys`.
+    fn multi_after(keys: &str) -> (Content, Buffer) {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let json = r#"{"asqr": 2, "questions": [{"id": "m", "text": "?", "kind": "multi",
+            "note": false, "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
+        let mut state =
+            SessionState::new("marks", serde_json::from_str(json).expect("parses"), None);
+        for key in keys.chars() {
+            state.handle(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
+        }
+        tab_of(&state)
+    }
+
+    #[test]
+    fn a_chosen_mark_is_bold_primary_and_an_option_number_dim() {
+        // Ticked, then the cursor moves on to the second option.
+        let (_, buf) = multi_after(" j");
+        assert_eq!(test_support::row(&buf, 3), "  [x] 1. A");
+        assert_eq!(
+            test_support::look_at(&buf, "[x]"),
+            (Color::Cyan, Modifier::BOLD)
+        );
+        assert_eq!(
+            test_support::look_at(&buf, "x] 1"),
+            (Color::Cyan, Modifier::BOLD),
+            "the whole mark"
+        );
+        assert_eq!(
+            test_support::look_at(&buf, " 1. A"),
+            (Color::Reset, Modifier::DIM)
+        );
+        assert_eq!(
+            test_support::look_at(&buf, "A"),
+            (Color::Reset, Modifier::BOLD)
+        );
+
+        let (_, buf) = multi_after(" ");
+        assert_eq!(test_support::row(&buf, 4), "  [ ] 2. B");
+        assert_eq!(
+            test_support::look_at(&buf, "[ ] 2"),
+            (Color::Reset, Modifier::empty()),
+            "a mark not chosen"
+        );
+    }
+
+    #[test]
+    fn a_filled_option_is_one_colour_with_its_chosen_mark_and_number() {
+        let (_, buf) = multi_after(" ");
+        assert_eq!(test_support::row(&buf, 3), "❯ [x] 1. A");
+        for x in 0..10 {
+            let cell = &buf[(x, 3)];
+            assert_eq!(
+                (cell.fg, cell.modifier & !Modifier::BOLD),
+                FILLED,
+                "column {x}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_review_marks_answered_questions_and_fills_the_row_under_the_cursor() {
+        let (_, buf) = tab_of(&after("lElkk"));
+        let pick = test_support::find(&buf, "❯ ☐ Pick").1;
+        assert_eq!(test_support::row(&buf, pick), "❯ ☐ Pick   -");
+        assert_eq!(test_support::row(&buf, pick + 1), "  ☐ words  -");
+        for x in 0..12 {
+            let cell = &buf[(x, pick)];
+            assert_eq!((cell.fg, cell.modifier), FILLED, "column {x}");
+        }
+        assert_eq!(modifier_at(&buf, "  ☐ words"), Modifier::empty());
+        assert_eq!(
+            buf[(2, pick + 1)].modifier,
+            Modifier::DIM,
+            "an unanswered mark"
+        );
+
+        // Enter picks the option and goes on to the text question.
+        let (_, buf) = tab_of(&after("\nElkk"));
+        assert_eq!(test_support::row(&buf, pick), "❯ ☒ Pick   A");
+    }
+
+    #[test]
+    fn the_submit_button_is_always_filled_in_the_primary_colour() {
+        let button = (Color::Cyan, Modifier::REVERSED | Modifier::BOLD);
+        // The review opens on the submit button.
+        let (_, buf) = tab_of(&after("lEl"));
+        let (x, y) = test_support::find(&buf, "❯ [ Submit ]");
+        assert_eq!(
+            test_support::look_at(&buf, "❯ [ Submit ]"),
+            (Color::Yellow, Modifier::BOLD),
+            "the pointer"
+        );
+        for x in x + 2..x + 12 {
+            let cell = &buf[(x, y)];
+            assert_eq!((cell.fg, cell.modifier), button, "column {x}");
+        }
+        assert_eq!(buf[(x + 12, y)].modifier, Modifier::empty());
+
+        let (_, buf) = tab_of(&after("lElk"));
+        assert_eq!(test_support::look_at(&buf, "[ Submit ]"), button);
+        let (x, y) = test_support::find(&buf, "[ Submit ]");
+        assert_eq!(buf[(x - 2, y)].symbol(), " ", "no pointer");
+    }
+
+    #[test]
+    fn the_review_shows_one_focus_fill_besides_the_button() {
+        let (_, buf) = tab_of(&after("lElkk"));
+        let reversed: Vec<(u16, u16, Color)> = buf
+            .area
+            .positions()
+            .filter(|&position| buf[position].modifier.contains(Modifier::REVERSED))
+            .map(|position| (position.x, position.y, buf[position].fg))
+            .collect();
+        let rows: BTreeSet<u16> = reversed.iter().map(|&(_, y, _)| y).collect();
+        let (pick, submit) = (
+            test_support::find(&buf, "❯ ☐ Pick").1,
+            test_support::find(&buf, "[ Submit ]").1,
+        );
+        assert_eq!(rows, BTreeSet::from([pick, submit]));
+        for (x, y, colour) in reversed {
+            let expected = if y == pick {
+                Color::Yellow
+            } else {
+                Color::Cyan
+            };
+            assert_eq!(colour, expected, "column {x} of row {y}");
+        }
+        let button: String = (0..40)
+            .filter(|&x| buf[(x, submit)].modifier.contains(Modifier::REVERSED))
+            .map(|x| buf[(x, submit)].symbol())
+            .collect();
+        assert_eq!(
+            button, "[ Submit ]",
+            "the brackets tell it from a focus fill"
+        );
+    }
+
+    #[test]
+    fn the_review_counts_its_numbers_bold_and_its_words_dim() {
+        let (_, buf) = tab_of(&after("lEl"));
+        let (x, y) = test_support::find(&buf, "answered 0 · skipped 2 · defaulted 0");
+        let words = (Color::Reset, Modifier::DIM);
+        let number = (Color::Reset, Modifier::BOLD);
+        let looks: Vec<(Color, Modifier)> = (x..x + 36)
+            .map(|x| (buf[(x, y)].fg, buf[(x, y)].modifier))
+            .collect();
+        for (offset, look) in looks.iter().enumerate() {
+            let expected = if [9, 21, 35].contains(&offset) {
+                number
+            } else {
+                words
+            };
+            assert_eq!(*look, expected, "column {}", x + offset as u16);
+        }
+    }
+
+    /// The single question of [`SESSION`] with a context entry, so it has
+    /// a pane, after `keys`, then with the pane focused.
+    fn with_pane_focused(keys: &str) -> SessionState {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        use crate::tui::Extent;
+
+        let session = SESSION.replace(
+            r#""custom": true,"#,
+            r#""custom": true, "context": [{"type": "code", "content": "x"}],"#,
+        );
+        let mut state = SessionState::new(
+            "pane",
+            serde_json::from_str(&session).expect("parses"),
+            None,
+        );
+        state.set_pane_page(Some(Page {
+            rows: Extent { shown: 5, total: 5 },
+            columns: Extent::default(),
+        }));
+        for key in keys.chars() {
+            let code = if key == 'E' {
+                KeyCode::Esc
+            } else {
+                KeyCode::Char(key)
+            };
+            state.handle(KeyEvent::new(code, KeyModifiers::NONE));
+        }
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert!(state.pane_focused());
+        state
+    }
+
+    #[test]
+    fn while_the_pane_has_the_focus_the_current_row_keeps_its_pointer_and_loses_its_fill() {
+        for (keys, row) in [("", "❯ ( ) 1. A"), ("jE", "❯ ( ) ✎ Own answer: —")] {
+            let (_, buf) = tab_of(&with_pane_focused(keys));
+            test_support::find(&buf, row);
+            assert!(
+                buf.content()
+                    .iter()
+                    .all(|cell| !cell.modifier.contains(Modifier::REVERSED)),
+                "{row}: {:?}",
+                test_support::rows(&buf)
+            );
+        }
+    }
+
+    #[test]
+    fn an_unfilled_head_at_the_row_width_takes_the_rows_it_was_counted_with() {
+        // The own answer's head takes 20 columns, its closing blank the
+        // 20th. While the pane has the focus the head is not filled, so its
+        // blank hangs past the edge as in the count.
+        let state = with_pane_focused("jE");
+        let lines =
+            |pass| test_support::line_texts(&question_content(&state, state.tab(), 19, pass).lines);
+
+        let drawn = lines(Pass::Live);
+        assert_eq!(drawn.len(), lines(Pass::Counted).len());
+        let head = drawn
+            .iter()
+            .position(|line| line.contains("Own answer"))
+            .expect("the own answer shows");
+        assert_eq!(drawn[head..head + 2], ["❯ ( ) ✎ Own answer: ", "    —"]);
     }
 
     #[test]
@@ -954,24 +1188,6 @@ mod tests {
             ["  ( ) ✎ Own answer: ", "    —"],
             "a plain blank hangs past the edge"
         );
-    }
-
-    #[test]
-    fn the_review_marks_answered_questions_and_reverses_the_row_under_the_cursor() {
-        let (_, buf) = tab_of(&after("lElkk"));
-        let pick = test_support::find(&buf, "❯ ☐ Pick").1;
-        assert_eq!(test_support::row(&buf, pick), "❯ ☐ Pick   -");
-        assert_eq!(test_support::row(&buf, pick + 1), "  ☐ words  -");
-        assert_eq!(modifier_at(&buf, "❯ ☐ Pick"), Modifier::REVERSED);
-        assert!(
-            buf[(11, pick)].modifier.contains(Modifier::REVERSED),
-            "the summary"
-        );
-        assert_eq!(modifier_at(&buf, "  ☐ words"), Modifier::empty());
-
-        // Enter picks the option and goes on to the text question.
-        let (_, buf) = tab_of(&after("\nElkk"));
-        assert_eq!(test_support::row(&buf, pick), "❯ ☒ Pick   A");
     }
 
     #[test]

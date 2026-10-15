@@ -6,7 +6,7 @@ expression: backend
 " Alt rework 3, batch 1  (claude-code, torchsnap mascots)  follows: alt-rework-3-batch-00            "
 " Pick the best line per mascot. More sends it back with new variations.                             "
 "   ☒ 301  ☒ extras  ☐ comment  ✔ Review                                                             "
-"────────────────────────────────────────────────────────────────────────────────────────────────────"
+"──━━━━━━━───────────────────────────────────────────────────────────────────────────────────────────"
 " pick one, or type your own                                                                  ↑ more "
 "                                                                                                    "
 "   ( ) 1. Old    Snappy in holly -- the old line.                                                   "

@@ -604,7 +604,7 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
  Alt rework 3, batch 1  (claude-code, torchsnap mascots)
  Pick the best line per mascot. More sends it back with new variations.
  ← ☒ 300  ☐ 301  ☐ 302  ☐ 303  ✔ Review
- ──────────────────────────────────────────────────────────
+ ─━━━━━━━──────────────────────────────────────────────────
  holly-crown-green-robe-feast-ghost: Ghost of Christmas
  Present (A Christmas Carol)
  pick one, or type your own
@@ -623,9 +623,10 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
  ↑/↓ move  enter pick  ←/→ question  n note  ? help  q quit
 ```
 
-- The title bar names the queue and counts the waiting sessions. A queue
-  name too long for the line is cut from the left with `…`, at a `/`
-  where possible, so the count stays visible.
+- The title bar names the queue and counts the waiting sessions, without
+  a fill: `asqr` bold in the primary colour, the queue dim, the count in
+  the text colour. A queue name too long for the line is cut from the
+  left with `…`, at a `/` where possible, so the count stays visible.
 - The session header shows the title (or the id), `from` and `follows`,
   then the intro, both wrapped at the reading width. The title takes at
   most two lines and the intro three, one each on terminals below 24
@@ -635,15 +636,18 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   pane, the intro ends in `… esc, i: more`. The tab bar keeps the full
   width.
 - The tab bar lists every question by its `header` (or id) with `☒`
-  once it is answered and `☐` while it is not, and `✔ Review` last. The
-  current tab is highlighted. When the tabs do not fit, the bar scrolls
-  around the current one and shows `←`/`→` where more follow.
+  once it is answered and a dim `☐` while it is not, and `✔ Review`
+  last. The current tab is bold in the primary colour, and the line under
+  the bar is heavy (`━`) and in the primary colour under it, thin and dim
+  elsewhere. When the tabs do not fit, the bar scrolls around the current
+  one and shows `←`/`→` where more follow.
 - Under the question text a hint says how to answer: "pick one", "pick
   between 2 and 3 items", "pick at least 2 items", "pick up to 3 items",
   "pick 2 items", "pick any" or "type your answer". A `single` with
   `custom` adds ", or type your own"; a `multi` does not mention its own
   answer, which people find on their own (ADR 23).
-- Options show `( )`/`(•)` in a `single` and `[ ]`/`[x]` in a `multi`.
+- Options show `( )`/`(•)` in a `single` and `[ ]`/`[x]` in a `multi`,
+  a chosen mark bold in the primary colour and the option's number dim.
   Option descriptions start after the widest label and wrap under
   themselves; where that leaves less than 30 columns, they go below the
   label.
@@ -654,10 +658,24 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
 - The line above the key bar shows notices (about the queue) and
   messages (about the last key) until the next key.
 - The key bar shows the keys that work where the cursor is; they change
-  inside a field. Hints that do not fit its width are left out whole,
+  inside a field. Each key is bold in the primary colour and its
+  description dim, without a fill. Hints that do not fit its width are left out whole,
   never cut: first `n`, then `tab`, then `←`/`→`, then the others from
   the right. `?` and `q` stay longest, as the help lists every key
   (ADR 31).
+- **Colours** (ADR 37) are the terminal's named colours, so its theme
+  decides how they look: cyan as the primary colour, yellow for the
+  focus and for notices, green and red for the length counter and diff
+  lines, dim for secondary text. The row under the cursor, a field's
+  head under it, the current entry of the session list and the focused
+  context pane's header show the focus fill: yellow reversed, the whole
+  row in one colour. One focus fill shows at a time. The submit button
+  is the only other fill (section 7.4). The help, the whole intro and
+  the session list show in a frame with rounded corners in the primary
+  colour, a bold title, a dim footer and a blank column inside each
+  side; the help's keys are bold in the primary colour. Code and
+  Markdown keep their highlighting colours. Marks, pointers, text and
+  the fills carry every meaning, so nothing depends on colour alone.
 - **Reading width:** the question and the review take at most 100
   columns and start at the left, with or without a context pane. The
   tab's area, W×H, is the area under the tab bar inside a margin of one
@@ -765,8 +783,9 @@ On an option row (vim style plus arrows):
   `o` and `?` keep their meaning and `ctrl-c` quits. `tab`, `esc` and
   `q` give the focus back to where it was, a field being typed in
   included, so a word typed after `tab` never quits asqr. Every other
-  key does nothing. While the pane has the focus, its header is
-  highlighted, a field's text cursor hides, and the key bar and the
+  key does nothing. While the pane has the focus, its header shows the
+  focus fill, the question's current row keeps its pointer and bold text
+  but loses its fill, a field's text cursor hides, and the key bar and the
   help show the pane's keys, with `? help` and `tab/esc/q back`. A pane
   that goes away, as after a resize down to the hint, gives the focus
   back.
@@ -910,10 +929,13 @@ chosen options by label, own text and a text answer in quotes (line
 breaks shown as `⏎`), `(default)` after an untouched default, `-`
 for a skipped question and `+note` for a note. A line longer than the
 screen is cut with `…`. Below the list, the counts of answered, skipped
-and defaulted questions, then:
+and defaulted questions, the numbers bold and the words dim, then:
 
-- **Submit**: `enter` submits. The review tab opens with the cursor
-  here (ADR 23), and the keys stay commands on this row.
+- **Submit**: `[ Submit ]`, always filled in the primary colour and
+  bold, brackets included, so it stays apart from the focus fill without
+  colours (ADR 37). With the cursor on it, the pointer before it is bold
+  yellow. `enter` submits. The review tab opens with the cursor here
+  (ADR 23), and the keys stay commands on this row.
 - **Note to the asker**: a live field for an optional note to the whole
   session; `enter` submits with it (ADR 29). There is no `n` on the
   review tab.

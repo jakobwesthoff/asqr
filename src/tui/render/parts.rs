@@ -7,6 +7,7 @@
 
 use ratatui::text::Span;
 
+use super::theme;
 use crate::format::{Answer, Kind, Question, is_answered};
 use crate::tui::{AnswerState, Focus, SessionState};
 
@@ -20,14 +21,15 @@ pub fn pointer(current: bool) -> Span<'static> {
     Span::from(if current { POINTER } else { "  " })
 }
 
-/// The mark the tab bar and the review put before a question: `☐` while it
-/// is skipped, `☒` once it is answered or defaulted.
+/// The mark the tab bar and the review put before a question: a dim `☐`
+/// while it is skipped, `☒` once it is answered or defaulted. An answer is
+/// no status, so `☒` keeps the text colour.
 pub fn answer_mark(state: AnswerState) -> Span<'static> {
-    Span::from(if state == AnswerState::Skipped {
-        "☐"
+    if state == AnswerState::Skipped {
+        Span::styled("☐", theme::secondary())
     } else {
-        "☒"
-    })
+        Span::from("☒")
+    }
 }
 
 /// What the review shows for an answer: the chosen options by label, own
@@ -121,8 +123,13 @@ mod tests {
     }
 
     #[test]
-    fn a_question_is_marked_answered_unless_it_is_skipped() {
-        assert_eq!(answer_mark(AnswerState::Skipped), Span::from("☐"));
+    fn a_question_is_marked_answered_unless_it_is_skipped_and_then_dim() {
+        use ratatui::style::Style;
+
+        assert_eq!(
+            answer_mark(AnswerState::Skipped),
+            Span::styled("☐", Style::new().dim())
+        );
         assert_eq!(answer_mark(AnswerState::Answered), Span::from("☒"));
         assert_eq!(answer_mark(AnswerState::Defaulted), Span::from("☒"));
     }

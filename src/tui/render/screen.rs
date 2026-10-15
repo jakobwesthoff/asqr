@@ -10,7 +10,7 @@
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 use ratatui_image::picker::Picker;
 use unicode_segmentation::UnicodeSegmentation;
@@ -22,7 +22,7 @@ use super::keys::{draw_help, key_hints, key_line};
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{PaneLayout, READING_WIDTH};
 use super::source_line::columns;
-use super::tabs::draw_tabs;
+use super::tabs::tab_bar;
 use super::theme;
 use crate::format::ContextEntry;
 use crate::tui::text_field::FieldShape;
@@ -200,7 +200,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         }
         Some(state) => {
             frame.render_widget(Paragraph::new(header_lines), header);
-            draw_tabs(tabs, frame.buffer_mut(), state);
+            frame.render_widget(tab_bar(state), tabs);
 
             view.tab.retain(app.sessions());
             let main = main.inner(ratatui::layout::Margin::new(1, 0));
@@ -271,16 +271,26 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
 }
 
 /// The title bar: the queue and how many sessions wait. A queue too long
-/// for the bar gives way to the count, shortened from its start.
+/// for the bar gives way to the count, shortened from its start. The bar
+/// has no fill: `asqr` stands out in the primary colour, the queue is
+/// secondary, and the count, which changes, keeps the text colour.
 fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
     let count = format!(
         " · {waiting} session{} waiting",
         if waiting == 1 { "" } else { "s" }
     );
-    let prefix = " asqr · queue: ";
-    let room = usize::from(area.width).saturating_sub(columns(prefix) + columns(&count));
-    let text = format!("{prefix}{}{count}", shorten_from_left(queue, room));
-    Line::styled(text, theme::focus_fill()).render(area, buf);
+    let (name, prefix) = (" asqr", " · queue: ");
+    let room =
+        usize::from(area.width).saturating_sub(columns(name) + columns(prefix) + columns(&count));
+    Line::from(vec![
+        Span::styled(name, theme::primary().bold()),
+        Span::styled(
+            format!("{prefix}{}", shorten_from_left(queue, room)),
+            theme::secondary(),
+        ),
+        Span::from(count),
+    ])
+    .render(area, buf);
 }
 
 /// The status line: the app's notice, else the message of the session
@@ -304,7 +314,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::{Color, Modifier};
 
-    use super::super::test_support::{self, find, find_from, row, style_at};
+    use super::super::test_support::{self, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
     use crate::tui::{Focus, SessionState};
@@ -1104,16 +1114,11 @@ mod tests {
         insta::assert_snapshot!(screen(&app, 80, 24));
     }
 
-    /// The colour of the counter: the last coloured cell of the screen.
+    /// The colour of the counter of the release session's highlights,
+    /// whose target ends at 120.
     fn counter_colour(app: &App) -> Color {
         let backend = screen(app, 80, 24);
-        let buffer = backend.buffer();
-        let area = buffer.area;
-        (0..area.height)
-            .flat_map(|y| (0..area.width).map(move |x| (x, y)))
-            .map(|position| buffer[position].fg)
-            .rfind(|colour| matches!(colour, Color::Green | Color::Yellow | Color::Red))
-            .expect("the counter is on screen")
+        backend.buffer()[find(backend.buffer(), "/120")].fg
     }
 
     #[test]
@@ -1172,11 +1177,11 @@ mod tests {
         // end with the cursor's session.
         let backend = screen(&app, 60, 15);
         let buf = backend.buffer();
-        assert_eq!(find(buf, "┌ Waiting sessions"), (2, 0), "{backend}");
-        assert_eq!(find(buf, "└"), (2, 14), "{backend}");
-        assert_eq!(find(buf, "┐"), (57, 0), "{backend}");
-        assert_eq!(find(buf, "s03"), (5, 1), "{backend}");
-        assert_eq!(find(buf, "❯ s15"), (3, 13), "{backend}");
+        assert_eq!(find(buf, "╭ Waiting sessions"), (2, 0), "{backend}");
+        assert_eq!(find(buf, "╰"), (2, 14), "{backend}");
+        assert_eq!(find(buf, "╮"), (57, 0), "{backend}");
+        assert_eq!(find(buf, "s03"), (6, 1), "{backend}");
+        assert_eq!(find(buf, "❯ s15"), (4, 13), "{backend}");
     }
 
     #[test]
@@ -1206,11 +1211,58 @@ mod tests {
         );
         assert_eq!(style_at(buf, "broken").fg, Some(Color::Yellow));
         assert_eq!(row(buf, 19), " q  quit", "{backend}");
-        assert!(
-            style_at(buf, "q  quit")
-                .add_modifier
-                .contains(Modifier::REVERSED)
+        assert_eq!(look_at(buf, "q  quit"), (Color::Cyan, Modifier::BOLD));
+    }
+
+    #[test]
+    fn the_title_line_has_no_fill_and_names_asqr_in_the_primary_colour() {
+        let backend = screen(&app(&[("release", RELEASE)]), 80, 24);
+        let buf = backend.buffer();
+
+        assert_eq!(
+            title_line(&backend),
+            " asqr · queue: default · 1 session waiting"
         );
+        assert_eq!(look_at(buf, "asqr"), (Color::Cyan, Modifier::BOLD));
+        let secondary = (Color::Reset, Modifier::DIM);
+        assert_eq!(look_at(buf, " · queue"), secondary);
+        assert_eq!(look_at(buf, "default"), secondary);
+        assert_eq!(
+            look_at(buf, " · 1 session"),
+            (Color::Reset, Modifier::empty())
+        );
+        assert!(
+            (0..80).all(|x| !buf[(x, 0)].modifier.contains(Modifier::REVERSED)),
+            "{backend}"
+        );
+    }
+
+    #[test]
+    fn one_focus_fill_shows_at_a_time() {
+        let mut app = long_context();
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+        let filled = |backend: &TestBackend, row: u16| {
+            (0..80)
+                .filter(|&x| {
+                    let cell = &backend.buffer()[(x, row)];
+                    cell.modifier.contains(Modifier::REVERSED) && cell.fg == Color::Yellow
+                })
+                .count()
+        };
+
+        let backend = screen_handing_on_pane(&mut app, &mut view, 80, 24);
+        let (option, header) = (
+            row_starting_with(&backend, "❯ ( ) 1. Yes"),
+            row_starting_with(&backend, "Thirty lines"),
+        );
+        assert_eq!(filled(&backend, option), 12, "the option:\n{backend}");
+        assert_eq!(filled(&backend, header), 0, "the header:\n{backend}");
+
+        special(&mut app, KeyCode::Tab);
+        let backend = screen_handing_on_pane(&mut app, &mut view, 80, 24);
+        assert_eq!(filled(&backend, option), 0, "the option:\n{backend}");
+        assert!(row(backend.buffer(), option).contains("❯ ( ) 1. Yes"));
+        assert_eq!(filled(&backend, header), 78, "the header:\n{backend}");
     }
 
     #[test]
@@ -1280,8 +1332,8 @@ mod tests {
         // The notice shows only in the margin beside the intro's frame.
         let backend = screen(&app, 60, 15);
         let buf = backend.buffer();
-        assert!(row(buf, 13).starts_with("ba└───"), "{backend}");
-        assert!(row(buf, 13).ends_with("┘"), "{backend}");
+        assert!(row(buf, 13).starts_with("ba╰───"), "{backend}");
+        assert!(row(buf, 13).ends_with("╯"), "{backend}");
         assert!(row(buf, 14).starts_with(" ↑/↓  scroll"), "{backend}");
     }
 
@@ -1798,12 +1850,14 @@ mod tests {
         let backend = drawn(&mut app);
         insta::assert_snapshot!("pane_focused_scrolled", backend);
         let header = row_starting_with(&backend, "Thirty lines");
-        assert!(
-            backend.buffer()[(1, header)]
-                .modifier
-                .contains(Modifier::REVERSED),
-            "the focused pane's header stands out:\n{backend}"
-        );
+        for x in 1..79 {
+            let cell = &backend.buffer()[(x, header)];
+            assert_eq!(
+                (cell.fg, cell.modifier & !Modifier::BOLD),
+                (Color::Yellow, Modifier::REVERSED),
+                "the focused pane's header is filled to its end, column {x}:\n{backend}"
+            );
+        }
 
         keys(&mut app, "?");
         insta::assert_snapshot!("pane_help", drawn(&mut app));
@@ -2871,14 +2925,12 @@ mod tests {
             special(&mut app, KeyCode::Left);
         }
         let backend = screen(&app, 60, 24);
-        // The header takes four rows here, so the tab bar's current tab is
-        // among the reversed cells too.
         let head = u16::try_from(head).expect("a row on the screen");
-        let cursor: Vec<_> = reversed_cells_in_tab(&backend)
-            .into_iter()
-            .filter(|&(_, y, _)| y >= head)
-            .collect();
-        assert_eq!(cursor, [(19, head + 2, "な".to_owned())], "{backend}");
+        assert_eq!(
+            reversed_cells_in_tab(&backend),
+            [(19, head + 2, "な".to_owned())],
+            "{backend}"
+        );
     }
 
     #[test]
@@ -3012,6 +3064,39 @@ mod tests {
                 with.symbol()
             );
         }
+    }
+
+    #[test]
+    fn without_colours_the_focus_and_the_submit_button_stay_two_fills_told_apart_by_brackets() {
+        let mut app = app(&[("release", RELEASE)]);
+        // On to the text question, which takes an `l` as typed, then on to
+        // the review and up from the button to that question.
+        keys(&mut app, "lll");
+        special(&mut app, KeyCode::Esc);
+        keys(&mut app, "lk");
+        let (coloured, colourless) = with_and_without_colours(&app, 80, 24);
+        assert_only_colours_gone(&coloured, &colourless);
+
+        let reversed_rows: BTreeSet<u16> = colourless
+            .area
+            .positions()
+            .filter(|&position| colourless[position].modifier.contains(Modifier::REVERSED))
+            .map(|position| position.y)
+            .collect();
+        let (submit, current) = (
+            find(&colourless, "[ Submit ]").1,
+            find(&colourless, "❯ ☒ Highlights").1,
+        );
+        assert_eq!(reversed_rows, BTreeSet::from([current, submit]));
+        let button: String = (0..80)
+            .filter(|&x| {
+                colourless[(x, submit)]
+                    .modifier
+                    .contains(Modifier::REVERSED)
+            })
+            .map(|x| colourless[(x, submit)].symbol())
+            .collect();
+        assert_eq!(button, "[ Submit ]");
     }
 
     /// One text question with inline code, a diff and a length.
