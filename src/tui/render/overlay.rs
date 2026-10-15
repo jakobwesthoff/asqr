@@ -160,10 +160,23 @@ mod tests {
             assert_eq!(buf[corner].fg, Color::Cyan, "border at {corner:?}");
         }
         // The title and the footer stand on the border and keep its colour.
-        assert_eq!(buf[find(&buf, "Keys")].modifier, Modifier::BOLD);
+        let (x, y) = find(&buf, "Keys");
+        for x in x - 1..x + 5 {
+            let cell = &buf[(x, y)];
+            assert_eq!(
+                (cell.fg, cell.modifier),
+                (Color::Cyan, Modifier::BOLD),
+                "title column {x}"
+            );
+        }
         let (x, y) = find(&buf, "esc");
         for x in x - 1..x + 4 {
-            assert_eq!(buf[(x, y)].modifier, Modifier::DIM, "column {x}");
+            let cell = &buf[(x, y)];
+            assert_eq!(
+                (cell.fg, cell.modifier),
+                (Color::Cyan, Modifier::DIM),
+                "footer column {x}"
+            );
         }
 
         let mut buf = Buffer::empty(area);
