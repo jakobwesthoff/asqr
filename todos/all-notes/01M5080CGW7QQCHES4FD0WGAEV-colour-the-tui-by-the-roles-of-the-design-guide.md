@@ -72,4 +72,4 @@ As in the chosen prototype variant:
 
 ## Relations
 
-- Relates to: [Gather the TUI colours into colour roles and honour NO_COLOR](01M507H3S94J8TTM72XB2VY0J1-gather-the-tui-colours-into-colour-roles-and-honour-nocolor.md), the roles this change fills in
+- The roles this change fills in are in `src/tui/render/theme.rs`.

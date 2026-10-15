@@ -19,6 +19,8 @@ pub struct Watch {
     layout: PaneLayout,
     /// Whether asqr sets the terminal title; `--no-title` switches it off.
     title: bool,
+    /// Whether the TUI draws without colours (`NO_COLOR`).
+    no_color: bool,
     _lock: QueueLock,
 }
 
@@ -38,11 +40,16 @@ impl Watch {
     pub fn title(&self) -> bool {
         self.title
     }
+
+    pub fn no_color(&self) -> bool {
+        self.no_color
+    }
 }
 
 pub(super) fn run(
     location: QueueLocation,
     args: &WatchArgs,
+    no_color: bool,
     terminal_ui: impl FnOnce(Watch) -> Exit,
 ) -> Exit {
     // The watcher needs the inbox to exist before the first file does.
@@ -72,6 +79,7 @@ pub(super) fn run(
         },
         layout: args.layout.unwrap_or_default(),
         title: !args.no_title,
+        no_color,
         _lock: lock,
     })
 }

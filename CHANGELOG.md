@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asqr · 2 waiting`. On quit asqr clears its title and gives the
   terminal its title from before back where the terminal keeps a title
   stack. `--no-title` leaves the title alone.
+- asqr honours `NO_COLOR`: set to any value but the empty one, the TUI
+  draws without colours and keeps bold, dim, reversed, the marks and
+  the pointers. Images keep their colours. Before, the terminal library
+  took the colours itself, with them the images, and text lost its dim
+  or reversed style where its colour changed.
 
 ### Changed
 

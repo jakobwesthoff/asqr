@@ -17,6 +17,7 @@ mod status;
 mod wait;
 mod watch;
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -177,17 +178,34 @@ pub struct Environment {
     /// `ASQR_LAYOUT` as it is set. It is checked only when asqr watches,
     /// so a bad value never stands in the way of the other commands.
     pub layout: Option<String>,
+    /// `NO_COLOR` (<https://no-color.org>): the TUI draws without colours.
+    pub no_color: bool,
 }
 
 /// Reads the [`Environment`] of this process.
 pub fn environment() -> Environment {
-    let variable = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+    environment_from(|name| std::env::var_os(name))
+}
+
+/// Reads the [`Environment`] through `lookup`, which gives a variable's
+/// value by its name, so tests need not change the process environment.
+fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
+    // asqr's own variables are read as UTF-8 text, and one that is not
+    // counts as unset.
+    let variable = |name: &str| {
+        lookup(name)
+            .and_then(|value| value.into_string().ok())
+            .filter(|value| !value.is_empty())
+    };
     Environment {
         selection: Selection {
             queue: variable("ASQR_QUEUE"),
             dir: variable("ASQR_DIR").map(PathBuf::from),
         },
         layout: variable("ASQR_LAYOUT"),
+        // no-color.org asks only that the variable is present and not
+        // empty, so any value counts, also one that is not UTF-8.
+        no_color: lookup("NO_COLOR").is_some_and(|value| !value.is_empty()),
     }
 }
 
@@ -251,7 +269,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
                 no_title: before.no_title || after.no_title,
                 layout: after.layout.or(before.layout).or(variable),
             };
-            watch::run(location, &args, terminal_ui)
+            watch::run(location, &args, environment.no_color, terminal_ui)
         }
         Command::Paths { json } => paths::run(&location, json),
         Command::New => format::run_new(),
@@ -298,6 +316,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
     use std::path::Path;
 
     use super::*;
@@ -505,5 +524,72 @@ mod tests {
         std::fs::write(&blocked, "a file where the queue should be").expect("written");
 
         assert_eq!(watched(&blocked, &[]), (Exit::Failure, None));
+    }
+
+    /// The [`Environment`] read from the variables in `set`.
+    fn environment_of(set: &[(&str, &OsStr)]) -> Environment {
+        environment_from(|name| {
+            set.iter()
+                .find(|(variable, _)| *variable == name)
+                .map(|(_, value)| value.to_os_string())
+        })
+    }
+
+    #[test]
+    fn no_color_counts_when_present_and_not_empty_whatever_its_value() {
+        let no_color = |value: &str| environment_of(&[("NO_COLOR", OsStr::new(value))]).no_color;
+
+        assert!(!environment_of(&[]).no_color, "unset");
+        assert!(!no_color(""), "empty counts as unset");
+        assert!(no_color("1"));
+        assert!(no_color("0"), "any value, even one that reads as off");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_color_counts_with_a_value_that_is_no_utf_8() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let latin1 = OsStr::from_bytes(b"ja\xe4");
+        assert!(environment_of(&[("NO_COLOR", latin1)]).no_color);
+    }
+
+    #[test]
+    fn the_environment_reads_the_queue_and_the_layout_and_skips_empty_values() {
+        let environment = environment_of(&[
+            ("ASQR_QUEUE", OsStr::new("work")),
+            ("ASQR_DIR", OsStr::new("")),
+            ("ASQR_LAYOUT", OsStr::new("below")),
+        ]);
+
+        assert_eq!(environment.selection.queue.as_deref(), Some("work"));
+        assert_eq!(environment.selection.dir, None);
+        assert_eq!(environment.layout.as_deref(), Some("below"));
+    }
+
+    #[test]
+    fn the_tui_starts_without_colours_under_no_color() {
+        let colourless = |no_color: bool| {
+            let scratch = tempfile::tempdir().expect("temp dir");
+            let cli = Cli::try_parse_from([
+                "asqr",
+                "--dir",
+                scratch.path().to_str().expect("UTF-8 temp path"),
+            ])
+            .expect("parses");
+            let environment = Environment {
+                no_color,
+                ..Environment::default()
+            };
+            let mut started = None;
+            dispatch(cli, environment, |watch| {
+                started = Some(watch.no_color());
+                Exit::Success
+            });
+            started
+        };
+
+        assert_eq!(colourless(true), Some(true));
+        assert_eq!(colourless(false), Some(false));
     }
 }

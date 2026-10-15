@@ -13,6 +13,7 @@
 //! Code and Markdown keep the colours patine gives them (ADR 34) and take
 //! no role.
 
+use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Style};
 
 use crate::tui::text_field::Level;
@@ -63,8 +64,32 @@ pub(crate) fn for_level(level: Level) -> Style {
     }
 }
 
+/// Takes every named and indexed colour out of the drawn `buf`, for
+/// `NO_COLOR` (spec section 8). The modifiers stay, and with them what
+/// marks, pointers, bold, dim and reversed say.
+///
+/// One pass over the finished buffer covers every colour, those of the
+/// roles, those patine gives code and Markdown, and any a later change
+/// writes without a role.
+///
+/// RGB colours stay. Only images draw with them: half blocks paint the
+/// picture in RGB, and the Kitty protocol names each image by the RGB
+/// foreground of its placeholder cells, so taking it would lose the image.
+pub(crate) fn strip_colours(buf: &mut Buffer) {
+    let plain = |colour: Color| match colour {
+        Color::Rgb(..) => colour,
+        _ => Color::Reset,
+    };
+    for cell in &mut buf.content {
+        cell.fg = plain(cell.fg);
+        cell.bg = plain(cell.bg);
+        cell.underline_color = plain(cell.underline_color);
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use ratatui::layout::Rect;
     use ratatui::style::Modifier;
 
     use super::*;
@@ -93,5 +118,47 @@ mod tests {
         assert_eq!(for_level(Level::Fine), Style::new().fg(Color::Green));
         assert_eq!(for_level(Level::Warn), Style::new().fg(Color::Yellow));
         assert_eq!(for_level(Level::Over), Style::new().fg(Color::Red));
+    }
+
+    #[test]
+    fn stripping_resets_named_and_indexed_colours_and_keeps_rgb_and_modifiers() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 3, 1));
+        buf[(0, 0)].set_style(
+            Style::new()
+                .fg(Color::Yellow)
+                .bg(Color::Blue)
+                .underline_color(Color::Red)
+                .bold()
+                .reversed(),
+        );
+        buf[(1, 0)].set_style(
+            Style::new()
+                .fg(Color::Indexed(6))
+                .bg(Color::Indexed(236))
+                .dim(),
+        );
+        buf[(2, 0)].set_style(
+            Style::new()
+                .fg(Color::Rgb(0, 0, 1))
+                .bg(Color::Rgb(255, 0, 0)),
+        );
+
+        strip_colours(&mut buf);
+
+        let named = &buf[(0, 0)];
+        assert_eq!(
+            (named.fg, named.bg, named.underline_color),
+            (Color::Reset, Color::Reset, Color::Reset)
+        );
+        assert_eq!(named.modifier, Modifier::BOLD | Modifier::REVERSED);
+        let indexed = &buf[(1, 0)];
+        assert_eq!((indexed.fg, indexed.bg), (Color::Reset, Color::Reset));
+        assert_eq!(indexed.modifier, Modifier::DIM);
+        let rgb = &buf[(2, 0)];
+        assert_eq!(
+            (rgb.fg, rgb.bg),
+            (Color::Rgb(0, 0, 1), Color::Rgb(255, 0, 0)),
+            "image cells keep their colours, and Kitty its image id"
+        );
     }
 }

@@ -1198,6 +1198,12 @@ error. `--no-title` leaves the terminal title alone (section 7.5).
 `below` is a usage error when asqr watches the queue; the other
 commands ignore the variable.
 
+`NO_COLOR` (<https://no-color.org>) set to any value but the empty one
+makes the TUI draw without colours, a value that is not UTF-8 included.
+Text, marks, pointers, bold, dim and reversed stay, so the screen says
+the same as with colours. Images keep their colours. An empty `NO_COLOR`
+counts as unset.
+
 `ask`:
 
 - `--timeout` needs `--wait`.

@@ -43,6 +43,16 @@ impl Tui {
     /// Starts `asqr` with `queue` (such as `--dir <path>`) inside a
     /// stand-in tmux that reports `tmux_state`.
     fn start(sandbox: &Sandbox, queue: &[&str], tmux_state: &str) -> Self {
+        Self::start_with(sandbox, queue, tmux_state, &[])
+    }
+
+    /// Like [`Tui::start`], with the variables in `environment` set.
+    fn start_with(
+        sandbox: &Sandbox,
+        queue: &[&str],
+        tmux_state: &str,
+        environment: &[(&str, &str)],
+    ) -> Self {
         let bin = sandbox.home().join("bin");
         std::fs::create_dir_all(&bin).expect("bin dir");
         let viewed = sandbox.home().join("viewed");
@@ -73,10 +83,14 @@ impl Tui {
         command.env("XDG_CACHE_HOME", sandbox.home().join(".cache"));
         command.env_remove("ASQR_QUEUE");
         command.env_remove("ASQR_DIR");
+        command.env_remove("NO_COLOR");
         command.env("TERM", "xterm-256color");
         command.env("TMUX", "/tmp/tmux-test/default,1,0");
         let path = std::env::var("PATH").unwrap_or_default();
         command.env("PATH", format!("{}:{path}", bin.display()));
+        for (name, value) in environment {
+            command.env(name, value);
+        }
         let child = pair.slave.spawn_command(command).expect("asqr starts");
         drop(pair.slave);
 
@@ -114,9 +128,43 @@ impl Tui {
     /// only redraws cells that change, so the raw output is no text to
     /// search.
     fn screen(&self) -> String {
+        self.terminal().screen().contents()
+    }
+
+    /// A terminal that took all output so far.
+    fn terminal(&self) -> vt100::Parser {
         let mut parser = vt100::Parser::new(self.size.0, self.size.1, 0);
         parser.process(&self.output.lock().expect("not poisoned"));
-        parser.screen().contents()
+        parser
+    }
+
+    /// Every cell of the screen.
+    fn cells(&self) -> Vec<vt100::Cell> {
+        let terminal = self.terminal();
+        let screen = terminal.screen();
+        (0..self.size.0)
+            .flat_map(|row| (0..self.size.1).map(move |column| (row, column)))
+            .filter_map(|(row, column)| screen.cell(row, column).cloned())
+            .collect()
+    }
+
+    /// The cell where `text` starts on the screen, failing when it does not
+    /// show. `text` and what stands before it on its row are narrow
+    /// characters, one cell each.
+    fn cell_of(&self, text: &str) -> vt100::Cell {
+        let terminal = self.terminal();
+        let screen = terminal.screen();
+        let (row, column) = screen
+            .rows(0, self.size.1)
+            .enumerate()
+            .find_map(|(row, line)| {
+                let start = line.find(text)?;
+                Some((row, line[..start].chars().count()))
+            })
+            .unwrap_or_else(|| panic!("{text:?} is not on the screen:\n{}", screen.contents()));
+        let row = u16::try_from(row).expect("a screen row");
+        let column = u16::try_from(column).expect("a screen column");
+        screen.cell(row, column).expect("on the screen").clone()
     }
 
     /// Waits until the screen shows `text`.
@@ -399,4 +447,105 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
             "--no-title writes no {name}: {output:?}"
         );
     }
+}
+
+/// What a terminal shows of asqr under `NO_COLOR` set to `no_color`.
+struct Colours {
+    /// The first cell of the title bar.
+    title: vt100::Cell,
+    /// The first cell of a notice in the status line.
+    notice: vt100::Cell,
+    /// The first cell of inline code in the dim intro.
+    intro_code: vt100::Cell,
+    /// Whether the red test image shows in its colour.
+    red_image: bool,
+}
+
+/// Starts asqr under `NO_COLOR` set to `no_color` and has it show a notice
+/// and then a session with inline code in its intro and an image, which
+/// the half blocks draw in RGB colours.
+fn colours_under(no_color: &str) -> Colours {
+    const RED: [u8; 3] = [255, 0, 0];
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let tui = Tui::start_with(
+        &sandbox,
+        &[
+            "--dir",
+            dir.to_str().expect("UTF-8"),
+            "--no-notify",
+            "--no-title",
+        ],
+        "off 1",
+        &[("NO_COLOR", no_color)],
+    );
+    tui.wait_for("Nothing to answer");
+
+    // An invalid session is answered at once and leaves a notice, which
+    // stays over the next session until a key is pressed. It is written
+    // under another name and renamed, so asqr never reads half of it.
+    let written = dir.join("inbox/.broken.part");
+    std::fs::write(&written, "not json").expect("written");
+    std::fs::rename(&written, dir.join("inbox/broken.json")).expect("renamed");
+    tui.wait_for("broken is invalid");
+
+    let picture = sandbox.home().join("red.png");
+    image::RgbImage::from_pixel(40, 40, image::Rgb(RED))
+        .save(&picture)
+        .expect("png is written");
+    let session = SESSION
+        .replace(
+            r#""id": "pty-test","#,
+            r#""id": "pty-test", "intro": "Mind the `stalk`.","#,
+        )
+        .replace(
+            r#""kind": "single","#,
+            &format!(
+                r#""kind": "single", "context": [{{"type": "image", "path": {:?}}}],"#,
+                picture.to_str().expect("UTF-8")
+            ),
+        );
+    let file = sandbox.file("session.json", &session);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("Pick a fruit");
+
+    let red = vt100::Color::Rgb(RED[0], RED[1], RED[2]);
+    Colours {
+        title: tui.cell_of("asqr"),
+        notice: tui.cell_of("broken is invalid"),
+        intro_code: tui.cell_of("stalk"),
+        red_image: tui
+            .cells()
+            .iter()
+            .any(|cell| cell.fgcolor() == red || cell.bgcolor() == red),
+    }
+}
+
+#[test]
+fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
+    let colourless = colours_under("1");
+    let Colours {
+        title,
+        notice,
+        intro_code,
+        red_image,
+    } = &colourless;
+    let default = (vt100::Color::Default, vt100::Color::Default);
+    assert_eq!((title.fgcolor(), title.bgcolor()), default);
+    assert!(title.inverse(), "the title bar keeps its fill");
+    assert_eq!((notice.fgcolor(), notice.bgcolor()), default);
+    assert_eq!((intro_code.fgcolor(), intro_code.bgcolor()), default);
+    assert!(intro_code.dim(), "the intro stays dim");
+    assert!(red_image, "the image keeps its colours");
+
+    // An empty NO_COLOR counts as unset.
+    let coloured = colours_under("");
+    assert_eq!(coloured.notice.fgcolor(), vt100::Color::Idx(3), "yellow");
+    assert_ne!(coloured.intro_code.fgcolor(), vt100::Color::Default);
+    assert!(coloured.intro_code.dim());
+    assert!(coloured.red_image);
 }

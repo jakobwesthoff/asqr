@@ -55,6 +55,14 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     .context("watching the inbox")?;
     let (mut app, mut inbox) = start(location.clone())?;
 
+    // asqr honours NO_COLOR itself, in the drawn buffer, and crossterm has
+    // to write what is left there. crossterm 0.29 reads NO_COLOR too and
+    // then writes every colour as an empty SGR, which the terminal reads as
+    // a reset of everything: images lose their RGB colours, the Kitty
+    // protocol the colour that names each image, and a cell that changes
+    // colour loses the bold, dim or reversed set just before it.
+    ratatui::crossterm::style::force_color_output(true);
+
     // `try_init` also installs the panic hook that gives the terminal back
     // before a panic message is printed. That hook knows nothing of focus
     // reports and bracketed paste, so the guard turns those off too, on
@@ -156,7 +164,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         &mut terminal,
         &mut app,
         &mut inbox,
-        &mut View::new(&queue, watch.layout(), picker),
+        &mut View::new(&queue, watch.layout(), picker).no_color(watch.no_color()),
         &events,
         &mut host,
     )

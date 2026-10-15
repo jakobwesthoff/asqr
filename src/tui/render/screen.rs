@@ -91,6 +91,8 @@ pub struct View<'a> {
     overlay_shown: bool,
     /// Whether the last draw showed an image entry in the context pane.
     image_shown: bool,
+    /// Whether the screen is drawn without colours (`NO_COLOR`).
+    no_color: bool,
 }
 
 impl<'a> View<'a> {
@@ -102,7 +104,14 @@ impl<'a> View<'a> {
             tab: TabState::new(layout, picker),
             overlay_shown: false,
             image_shown: false,
+            no_color: false,
         }
+    }
+
+    /// This view, drawn without colours when `no_color` is set.
+    #[must_use]
+    pub fn no_color(self, no_color: bool) -> Self {
+        View { no_color, ..self }
     }
 
     /// Whether the terminal must be cleared before `app` is drawn: an
@@ -124,7 +133,18 @@ impl<'a> View<'a> {
     }
 }
 
+/// Draws `app` into `frame`. Under `NO_COLOR` the colours go after every
+/// way [`draw_screen`] can end, the message of a too small terminal
+/// included.
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
+    let drawn = draw_screen(frame, app, view);
+    if view.no_color {
+        theme::strip_colours(frame.buffer_mut());
+    }
+    drawn
+}
+
+fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // Whatever returns early draws no pane and no overlay.
     view.overlay_shown = false;
     view.image_shown = false;
@@ -2948,5 +2968,159 @@ mod tests {
             format!(" asqr · queue: …/{} · 0 sessions waiting", "本".repeat(8)),
             "cut at the separator in reach"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // NO_COLOR
+    // -----------------------------------------------------------------
+
+    /// `app` drawn twice at `width`×`height`, with colours and under
+    /// NO_COLOR.
+    fn with_and_without_colours(app: &App, width: u16, height: u16) -> (Buffer, Buffer) {
+        let drawn = |no_color: bool| {
+            let mut view =
+                View::new("q", PaneLayout::Auto, Picker::halfblocks()).no_color(no_color);
+            screen_in(app, &mut view, width, height).buffer().clone()
+        };
+        (drawn(false), drawn(true))
+    }
+
+    /// Every colour of `cell`: foreground, background and underline.
+    fn colours(cell: &ratatui::buffer::Cell) -> [Color; 3] {
+        [cell.fg, cell.bg, cell.underline_color]
+    }
+
+    /// Checks that `colourless` is `coloured` with every colour reset: the
+    /// same text and the same modifiers. `coloured` has to have a colour,
+    /// or there would be nothing to take away.
+    fn assert_only_colours_gone(coloured: &Buffer, colourless: &Buffer) {
+        assert!(
+            coloured
+                .content()
+                .iter()
+                .flat_map(colours)
+                .any(|colour| colour != Color::Reset),
+            "the screen has colours to take away"
+        );
+        for (with, without) in coloured.content().iter().zip(colourless.content()) {
+            assert_eq!(without.symbol(), with.symbol());
+            assert_eq!(without.modifier, with.modifier, "at {:?}", with.symbol());
+            assert_eq!(
+                colours(without),
+                [Color::Reset; 3],
+                "at {:?}",
+                with.symbol()
+            );
+        }
+    }
+
+    /// One text question with inline code, a diff and a length.
+    const TYPED_OVER_A_DIFF: &str = r#"{"asqr": 2, "questions": [{"id": "q",
+        "text": "Keep `retry` as it is?", "kind": "text", "length": {"target": [1, 120], "warn": 140},
+        "context": [{"type": "diff", "name": "fetch.rs",
+                     "old": {"content": "get(url)\n"}, "new": {"content": "retry(|| get(url))\n"}}]}]}"#;
+
+    #[test]
+    fn no_color_takes_the_colours_of_a_counter_a_diff_and_inline_code_and_keeps_the_rest() {
+        let mut app = app(&[("typed", TYPED_OVER_A_DIFF)]);
+        keys(&mut app, "keep it");
+
+        let (coloured, colourless) = with_and_without_colours(&app, 120, 20);
+
+        assert_eq!(style_at(&coloured, "7/120").fg, Some(Color::Green));
+        assert_eq!(style_at(&coloured, "+ retry").fg, Some(Color::Green));
+        let inline_code = style_at(&coloured, "retry").fg;
+        assert!(
+            matches!(inline_code, Some(Color::Indexed(_))),
+            "{inline_code:?}"
+        );
+        assert_only_colours_gone(&coloured, &colourless);
+    }
+
+    #[test]
+    fn no_color_takes_the_colour_of_a_notice_over_the_empty_queue() {
+        let mut app = App::default();
+        app.notice("broken is invalid and was answered with an error");
+
+        let (coloured, colourless) = with_and_without_colours(&app, 80, 20);
+
+        assert_eq!(style_at(&coloured, "broken").fg, Some(Color::Yellow));
+        assert_only_colours_gone(&coloured, &colourless);
+    }
+
+    /// NO_COLOR keeps every RGB colour, since only images draw with them:
+    /// no screen without an image has one.
+    #[test]
+    fn only_images_draw_in_rgb() {
+        let review = include_str!("../../../examples/sessions/retry-review.json");
+        const CODE: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Keep the retry?",
+            "kind": "single", "options": [{"id": "a", "label": "Yes"}],
+            "context": [{"type": "code", "title": "fetch.rs",
+                         "content": "pub fn fetch(url: &str) -> Response {\n    retry(|| get(url))\n}\n"}]}]}"#;
+        let mut notice = App::default();
+        notice.notice("broken is invalid and was answered with an error");
+        // Each session, the keys that lead to what it shows, and what that
+        // is.
+        let shown = [
+            (vec![("review", review)], "", "a diff"),
+            (vec![("review", review)], "l", "Markdown"),
+            (vec![("code", CODE)], "", "code"),
+            (vec![("code", CODE)], "l", "the review tab"),
+            (vec![("typed", TYPED_OVER_A_DIFF)], "keep it", "a counter"),
+            (vec![("release", RELEASE)], "i", "the intro overlay"),
+            (vec![("release", RELEASE)], "?", "the help"),
+            (
+                vec![("review", review), ("release", RELEASE)],
+                "L",
+                "the session list",
+            ),
+        ];
+        let mut screens = vec![(screen(&notice, 120, 30), "a notice")];
+        for (sessions, typed, what) in shown {
+            let mut app = app(&sessions);
+            keys(&mut app, typed);
+            screens.push((screen(&app, 120, 30), what));
+        }
+
+        for (backend, what) in screens {
+            let rgb = backend
+                .buffer()
+                .content()
+                .iter()
+                .flat_map(colours)
+                .find(|colour| matches!(colour, Color::Rgb(..)));
+            assert_eq!(rgb, None, "{what}:\n{backend}");
+        }
+    }
+
+    #[test]
+    fn no_color_keeps_the_rgb_colour_that_names_a_kitty_image() {
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+        let mut picker = Picker::halfblocks();
+        picker.set_protocol_type(ratatui_image::picker::ProtocolType::Kitty);
+        let mut view = View::new("q", PaneLayout::Auto, picker).no_color(true);
+
+        let backend = screen_in(&app, &mut view, 140, 24);
+
+        let placeholders: Vec<_> = backend
+            .buffer()
+            .content()
+            .iter()
+            .filter(|cell| cell.symbol().contains('\u{10EEEE}'))
+            .collect();
+        assert!(!placeholders.is_empty(), "the image is drawn");
+        for cell in placeholders {
+            assert!(matches!(cell.fg, Color::Rgb(..)), "{:?}", cell.fg);
+        }
+    }
+
+    #[test]
+    fn no_color_keeps_the_rgb_colours_of_half_block_images() {
+        let file = png();
+        let app = with_image(file.path().to_str().expect("UTF-8 path"));
+        let mut view = View::new("q", PaneLayout::Auto, Picker::halfblocks()).no_color(true);
+
+        image_cells(&screen_in(&app, &mut view, 140, 20));
     }
 }

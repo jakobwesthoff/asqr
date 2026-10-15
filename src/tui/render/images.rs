@@ -120,6 +120,14 @@ const KITTY_PLACEMENT: &str = "a=T,U=1,";
 /// `a_kitty_image_is_placed_over_exactly_its_placeholder_cells` in
 /// `screen.rs` fails when the command changes shape.
 ///
+/// A version bump also has to check that the crate still names each image
+/// by the `Color::Rgb` foreground of its placeholder cells.
+/// [`theme::strip_colours`](super::theme::strip_colours) keeps RGB colours
+/// under `NO_COLOR` for that, and would take an id written as any other
+/// colour; the test
+/// `no_color_keeps_the_rgb_colour_that_names_a_kitty_image` in `screen.rs`
+/// fails then.
+///
 /// # Why not patch `ratatui-image`
 ///
 /// The proper fix belongs in `ratatui-image` itself, which is what pull
