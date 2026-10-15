@@ -73,6 +73,14 @@ terminal's theme decides how they look:
   the primary colour. The rows of the session list move one column in,
   and its current entry takes the focus fill.
 - **Bold stays on coloured text.**
+- **Bold belongs to the roles.** Drawing code takes bold from a role as
+  it takes a colour. Bold in the primary colour are the app's name
+  (`asqr`), the keys, the current tab and the chosen marks; bold in the
+  text colour are titles (the session's name in the header, the
+  context entry's name in the pane header, an overlay's title) and
+  strong text (an option's label, the head of a question's note, the
+  numbers of the review's counts); bold in the focus colour is the
+  pointer before the submit button. Each of these is a role of its own.
 - Code and Markdown keep the colours their highlighting gives them,
   inline code included, which stays yellow next to the yellow fill.
 

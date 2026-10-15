@@ -88,7 +88,7 @@ pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
         .iter()
         .map(|(keys, what)| {
             Line::from(vec![
-                Span::styled(format!("{keys:<key_column$}"), theme::primary().bold()),
+                Span::styled(format!("{keys:<key_column$}"), theme::key()),
                 Span::from(*what),
             ])
         })
@@ -238,7 +238,7 @@ pub(super) fn key_line(keys: &[(&str, &str)], width: u16) -> Line<'static> {
 
     let mut spans = Vec::new();
     for (key, what) in kept {
-        spans.push(Span::styled(format!(" {key} "), theme::primary().bold()));
+        spans.push(Span::styled(format!(" {key} "), theme::key()));
         spans.push(Span::styled(format!(" {what}  "), theme::secondary()));
     }
     Line::from(spans)

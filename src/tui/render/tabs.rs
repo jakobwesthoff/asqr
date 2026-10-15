@@ -77,7 +77,7 @@ impl TabBar {
                 start = spans.iter().map(|span| columns(&span.content)).sum();
                 // The current tab is one colour, its mark included: the
                 // rule under it already says which tab it is.
-                let style = theme::primary().bold().not_dim();
+                let style = theme::current_tab();
                 spans.extend(tab.map(|span| span.patch_style(style)));
             } else {
                 spans.extend(tab);

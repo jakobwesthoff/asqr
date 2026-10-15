@@ -9,7 +9,6 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
-use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::{
     Block, BorderType, Clear, HighlightSpacing, List, ListState, Padding, Paragraph,
@@ -42,7 +41,7 @@ pub(super) fn overlay_block(title: &str, footer: Option<&str>) -> Block<'static>
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(theme::primary())
-        .title(Line::from(format!(" {title} ")).bold())
+        .title(Line::styled(format!(" {title} "), theme::title()))
         .padding(Padding::horizontal(1));
     match footer {
         Some(footer) => block

@@ -15,7 +15,6 @@ use std::ops::Range;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Widget};
 use ratatui_image::picker::Picker;
@@ -435,12 +434,12 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                 let head = vec![
                     pointer(current),
                     if chosen {
-                        mark.patch_style(theme::primary().bold())
+                        mark.patch_style(theme::chosen())
                     } else {
                         mark
                     },
                     Span::styled(format!(" {}. ", option_index + 1), theme::secondary()),
-                    Span::from(option.label.clone()).bold(),
+                    Span::styled(option.label.clone(), theme::strong()),
                 ];
                 let lines = option_lines(
                     head,
@@ -514,7 +513,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
         // A note has no length to count against, and its head is never
         // filled.
         let row = FieldRow {
-            head: Span::from("Notes: ").bold(),
+            head: Span::styled("Notes: ", theme::strong()),
             text: answer.note.as_deref().unwrap_or_default(),
             editing,
             fill: false,
@@ -704,7 +703,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
             Row::Submit => {
                 let counts = state.counts();
                 let words = |text: &str| Span::styled(text.to_owned(), theme::secondary());
-                let number = |count: usize| Span::from(count.to_string()).bold();
+                let number = |count: usize| Span::styled(count.to_string(), theme::strong());
                 let tally = Line::from(vec![
                     words("answered "),
                     number(counts.answered),
@@ -716,7 +715,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 // The button is always filled, so the cursor on it shows
                 // in its pointer alone, in the focus colour.
                 let pointer = if current {
-                    pointer(true).patch_style(theme::focus().bold())
+                    pointer(true).patch_style(theme::focus_pointer())
                 } else {
                     pointer(false)
                 };
@@ -747,7 +746,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
 mod tests {
     use std::collections::BTreeSet;
 
-    use ratatui::style::{Color, Modifier};
+    use ratatui::style::{Color, Modifier, Stylize};
 
     use super::super::test_support;
     use super::*;

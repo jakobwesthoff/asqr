@@ -11,7 +11,6 @@ use std::path::Path;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
@@ -103,7 +102,10 @@ fn header_line(
     let right_width = right.as_deref().map_or(0, columns);
     let name = cut(&name, width.saturating_sub(right_width));
     let gap = width.saturating_sub(columns(&name) + right_width);
-    let mut spans = vec![Span::from(name).bold(), Span::from(" ".repeat(gap))];
+    let mut spans = vec![
+        Span::styled(name, theme::title()),
+        Span::from(" ".repeat(gap)),
+    ];
     spans.extend(right.map(|text| Span::styled(text, theme::secondary())));
     Line::from(spans)
 }
@@ -164,6 +166,7 @@ pub fn context_hint(entry: Option<&ContextEntry>, key: &str, width: u16) -> Line
 #[cfg(test)]
 mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::style::{Style, Stylize};
     use ratatui_image::picker::Picker;
 
     use super::super::test_support::{find, row};
@@ -288,6 +291,25 @@ mod tests {
             assert_eq!(header(json).trim_end(), expected, "{json}");
             assert_eq!(header(json).chars().count(), 30, "fills the line: {json}");
         }
+    }
+
+    #[test]
+    fn the_header_shows_the_name_bold_and_the_position_dim() {
+        let page = Page {
+            rows: Extent {
+                shown: 10,
+                total: 31,
+            },
+            columns: Extent::default(),
+        };
+        let log = entry(r#"{"type": "code", "title": "Log", "content": "x"}"#);
+        let line = header_line(&log, page, Offset::default(), 30, false);
+
+        assert_eq!(line.spans[0], Span::from("Log").bold());
+        assert_eq!(
+            line.spans.last(),
+            Some(&Span::styled(" 1–10 of 31", Style::new().dim()))
+        );
     }
 
     #[test]

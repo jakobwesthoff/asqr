@@ -5,7 +5,6 @@
 //! The session header under the title bar (spec section 7.1): the session's
 //! title and intro, each cut to the lines the screen gives it.
 
-use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 
 use super::parts::question_key;
@@ -24,7 +23,7 @@ use crate::tui::SessionState;
 pub(super) fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'static>> {
     let short = height < 24;
     let session = state.session();
-    let mut spans = vec![Span::from(state.name().to_owned()).bold()];
+    let mut spans = vec![Span::styled(state.name().to_owned(), theme::title())];
     if let Some(from) = &session.from {
         spans.push(Span::from(format!("  ({from})")));
     }
@@ -118,7 +117,7 @@ fn ending_in(line: Line<'static>, marker: &str, width: usize) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::style::Style;
+    use ratatui::style::{Style, Stylize};
 
     use super::super::test_support::line_texts;
     use super::*;

@@ -287,7 +287,7 @@ fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
     let room =
         usize::from(area.width).saturating_sub(columns(name) + columns(prefix) + columns(&count));
     Line::from(vec![
-        Span::styled(name, theme::primary().bold()),
+        Span::styled(name, theme::app_name()),
         Span::styled(
             format!("{prefix}{}", shorten_from_left(queue, room)),
             theme::secondary(),

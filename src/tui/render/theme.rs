@@ -29,11 +29,51 @@ pub(crate) fn primary() -> Style {
     Style::new().fg(Color::Cyan)
 }
 
-/// The colour of the focus as text, where a fill would make a second
-/// focus: the pointer before the submit button, which has a fill of its
-/// own.
+/// `asqr` in the title line.
+pub(crate) fn app_name() -> Style {
+    primary().bold()
+}
+
+/// A key in the key bar and in the help.
+pub(crate) fn key() -> Style {
+    primary().bold()
+}
+
+/// The current tab in the tab bar. It lifts dim, so an unanswered mark
+/// takes the tab's colour with the rest of it.
+pub(crate) fn current_tab() -> Style {
+    primary().bold().not_dim()
+}
+
+/// The mark of a chosen option.
+pub(crate) fn chosen() -> Style {
+    primary().bold()
+}
+
+/// The name of what a part of the screen shows: the session in its
+/// header, the entry in the context pane's header, an overlay in its
+/// frame.
+pub(crate) fn title() -> Style {
+    Style::new().bold()
+}
+
+/// Text that stands out from the text around it without being acted on:
+/// an option's label, the head of a question's note, the numbers among
+/// the words of the review's counts.
+pub(crate) fn strong() -> Style {
+    Style::new().bold()
+}
+
+/// The colour of the focus, which [`focus_fill`] and [`focus_pointer`]
+/// draw with.
 pub(crate) fn focus() -> Style {
     Style::new().fg(Color::Yellow)
+}
+
+/// The focus as text, where a fill would make a second focus: the pointer
+/// before the submit button, which has a fill of its own.
+pub(crate) fn focus_pointer() -> Style {
+    focus().bold()
 }
 
 /// The row, head or header the cursor or the focus is on, the one focus
@@ -160,6 +200,40 @@ mod tests {
     }
 
     #[test]
+    fn the_app_name_keys_and_chosen_marks_are_bold_primary() {
+        let bold_cyan = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+        assert_eq!(app_name(), bold_cyan);
+        assert_eq!(key(), bold_cyan);
+        assert_eq!(chosen(), bold_cyan);
+    }
+
+    #[test]
+    fn the_current_tab_is_bold_primary_that_lifts_dim() {
+        assert_eq!(
+            current_tab(),
+            Style::new()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+                .remove_modifier(Modifier::DIM)
+        );
+    }
+
+    #[test]
+    fn titles_and_strong_text_are_bold_in_the_text_colour() {
+        let bold = Style::new().add_modifier(Modifier::BOLD);
+        assert_eq!(title(), bold);
+        assert_eq!(strong(), bold);
+    }
+
+    #[test]
+    fn the_pointer_before_the_button_is_bold_yellow() {
+        assert_eq!(
+            focus_pointer(),
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        );
+    }
+
+    #[test]
     fn the_focus_fill_is_reversed_yellow_that_lifts_dim() {
         assert_eq!(
             focus_fill(),
@@ -187,21 +261,18 @@ mod tests {
 
     #[test]
     fn a_filled_span_takes_the_fill_colour_and_loses_its_dim() {
-        let chosen = Span::styled("(•)", primary().bold());
+        let mark = Span::styled("(•)", chosen());
         let number = Span::styled(" 1. ", secondary());
 
-        let chosen = focus_span(chosen).style;
+        let mark = focus_span(mark).style;
         let number = focus_span(number).style;
 
-        for style in [chosen, number] {
+        for style in [mark, number] {
             assert_eq!(style.fg, Some(Color::Yellow));
             assert!(style.add_modifier.contains(Modifier::REVERSED));
             assert!(!style.add_modifier.contains(Modifier::DIM));
         }
-        assert!(
-            chosen.add_modifier.contains(Modifier::BOLD),
-            "keeps its bold"
-        );
+        assert!(mark.add_modifier.contains(Modifier::BOLD), "keeps its bold");
     }
 
     #[test]
