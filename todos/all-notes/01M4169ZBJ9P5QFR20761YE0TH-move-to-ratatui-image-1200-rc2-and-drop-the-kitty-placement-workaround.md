@@ -83,8 +83,22 @@ text `ratatui-image` writes, so `Cargo.toml` pins the crate to
 - Reword spec 7.7 and the doc of `may_query_protocol`: with rc.2 the
   gate and the probe are justified by the full timeout and by late
   replies read as keys, no longer by a reader that keeps taking keys.
-- Optionally set a shorter query timeout through
-  `Picker::from_query_stdio_with_options` (`QueryStdioOptions::timeout_ms`).
+- Notes on rc.2 behaviour (review FA7, checked against the v12.0.0-rc.2
+  sources): `size_kitty_placement` must go, not just may: left in, it
+  would write `c=`/`r=` twice. On a query timeout rc.2 skips its termios
+  restore (picker.rs:558-560); harmless, since crossterm's raw mode is
+  the state it would restore and `ratatui::restore` handles it at exit.
+  Do not opt into Kitty shared memory (`smo` stays false): it is probed
+  only when asked for, works only locally, and per-image shm objects are
+  left for the terminal to unlink.
+- Consider a longer query timeout through
+  `Picker::from_query_stdio_with_options` (`QueryStdioOptions::timeout_ms`,
+  e.g. 5000 ms): the deadline is only reached when no answer comes at
+  all, and a longer one shrinks the window for late answers that the
+  drain cannot catch; the two belong together. Under tmux with `on`, ask
+  `#{window_active}` and `#{pane_active}` with the existing
+  `display-message` query and skip the query in a hidden pane (it would
+  be dropped and cost the full timeout).
 - Give context images a fresh Kitty id when their pane size changes:
   ratatui-image re-encodes on resize under the same id (rc.2
   kitty.rs:160-166), which Ghostty blanks during the transfer. Before
@@ -95,9 +109,10 @@ text `ratatui-image` writes, so `Cargo.toml` pins the crate to
 - Scale context images with a real filter: `images.rs` passes
   `Resize::Fit(None)` / `Resize::Scale(None)`, which means Nearest; pass
   e.g. `Some(FilterType::Triangle)` and check the snapshots.
-- Read `StatefulProtocol::last_encoding_result` after drawing and log an
-  encode error (today a failed Sixel encode leaves the image empty
-  without a trace).
+- Read `StatefulProtocol::last_encoding_result` right after the frame is
+  drawn and log an encode error (today a failed encode leaves placeholder
+  cells or an empty area without a trace); a failed Kitty encode releases
+  its id without writing a delete for an image that was never sent.
 - PTY acceptance tests (`tests/tui_pty.rs`, extend `answer_the_query`):
   answering as Kitty with a cell size, the output carries `a=T,U=1` with
   `c=`/`r=`; with no answer, a key typed after the deadline reaches asqr
