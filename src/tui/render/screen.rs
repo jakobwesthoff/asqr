@@ -8,10 +8,11 @@
 //! overlay and keeps what the screen remembers from one draw to the next.
 
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Stylize};
 use ratatui::text::Line;
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Widget, Wrap};
 use ratatui_image::picker::Picker;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -25,7 +26,7 @@ use super::source_line::columns;
 use super::tabs::draw_tabs;
 use crate::format::ContextEntry;
 use crate::tui::text_field::FieldShape;
-use crate::tui::{App, Extent, Overlay, Page};
+use crate::tui::{App, Extent, Overlay, Page, SessionState};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -156,100 +157,122 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     ])
     .areas(area);
 
-    let waiting = app.sessions().len();
+    draw_title(title, frame.buffer_mut(), view.queue, app.sessions().len());
+    // The intro overlay covers the status line, so the line comes first.
+    frame.render_widget(status_line(app, app.active()), status);
+
+    let overlay = app.overlay();
+    let (drawn, hints) = match app.active() {
+        None => {
+            let empty = Paragraph::new(
+                "Nothing to answer. New sessions show up here as soon as they arrive.",
+            )
+            .centered()
+            .wrap(Wrap { trim: true });
+            frame.render_widget(
+                empty,
+                main.centered(
+                    Constraint::Length(main.width.saturating_sub(4)),
+                    Constraint::Length(3),
+                ),
+            );
+            (Drawn::default(), vec![("q", "quit")])
+        }
+        Some(state) => {
+            frame.render_widget(Paragraph::new(header_lines), header);
+            draw_tabs(tabs, frame.buffer_mut(), state);
+
+            view.tab.retain(app.sessions());
+            let main = main.inner(ratatui::layout::Margin::new(1, 0));
+            let (pane_page, field_shape) = if state.full_screen() && state.shown_context().is_some()
+            {
+                (
+                    draw_pane(main, frame.buffer_mut(), state, &mut view.tab.viewers),
+                    None,
+                )
+            } else {
+                draw_tab(main, frame.buffer_mut(), state, &mut view.tab)
+            };
+            view.image_shown = pane_page.is_some()
+                && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
+
+            // The intro overlay leaves the key bar free, which says how to
+            // scroll and close it, so it is drawn before the key bar: what
+            // of it fits decides the hints.
+            let (intro_page, hints) = match overlay {
+                Some(Overlay::Intro(scroll)) => {
+                    let above_keys = Rect {
+                        height: area.height - 1,
+                        ..area
+                    };
+                    let intro = state.session().intro.as_deref();
+                    let intro = intro.expect("the intro overlay is open only on an intro");
+                    let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll);
+                    let hints = if page.total > page.shown {
+                        vec![
+                            ("↑/↓", "scroll"),
+                            ("pgup/pgdn", "page"),
+                            ("esc/q/i", "close"),
+                        ]
+                    } else {
+                        vec![("esc/q/i", "close")]
+                    };
+                    (page, hints)
+                }
+                Some(Overlay::SessionList(_)) => {
+                    (Extent::default(), key_hints(state, true, pane_page))
+                }
+                Some(Overlay::Help) | None => {
+                    (Extent::default(), key_hints(state, false, pane_page))
+                }
+            };
+            let drawn = Drawn {
+                intro_page: Some(intro_page),
+                pane_page: Some(pane_page),
+                field_shape,
+            };
+            (drawn, hints)
+        }
+    };
+    frame.render_widget(key_line(&hints, keys.width), keys);
+
+    // These overlays use the whole screen, key bar included, so they fit
+    // the smallest one. Like every overlay, they open only over a session.
+    match overlay.zip(app.active()) {
+        Some((Overlay::Help, state)) => draw_help(area, frame.buffer_mut(), state),
+        Some((Overlay::SessionList(cursor), _)) => {
+            draw_session_list(area, frame.buffer_mut(), app, cursor);
+        }
+        Some((Overlay::Intro(_), _)) | None => {}
+    }
+    view.overlay_shown = overlay.is_some();
+
+    drawn
+}
+
+/// The title bar: the queue and how many sessions wait. A queue too long
+/// for the bar gives way to the count, shortened from its start.
+fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
     let count = format!(
         " · {waiting} session{} waiting",
         if waiting == 1 { "" } else { "s" }
     );
     let prefix = " asqr · queue: ";
-    let room = usize::from(title.width).saturating_sub(columns(prefix) + columns(&count));
-    let title_text = format!("{prefix}{}{count}", shorten_from_left(view.queue, room));
-    frame.render_widget(Line::from(title_text).reversed(), title);
+    let room = usize::from(area.width).saturating_sub(columns(prefix) + columns(&count));
+    let text = format!("{prefix}{}{count}", shorten_from_left(queue, room));
+    Line::from(text).reversed().render(area, buf);
+}
 
-    let Some(state) = app.active() else {
-        let empty =
-            Paragraph::new("Nothing to answer. New sessions show up here as soon as they arrive.")
-                .centered()
-                .wrap(Wrap { trim: true });
-        frame.render_widget(
-            empty,
-            main.centered(
-                Constraint::Length(main.width.saturating_sub(4)),
-                Constraint::Length(3),
-            ),
-        );
-        // A notice matters most here: an invalid session that was the only
-        // one leaves the queue empty, and the notice is all that says why.
-        let notice = app.current_notice().unwrap_or_default();
-        frame.render_widget(Line::from(notice).fg(Color::Yellow), status);
-        frame.render_widget(key_line(&[("q", "quit")], keys.width), keys);
-        return Drawn::default();
-    };
-
-    frame.render_widget(Paragraph::new(header_lines), header);
-    draw_tabs(tabs, frame.buffer_mut(), state);
-
-    view.tab.retain(app.sessions());
-    let main = main.inner(ratatui::layout::Margin::new(1, 0));
-    let (pane_page, field_shape) = if state.full_screen() && state.shown_context().is_some() {
-        (
-            draw_pane(main, frame.buffer_mut(), state, &mut view.tab.viewers),
-            None,
-        )
-    } else {
-        draw_tab(main, frame.buffer_mut(), state, &mut view.tab)
-    };
-    view.image_shown =
-        pane_page.is_some() && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
-
-    let feedback = app.current_notice().or(state.message()).unwrap_or_default();
-    frame.render_widget(Line::from(feedback).fg(Color::Yellow), status);
-
-    // The intro overlay leaves the key bar free, which says how to scroll
-    // and close it, so it is drawn first: what of it fits decides the key
-    // bar.
-    let overlay = app.overlay();
-    let (intro_page, hints) = match overlay {
-        Some(Overlay::Intro(scroll)) => {
-            let above_keys = Rect {
-                height: area.height - 1,
-                ..area
-            };
-            let intro = state.session().intro.as_deref();
-            let intro = intro.expect("the intro overlay is open only on an intro");
-            let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll);
-            let hints = if page.total > page.shown {
-                vec![
-                    ("↑/↓", "scroll"),
-                    ("pgup/pgdn", "page"),
-                    ("esc/q/i", "close"),
-                ]
-            } else {
-                vec![("esc/q/i", "close")]
-            };
-            (page, hints)
-        }
-        Some(Overlay::SessionList(_)) => (Extent::default(), key_hints(state, true, pane_page)),
-        Some(Overlay::Help) | None => (Extent::default(), key_hints(state, false, pane_page)),
-    };
-    frame.render_widget(key_line(&hints, keys.width), keys);
-
-    // These overlays use the whole screen, key bar included, so they fit
-    // the smallest one.
-    match overlay {
-        Some(Overlay::Help) => draw_help(area, frame.buffer_mut(), state),
-        Some(Overlay::SessionList(cursor)) => {
-            draw_session_list(area, frame.buffer_mut(), app, cursor);
-        }
-        Some(Overlay::Intro(_)) | None => {}
-    }
-    view.overlay_shown = overlay.is_some();
-
-    Drawn {
-        intro_page: Some(intro_page),
-        pane_page: Some(pane_page),
-        field_shape,
-    }
+/// The status line: the app's notice, else the message of the session
+/// shown, if there is one. A notice matters most over an empty queue: an
+/// invalid session that was the only one leaves the queue empty, and the
+/// notice is all that says why.
+fn status_line<'a>(app: &'a App, state: Option<&'a SessionState>) -> Line<'a> {
+    let text = app
+        .current_notice()
+        .or_else(|| state.and_then(SessionState::message))
+        .unwrap_or_default();
+    Line::from(text).fg(Color::Yellow)
 }
 
 #[cfg(test)]
@@ -261,7 +284,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::Modifier;
 
-    use super::super::test_support::{self, find, find_from, row};
+    use super::super::test_support::{self, find, find_from, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
     use crate::tui::{Focus, SessionState};
@@ -1145,6 +1168,101 @@ mod tests {
 
         app.notice("batch-01 collided with an unread result and was archived");
         insta::assert_snapshot!("notice", screen(&app, 80, 24));
+    }
+
+    #[test]
+    fn the_empty_queue_has_a_yellow_notice_and_only_quit_in_the_key_bar() {
+        let mut app = App::default();
+        let backend = screen(&app, 80, 20);
+        assert_eq!(row(backend.buffer(), 18), "", "{backend}");
+
+        app.notice("broken is invalid and was answered with an error");
+        let backend = screen(&app, 80, 20);
+        let buf = backend.buffer();
+        assert_eq!(
+            row(buf, 18),
+            "broken is invalid and was answered with an error",
+            "{backend}"
+        );
+        assert_eq!(style_at(buf, "broken").fg, Some(Color::Yellow));
+        assert_eq!(row(buf, 19), " q  quit", "{backend}");
+        assert!(
+            style_at(buf, "q  quit")
+                .add_modifier
+                .contains(Modifier::REVERSED)
+        );
+    }
+
+    #[test]
+    fn a_notice_shows_over_the_session_message_and_the_key_bar_stays() {
+        // With `max` 2 and the default ticked, the third pick is refused.
+        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
+        keys(&mut app, "l23");
+        let message = app
+            .active()
+            .and_then(SessionState::message)
+            .expect("the third pick is refused")
+            .to_owned();
+        let key_bar =
+            " ↑/↓  move   space  toggle   enter  next   ←/→  question   ?  help   q  quit";
+
+        let backend = screen(&app, 80, 24);
+        let buf = backend.buffer();
+        assert_eq!(row(buf, 22), message, "{backend}");
+        assert_eq!(style_at(buf, &message).fg, Some(Color::Yellow));
+        assert_eq!(row(buf, 23), key_bar, "{backend}");
+
+        app.notice("batch-01 collided with an unread result and was archived");
+        let backend = screen(&app, 80, 24);
+        let buf = backend.buffer();
+        assert_eq!(
+            row(buf, 22),
+            "batch-01 collided with an unread result and was archived",
+            "{backend}"
+        );
+        assert_eq!(style_at(buf, "batch-01").fg, Some(Color::Yellow));
+        assert_eq!(row(buf, 23), key_bar, "{backend}");
+    }
+
+    #[test]
+    fn the_status_line_prefers_the_notice_to_the_session_message() {
+        let text = |line: Line| line.to_string();
+        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
+        let state = app.active().cloned();
+        assert_eq!(text(status_line(&app, None)), "");
+        assert_eq!(text(status_line(&app, state.as_ref())), "");
+
+        keys(&mut app, "l23");
+        let state = app.active().cloned();
+        let line = status_line(&app, state.as_ref());
+        assert_eq!(text(line.clone()), "at most 2 options");
+        assert_eq!(line.style.fg, Some(Color::Yellow));
+        assert_eq!(
+            text(status_line(&app, None)),
+            "",
+            "without a session only a notice shows"
+        );
+
+        app.notice("batch-01 collided with an unread result and was archived");
+        let expected = "batch-01 collided with an unread result and was archived";
+        let line = status_line(&app, state.as_ref());
+        assert_eq!(text(line.clone()), expected);
+        assert_eq!(line.style.fg, Some(Color::Yellow));
+        assert_eq!(text(status_line(&app, None)), expected);
+    }
+
+    #[test]
+    fn the_intro_overlay_covers_the_status_line_and_leaves_the_key_bar() {
+        let mut app = longer_intro();
+        keys(&mut app, "i");
+        app.notice("batch-01 collided with an unread result and was archived");
+
+        // The notice shows only in the margin beside the intro's frame.
+        let backend = screen(&app, 60, 15);
+        let buf = backend.buffer();
+        assert!(row(buf, 13).starts_with("ba└───"), "{backend}");
+        assert!(row(buf, 13).ends_with("┘"), "{backend}");
+        assert!(row(buf, 14).starts_with(" ↑/↓  scroll"), "{backend}");
     }
 
     // -----------------------------------------------------------------
