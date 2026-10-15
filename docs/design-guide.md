@@ -121,6 +121,9 @@ is used for text on light backgrounds.
 
 ## Illustrations
 
+The figure is Talqi, asqr's mascot, a chameleon. The name is written
+"Talqi" and pronounced like "talkie".
+
 - The figure keeps its teal body and its lavender accents. A colour
   change is a joke for one picture, such as camouflage, and the figure
   always returns to teal.

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo-512.webp" width="256" height="256" alt="asqr logo: a fanned hand of coral cards, question marks at the back and a check mark on the front card">
+  <img src="assets/talqi-512.webp" width="256" height="256" alt="Talqi, asqr's mascot: a teal chameleon with lavender accents sitting on a branch and looking at you">
 </p>
 
 # asqr
@@ -12,6 +12,8 @@ coding agent has prepared for you. The agent writes its questions into a
 file, asqr shows them in a terminal of its own, and you work through them
 at your own pace. When you submit, asqr writes your answers into a result
 file that the agent reads back. Scripts and builds can ask the same way.
+
+The chameleon above is Talqi (pronounced like "talkie"), asqr's mascot.
 
 - Any number of questions per session, and any number of options per
   question.

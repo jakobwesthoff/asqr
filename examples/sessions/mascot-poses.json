@@ -1,0 +1,20 @@
+{
+  "asqr": 2,
+  "title": "Pick a picture of Talqi",
+  "intro": "Move through the options: each shows its own image.",
+  "from": "design review",
+  "questions": [
+    {
+      "id": "picture",
+      "header": "Picture",
+      "text": "Which picture of Talqi goes onto the release page?",
+      "kind": "single",
+      "options": [
+        { "id": "branch", "label": "On the branch", "description": "Talqi sits on its branch and looks at you.", "context": [{ "type": "image", "path": "../../assets/mascot-1536.png" }] },
+        { "id": "asleep", "label": "Asleep", "description": "Talqi sleeps once every question is answered.", "context": [{ "type": "image", "path": "../../assets/mascot-variants/mascot-sleeping-no-moon.png" }] },
+        { "id": "tongue", "label": "Catching a question", "description": "Talqi catches a question mark with its tongue.", "context": [{ "type": "image", "path": "../../assets/mascot-variants/mascot-tongue.png" }] }
+      ],
+      "custom": { "label": "None of them, because" }
+    }
+  ]
+}

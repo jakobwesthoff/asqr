@@ -9,7 +9,8 @@ repository = "https://github.com/jakobwesthoff/asqr"
 readme = "README.md"
 keywords = ["tui", "terminal", "agent", "questions", "cli"]
 categories = ["command-line-utilities"]
-# The logo, docs, todos and repository tooling are not needed to build asqr.
+# The mascot pictures, docs, todos and repository tooling are not needed to
+# build asqr.
 exclude = ["assets/", "docs/", "todos/", ".adr-dir", ".github/", ".githooks/", "Justfile", "scripts/"]
 
 [dependencies]
