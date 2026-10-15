@@ -29,9 +29,12 @@ pub(crate) mod theme;
 mod viewer;
 mod wrap;
 
+pub use images::{
+    TMUX_STATE_FORMAT, TerminalNames, answers_may_follow_the_query, kitty_deletes,
+    may_query_protocol,
+};
 #[cfg(unix)]
-pub use images::passthrough_answers;
-pub use images::{TMUX_STATE_FORMAT, TerminalNames, kitty_deletes, may_query_protocol};
+pub use images::{discard_late_answers, passthrough_answers};
 pub use mascot::Glyphs;
 pub use panes::PaneLayout;
 pub use screen::{Drawn, MIN_HEIGHT, MIN_WIDTH, View, draw};

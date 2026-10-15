@@ -1204,9 +1204,15 @@ Images:
   not match a known signature. SVG and AVIF are not decoded. The set follows
   the features of the `image` crate, and a test fails when it changes.
 - The protocol is detected once at start, by querying the terminal. A
-  terminal that answers nothing within 2 seconds gets the block
+  terminal that answers nothing within 5 seconds gets the block
   rendering, also where its environment names a terminal with the
   iTerm2 protocol.
+- When the query got no usable answer, or inside tmux with more than one
+  client attached, whose terminals each answer, asqr discards what
+  arrives on its input before it reads keys, until 150 ms pass without a
+  byte and for at most 1 second. Keys typed in that time are lost. An
+  answer that begins later reaches asqr as typed keys, where its digits
+  can pick options.
 - An image entry is read when it is first shown and kept while its
   session waits, until asqr's terminal gains the focus again. asqr asks
   the terminal for focus reports; on regaining the focus it reads and

@@ -38,6 +38,9 @@ const NO_GRAPHICS: &str = "\x1b[0n";
 /// cells of 10×20 pixels, then the status report.
 const KITTY_GRAPHICS: &str = "\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[0n";
 
+/// How long asqr waits for the answer to the graphics query.
+const QUERY_WAIT: Duration = Duration::from_secs(5);
+
 struct Tui {
     size: (u16, u16),
     child: Box<dyn Child + Send + Sync>,
@@ -515,11 +518,51 @@ fn a_key_typed_after_an_unanswered_query_reaches_asqr() {
         "on\t1\t",
     );
     tui.wait_for_the_query();
+    let asked = Instant::now();
     tui.wait_for("Nothing to answer");
+    assert!(
+        asked.elapsed() >= QUERY_WAIT - Duration::from_millis(200),
+        "asqr waits for the answer: {:?}",
+        asked.elapsed()
+    );
 
     tui.press("q");
 
     assert_eq!(tui.wait_for_exit(), 0);
+}
+
+/// An answer that arrives just after the query gave up is no input: its
+/// digits would pick an option.
+#[test]
+fn an_answer_after_the_query_gave_up_picks_no_option() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+        "on\t1\t",
+    );
+    tui.wait_for_the_query();
+    std::thread::sleep(QUERY_WAIT);
+
+    tui.send(KITTY_GRAPHICS);
+    tui.wait_for("Pick a fruit");
+    std::thread::sleep(Duration::from_millis(500));
+
+    let screen = tui.screen();
+    assert!(!screen.contains("Review your answers"), "{screen}");
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+    assert!(
+        !sandbox.queue_dir().join("outbox/pty-test.json").exists(),
+        "nothing answered"
+    );
 }
 
 /// What a terminal shows of asqr under `NO_COLOR` set to `no_color`.

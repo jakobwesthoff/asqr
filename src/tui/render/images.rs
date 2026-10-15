@@ -313,9 +313,10 @@ pub(super) fn tmux_state_fields(state: &str) -> std::str::Split<'_, char> {
 ///
 /// Inside tmux the query only reaches a terminal through passthrough, and
 /// only while a client is attached. A query that gets no answer holds up
-/// the start for its whole wait, and an answer later than that reaches
-/// asqr as typed keys, so where none can come the query is skipped and
-/// images fall back to half blocks (spec section 7.7).
+/// the start for its whole wait, and an answer later than that may reach
+/// asqr as typed keys ([`answers_may_follow_the_query`]), so where none
+/// can come the query is skipped and images fall back to half blocks
+/// (spec section 7.7).
 ///
 /// A `TERM` that starts with `tmux`, or a `TERM_PROGRAM` of `tmux`,
 /// without `TMUX` means a tmux that asqr cannot ask, as after ssh from a
@@ -401,6 +402,65 @@ pub fn passthrough_answers(
         seen.push(byte[0]);
     }
     Ok(true)
+}
+
+/// Whether answers to the graphics query may still be on their way once
+/// ratatui-image is done reading, so [`discard_late_answers`] has to run
+/// before keys are read. ratatui-image reads up to the first status
+/// report or its deadline; whatever comes after it reaches the key reader,
+/// which takes a Kitty answer such as `ESC _Gi=31;OK ESC \` for keys, and
+/// its digits pick options.
+///
+/// `found_capabilities` is whether the picker found any capability. A
+/// picker without one got no usable answer, which every query that ran
+/// into its deadline is, and its terminal may still answer. Inside tmux,
+/// `tmux_state` is what tmux printed for [`TMUX_STATE_FORMAT`]: with more
+/// than one client attached, each client's terminal answers the query
+/// tmux passed on, and only the first answer was read. A lone terminal
+/// that answered sends nothing more, and its start costs no wait.
+pub fn answers_may_follow_the_query(found_capabilities: bool, tmux_state: Option<&str>) -> bool {
+    let clients = tmux_state
+        .and_then(|state| tmux_state_fields(state).nth(1))
+        .and_then(|clients| clients.parse::<u32>().ok())
+        .unwrap_or(0);
+    !found_capabilities || clients > 1
+}
+
+/// Reads and discards what `input` brings until `quiet` passes without a
+/// byte, or `cap` passes in all, and returns how many bytes it discarded.
+/// It waits with `poll`, so it never blocks in a read, and reads only what
+/// is there. A key typed while it runs is discarded with the answers.
+#[cfg(unix)]
+pub fn discard_late_answers(
+    input: impl std::os::fd::AsFd,
+    quiet: Duration,
+    cap: Duration,
+) -> io::Result<usize> {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+    let deadline = Instant::now() + cap;
+    let mut discarded = 0;
+    loop {
+        let wait = quiet.min(deadline.saturating_duration_since(Instant::now()));
+        if wait.is_zero() {
+            return Ok(discarded);
+        }
+        let wait = Timespec::try_from(wait).map_err(io::Error::other)?;
+        let mut fds = [PollFd::new(&input, PollFlags::IN)];
+        match poll(&mut fds, Some(&wait)) {
+            Ok(0) => return Ok(discarded),
+            Ok(_) => {}
+            // A signal, such as a resize, ends the wait early and starts
+            // the quiet time again; the cap still holds.
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
+        let mut chunk = [0; 256];
+        match rustix::io::read(&input, &mut chunk)? {
+            0 => return Ok(discarded),
+            read => discarded += read,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -781,6 +841,121 @@ mod tests {
         let mut rest = Vec::new();
         input.read_to_end(&mut rest).expect("the pipe reads");
         assert_eq!(rest, b"\x1b[0n", "the answer stays unread");
+    }
+
+    /// A terminal's answer to the graphics query, as kitty gives it.
+    #[cfg(unix)]
+    const KITTY_ANSWER: &[u8] = b"\x1b_Gi=31;OK\x1b\\\x1b[6;20;10t\x1b[0n";
+
+    /// Writes each of `bursts` to a new pipe after its delay, counted
+    /// from the one before, on a thread of its own. Returns the pipe's
+    /// reading end and the thread, which closes the writing end when done.
+    #[cfg(unix)]
+    fn answering(
+        bursts: Vec<(Duration, &'static [u8])>,
+    ) -> (std::io::PipeReader, std::thread::JoinHandle<()>) {
+        let (input, mut terminal) = std::io::pipe().expect("a pipe");
+        let writer = std::thread::spawn(move || {
+            for (delay, burst) in bursts {
+                std::thread::sleep(delay);
+                terminal.write_all(burst).expect("the pipe takes it");
+            }
+        });
+        (input, writer)
+    }
+
+    /// What is left in `input` once its writer is done.
+    #[cfg(unix)]
+    fn left_over(mut input: std::io::PipeReader, writer: std::thread::JoinHandle<()>) -> Vec<u8> {
+        use std::io::Read;
+
+        writer.join().expect("the writer finishes");
+        let mut rest = Vec::new();
+        input.read_to_end(&mut rest).expect("the pipe reads");
+        rest
+    }
+
+    /// With several tmux clients showing the pane, every client's terminal
+    /// answers the query. The query reads up to the first status report,
+    /// and the answers of the other two follow it, one after the other.
+    #[cfg(unix)]
+    #[test]
+    fn the_answers_of_further_clients_are_discarded() {
+        let (input, writer) = answering(vec![
+            (Duration::ZERO, KITTY_ANSWER),
+            (Duration::from_millis(50), KITTY_ANSWER),
+        ]);
+
+        let discarded =
+            discard_late_answers(&input, Duration::from_millis(400), Duration::from_secs(5));
+
+        assert_eq!(discarded.expect("the pipe reads"), 2 * KITTY_ANSWER.len());
+        assert_eq!(left_over(input, writer), b"");
+    }
+
+    /// An answer that comes after the query gave up is discarded while it
+    /// comes within the quiet time; a key typed after that stays.
+    #[cfg(unix)]
+    #[test]
+    fn an_answer_after_the_query_gave_up_is_discarded_and_later_keys_stay() {
+        let (input, writer) = answering(vec![
+            (Duration::from_millis(100), KITTY_ANSWER),
+            (Duration::from_millis(1500), b"q"),
+        ]);
+
+        let discarded =
+            discard_late_answers(&input, Duration::from_millis(400), Duration::from_secs(5));
+
+        assert_eq!(discarded.expect("the pipe reads"), KITTY_ANSWER.len());
+        assert_eq!(left_over(input, writer), b"q");
+    }
+
+    /// Input that never pauses, such as a long paste, ends the discarding
+    /// at the cap, and so do a closed input and one that never brings a
+    /// byte.
+    #[cfg(unix)]
+    #[test]
+    fn discarding_ends_at_its_cap_at_the_end_of_input_and_without_input() {
+        let (input, writer) = answering(vec![(Duration::from_millis(20), b"x"); 100]);
+        let started = Instant::now();
+        let discarded = discard_late_answers(
+            &input,
+            Duration::from_millis(400),
+            Duration::from_millis(300),
+        );
+        assert!(discarded.expect("the pipe reads") > 0);
+        assert!(
+            started.elapsed() < Duration::from_millis(1500),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(!left_over(input, writer).is_empty(), "the rest stays");
+
+        let (input, terminal) = std::io::pipe().expect("a pipe");
+        drop(terminal);
+        let discarded =
+            discard_late_answers(&input, Duration::from_secs(5), Duration::from_secs(5));
+        assert_eq!(discarded.expect("the pipe reads"), 0, "the input ended");
+
+        let (input, _terminal) = std::io::pipe().expect("a pipe");
+        let started = Instant::now();
+        let discarded =
+            discard_late_answers(&input, Duration::from_millis(50), Duration::from_secs(5));
+        assert_eq!(discarded.expect("the pipe reads"), 0, "silence");
+        assert!(started.elapsed() >= Duration::from_millis(50));
+    }
+
+    /// A terminal that gave no usable answer may still send one after the
+    /// query's deadline, and every further tmux client's terminal sends
+    /// one of its own. A lone terminal that answered sends nothing more.
+    #[test]
+    fn answers_may_follow_without_capabilities_or_with_several_clients() {
+        assert!(answers_may_follow_the_query(false, None));
+        assert!(answers_may_follow_the_query(false, Some("on\t1\t\n")));
+        assert!(answers_may_follow_the_query(true, Some("all\t2\t\n")));
+        assert!(!answers_may_follow_the_query(true, None));
+        assert!(!answers_may_follow_the_query(true, Some("on\t1\tkitty\n")));
+        assert!(!answers_may_follow_the_query(true, Some("on\tmany\t\n")));
     }
 
     #[test]

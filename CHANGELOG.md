@@ -58,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   like the placeholders of code, Markdown and diffs. A long reason in a
   short pane was cut off before; now the pane's header says which lines
   show, and the pane scrolls to the rest.
+- asqr waits up to 5 seconds for the terminal's answer to the graphics
+  query, up from 2. Only a terminal that does not answer waits that
+  long for the first frame.
 - A terminal that does not answer the graphics query at all gets its
   images as blocks, also where its environment names a terminal with
   the iTerm2 protocol. Before, asqr used the iTerm2 protocol there when
@@ -89,6 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or paste reaches asqr. Before, the query went on reading and took it,
   and a paste lost its start marker, so its line breaks arrived as
   `enter`.
+- An answer to the graphics query that arrives after asqr stopped
+  waiting for it, and the further answers inside tmux with several
+  clients attached, no longer reach asqr as keys. Before, their digits
+  could pick an option.
 
 ## [0.11.0] - 2026-10-15
 

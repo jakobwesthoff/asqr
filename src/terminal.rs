@@ -15,11 +15,11 @@ use std::sync::mpsc;
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
-#[cfg(unix)]
-use asqr::tui::render::passthrough_answers;
 use asqr::tui::render::{
     Glyphs, TMUX_STATE_FORMAT, TerminalNames, View, kitty_deletes, may_query_protocol,
 };
+#[cfg(unix)]
+use asqr::tui::render::{answers_may_follow_the_query, discard_late_answers, passthrough_answers};
 use asqr::tui::{AlertTerminal, Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -27,6 +27,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::crossterm::terminal::SetTitle;
 use ratatui::crossterm::{execute, queue, terminal};
+use ratatui_image::picker::cap_parser::QueryStdioOptions;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 
 /// Runs the TUI on the queue `watch` holds, in this process's terminal.
@@ -108,13 +109,24 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         if may_query_protocol(&names, || tmux_state.clone(), probe_passthrough) {
             // Silence and an answer without graphics both give a half-block
             // picker; only reading or writing the terminal fails.
-            let picker = Picker::from_query_stdio().unwrap_or_else(|error| {
+            let options = QueryStdioOptions {
+                timeout_ms: QUERY_WAIT_MS,
+                ..QueryStdioOptions::default()
+            };
+            let picker = Picker::from_query_stdio_with_options(options).unwrap_or_else(|error| {
                 tracing::warn!(%error, "could not query the graphics protocol; using half blocks");
                 Picker::halfblocks()
             });
             if let Some(reason) = half_blocks_reason(picker.protocol_type(), picker.capabilities())
             {
                 tracing::info!(reason, "no graphics protocol detected; using half blocks");
+            }
+            #[cfg(unix)]
+            if answers_may_follow_the_query(
+                !picker.capabilities().is_empty(),
+                tmux_state.as_deref(),
+            ) {
+                discard_late_answers_on_stdin();
             }
             picker
         } else {
@@ -408,6 +420,38 @@ impl<R: FnMut(&[&str]) -> Option<String>> Drop for PassthroughRestore<R> {
             None => {}
             Some(None) => _ = (self.tmux)(&["set", "-pu", "allow-passthrough"]),
             Some(Some(value)) => _ = (self.tmux)(&["set", "-p", "allow-passthrough", &value]),
+        }
+    }
+}
+
+/// How long the graphics query waits for the terminal's answer, in
+/// milliseconds. A terminal that answers does so well within it, so the
+/// wait only runs out when no answer comes, and a longer one leaves fewer
+/// answers to arrive after it, where they would reach asqr as keys. The
+/// person waits this long for the first frame in such a terminal.
+const QUERY_WAIT_MS: i32 = 5000;
+
+/// How long [`discard_late_answers_on_stdin`] waits for the next byte of
+/// a late answer: a terminal sends its answer in one go, and several
+/// tmux clients answer within a round trip of each other.
+#[cfg(unix)]
+const LATE_ANSWER_QUIET: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// How long [`discard_late_answers_on_stdin`] runs at most, for input that
+/// never pauses.
+#[cfg(unix)]
+const LATE_ANSWER_CAP: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Discards the answers to the graphics query that are still arriving,
+/// before the key reader starts and takes them for keys. Raw mode is on,
+/// so the terminal hands each byte over as it comes.
+#[cfg(unix)]
+fn discard_late_answers_on_stdin() {
+    match discard_late_answers(io::stdin(), LATE_ANSWER_QUIET, LATE_ANSWER_CAP) {
+        Ok(0) => {}
+        Ok(bytes) => tracing::info!(bytes, "discarded late answers to the graphics query"),
+        Err(error) => {
+            tracing::warn!(%error, "could not discard late answers to the graphics query")
         }
     }
 }
