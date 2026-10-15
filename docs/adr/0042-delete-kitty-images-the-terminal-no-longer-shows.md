@@ -67,6 +67,13 @@ Deletes:
   and frees its data; `q=2` keeps the terminal from answering. Inside
   tmux the command is wrapped for passthrough as ratatui-image wraps
   its transmissions.
+- The deletes written since the last focus gain are written once more
+  after the frame that follows the next focus gain, together with that
+  frame's own, and then forgotten. Inside tmux with
+  `allow-passthrough on`, a delete written while asqr's pane is hidden
+  is lost, as a transfer is (ADR 24); the repeat reaches the terminal
+  once the pane shows again. A delete of an id the terminal does not
+  know does nothing and gets no answer.
 - When asqr quits, it deletes every image of a context entry it still
   knows of, and those handed on since the last frame, before it gives
   the title back and leaves the alternate screen. The same holds when
@@ -83,9 +90,9 @@ the empty queue will draw Talqi as text instead.
 - A context image laid out at another size is encoded again by
   ratatui-image under the id asqr gave it. The terminal replaces the
   old copy, and Ghostty shows the image blank during the transfer.
-- Inside tmux with `allow-passthrough on`, a delete written while
-  asqr's pane is hidden is lost, and so are the deletes on quitting
-  from a hidden pane.
+- Inside tmux with `allow-passthrough on`, the repeat depends on focus
+  reports, which tmux forwards only with `focus-events on`. The deletes
+  on quitting from a hidden pane are lost.
 - A panic or a signal ends asqr without the deletes on quitting; the
   copies stay until the terminal evicts them.
 - Talqi's picture is still sent again on every focus gain and every

@@ -79,6 +79,12 @@ where
     // Every key draws again, but the title goes to the terminal only when
     // its text changes. No title is empty, so the first pass sends one.
     let mut sent_title = String::new();
+    // Inside tmux with `allow-passthrough on`, a delete written while the
+    // pane is hidden is lost, as a transfer is (ADR 24). The deletes since
+    // the last focus gain are written again after the frame that follows
+    // the next one, and only then forgotten (ADR 42).
+    let mut deleted_since_focus: Vec<u32> = Vec::new();
+    let mut focus_regained = false;
     loop {
         let title = terminal_title(app);
         if title != sent_title {
@@ -96,8 +102,14 @@ where
             .context("drawing the screen")?;
         // The frame is flushed and shows no Kitty image that went, so the
         // terminal may let go of them (ADR 42).
-        if !drawn.deleted_images.is_empty() {
-            host.delete_images(&drawn.deleted_images);
+        let mut deletes = std::mem::take(&mut drawn.deleted_images);
+        if std::mem::take(&mut focus_regained) {
+            deletes.splice(0..0, deleted_since_focus.drain(..));
+        } else {
+            deleted_since_focus.extend(&deletes);
+        }
+        if !deletes.is_empty() {
+            host.delete_images(&deletes);
         }
         // How far the intro overlay and the context pane can scroll depends
         // on the size they were drawn at, and where `↑`/`↓` go in a field
@@ -131,6 +143,7 @@ where
             // background can be repeated.
             Event::FocusGained => {
                 view.forget_images();
+                focus_regained = true;
                 continue;
             }
             // The inbox coming back or not is out of asqr's hands; the
@@ -1184,5 +1197,53 @@ mod tests {
             "a, again on focus, green, yellow, magenta, again on focus, b: {steps:?}"
         );
         assert!(app.sessions().is_empty());
+    }
+
+    /// Inside tmux with `allow-passthrough on`, a delete written while the
+    /// pane is hidden is lost. The deletes since the last focus gain are
+    /// written again after the frame that follows the next one, once, with
+    /// those of that frame.
+    #[test]
+    fn regaining_the_focus_writes_the_deletes_since_the_last_time_again() {
+        let mut watched = Watched::new();
+        watched.put("a", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, kitty());
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+
+        watched.run(app, inbox, view, vec![]);
+        watched.put("a", PICTURE, [0, 255, 0]);
+        watched.run(
+            app,
+            inbox,
+            view,
+            vec![Event::InboxChanged, Event::FocusGained, Event::FocusGained],
+        );
+
+        let steps = watched.steps();
+        // Each run draws once before its first event, so a frame repeats.
+        let mut shown: Vec<u32> = steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Frame(shown) => shown.first().copied(),
+                _ => None,
+            })
+            .collect();
+        shown.dedup();
+        let deleted: Vec<&Vec<u32>> = steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Deleted(ids) => Some(ids),
+                _ => None,
+            })
+            .collect();
+        let [red, green, again, once_more] = shown[..] else {
+            panic!("four frames with an image: {steps:?}");
+        };
+        assert_eq!(
+            deleted,
+            [&vec![red], &vec![red, green], &vec![again]],
+            "{once_more} stays shown"
+        );
     }
 }

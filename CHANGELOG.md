@@ -73,8 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In kitty and Ghostty, asqr asks the terminal to delete an image of a
   context entry once the screen no longer shows it: after sending it
   again on regaining the focus, when its entry is replaced, when its
-  session leaves, and on quitting. Before, every copy stayed in the
-  terminal, in Ghostty up to its limit of 320 MB.
+  session leaves, and on quitting. Inside tmux, regaining the focus
+  writes the deletes again, as a hidden pane drops them. Before, every
+  copy stayed in the terminal, in Ghostty up to its limit of 320 MB.
 
 ## [0.11.0] - 2026-10-15
 
