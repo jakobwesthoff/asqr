@@ -312,8 +312,10 @@ impl SessionState {
             .map(|(key, offset)| (*key, *offset))
             .collect();
 
-        let name = replaced.session.title.as_deref().unwrap_or(&replaced.id);
-        replaced.message = Some(format!("{name} changed on disk and was reloaded"));
+        replaced.message = Some(format!(
+            "{} changed on disk and was reloaded",
+            replaced.name()
+        ));
         *self = replaced;
     }
 
@@ -355,6 +357,11 @@ impl SessionState {
 
     pub fn session(&self) -> &Session {
         &self.session
+    }
+
+    /// What the screen calls the session: its title, else its id.
+    pub fn name(&self) -> &str {
+        self.session.title.as_deref().unwrap_or(&self.id)
     }
 
     /// The current tab: a question index, or the review after the last.
@@ -1155,6 +1162,18 @@ mod tests {
 
     fn code(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn a_session_is_named_by_its_title_else_by_its_id() {
+        assert_eq!(state().name(), "batch");
+        let titled = SESSION.replacen(r#"{"asqr": 2,"#, r#"{"asqr": 2, "title": "Batch 3","#, 1);
+        let titled = SessionState::new(
+            "batch",
+            serde_json::from_str(&titled).expect("parses"),
+            None,
+        );
+        assert_eq!(titled.name(), "Batch 3");
     }
 
     fn ctrl(c: char) -> KeyEvent {

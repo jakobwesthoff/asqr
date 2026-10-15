@@ -23,11 +23,7 @@ use crate::tui::SessionState;
 pub(super) fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'static>> {
     let short = height < 24;
     let session = state.session();
-    let title = session
-        .title
-        .clone()
-        .unwrap_or_else(|| state.id().to_owned());
-    let mut spans = vec![Span::from(title).bold()];
+    let mut spans = vec![Span::from(state.name().to_owned()).bold()];
     if let Some(from) = &session.from {
         spans.push(Span::from(format!("  ({from})")));
     }
@@ -110,6 +106,27 @@ fn ending_in(line: Line<'static>, marker: &str, width: usize) -> Line<'static> {
 mod tests {
     use super::super::test_support::line_texts;
     use super::*;
+
+    #[test]
+    fn the_header_names_the_session_by_its_title_else_by_its_id() {
+        let header = |title: &str| {
+            let json = format!(
+                r#"{{"asqr": 2, {title} "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#
+            );
+            let state =
+                SessionState::new("batch", serde_json::from_str(&json).expect("parses"), None);
+            header_lines(&state, 40, 30).remove(0)
+        };
+
+        assert_eq!(
+            header(r#""title": "Release","#).spans,
+            [Span::from(" "), Span::from("Release").bold()]
+        );
+        assert_eq!(
+            header("").spans,
+            [Span::from(" "), Span::from("batch").bold()]
+        );
+    }
 
     #[test]
     fn a_cut_line_keeps_its_styles_and_drops_the_blanks_before_the_marker() {

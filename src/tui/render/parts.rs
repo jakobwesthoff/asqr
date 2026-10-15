@@ -5,8 +5,30 @@
 //! Texts the screen is built from, kept apart from the layout so they can
 //! be tested on their own.
 
+use ratatui::text::Span;
+
 use crate::format::{Answer, Kind, Question, is_answered};
-use crate::tui::{Focus, SessionState};
+use crate::tui::{AnswerState, Focus, SessionState};
+
+/// What marks the row under the cursor in the question, the review and the
+/// session list, the blank after it included.
+pub const POINTER: &str = "❯ ";
+
+/// The start of a row: [`POINTER`] when the row is `current`, otherwise
+/// blanks as wide, so every row's text starts in the same column.
+pub fn pointer(current: bool) -> Span<'static> {
+    Span::from(if current { POINTER } else { "  " })
+}
+
+/// The mark the tab bar and the review put before a question: `☐` while it
+/// is skipped, `☒` once it is answered or defaulted.
+pub fn answer_mark(state: AnswerState) -> Span<'static> {
+    Span::from(if state == AnswerState::Skipped {
+        "☐"
+    } else {
+        "☒"
+    })
+}
 
 /// What the review shows for an answer: the chosen options by label, own
 /// text in quotes, a text answer as typed on one line, `-` for a skipped
@@ -87,6 +109,22 @@ mod tests {
 
     fn question(json: &str) -> Question {
         serde_json::from_str(json).expect("test question parses")
+    }
+
+    #[test]
+    fn only_the_current_row_shows_the_pointer_and_every_row_starts_in_the_same_column() {
+        use super::super::source_line::columns;
+
+        assert_eq!(pointer(true), Span::from("❯ "));
+        assert_eq!(pointer(false), Span::from("  "));
+        assert_eq!(columns(&pointer(false).content), columns(POINTER));
+    }
+
+    #[test]
+    fn a_question_is_marked_answered_unless_it_is_skipped() {
+        assert_eq!(answer_mark(AnswerState::Skipped), Span::from("☐"));
+        assert_eq!(answer_mark(AnswerState::Answered), Span::from("☒"));
+        assert_eq!(answer_mark(AnswerState::Defaulted), Span::from("☒"));
     }
 
     #[test]

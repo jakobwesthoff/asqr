@@ -22,14 +22,14 @@ use ratatui_image::picker::Picker;
 
 use super::context::{context_hint, draw_pane};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
-use super::parts::{answer_summary, kind_hint, question_key};
+use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::viewer::Viewers;
 use super::wrap::{cut, indented, wrap};
-use crate::format::{Kind, has_text};
+use crate::format::{Kind, Length, has_text};
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
-use crate::tui::{AnswerState, Focus, Page, Row, SessionState, has_context};
+use crate::tui::{Focus, Page, Row, SessionState, has_context};
 
 /// Descriptions start on the label's line only while that leaves them at
 /// least this much room; otherwise they move to their own lines.
@@ -413,7 +413,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
         .unwrap_or(0);
     for (row_index, row) in state.rows_of(index).iter().enumerate() {
         let current = live && row_index == state.row();
-        let pointer = if current { "❯ " } else { "  " };
+        let editing = current && state.focus() == Focus::Field;
         let (lines, text_cursor) = match *row {
             Row::Option(option_index) => {
                 let option = &question
@@ -422,8 +422,9 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                     .expect("option rows come from options")[option_index];
                 let chosen = answer.selected.contains(&option.id);
                 let head = vec![
+                    pointer(current),
                     Span::from(format!(
-                        "{pointer}{} {}. ",
+                        "{} {}. ",
                         mark(question.kind, chosen),
                         option_index + 1
                     )),
@@ -450,24 +451,41 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                 // line breaks alone are no text, as in the result.
                 let chosen = has_text(answer)
                     && (question.kind == Kind::Multi || answer.selected.is_empty());
-                let head = format!("{pointer}{} ✎ {label}: ", mark(question.kind, chosen));
+                let head = Span::from(format!(
+                    "{}{} ✎ {label}: ",
+                    pointer(current),
+                    mark(question.kind, chosen)
+                ));
                 let text = answer.custom.as_deref().unwrap_or_default();
                 if live {
-                    live_field(state, head, text, width, current, true, &mut content.shape)
+                    let row = FieldRow {
+                        head,
+                        text,
+                        editing,
+                        fill: current,
+                        limits: state.field_limits(),
+                    };
+                    live_field(state, row, width, &mut content.shape)
                 } else {
                     let length = question.custom.as_ref().and_then(|custom| custom.length());
-                    let lines = counted_lines(Span::from(head), text, width, length.is_some());
+                    let lines = counted_lines(head, text, width, length.is_some());
                     (lines, None)
                 }
             }
             Row::Answer => {
-                let head = format!("{pointer}✎ ");
+                let head = Span::from(format!("{}✎ ", pointer(current)));
                 let text = answer.custom.as_deref().unwrap_or_default();
                 if live {
-                    live_field(state, head, text, width, current, false, &mut content.shape)
+                    let row = FieldRow {
+                        head,
+                        text,
+                        editing,
+                        fill: false,
+                        limits: state.field_limits(),
+                    };
+                    live_field(state, row, width, &mut content.shape)
                 } else {
-                    let lines =
-                        counted_lines(Span::from(head), text, width, question.length.is_some());
+                    let lines = counted_lines(head, text, width, question.length.is_some());
                     (lines, None)
                 }
             }
@@ -481,21 +499,16 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
     if question.note {
         content.lines.push(Line::default());
         let editing = live && state.focus() == Focus::Note;
-        let head = Span::from("Notes: ").bold();
-        let (note_lines, text_cursor) = match state.field().filter(|_| editing) {
-            Some(field) => {
-                let shape = FieldShape { head, width };
-                let shown = !state.pane_focused();
-                let lines = field.lines(&shape, shown, None);
-                let cursor = field_cursor(field, &shape, shown);
-                content.shape = Some(shape);
-                (lines, Some(cursor))
-            }
-            None => {
-                let text = answer.note.as_deref().unwrap_or_default();
-                (resting_lines(head, text, width), None)
-            }
+        // A note has no length to count against, and its head is never
+        // filled.
+        let row = FieldRow {
+            head: Span::from("Notes: ").bold(),
+            text: answer.note.as_deref().unwrap_or_default(),
+            editing,
+            fill: false,
+            limits: None,
         };
+        let (note_lines, text_cursor) = live_field(state, row, width, &mut content.shape);
         content.push_row(note_lines, editing, text_cursor);
     }
     content
@@ -503,7 +516,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
 
 /// The width of an option's pointer, mark, number and label.
 fn option_head_width(index: usize, label: &str) -> usize {
-    columns(&format!("❯ ( ) {}. ", index + 1)) + columns(label)
+    columns(POINTER) + columns(&format!("( ) {}. ", index + 1)) + columns(label)
 }
 
 /// An option: pointer, mark, number and label, then the description from
@@ -558,42 +571,48 @@ fn option_lines(
     lines
 }
 
-/// The field of a row after `head` as the person sees it: with its text
-/// cursor and counter while it has the keys, where it is drawn then going
-/// to `shape`, otherwise with `text` as kept, its head highlighted when
-/// `highlight` holds and the cursor is on the row. Says where its text
-/// cursor shows, if it has the keys.
+/// A row that is a field: an own answer, a text answer, a note, the
+/// session note or the reject reason.
+struct FieldRow<'a> {
+    /// What comes before the text: the pointer, marks and a label.
+    head: Span<'static>,
+    /// The text as kept, shown while the field does not have the keys.
+    text: &'a str,
+    /// Whether the field has the keys, so the session's field is drawn
+    /// here with its text cursor.
+    editing: bool,
+    /// Whether the head is reversed while the field does not have the keys.
+    fill: bool,
+    /// What the counter under the field counts against while it has the
+    /// keys; without limits there is no counter.
+    limits: Option<Length>,
+}
+
+/// The lines of field `row`, wrapped to `width`, and where its text cursor
+/// shows if it has the keys. Where a field that has the keys is drawn goes
+/// to `shape`.
 fn live_field(
     state: &SessionState,
-    head: String,
-    text: &str,
+    row: FieldRow,
     width: usize,
-    current: bool,
-    highlight: bool,
     shape: &mut Option<FieldShape>,
 ) -> (Vec<Line<'static>>, Option<TextCursor>) {
-    match state
-        .field()
-        .filter(|_| current && state.focus() == Focus::Field)
-    {
+    match state.field().filter(|_| row.editing) {
         // The text cursor hides while the context pane has the focus, so
         // only one place on the screen looks like it takes the keys.
         Some(field) => {
             let drawn = FieldShape {
-                head: Span::from(head),
+                head: row.head,
                 width,
             };
             let shown = !state.pane_focused();
-            let lines = field.lines(&drawn, shown, state.field_limits().as_ref());
+            let lines = field.lines(&drawn, shown, row.limits.as_ref());
             let cursor = field_cursor(field, &drawn, shown);
             *shape = Some(drawn);
             (lines, Some(cursor))
         }
-        None if current && highlight => {
-            let lines = resting_lines(Span::from(head).reversed(), text, width);
-            (lines, None)
-        }
-        None => (resting_lines(Span::from(head), text, width), None),
+        None if row.fill => (resting_lines(row.head.reversed(), row.text, width), None),
+        None => (resting_lines(row.head, row.text, width), None),
     }
 }
 
@@ -630,11 +649,17 @@ fn review_content(state: &SessionState, width: usize) -> Content {
 
     for (index, row) in state.rows().iter().enumerate() {
         let current = index == state.row();
-        let pointer = if current { "❯ " } else { "  " };
+        // The session note and the reject reason are fields.
+        let field_row = |head: String, text| FieldRow {
+            head: Span::from(head),
+            text,
+            editing: current && state.focus() == Focus::Field,
+            fill: current,
+            limits: state.field_limits(),
+        };
         let (lines, text_cursor) = match *row {
             Row::Question(question_index) => {
                 let question = &questions[question_index];
-                let skipped = states[question_index].answer == AnswerState::Skipped;
                 let label = fitting(
                     question.header.as_deref().unwrap_or(&question.id),
                     label_width,
@@ -642,21 +667,24 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 // The padding is counted in columns: `format!` would pad a
                 // label of wide characters by its characters.
                 let padding = " ".repeat(label_width - columns(label));
-                let lead = format!(
-                    "{pointer}{} {label}{padding}  ",
-                    if skipped { "☐" } else { "☒" }
-                );
+                let lead = vec![
+                    pointer(current),
+                    answer_mark(states[question_index].answer),
+                    Span::from(format!(" {label}{padding}  ")),
+                ];
                 // One line per question: the summary gets what is left of
                 // the width and ends in `…` when it is longer.
-                let room = width.saturating_sub(columns(&lead));
+                let lead_width: usize = lead.iter().map(|span| columns(&span.content)).sum();
+                let room = width.saturating_sub(lead_width);
                 let summary = cut(&answer_summary(question, &answers[question_index]), room);
-                let spans = vec![Span::from(lead), Span::from(summary).dim()];
+                let mut spans = lead;
+                spans.push(Span::from(summary).dim());
                 let line = Line::from(spans);
                 (vec![if current { line.reversed() } else { line }], None)
             }
             Row::Submit => {
                 let counts = state.counts();
-                let button = Line::from(format!("{pointer}[ Submit ]")).bold();
+                let button = Line::from(format!("{}[ Submit ]", pointer(current))).bold();
                 let lines = vec![
                     Line::default(),
                     Line::from(format!(
@@ -668,24 +696,16 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 ];
                 (lines, None)
             }
-            Row::Note => live_field(
-                state,
-                format!("{pointer}✎ Note to the asker (optional): "),
-                state.session_note(),
-                width,
-                current,
-                true,
-                &mut content.shape,
-            ),
-            Row::Reject => live_field(
-                state,
-                format!("{pointer}✗ Reject, reason (optional): "),
-                state.reject_reason(),
-                width,
-                current,
-                true,
-                &mut content.shape,
-            ),
+            Row::Note => {
+                let head = format!("{}✎ Note to the asker (optional): ", pointer(current));
+                let row = field_row(head, state.session_note());
+                live_field(state, row, width, &mut content.shape)
+            }
+            Row::Reject => {
+                let head = format!("{}✗ Reject, reason (optional): ", pointer(current));
+                let row = field_row(head, state.reject_reason());
+                live_field(state, row, width, &mut content.shape)
+            }
             Row::Option(_) | Row::Own | Row::Answer => {
                 unreachable!("question rows never appear on the review")
             }
@@ -734,6 +754,140 @@ mod tests {
             Modifier::DIM,
             "dim, not reversed"
         );
+    }
+
+    /// A single with an own answer and a note, then a text question with a
+    /// length; the review follows them.
+    const SESSION: &str = r#"{"asqr": 2, "questions": [
+        {"id": "pick", "header": "Pick", "text": "?", "kind": "single", "custom": true,
+         "options": [{"id": "a", "label": "A"}]},
+        {"id": "words", "text": "?", "kind": "text", "length": {"warn": 3}}]}"#;
+
+    /// The session after pressing `keys`, `E` standing for `esc` and `\n`
+    /// for `enter`.
+    fn after(keys: &str) -> SessionState {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut state = SessionState::new(
+            "parts",
+            serde_json::from_str(SESSION).expect("test session parses"),
+            None,
+        );
+        for key in keys.chars() {
+            let code = match key {
+                'E' => KeyCode::Esc,
+                '\n' => KeyCode::Enter,
+                key => KeyCode::Char(key),
+            };
+            state.handle(KeyEvent::new(code, KeyModifiers::NONE));
+        }
+        state
+    }
+
+    /// The current tab of `state` drawn 40 columns wide.
+    fn tab_of(state: &SessionState) -> (Content, Buffer) {
+        let content = match state.question() {
+            Some(_) => question_content(state, state.tab(), 40, Pass::Live),
+            None => review_content(state, 40),
+        };
+        let height = u16::try_from(content.lines.len()).expect("a short tab");
+        let area = Rect::new(0, 0, 40, height);
+        let mut buf = Buffer::empty(area);
+        Paragraph::new(content.lines.clone()).render(area, &mut buf);
+        (content, buf)
+    }
+
+    fn modifier_at(buf: &Buffer, text: &str) -> Modifier {
+        test_support::style_at(buf, text).add_modifier
+    }
+
+    #[test]
+    fn a_note_shows_its_head_bold_and_never_reversed() {
+        let (content, buf) = tab_of(&after("n"));
+        let shape = content.shape.expect("the note has the keys");
+        assert_eq!(shape.head, Span::from("Notes: ").bold());
+        assert_eq!(shape.width, 40);
+        let notes = test_support::find(&buf, "Notes: ").1;
+        assert_eq!(content.cursor, (usize::from(notes), usize::from(notes)));
+        assert_eq!(
+            content
+                .text_cursor
+                .map(|cursor| (cursor.line, cursor.shown)),
+            Some((usize::from(notes), true))
+        );
+        assert_eq!(modifier_at(&buf, "Notes: "), Modifier::BOLD);
+
+        let (content, buf) = tab_of(&after("nabE"));
+        assert_eq!(content.shape, None);
+        assert_eq!(content.text_cursor, None);
+        assert_eq!(
+            test_support::row(&buf, test_support::find(&buf, "Notes: ").1),
+            "Notes: ab"
+        );
+        assert_eq!(modifier_at(&buf, "Notes: "), Modifier::BOLD);
+    }
+
+    #[test]
+    fn only_a_field_counts_its_length_while_it_has_the_keys() {
+        // The text question takes the keys on arrival.
+        let (content, buf) = tab_of(&after("labcd"));
+        let shape = content.shape.expect("the field has the keys");
+        assert_eq!(shape.head, Span::from("❯ ✎ "));
+        assert_eq!(test_support::row(&buf, 3), "❯ ✎ abcd");
+        assert!(
+            test_support::row(&buf, 4).contains("4/3"),
+            "{:?}",
+            test_support::rows(&buf)
+        );
+
+        let (_, buf) = tab_of(&after("labcdEn"));
+        assert!(
+            !test_support::rows(&buf)
+                .iter()
+                .any(|row| row.contains("/3")),
+            "the note shows no counter: {:?}",
+            test_support::rows(&buf)
+        );
+    }
+
+    #[test]
+    fn a_resting_field_head_under_the_cursor_is_reversed_where_it_highlights() {
+        let (_, buf) = tab_of(&after("jE"));
+        assert_eq!(
+            modifier_at(&buf, "❯ ( ) ✎ Own answer: "),
+            Modifier::REVERSED,
+            "the own answer"
+        );
+        let (_, buf) = tab_of(&after("lE"));
+        assert_eq!(
+            modifier_at(&buf, "❯ ✎ "),
+            Modifier::empty(),
+            "a text answer"
+        );
+        let (_, buf) = tab_of(&after("lEljE"));
+        assert_eq!(
+            modifier_at(&buf, "❯ ✎ Note to the asker"),
+            Modifier::REVERSED,
+            "the session note"
+        );
+    }
+
+    #[test]
+    fn the_review_marks_answered_questions_and_reverses_the_row_under_the_cursor() {
+        let (_, buf) = tab_of(&after("lElkk"));
+        let pick = test_support::find(&buf, "❯ ☐ Pick").1;
+        assert_eq!(test_support::row(&buf, pick), "❯ ☐ Pick   -");
+        assert_eq!(test_support::row(&buf, pick + 1), "  ☐ words  -");
+        assert_eq!(modifier_at(&buf, "❯ ☐ Pick"), Modifier::REVERSED);
+        assert!(
+            buf[(11, pick)].modifier.contains(Modifier::REVERSED),
+            "the summary"
+        );
+        assert_eq!(modifier_at(&buf, "  ☐ words"), Modifier::empty());
+
+        // Enter picks the option and goes on to the text question.
+        let (_, buf) = tab_of(&after("\nElkk"));
+        assert_eq!(test_support::row(&buf, pick), "❯ ☒ Pick   A");
     }
 
     #[test]

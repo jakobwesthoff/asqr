@@ -8,10 +8,11 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::Stylize;
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget};
 
 use super::panes::READING_WIDTH;
+use super::parts::pointer;
 use super::text::field_lines;
 use super::wrap::indented;
 use crate::tui::{AnswerState, App, Extent};
@@ -69,15 +70,14 @@ pub(super) fn draw_session_list(area: Rect, buf: &mut Buffer, app: &App, cursor:
                 .iter()
                 .filter(|question| question.answer != AnswerState::Skipped)
                 .count();
-            let title = session
-                .title
-                .clone()
-                .unwrap_or_else(|| state.id().to_owned());
-            let pointer = if index == cursor { "❯ " } else { "  " };
-            let line = Line::from(format!(
-                "{pointer}{title}  ({answered}/{} answered)",
-                session.questions.len()
-            ));
+            let line = Line::from(vec![
+                pointer(index == cursor),
+                Span::from(format!(
+                    "{}  ({answered}/{} answered)",
+                    state.name(),
+                    session.questions.len()
+                )),
+            ]);
             if index == cursor {
                 line.reversed()
             } else {
@@ -91,4 +91,37 @@ pub(super) fn draw_session_list(area: Rect, buf: &mut Buffer, app: &App, cursor:
         .scroll((scroll as u16, 0))
         .block(Block::bordered().title(" Waiting sessions "))
         .render(area, buf);
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::style::Modifier;
+
+    use super::super::test_support::{find, row};
+    use super::*;
+    use crate::tui::SessionState;
+
+    #[test]
+    fn the_session_list_names_each_session_and_reverses_the_one_under_the_cursor() {
+        let mut app = App::default();
+        for (id, title) in [("titled", r#""title": "Release","#), ("untitled", "")] {
+            let json = format!(
+                r#"{{"asqr": 2, {title} "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#
+            );
+            let session = serde_json::from_str(&json).expect("parses");
+            app.add(SessionState::new(id, session, None));
+        }
+        let area = Rect::new(0, 0, 40, 4);
+        let mut buf = Buffer::empty(area);
+        draw_session_list(area, &mut buf, &app, 1);
+
+        assert_eq!(row(&buf, 1), "  │  Release  (0/1 answered)         │");
+        assert_eq!(row(&buf, 2), "  │❯ untitled  (0/1 answered)        │");
+        assert!(
+            buf[find(&buf, "❯ untitled")]
+                .modifier
+                .contains(Modifier::REVERSED)
+        );
+        assert_eq!(buf[find(&buf, "Release")].modifier, Modifier::empty());
+    }
 }
