@@ -980,7 +980,9 @@ or its id for a session without a title:
     ✗ rejected "Release 0.2.0"
 
 The counts are those the review showed, a default counted as answered.
-The line for a sent session is a success, the one for a rejected session
+A name too long for the status line is cut to the columns the rest of
+the line leaves and ends in `…`, so the counts and the closing quote
+show whole. The line for a sent session is a success, the one for a rejected session
 information (section 7.5). Like every notice, it stays until the next
 key or paste, also over the next session and over the empty screen. A
 submit or reject that does not finish (section 3.7) keeps the session

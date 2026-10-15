@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `✔ sent "Release 0.2.0" · 1 answered, 2 skipped` in green or
   `✗ rejected "Release 0.2.0"`, with the id for a session without a
   title. The line stays until the next key or paste, also over the next
-  session and over the empty queue.
+  session and over the empty queue. A name too long for the line is cut
+  and ends in `…`, so the counts and the closing quote show whole.
 
 ### Changed
 

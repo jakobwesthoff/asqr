@@ -26,6 +26,7 @@ use super::panes::{PaneLayout, READING_WIDTH};
 use super::source_line::columns;
 use super::tabs::tab_bar;
 use super::theme;
+use super::wrap::cut;
 use crate::format::ContextEntry;
 use crate::tui::text_field::FieldShape;
 use crate::tui::{App, Extent, Overlay, Page, SessionState};
@@ -185,7 +186,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
 
     draw_title(title, frame.buffer_mut(), view.queue, app.sessions().len());
     // The intro overlay covers the status line, so the line comes first.
-    frame.render_widget(status_line(app, app.active()), status);
+    frame.render_widget(status_line(app, app.active(), status.width), status);
 
     let overlay = app.overlay();
     let (drawn, hints) = match app.active() {
@@ -290,14 +291,26 @@ fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
 /// shown, if there is one. A notice matters most over an empty queue: an
 /// invalid session that was the only one leaves the queue empty, and the
 /// notice is all that says why. Its tone gives the line its colour.
-fn status_line<'a>(app: &'a App, state: Option<&'a SessionState>) -> Line<'a> {
-    match app
+///
+/// A notice that names a session is cut in the name, which ends in `…`
+/// then, to what the rest of it leaves of `width`: the rest, such as a
+/// confirmation's counts and the quotes around the name, shows whole.
+/// Any other notice is cut at the edge.
+fn status_line<'a>(app: &'a App, state: Option<&'a SessionState>, width: u16) -> Line<'a> {
+    let Some(notice) = app
         .current_notice()
         .or_else(|| state.and_then(SessionState::message))
-    {
-        Some(notice) => Line::styled(notice.text.as_str(), theme::for_tone(notice.tone)),
-        None => Line::default(),
-    }
+    else {
+        return Line::default();
+    };
+    let style = theme::for_tone(notice.tone);
+    let Some(name) = notice.name.clone() else {
+        return Line::styled(notice.text.as_str(), style);
+    };
+    let (before, after) = (&notice.text[..name.start], &notice.text[name.end..]);
+    let room = usize::from(width).saturating_sub(columns(before) + columns(after));
+    let name = cut(&notice.text[name], room);
+    Line::styled(format!("{before}{name}{after}"), style)
 }
 
 #[cfg(test)]
@@ -313,7 +326,7 @@ mod tests {
     use super::super::test_support::{self, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
-    use crate::tui::{Focus, SessionState, Tone};
+    use crate::tui::{Focus, Notice, SessionState, Tone};
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
     const RELEASE: &str = include_str!("../../../examples/sessions/release-checklist.json");
@@ -1366,16 +1379,16 @@ mod tests {
         let text = |line: Line| line.to_string();
         let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
         let state = app.active().cloned();
-        assert_eq!(text(status_line(&app, None)), "");
-        assert_eq!(text(status_line(&app, state.as_ref())), "");
+        assert_eq!(text(status_line(&app, None, 80)), "");
+        assert_eq!(text(status_line(&app, state.as_ref(), 80)), "");
 
         keys(&mut app, "l23");
         let state = app.active().cloned();
-        let line = status_line(&app, state.as_ref());
+        let line = status_line(&app, state.as_ref(), 80);
         assert_eq!(text(line.clone()), "at most 2 options");
         assert_eq!(line.style.fg, Some(Color::Yellow));
         assert_eq!(
-            text(status_line(&app, None)),
+            text(status_line(&app, None, 80)),
             "",
             "without a session only a notice shows"
         );
@@ -1385,10 +1398,10 @@ mod tests {
             "batch-01 collided with an unread result and was archived",
         );
         let expected = "batch-01 collided with an unread result and was archived";
-        let line = status_line(&app, state.as_ref());
+        let line = status_line(&app, state.as_ref(), 80);
         assert_eq!(text(line.clone()), expected);
         assert_eq!(line.style.fg, Some(Color::Yellow));
-        assert_eq!(text(status_line(&app, None)), expected);
+        assert_eq!(text(status_line(&app, None, 80)), expected);
     }
 
     #[test]
@@ -1402,10 +1415,36 @@ mod tests {
         ];
         for (tone, style) in tones {
             app.notice(tone, "news");
-            let line = status_line(&app, None);
+            let line = status_line(&app, None, 80);
             assert_eq!(line.to_string(), "news");
             assert_eq!(line.style, style, "{tone:?}");
         }
+    }
+
+    #[test]
+    fn the_status_line_cuts_a_name_to_the_room_the_rest_leaves() {
+        let mut app = App::default();
+        app.show(Notice::naming(
+            Tone::Success,
+            "✔ sent \"",
+            "Release 0.2.0",
+            "\" · 1 answered, 1 skipped",
+        ));
+        let text = |width: u16| status_line(&app, None, width).to_string();
+
+        assert_eq!(text(80), "✔ sent \"Release 0.2.0\" · 1 answered, 1 skipped");
+        // `✔ sent "` and `" · 1 answered, 1 skipped` take 33 columns.
+        assert_eq!(text(40), "✔ sent \"Releas…\" · 1 answered, 1 skipped");
+        assert_eq!(text(34), "✔ sent \"…\" · 1 answered, 1 skipped");
+        assert_eq!(
+            text(33),
+            "✔ sent \"\" · 1 answered, 1 skipped",
+            "no room for the name"
+        );
+        assert_eq!(
+            status_line(&app, None, 40).style,
+            Style::new().fg(Color::Green)
+        );
     }
 
     #[test]
@@ -1414,7 +1453,7 @@ mod tests {
         let replaced: Session = serde_json::from_str(RELEASE).expect("example parses");
         app.add(SessionState::new("release", replaced, None));
 
-        let line = status_line(&app, app.active());
+        let line = status_line(&app, app.active(), 80);
         assert_eq!(
             line.to_string(),
             "Release 0.2.0 changed on disk and was reloaded"

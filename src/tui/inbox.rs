@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 
-use super::{App, AppEffect, Outcome, SessionState, Tone};
+use super::{App, AppEffect, Notice, Outcome, SessionState, Tone};
 use crate::format::{SessionResult, now_rfc3339, parse_session, same_session_id, validate};
 use crate::queue::{
     QueueLocation, Recovery, Rejected, Waiting, archive_invalid_stem, finish, load_draft, recover,
@@ -292,8 +292,8 @@ impl Inbox {
                 // Only a key or a paste clears a notice, so the
                 // confirmation stays over the next session or the empty
                 // queue (ADR 38).
-                if let Some((tone, text)) = confirmation {
-                    app.notice(tone, text);
+                if let Some(confirmation) = confirmation {
+                    app.show(confirmation);
                 }
             }
             Err(error) => app.notice(Tone::Error, format!("cannot finish {id}: {error}")),
@@ -304,21 +304,20 @@ impl Inbox {
 /// The status line's word that `state` was finished as `outcome`, since
 /// the session leaves the screen at once (spec section 7.4). A sent
 /// session is a success and counts its answers as the review showed
-/// them; a rejected one is plain news (ADR 38).
-fn confirmation(state: &SessionState, outcome: &Outcome) -> (Tone, String) {
+/// them; a rejected one is plain news (ADR 38). The name stays apart from
+/// the rest, as the status line cuts it to keep the rest whole.
+fn confirmation(state: &SessionState, outcome: &Outcome) -> Notice {
     let name = state.name();
     match outcome {
         Outcome::Submitted { .. } => {
             let counts = state.counts();
-            (
-                Tone::Success,
-                format!(
-                    "✔ sent \"{name}\" · {} answered, {} skipped",
-                    counts.answered, counts.skipped
-                ),
-            )
+            let after = format!(
+                "\" · {} answered, {} skipped",
+                counts.answered, counts.skipped
+            );
+            Notice::naming(Tone::Success, "✔ sent \"", name, &after)
         }
-        Outcome::Rejected(_) => (Tone::Info, format!("✗ rejected \"{name}\"")),
+        Outcome::Rejected(_) => Notice::naming(Tone::Info, "✗ rejected \"", name, "\""),
     }
 }
 
@@ -332,7 +331,6 @@ mod tests {
     use super::*;
     use crate::format::{Answer, Status};
     use crate::queue::{drop_session, parse_archive_name};
-    use crate::tui::Notice;
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
@@ -775,10 +773,85 @@ mod tests {
         assert_eq!(result(&location, "release").status, Status::Submitted);
         assert_eq!(
             app.current_notice(),
-            Some(&Notice::new(
+            Some(&Notice::naming(
                 Tone::Success,
-                "✔ sent \"Release 0.2.0\" · 1 answered, 1 skipped"
+                "✔ sent \"",
+                "Release 0.2.0",
+                "\" · 1 answered, 1 skipped"
             ))
+        );
+    }
+
+    /// The status line of `app` drawn `width` columns wide.
+    fn status_row(app: &App, width: u16) -> String {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        use ratatui_image::picker::Picker;
+
+        use crate::tui::render::{PaneLayout, View, draw};
+
+        let mut terminal = Terminal::new(TestBackend::new(width, 20)).expect("test terminal");
+        let mut view = View::new("default", PaneLayout::Auto, Picker::halfblocks());
+        terminal
+            .draw(|frame| {
+                draw(frame, app, &mut view);
+            })
+            .expect("draws");
+        let buf = terminal.backend().buffer();
+        (0..width)
+            .map(|x| buf[(x, 18)].symbol())
+            .collect::<String>()
+            .trim_end()
+            .to_owned()
+    }
+
+    #[test]
+    fn a_long_title_is_cut_in_the_confirmation_and_the_counts_stay() {
+        let (_scratch, location) = queue();
+        let title = "Release 0.2.0: onboarding, billing and the new API";
+        assert_eq!(title.chars().count(), 50);
+        put(
+            &location,
+            "release.json",
+            &RELEASE.replace("Release 0.2.0", title),
+        );
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        for key in [
+            key('2'),
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        ] {
+            let effect = app.handle(key);
+            inbox.apply(&mut app, effect);
+        }
+
+        // `✔ sent "` and `" · 1 answered, 1 skipped` leave the title 27 of
+        // the 60 columns.
+        assert_eq!(
+            status_row(&app, 60),
+            "✔ sent \"Release 0.2.0: onboarding,…\" · 1 answered, 1 skipped"
+        );
+    }
+
+    #[test]
+    fn a_long_title_is_cut_in_the_rejection_before_its_closing_quote() {
+        let (_scratch, location) = queue();
+        let titled = SESSION.replace(
+            r#""questions""#,
+            r#""title": "Release 0.2.0: onboarding, billing and the new API", "questions""#,
+        );
+        put(&location, "release.json", &titled);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        answer_and(&mut app, &mut inbox, true);
+
+        // `✗ rejected "` and `"` leave the title 47 of the 60 columns.
+        assert_eq!(
+            status_row(&app, 60),
+            "✗ rejected \"Release 0.2.0: onboarding, billing and the new…\""
         );
     }
 
@@ -794,7 +867,7 @@ mod tests {
         assert_eq!(result(&location, "batch").status, Status::Cancelled);
         assert_eq!(
             app.current_notice(),
-            Some(&Notice::new(Tone::Info, "✗ rejected \"batch\""))
+            Some(&Notice::naming(Tone::Info, "✗ rejected \"", "batch", "\""))
         );
     }
 

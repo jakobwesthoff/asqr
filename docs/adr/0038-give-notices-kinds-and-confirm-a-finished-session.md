@@ -72,6 +72,11 @@ success and the rejected line information. The counts are the review's
 answered and skipped questions. A submit or reject that does not finish
 shows its error or warning instead.
 
+A title has no bound on its length, so the notice keeps the name apart
+from the text around it, and the status line cuts the name to the
+columns the rest leaves, ending in `…`. The counts and the closing
+quote show whole; where they leave no room, the name is left out.
+
 The user decided on 2026-10-15 that the confirmation stays until the
 next key or paste, also over the next session and over the empty queue.
 A notice is cleared by a key or a paste alone, so reading the inbox

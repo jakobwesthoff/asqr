@@ -7,6 +7,8 @@
 //! `i`, and notices about the queue. Sessions are kept in the order they are added, which the running
 //! app keeps in queue order.
 
+use std::ops::Range;
+
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
@@ -70,6 +72,10 @@ pub enum Tone {
 pub struct Notice {
     pub tone: Tone,
     pub text: String,
+    /// Where `text` holds a session's name, which has no bound on its
+    /// length: the status line cuts the name to the room its other parts
+    /// leave, so they show whole (ADR 38).
+    pub name: Option<Range<usize>>,
 }
 
 impl Notice {
@@ -77,6 +83,18 @@ impl Notice {
         Notice {
             tone,
             text: text.into(),
+            name: None,
+        }
+    }
+
+    /// A notice that reads `before`, `name` and `after` in a row and keeps
+    /// where the name stands.
+    pub fn naming(tone: Tone, before: &str, name: &str, after: &str) -> Self {
+        let start = before.len();
+        Notice {
+            tone,
+            text: format!("{before}{name}{after}"),
+            name: Some(start..start + name.len()),
         }
     }
 }
@@ -169,7 +187,13 @@ impl App {
     /// session archived because it collided with an unread result (spec
     /// section 3.7).
     pub fn notice(&mut self, tone: Tone, text: impl Into<String>) {
-        self.notice = Some(Notice::new(tone, text));
+        self.show(Notice::new(tone, text));
+    }
+
+    /// Shows `notice` until the next key or paste, as [`App::notice`]
+    /// does, for a notice that names a session.
+    pub fn show(&mut self, notice: Notice) {
+        self.notice = Some(notice);
     }
 
     pub fn current_notice(&self) -> Option<&Notice> {
@@ -785,6 +809,15 @@ mod tests {
     }
 
     #[test]
+    fn a_notice_naming_a_session_keeps_where_the_name_stands() {
+        let notice = Notice::naming(Tone::Info, "✗ rejected \"", "Release 0.2.0", "\"");
+
+        assert_eq!(notice.text, "✗ rejected \"Release 0.2.0\"");
+        let name = notice.name.clone().expect("a name");
+        assert_eq!(&notice.text[name], "Release 0.2.0");
+    }
+
+    #[test]
     fn a_notice_lasts_until_the_next_key() {
         let mut app = app(&["one"]);
 
@@ -794,7 +827,8 @@ mod tests {
             app.current_notice(),
             Some(&Notice {
                 tone: Tone::Warning,
-                text: text.to_owned()
+                text: text.to_owned(),
+                name: None,
             })
         );
 
