@@ -25,9 +25,9 @@ The counts come from what the review tab already shows. The tick for a sent
 session takes the success colour of the colour roles; the rejected line
 stays neutral.
 
-## Open questions
+## Decisions
 
-- Whether the notice also shows over the empty queue after the last
-  session, next to the mascot.
-- Whether notices get kinds (error, information, refusal) first, so this
-  one can be coloured as success while errors stay red.
+- 2026-10-15, user: notices get kinds first (information, warning, error,
+  success), and one ADR covers the kinds and this confirmation.
+- 2026-10-15, user: the confirmation stays until the next key or paste,
+  also over the next session and over the empty queue.

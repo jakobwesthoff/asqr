@@ -18,8 +18,10 @@ bell when a session arrives (`src/tui/alert.rs`).
   update it when the queue changes.
 - In terminals that support it, report progress through the session with
   OSC 9;4, so the terminal's tab shows it.
-- Send both through the same path as the notifications in `alert.rs`,
-  including its tmux passthrough.
+- Write the title plainly, also inside tmux: tmux takes OSC 2 as the
+  pane title (`allow-set-title`, on by default) and passes it to the outer
+  terminal when `set-titles` is on (off by default). Only OSC 9;4, which
+  tmux does not know, would go through the passthrough of `alert.rs`.
 
 ## Decisions
 
@@ -28,9 +30,14 @@ bell when a session arrives (`src/tui/alert.rs`).
   Progress through OSC 9;4 follows only after checking which terminals
   support it.
 
+- 2026-10-15, review: restoring the title is best effort. asqr pushes
+  the title (`CSI 22;0 t`) at start and, on exit, writes an empty title
+  and pops it (`CSI 23;0 t`). Ghostty discards the push and pop, and
+  xterm.js has them off by default; there the empty title lets the
+  terminal fall back to its own.
+
 ## Open questions
 
 - Which terminals support OSC 9;4, and whether asqr only sends it where it
-  is known to work.
-- Restoring the previous title when asqr quits.
-- Whether tmux passes OSC 2 on by itself or needs the passthrough wrapper.
+  is known to work. Any session text written into an OSC drops control
+  characters first, so an agent-written title cannot end the sequence.

@@ -150,8 +150,12 @@ palette's own values, not to a terminal theme.
 | Error | red | a failure, such as an inbox that cannot be read |
 | Secondary | dim | hints, unanswered tabs, the descriptions in the key bar |
 
-- Only the focus is a filled area. The title line and the key bar have no
-  fills.
+- Only the focus and the submit button are filled areas. The button is
+  always filled in the primary colour and keeps its brackets,
+  `[ Submit ]`, so it stays apart from the focus fill without colours.
+  The title line and the key bar have no fills.
+- Under the focus fill a row is one colour: marks and dim text take the
+  fill's colours like the rest of the row.
 - There is one focus fill on the screen at a time. While the context pane
   has the focus, the question's current row keeps its pointer and bold
   text but loses its fill.

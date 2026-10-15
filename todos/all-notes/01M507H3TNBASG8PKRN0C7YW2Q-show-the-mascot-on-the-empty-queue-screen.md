@@ -22,22 +22,25 @@ otherwise empty. The mascot fills that space.
   queue is empty again, it shows the sleeping mascot
   (`assets/mascot-variants/mascot-sleeping-no-moon.png`). This holds per run
   of asqr; nothing is stored on disk.
-- 2026-10-15, user: both pictures and their half-block versions are built
-  into the executable, so an installed asqr needs no separate files. They
-  are embedded as 512 px lossy WebP (quality 90, full alpha quality, about
-  40 KB each) under `src/tui/render/mascot/`, because `Cargo.toml` excludes
-  `assets/` from the published crate.
+- 2026-10-15, user: both pictures are built into the executable, so an
+  installed asqr needs no separate files. They are embedded as 768 px
+  lossy WebP (quality 90, full alpha quality, 71 KB and 68 KB) under
+  `src/tui/render/mascot/`, because `Cargo.toml` excludes `assets/` from
+  the published crate. The half-block fallback is computed from them at
+  run time. 768 px because a terminal with cells 15 px wide needs 660 px
+  for 44 columns; the first choice was 512 px.
 - 2026-10-15, user: the picture is drawn at about the size of the half-block
   fallback, 44 columns by 22 rows, smaller where the space is smaller, not
   stretched to fill the area.
 - 2026-10-15, user: the picture shows only when the main area has at least
   12 rows and 30 columns; below that the sentence stays alone.
 
-## Open questions
-
-- The half-block fallback is drawn in the picture's own RGB colours, an
-  exception to the design guide's rule of terminal colours only, which the
-  guide should then name for illustrations.
-- Moving from the empty screen to the first session must clear the image;
-  today `View::must_clear` in `screen.rs` handles overlays closing over an
-  image, not this change.
+- 2026-10-15, review: ratatui-image neither enlarges with `Resize::Fit`
+  nor centres, so asqr computes the picture's cells from the terminal's
+  cell size, centres them, and scales the picture itself with alpha
+  premultiplied, since the transparent pixels store black.
+- 2026-10-15, review: no clear is needed when the first session replaces
+  the picture. ratatui writes over cells an image skipped in the last
+  frame, because a cell's diff option is part of its equality.
+- The half-block fallback is drawn in the picture's own RGB colours. The
+  design guide names that exception for illustrations when it lands.
