@@ -328,12 +328,19 @@ fn mark_cut(area: Rect, buf: &mut Buffer, row: usize, marker: &str, cursor: Opti
         height: 1,
     };
     let (left, right) = (at(area.x), at(area.right() - width));
-    // A reversed blank is the text cursor, so it counts as text.
+    let covers = |cells: Rect| {
+        cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.start < cells.right() && cells.x < cursor.end)
+    };
+    // The text cursor's cell counts as text even where it is a blank. The
+    // blanks of a fill do not: a fill is no text, and the marker may cover
+    // it as it covers the fill's text.
     let blank = |buf: &Buffer, cells: Rect| {
-        cells.positions().all(|position| {
-            let cell = &buf[position];
-            cell.symbol() == " " && !cell.modifier.contains(Modifier::REVERSED)
-        })
+        !covers(cells)
+            && cells
+                .positions()
+                .all(|position| buf[position].symbol() == " ")
     };
     let right_end = (right, format!(" {marker}"));
     let left_end = (left, format!("{marker} "));
@@ -341,11 +348,6 @@ fn mark_cut(area: Rect, buf: &mut Buffer, row: usize, marker: &str, cursor: Opti
         (right_end, left_end)
     } else {
         (left_end, right_end)
-    };
-    let covers = |cells: Rect| {
-        cursor
-            .as_ref()
-            .is_some_and(|cursor| cursor.start < cells.right() && cells.x < cursor.end)
     };
     let (marked, text) = if !covers(chosen.0) {
         chosen
@@ -611,8 +613,11 @@ fn live_field(
             *shape = Some(drawn);
             (lines, Some(cursor))
         }
-        None if row.fill => (resting_lines(row.head.reversed(), row.text, width), None),
-        None => (resting_lines(row.head, row.text, width), None),
+        None if row.fill => (
+            resting_lines(row.head.reversed(), true, row.text, width),
+            None,
+        ),
+        None => (resting_lines(row.head, false, row.text, width), None),
     }
 }
 
@@ -744,7 +749,7 @@ mod tests {
     fn a_reversed_blank_counts_as_text_and_the_marker_drops_the_styles_under_it() {
         // The text cursor, a reversed blank, at the end of the row.
         let row = Line::from(vec![Span::from(" ".repeat(11)), Span::from(" ").reversed()]);
-        let buf = marked(row, None);
+        let buf = marked(row, Some(11..12));
         assert_eq!(test_support::rows(&buf), ["↓ more      "]);
 
         let buf = marked(Line::from("highlighted ").reversed(), None);
@@ -754,6 +759,35 @@ mod tests {
             Modifier::DIM,
             "dim, not reversed"
         );
+    }
+
+    #[test]
+    fn the_text_cursor_counts_as_text_by_its_columns_not_by_its_style() {
+        let blank = || Line::from(" ".repeat(12));
+        assert_eq!(
+            test_support::rows(&marked(blank(), Some(11..12))),
+            ["↓ more      "],
+            "the cursor's cell, though not reversed, keeps the marker away"
+        );
+
+        let row = Line::from(vec![Span::from(" ".repeat(11)), Span::from(" ").reversed()]);
+        assert_eq!(
+            test_support::rows(&marked(row, None)),
+            ["      ↓ more"],
+            "a reversed blank that is not the cursor is a blank"
+        );
+    }
+
+    #[test]
+    fn a_marker_may_cover_the_blanks_of_a_fill() {
+        // A filled head wrapped onto a row of its own, ending in blanks of
+        // its fill: they are no text, so the marker takes that end.
+        let row = Line::from(vec![
+            Span::from(" ".repeat(7)),
+            Span::from(format!("ab{}", " ".repeat(7))).reversed(),
+        ]);
+
+        assert_eq!(test_support::rows(&marked(row, None)), ["       ab ↓ more"]);
     }
 
     /// A single with an own answer and a note, then a text question with a
@@ -869,6 +903,33 @@ mod tests {
             modifier_at(&buf, "❯ ✎ Note to the asker"),
             Modifier::REVERSED,
             "the session note"
+        );
+    }
+
+    #[test]
+    fn a_filled_head_ending_at_the_edge_starts_the_next_row_with_its_blank() {
+        // The own answer's head takes 20 columns, its closing blank the
+        // 20th, so in 19 that blank is one past the end of the first row.
+        let own_rows = |state: &SessionState| {
+            let lines = test_support::line_texts(
+                &question_content(state, state.tab(), 19, Pass::Live).lines,
+            );
+            let head = lines
+                .iter()
+                .position(|line| line.contains("Own answer"))
+                .expect("the own answer shows");
+            lines[head..head + 2].to_vec()
+        };
+
+        assert_eq!(
+            own_rows(&after("jE")),
+            ["❯ ( ) ✎ Own answer:", "     —"],
+            "the fill's blank shows, so it moves on"
+        );
+        assert_eq!(
+            own_rows(&after("")),
+            ["  ( ) ✎ Own answer: ", "    —"],
+            "a plain blank hangs past the edge"
         );
     }
 

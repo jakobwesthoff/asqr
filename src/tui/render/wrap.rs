@@ -8,7 +8,7 @@
 
 use std::ops::Range;
 
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -105,15 +105,11 @@ pub(crate) fn wrap_rows(
             body = split..body.end;
         }
         // Blanks may hang past the end of a row, so the next row does not
-        // start with them. A reversed blank is the exception, since it is
-        // visible: the text cursor's cell or part of a highlighted head. It
-        // starts the next row when this one is full.
+        // start with them. A blank that shows is the exception: the text
+        // cursor's cell or part of a filled head. It starts the next row
+        // when this one is full.
         for blank in word.end - blanks..word.end {
-            let visible = glyphs[blank]
-                .style
-                .add_modifier
-                .contains(Modifier::REVERSED);
-            if visible && wrapped.used >= width {
+            if glyphs[blank].visible && wrapped.used >= width {
                 wrapped.break_row();
             }
             wrapped.push(glyphs, blank + 1);
@@ -129,6 +125,10 @@ pub(crate) struct Glyph<'a> {
     pub(crate) text: &'a str,
     pub(crate) style: Style,
     pub(crate) width: usize,
+    /// Whether the glyph shows even where it is a blank, as the text
+    /// cursor's cell and the blanks of a filled head do. Wrapping goes by
+    /// this, never by the style, so a fill can take any look.
+    pub(crate) visible: bool,
 }
 
 impl<'a> Glyph<'a> {
@@ -137,6 +137,16 @@ impl<'a> Glyph<'a> {
             text,
             style,
             width: columns(text),
+            visible: false,
+        }
+    }
+
+    /// A glyph that shows even where it is a blank: the text cursor's cell
+    /// or part of a filled head.
+    pub(crate) fn shown(text: &'a str, style: Style) -> Self {
+        Glyph {
+            visible: true,
+            ..Glyph::new(text, style)
         }
     }
 
@@ -211,7 +221,7 @@ pub(super) fn cut(text: &str, room: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::style::Stylize;
+    use ratatui::style::{Modifier, Stylize};
 
     use super::super::test_support::line_texts;
     use super::*;
@@ -291,6 +301,30 @@ mod tests {
         assert_eq!(
             cursor_columns(&lines),
             [("ab  ".to_owned(), None), ("cd".to_owned(), None)]
+        );
+    }
+
+    #[test]
+    fn a_blank_starts_the_next_row_by_whether_it_shows_not_by_its_style() {
+        // "abcd" fills a row of 4, so the blank after it lies past the end.
+        let rows = |blank: Glyph<'static>| {
+            let mut glyphs: Vec<Glyph> = "abcd"
+                .graphemes(true)
+                .map(|grapheme| Glyph::new(grapheme, Style::new()))
+                .collect();
+            glyphs.extend([blank, Glyph::new("e", Style::new())]);
+            wrap_rows(&glyphs, 4, 0, 0)
+        };
+
+        assert_eq!(
+            rows(Glyph::shown(" ", Style::new())),
+            [(0, 0..4), (0, 4..6)],
+            "a blank that shows starts the next row, whatever its style"
+        );
+        assert_eq!(
+            rows(Glyph::new(" ", Style::new().reversed())),
+            [(0, 0..5), (0, 5..6)],
+            "a reversed blank that does not show hangs past the end"
         );
     }
 

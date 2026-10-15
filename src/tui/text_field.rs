@@ -161,7 +161,7 @@ impl TextField {
     fn move_to_first_row_end(&mut self) {
         let shape = self.shape_or_lines();
         let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
-        let rows = layout(&shape.head, &lines, None, false, shape.width);
+        let rows = layout(&shape.head, false, &lines, None, false, shape.width);
         let mut reachable = rows.iter().filter(|row| row.reachable());
         let (Some(first), Some(_)) = (reachable.next(), reachable.next()) else {
             return;
@@ -260,7 +260,7 @@ impl TextField {
         let shape = &self.shape_or_lines();
         let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
         let cursor = self.cursor();
-        let rows = layout(&shape.head, &lines, Some(cursor), false, shape.width);
+        let rows = layout(&shape.head, false, &lines, Some(cursor), false, shape.width);
         let here = rows
             .iter()
             .position(|row| row.holds(cursor))
@@ -275,7 +275,7 @@ impl TextField {
         let row = &rows[here];
         if to == Leave::Down && row.last && cursor.1 != row.chars.end {
             let end = (row.line, row.chars.end);
-            let own_row = layout(&shape.head, &lines, Some(end), false, shape.width)
+            let own_row = layout(&shape.head, false, &lines, Some(end), false, shape.width)
                 .iter()
                 .find(|row| row.holds(end))
                 .is_some_and(|row| !row.shows_text());
@@ -330,7 +330,14 @@ impl TextField {
     ) -> Vec<Line<'static>> {
         let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
         let cursor = cursor.then(|| self.cursor());
-        let mut lines = drawn(&layout(&shape.head, &lines, cursor, false, shape.width));
+        let mut lines = drawn(&layout(
+            &shape.head,
+            false,
+            &lines,
+            cursor,
+            false,
+            shape.width,
+        ));
         if let Some(limits) = limits {
             let (text, level) = counter(self.length(), limits);
             lines.push(Line::from(Span::from(text).fg(level.colour())).right_aligned());
@@ -346,7 +353,7 @@ impl TextField {
     pub fn cursor_cell(&self, shape: &FieldShape) -> (usize, Range<usize>, bool) {
         let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
         let cursor = self.cursor();
-        let rows = layout(&shape.head, &lines, Some(cursor), false, shape.width);
+        let rows = layout(&shape.head, false, &lines, Some(cursor), false, shape.width);
         let (line, row) = rows
             .iter()
             .enumerate()
@@ -411,10 +418,16 @@ fn cleaned_from(text: &str, column: usize) -> String {
 }
 
 /// The lines of a field without the keys that holds `text`: the text
-/// after `head`, or a dim `—` when it is empty.
-pub fn resting_lines(head: Span<'static>, text: &str, width: usize) -> Vec<Line<'static>> {
+/// after `head`, or a dim `—` when it is empty. A `filled` head shows its
+/// blanks as part of the fill, so they wrap like text.
+pub fn resting_lines(
+    head: Span<'static>,
+    filled: bool,
+    text: &str,
+    width: usize,
+) -> Vec<Line<'static>> {
     let lines: Vec<&str> = text.split('\n').collect();
-    drawn(&layout(&head, &lines, None, text.is_empty(), width))
+    drawn(&layout(&head, filled, &lines, None, text.is_empty(), width))
 }
 
 /// The lines a field holding `text` takes however it shows, so the layout
@@ -428,7 +441,7 @@ pub fn counted_lines(
     width: usize,
     limits: bool,
 ) -> Vec<Line<'static>> {
-    let mut lines = resting_lines(head, text, width);
+    let mut lines = resting_lines(head, false, text, width);
     if limits {
         lines.push(Line::default());
     }
@@ -550,16 +563,17 @@ impl VisualRow<'_> {
 }
 
 /// What a field shows, laid out in rows of `width` columns: `lines` of its
-/// text after `head`, the grapheme under the text cursor inverted, and a
-/// dim `—` for an empty text where `placeholder` holds. Drawing and
-/// counting rows both go through this one function, so they agree on
-/// where a row breaks.
+/// text after `head`, its blanks shown where it is `filled`, the grapheme
+/// under the text cursor inverted, and a dim `—` for an empty text where
+/// `placeholder` holds. Drawing and counting rows both go through this one
+/// function, so they agree on where a row breaks.
 ///
 /// Every line after the first starts under the start of the text, or
 /// `NARROW_INDENT` columns in when the head leaves the text less than
 /// `MIN_TEXT_WIDTH` (ADR 27), and so does every row a line wraps onto.
 fn layout<'a>(
     head: &'a Span<'a>,
+    filled: bool,
     lines: &[&'a str],
     cursor: Option<(usize, usize)>,
     placeholder: bool,
@@ -581,7 +595,13 @@ fn layout<'a>(
             let head = head
                 .content
                 .graphemes(true)
-                .map(|grapheme| Glyph::new(grapheme, head.style))
+                .map(|grapheme| {
+                    if filled {
+                        Glyph::shown(grapheme, head.style)
+                    } else {
+                        Glyph::new(grapheme, head.style)
+                    }
+                })
                 .collect();
             (head, 0)
         } else {
@@ -633,17 +653,16 @@ fn line_rows<'a>(
         let chars = grapheme.chars().count();
         let under = !covered && cursor.is_some_and(|column| column < start + chars);
         covered |= under;
-        let style = if under {
-            Style::new().reversed()
+        glyphs.push(if under {
+            Glyph::shown(grapheme, Style::new().reversed())
         } else {
-            Style::new()
-        };
-        glyphs.push(Glyph::new(grapheme, style));
+            Glyph::new(grapheme, Style::new())
+        });
         sources.push(Source::Text { start, chars });
         start += chars;
     }
     if cursor.is_some() && !covered {
-        glyphs.push(Glyph::new(" ", Style::new().reversed()));
+        glyphs.push(Glyph::shown(" ", Style::new().reversed()));
         sources.push(Source::End);
     }
 
@@ -683,6 +702,7 @@ fn closest_on(target: &VisualRow, column: usize, shape: &FieldShape, lines: &[&s
     let shows_on_target = |position: usize| {
         layout(
             &shape.head,
+            false,
             lines,
             Some((target.line, position)),
             false,
@@ -1369,21 +1389,26 @@ mod tests {
 
     #[test]
     fn every_line_of_the_text_starts_under_its_start() {
-        let lines = resting_lines(Span::from("Notes: "), "first\nsecond", 40);
+        let lines = resting_lines(Span::from("Notes: "), false, "first\nsecond", 40);
 
         assert_eq!(texts(&lines), ["Notes: first", "       second"]);
     }
 
     #[test]
     fn a_long_line_wraps_under_the_start_of_the_text() {
-        let lines = resting_lines(Span::from("H: "), "alpha beta gamma delta", 24);
+        let lines = resting_lines(Span::from("H: "), false, "alpha beta gamma delta", 24);
 
         assert_eq!(texts(&lines), ["H: alpha beta gamma ", "   delta"]);
     }
 
     #[test]
     fn a_head_leaving_less_than_20_columns_wraps_the_text_4_columns_in() {
-        let lines = resting_lines(Span::from("Head: "), "alpha beta gamma delta\nepsilon", 25);
+        let lines = resting_lines(
+            Span::from("Head: "),
+            false,
+            "alpha beta gamma delta\nepsilon",
+            25,
+        );
 
         assert_eq!(
             texts(&lines),
@@ -1394,7 +1419,7 @@ mod tests {
     #[test]
     fn an_empty_field_without_the_keys_shows_a_dim_dash_after_its_head() {
         let head = Span::from("Head: ").reversed();
-        let lines = resting_lines(head.clone(), "", 40);
+        let lines = resting_lines(head.clone(), true, "", 40);
 
         assert_eq!(lines.len(), 1);
         assert_eq!(texts(&lines), ["Head: —"]);
