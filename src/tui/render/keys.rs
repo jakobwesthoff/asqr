@@ -8,12 +8,13 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Stylize};
+use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 
 use super::overlay::{overlay_block, popup};
 use super::source_line::columns;
+use super::theme;
 use crate::format::Kind;
 use crate::tui::{Focus, Page, Row, SessionState};
 
@@ -238,7 +239,7 @@ pub(super) fn key_line(keys: &[(&str, &str)], width: u16) -> Line<'static> {
 
     let mut spans = Vec::new();
     for (key, what) in kept {
-        spans.push(Span::from(format!(" {key} ")).add_modifier(Modifier::REVERSED));
+        spans.push(Span::styled(format!(" {key} "), theme::focus_fill()));
         spans.push(Span::from(format!(" {what}  ")));
     }
     Line::from(spans)
@@ -264,6 +265,7 @@ fn hint_rank(key: &str) -> u8 {
 #[cfg(test)]
 mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::style::Modifier;
 
     use super::super::test_support::{find, line_texts, row};
     use super::*;

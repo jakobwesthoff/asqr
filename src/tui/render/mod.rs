@@ -23,6 +23,7 @@ mod tabs;
 #[cfg(test)]
 mod test_support;
 mod text;
+pub(crate) mod theme;
 mod viewer;
 mod wrap;
 

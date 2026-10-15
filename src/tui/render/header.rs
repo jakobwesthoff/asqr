@@ -11,6 +11,7 @@ use ratatui::text::{Line, Span};
 use super::parts::question_key;
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
+use super::theme;
 use super::wrap::{indented, wrap};
 use crate::tui::SessionState;
 
@@ -28,7 +29,10 @@ pub(super) fn header_lines(state: &SessionState, width: usize, height: u16) -> V
         spans.push(Span::from(format!("  ({from})")));
     }
     if let Some(follows) = &session.follows {
-        spans.push(Span::from(format!("  follows: {follows}")).dim());
+        spans.push(Span::styled(
+            format!("  follows: {follows}"),
+            theme::secondary(),
+        ));
     }
     // Lines end a column before the edge, as the question's text does.
     let room = width.saturating_sub(1);
@@ -42,10 +46,11 @@ pub(super) fn header_lines(state: &SessionState, width: usize, height: u16) -> V
     let Some(intro) = session.intro.as_deref() else {
         return lines;
     };
-    // Dim comes on top of patine's styles, which still show underneath.
+    // The secondary role comes on top of patine's styles, which still
+    // show underneath.
     let intro: Vec<Line<'static>> = intro_lines(intro, room)
         .into_iter()
-        .map(Stylize::dim)
+        .map(|line| line.patch_style(theme::secondary()))
         .collect();
     let more = format!("… {}: more", question_key(state, "i"));
     lines.extend(at_most(intro, if short { 1 } else { 3 }, &more, room));

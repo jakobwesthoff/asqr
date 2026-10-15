@@ -21,6 +21,8 @@ use ratatui::text::Line;
 use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::theme;
+
 /// Columns from one tab stop to the next. Panes are often 40 to 60 columns
 /// wide, where the terminal's 8 would push indented code out of sight.
 pub const TAB_STOP: usize = 4;
@@ -212,7 +214,7 @@ impl SourceLine {
             if shown {
                 let cell = &mut buf[(x_of(column), area.y)];
                 cell.reset();
-                cell.set_symbol(marker).set_style(Style::new().dim());
+                cell.set_symbol(marker).set_style(theme::secondary());
             }
         }
     }
@@ -294,7 +296,7 @@ impl Widget for Note {
             area.y,
             self.0,
             usize::from(area.width),
-            Style::new().dim(),
+            theme::secondary(),
         );
     }
 }

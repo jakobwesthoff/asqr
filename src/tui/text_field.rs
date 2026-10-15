@@ -12,12 +12,12 @@
 use std::ops::Range;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui_textarea::{CursorMove, TextArea};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::render::{Glyph, TAB_STOP, columns, styled_line, wrap_rows};
+use super::render::{Glyph, TAB_STOP, columns, styled_line, theme, wrap_rows};
 use crate::format::Length;
 
 /// The text of a field wraps under its own start while that leaves it at
@@ -340,7 +340,7 @@ impl TextField {
         ));
         if let Some(limits) = limits {
             let (text, level) = counter(self.length(), limits);
-            lines.push(Line::from(Span::from(text).fg(level.colour())).right_aligned());
+            lines.push(Line::from(Span::styled(text, theme::for_level(level))).right_aligned());
         }
         lines
     }
@@ -644,7 +644,7 @@ fn line_rows<'a>(
     let mut sources = vec![Source::Lead; lead.len()];
     let mut glyphs = lead;
     if placeholder {
-        glyphs.push(Glyph::new("—", Style::new().dim()));
+        glyphs.push(Glyph::new("—", theme::secondary()));
         sources.push(Source::Lead);
     }
     let mut start = 0;
@@ -654,7 +654,7 @@ fn line_rows<'a>(
         let under = !covered && cursor.is_some_and(|column| column < start + chars);
         covered |= under;
         glyphs.push(if under {
-            Glyph::shown(grapheme, Style::new().reversed())
+            Glyph::shown(grapheme, theme::cursor())
         } else {
             Glyph::new(grapheme, Style::new())
         });
@@ -662,7 +662,7 @@ fn line_rows<'a>(
         start += chars;
     }
     if cursor.is_some() && !covered {
-        glyphs.push(Glyph::shown(" ", Style::new().reversed()));
+        glyphs.push(Glyph::shown(" ", theme::cursor()));
         sources.push(Source::End);
     }
 
@@ -746,16 +746,6 @@ pub enum Level {
     Over,
 }
 
-impl Level {
-    fn colour(self) -> Color {
-        match self {
-            Level::Fine => Color::Green,
-            Level::Warn => Color::Yellow,
-            Level::Over => Color::Red,
-        }
-    }
-}
-
 /// The counter text for `length` characters against `limits`: the length
 /// over the end of the target range (or over `warn` without a target), `!`
 /// above the target and `!!` above `warn`. The text says everything the
@@ -784,7 +774,7 @@ pub fn counter(length: usize, limits: &Length) -> (String, Level) {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::style::{Modifier, Style};
+    use ratatui::style::{Color, Modifier, Style, Stylize};
 
     use super::*;
 
@@ -1453,7 +1443,6 @@ mod tests {
 
         assert_eq!(texts(&lines[1..]), ["12/10 !!"]);
         assert_eq!(lines[1].spans[0].style.fg, Some(Color::Red));
-        assert_eq!(Level::Warn.colour(), Color::Yellow);
     }
 
     #[test]

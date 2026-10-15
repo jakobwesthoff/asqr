@@ -13,6 +13,7 @@ use ratatui::widgets::{Block, Borders, Widget};
 
 use super::parts::answer_mark;
 use super::source_line::columns;
+use super::theme;
 use crate::tui::SessionState;
 
 pub(super) fn draw_tabs(area: Rect, buf: &mut Buffer, state: &SessionState) {
@@ -71,7 +72,7 @@ fn tab_line(state: &SessionState, width: usize) -> Line<'static> {
     for (index, (mark, text)) in labels.into_iter().enumerate().take(last + 1).skip(first) {
         let tab = [Span::from(" "), mark, Span::from(format!(" {text} "))];
         if index == current {
-            spans.extend(tab.map(|span| span.reversed().bold()));
+            spans.extend(tab.map(|span| span.patch_style(theme::focus_fill()).bold()));
         } else {
             spans.extend(tab);
         }

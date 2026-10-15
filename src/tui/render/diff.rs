@@ -10,13 +10,14 @@ use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 use similar::{Algorithm, ChangeTag, InlineChange, InlineChangeOptions, TextDiff};
 
 use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
+use super::theme;
 use super::viewer::{ContentSize, Loaded, Viewer, loaded};
 use crate::format::{DiffEntry, DiffSide};
 use crate::tui::Offset;
@@ -242,7 +243,7 @@ impl Viewer for Rows {
             match row {
                 Row::Separator => {
                     let separator = SEPARATOR.repeat(width);
-                    buf.set_stringn(row_area.x, row_area.y, separator, width, Style::new().dim());
+                    buf.set_stringn(row_area.x, row_area.y, separator, width, theme::secondary());
                 }
                 Row::Note(note) => note.render(row_area, buf),
                 Row::Line {
@@ -261,7 +262,7 @@ impl Viewer for Rows {
                         ChangeTag::Insert => "+",
                     };
                     let gutter = Line::from(vec![
-                        Span::from(numbers).dim(),
+                        Span::styled(numbers, theme::secondary()),
                         Span::styled(sign, line_style(*tag)),
                         Span::from(" "),
                     ]);
@@ -280,6 +281,8 @@ impl Viewer for Rows {
 /// The row of one line of the diff, numbered from 1 on each side it is on.
 fn line_row(change: &InlineChange<'_, str>) -> Row {
     let style = line_style(change.tag());
+    // Reversed video on top of the line's role rather than a role of its
+    // own, so changed words stay visible without colours (ADR 33).
     let emphasis = style.reversed();
     let values = change.values();
     let last = values.len().saturating_sub(1);
@@ -358,8 +361,8 @@ fn unix_line_ends(text: &str) -> Cow<'_, str> {
 fn line_style(tag: ChangeTag) -> Style {
     match tag {
         ChangeTag::Equal => Style::new(),
-        ChangeTag::Delete => Style::new().fg(Color::Red),
-        ChangeTag::Insert => Style::new().fg(Color::Green),
+        ChangeTag::Delete => theme::error(),
+        ChangeTag::Insert => theme::success(),
     }
 }
 

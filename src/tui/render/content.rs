@@ -15,7 +15,7 @@ use std::ops::Range;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Stylize};
+use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Widget};
 use ratatui_image::picker::Picker;
@@ -25,6 +25,7 @@ use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
+use super::theme;
 use super::viewer::Viewers;
 use super::wrap::{cut, indented, wrap};
 use crate::format::{Kind, Length, has_text};
@@ -359,7 +360,7 @@ fn mark_cut(area: Rect, buf: &mut Buffer, row: usize, marker: &str, cursor: Opti
     // The cells lose the styles of the text under them first, so a marker
     // over a highlighted row never shows reversed.
     Clear.render(marked, buf);
-    Line::from(text).dim().render(marked, buf);
+    Line::styled(text, theme::secondary()).render(marked, buf);
 }
 
 /// The mark in front of an option or the own answer.
@@ -398,9 +399,12 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
         shape: None,
         text_cursor: None,
     };
-    content
-        .lines
-        .extend(wrap(Line::from(kind_hint(question)).dim(), width, 0, 0));
+    content.lines.extend(wrap(
+        Line::styled(kind_hint(question), theme::secondary()),
+        width,
+        0,
+        0,
+    ));
     content.lines.push(Line::default());
 
     let answer = &state.answers()[index];
@@ -536,7 +540,7 @@ fn option_lines(
     let head_width: usize = head.iter().map(|span| columns(&span.content)).sum();
     let head = if current {
         head.into_iter()
-            .map(|span| span.add_modifier(Modifier::REVERSED))
+            .map(|span| span.patch_style(theme::focus_fill()))
             .collect()
     } else {
         head
@@ -614,7 +618,12 @@ fn live_field(
             (lines, Some(cursor))
         }
         None if row.fill => (
-            resting_lines(row.head.reversed(), true, row.text, width),
+            resting_lines(
+                row.head.patch_style(theme::focus_fill()),
+                true,
+                row.text,
+                width,
+            ),
             None,
         ),
         None => (resting_lines(row.head, false, row.text, width), None),
@@ -635,7 +644,10 @@ fn field_cursor(field: &TextField, shape: &FieldShape, shown: bool) -> TextCurso
 fn review_content(state: &SessionState, width: usize) -> Content {
     let mut content = Content {
         lines: vec![
-            Line::from("Review your answers, then submit or reject.").dim(),
+            Line::styled(
+                "Review your answers, then submit or reject.",
+                theme::secondary(),
+            ),
             Line::default(),
         ],
         cursor: (0, 0),
@@ -683,9 +695,14 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 let room = width.saturating_sub(lead_width);
                 let summary = cut(&answer_summary(question, &answers[question_index]), room);
                 let mut spans = lead;
-                spans.push(Span::from(summary).dim());
+                spans.push(Span::styled(summary, theme::secondary()));
                 let line = Line::from(spans);
-                (vec![if current { line.reversed() } else { line }], None)
+                let line = if current {
+                    line.patch_style(theme::focus_fill())
+                } else {
+                    line
+                };
+                (vec![line], None)
             }
             Row::Submit => {
                 let counts = state.counts();
@@ -697,7 +714,11 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                         counts.answered, counts.skipped, counts.defaulted
                     )),
                     Line::default(),
-                    if current { button.reversed() } else { button },
+                    if current {
+                        button.patch_style(theme::focus_fill())
+                    } else {
+                        button
+                    },
                 ];
                 (lines, None)
             }
@@ -722,6 +743,8 @@ fn review_content(state: &SessionState, width: usize) -> Content {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::style::Modifier;
+
     use super::super::test_support;
     use super::*;
 

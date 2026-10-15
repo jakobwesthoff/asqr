@@ -16,6 +16,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
 use super::source_line::columns;
+use super::theme;
 use super::viewer::Viewers;
 use super::wrap::cut;
 use crate::format::ContextEntry;
@@ -59,7 +60,7 @@ pub fn draw_pane(
     // The focused pane's header stands out the way the current tab does,
     // so the person sees where the keys go.
     let line = if state.pane_focused() {
-        line.reversed()
+        line.patch_style(theme::focus_fill())
     } else {
         line
     };
@@ -103,7 +104,7 @@ fn header_line(
     let name = cut(&name, width.saturating_sub(right_width));
     let gap = width.saturating_sub(columns(&name) + right_width);
     let mut spans = vec![Span::from(name).bold(), Span::from(" ".repeat(gap))];
-    spans.extend(right.map(|text| Span::from(text).dim()));
+    spans.extend(right.map(|text| Span::styled(text, theme::secondary())));
     Line::from(spans)
 }
 
@@ -157,7 +158,7 @@ pub fn context_hint(entry: Option<&ContextEntry>, key: &str, width: u16) -> Line
         (kind, Some(name)) => format!("▸ {kind}: {name} · {key}: full screen"),
         (kind, None) => format!("▸ {kind} · {key}: full screen"),
     };
-    Line::from(cut(&text, usize::from(width))).dim()
+    Line::styled(cut(&text, usize::from(width)), theme::secondary())
 }
 
 #[cfg(test)]

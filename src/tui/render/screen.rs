@@ -10,7 +10,6 @@
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Stylize};
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 use ratatui_image::picker::Picker;
@@ -24,6 +23,7 @@ use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{PaneLayout, READING_WIDTH};
 use super::source_line::columns;
 use super::tabs::draw_tabs;
+use super::theme;
 use crate::format::ContextEntry;
 use crate::tui::text_field::FieldShape;
 use crate::tui::{App, Extent, Overlay, Page, SessionState};
@@ -260,7 +260,7 @@ fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
     let prefix = " asqr · queue: ";
     let room = usize::from(area.width).saturating_sub(columns(prefix) + columns(&count));
     let text = format!("{prefix}{}{count}", shorten_from_left(queue, room));
-    Line::from(text).reversed().render(area, buf);
+    Line::styled(text, theme::focus_fill()).render(area, buf);
 }
 
 /// The status line: the app's notice, else the message of the session
@@ -272,7 +272,7 @@ fn status_line<'a>(app: &'a App, state: Option<&'a SessionState>) -> Line<'a> {
         .current_notice()
         .or_else(|| state.and_then(SessionState::message))
         .unwrap_or_default();
-    Line::from(text).fg(Color::Yellow)
+    Line::styled(text, theme::warning())
 }
 
 #[cfg(test)]
@@ -282,7 +282,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui::style::Modifier;
+    use ratatui::style::{Color, Modifier};
 
     use super::super::test_support::{self, find, find_from, row, style_at};
     use super::*;

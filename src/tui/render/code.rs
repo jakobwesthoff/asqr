@@ -10,13 +10,13 @@ use std::path::Path;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::Widget;
 
 use super::patine_adapter::source_line;
 use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
+use super::theme;
 use super::viewer::{ContentSize, Loaded, Placeholder, Viewer, loaded};
 use crate::format::CodeEntry;
 use crate::tui::Offset;
@@ -154,7 +154,7 @@ impl Viewer for Lines {
         for (row_area, row) in rows_from(area, &self.rows, offset.top) {
             match row {
                 Row::Line { number, text } => GutterRow {
-                    gutter: Line::from(format!("{number:>digits$} ")).dim(),
+                    gutter: Line::styled(format!("{number:>digits$} "), theme::secondary()),
                     line: text,
                     left: offset.left,
                 }

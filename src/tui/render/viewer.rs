@@ -11,7 +11,6 @@ use std::collections::HashMap;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Widget};
 use ratatui_image::picker::Picker;
@@ -20,6 +19,7 @@ use super::code::CodeViewer;
 use super::diff::DiffViewer;
 use super::images::Image;
 use super::markdown_viewer::MarkdownViewer;
+use super::theme;
 use super::wrap::wrap;
 use crate::format::ContextEntry;
 use crate::tui::{EntryKey, Offset};
@@ -298,9 +298,9 @@ impl Placeholder {
         name: Option<&String>,
         reason: impl Into<String>,
     ) -> Self {
-        let mut lines = vec![Line::from(heading).dim()];
+        let mut lines = vec![Line::styled(heading, theme::secondary())];
         lines.extend(name.map(|name| Line::from(name.clone())));
-        lines.push(Line::from(reason.into()).dim());
+        lines.push(Line::styled(reason.into(), theme::secondary()));
         Placeholder {
             lines,
             wrapped: Vec::new(),
@@ -310,7 +310,7 @@ impl Placeholder {
     /// A dim note, such as "empty", where there is no content to show.
     pub(super) fn note(note: &'static str) -> Self {
         Placeholder {
-            lines: vec![Line::from(note).dim()],
+            lines: vec![Line::styled(note, theme::secondary())],
             wrapped: Vec::new(),
         }
     }

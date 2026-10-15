@@ -9,13 +9,13 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
-use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget};
 
 use super::header::intro_lines;
 use super::panes::READING_WIDTH;
 use super::parts::pointer;
+use super::theme;
 use crate::tui::{App, Extent};
 
 /// Clears the place of an overlay `width` columns wide and `height` rows
@@ -68,7 +68,7 @@ pub(super) fn draw_intro(area: Rect, buf: &mut Buffer, intro: &str, scroll: usiz
 
     let footer = page
         .position(scroll)
-        .map(|position| Line::from(position).dim());
+        .map(|position| Line::styled(position, theme::secondary()));
     Paragraph::new(lines)
         .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0))
         .block(overlay_block("Intro", footer))
@@ -98,7 +98,7 @@ pub(super) fn draw_session_list(area: Rect, buf: &mut Buffer, app: &App, cursor:
                 )),
             ]);
             if index == cursor {
-                line.reversed()
+                line.patch_style(theme::focus_fill())
             } else {
                 line
             }
@@ -115,7 +115,7 @@ pub(super) fn draw_session_list(area: Rect, buf: &mut Buffer, app: &App, cursor:
 #[cfg(test)]
 mod tests {
     use ratatui::buffer::Cell;
-    use ratatui::style::Modifier;
+    use ratatui::style::{Modifier, Stylize};
 
     use super::super::test_support::{find, row, rows};
     use super::*;

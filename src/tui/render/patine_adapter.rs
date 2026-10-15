@@ -12,6 +12,7 @@ use patine::{StyledLine, TextStyle, Underline};
 use ratatui::style::{Color, Modifier, Style};
 
 use super::source_line::{SourceLine, columns};
+use super::theme;
 
 /// What starts a row that continues a line too wide for its space.
 const CONTINUATION: &str = "↪ ";
@@ -23,6 +24,9 @@ const CONTINUATION: &str = "↪ ";
 /// italic as well, so they stay apart from level-two ones. A colour stays
 /// a palette slot, `Color::Indexed`, so the terminal's theme decides it
 /// and index 7 stays patine's white, which ratatui would call gray.
+///
+/// These styles take no role from [`super::theme`]: code and Markdown keep
+/// the colours their highlighting gives them (ADR 34).
 // `TextStyle` may gain attributes in a minor release of patine; this
 // function shows only the ones it names and ignores any others.
 pub fn style(style: TextStyle) -> Style {
@@ -65,7 +69,7 @@ pub fn source_line(line: &StyledLine) -> SourceLine {
 /// and the next part. Where the indent leaves no room, the rows start with the marker
 /// alone, and where not even that fits, the line breaks without one.
 pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
-    let marker = Style::new().dim();
+    let marker = theme::secondary();
     let marker_width = 2;
     let mut rows = Vec::new();
     for line in lines {
