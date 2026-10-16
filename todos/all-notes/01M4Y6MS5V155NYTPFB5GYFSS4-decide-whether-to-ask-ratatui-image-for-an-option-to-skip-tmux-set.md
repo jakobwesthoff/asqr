@@ -1,11 +1,11 @@
 ---
-title: "Get an option into ratatui-image to skip tmux set allow-passthrough on"
+title: "Decide whether to ask ratatui-image for an option to skip tmux set allow-passthrough"
 kind: chore
 component: terminal
 status: needs-discussion
 origin: review
 ---
-# Get an option into ratatui-image to skip tmux set allow-passthrough on
+# Decide whether to ask ratatui-image for an option to skip tmux set allow-passthrough
 
 Whenever `TERM` starts with `tmux` or `TERM_PROGRAM` is `tmux`,
 ratatui-image runs `tmux set -p allow-passthrough on` in every `Picker`
@@ -43,10 +43,19 @@ of `QueryStdioOptions` and a constructor for half blocks that runs no
 command, then drop `PanePassthrough`. Commits for that pull request
 carry no AI attribution: the maintainer rejects it.
 
-## Open question
+## Open questions
 
-If upstream refuses the option, 12.0.0 stalls past a date the user
-sets, or a protocol bug is not fixed upstream, owning the image code is
-the documented fallback (the evaluation of 2026-10-15, option (c):
-asqr's own query, Kitty, iTerm2 and half-block code, with `icy_sixel`
-kept for Sixel). The user decides when to take it.
+- Whether to propose this upstream at all (the user asked on 2026-10-16
+  to discuss it before anything is done). Points to weigh: the change
+  lasts only while the query runs since `PanePassthrough` puts the value
+  back, and asqr then sets `all` itself for Kitty under tmux 3.4 and
+  later (ADR 44); what remains is the brief override, the stray `tmux set`
+  on the host's own tmux server over ssh, and a value left behind when
+  asqr is killed during the query. Against it: the maintainer's
+  "render and forget" stance (ratatui-image issue #207) and review time.
+  A pull request is outward-facing and needs the user's go.
+- If upstream refuses the option, 12.0.0 stalls past a date the user
+  sets, or a protocol bug is not fixed upstream, owning the image code
+  is the documented fallback (the evaluation of 2026-10-15, option (c):
+  asqr's own query, Kitty, iTerm2 and half-block code, with `icy_sixel`
+  kept for Sixel). The user decides when to take it.
