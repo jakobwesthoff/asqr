@@ -283,9 +283,18 @@ impl Ahead {
         queue.jobs.remove(position).map(|(job, _)| job)
     }
 
-    /// Drops the jobs not started yet that `keep` refuses.
-    pub(super) fn retain(&self, keep: impl Fn(&Job) -> bool) {
-        self.lock().jobs.retain(|(job, _)| keep(job));
+    /// Drops the jobs not started yet that `keep` refuses, and says which
+    /// they were, by key and ticket.
+    pub(super) fn retain(&self, keep: impl Fn(&Job) -> bool) -> Vec<(ViewerKey, u64)> {
+        let mut dropped = Vec::new();
+        self.lock().jobs.retain(|(job, _)| {
+            let kept = keep(job);
+            if !kept {
+                dropped.push((job.key.clone(), job.ticket));
+            }
+            kept
+        });
+        dropped
     }
 }
 

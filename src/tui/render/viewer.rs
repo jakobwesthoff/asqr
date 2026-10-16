@@ -124,9 +124,16 @@ pub struct Viewers {
     tools: Tools,
     finished: Receiver<Finished>,
     viewers: HashMap<ViewerKey, Kept>,
-    /// The keys with a job in flight or queued, at most one each.
+    /// The keys with a job in flight or queued, at most one each. A job
+    /// in flight stays noted when its key leaves the window, so a frame
+    /// that wants the entry again takes it over.
     loading: HashMap<ViewerKey, Request>,
     next_ticket: u64,
+    /// The keys of the last window, `None` before the first: until then
+    /// nothing is outside it.
+    window: Option<Vec<ViewerKey>>,
+    /// The key the pane last asked for.
+    shown: Option<ViewerKey>,
     /// The job the pane waits for, and until when.
     waiting: Option<(ViewerKey, u64, Instant)>,
     wait: Duration,
@@ -165,6 +172,8 @@ impl Viewers {
             viewers: HashMap::new(),
             loading: HashMap::new(),
             next_ticket: 0,
+            window: None,
+            shown: None,
             waiting: None,
             wait: if cfg!(test) { TEST_WAIT } else { LOAD_WAIT },
             placeholder: LoadingNote,
@@ -214,6 +223,7 @@ impl Viewers {
             entry: key,
         };
         let size = (width, height);
+        self.shown = Some(key.clone());
         self.collect();
         if !self.ready(&key, entry, quote, size) {
             self.request(&key, entry, quote, size);
@@ -331,11 +341,13 @@ impl Viewers {
     /// Keeps the viewers of `window`, the entries the question shown in
     /// session `session` keeps loaded, in the order they load (ADR 46),
     /// and lets every other viewer go, also one a frame showed and those
-    /// of other sessions. Jobs for entries outside the window are not
-    /// taken back when they end. With the body's `size`, which a pane
-    /// shown as a one-line hint has none of, the entries of the window
-    /// that are not loaded yet are queued to load ahead in that order,
-    /// with quotes in `quote`.
+    /// of other sessions. A job in flight for an entry outside the window
+    /// runs to its end and stays noted, so coming back to the entry takes
+    /// it over; what it made goes when it arrives. A job queued and not
+    /// started goes. With the body's `size`, which a pane shown as a
+    /// one-line hint has none of, the entries of the window that are not
+    /// loaded yet are queued to load ahead in that order, with quotes in
+    /// `quote`.
     ///
     /// A viewer loaded for another size is left as it is: it is laid out
     /// again when it is shown.
@@ -354,8 +366,9 @@ impl Viewers {
             })
             .collect();
         self.viewers.retain(|key, _| keys.contains(key));
-        self.loading.retain(|key, _| keys.contains(key));
-        self.ahead.retain(|job| keys.contains(&job.key));
+        let dropped = self.ahead.retain(|job| keys.contains(&job.key));
+        forget_dropped(&mut self.loading, &dropped);
+        self.window = Some(keys.clone());
         let Some(size) = size.filter(|_| self.loads_ahead) else {
             return;
         };
@@ -467,9 +480,12 @@ impl Viewers {
         }
     }
 
-    /// Keeps what a job made, if it answers the latest request of its key.
-    /// Any other result belongs to a session that left, an entry replaced
-    /// since, or an image forgotten, and goes.
+    /// Keeps what a job made, if it answers the latest request of its key
+    /// and its entry is inside the window or shown. Any other result
+    /// belongs to a session that left, an entry replaced since or left
+    /// behind, or an image forgotten, and goes. The entry shown counts:
+    /// the pane asks for the entry of a new question before the window of
+    /// that question is sent.
     fn take(&mut self, finished: Finished) {
         #[cfg(test)]
         {
@@ -499,6 +515,13 @@ impl Viewers {
             return;
         }
         self.loading.remove(&key);
+        let in_window = self
+            .window
+            .as_ref()
+            .is_none_or(|window| window.contains(&key));
+        if !in_window && self.shown.as_ref() != Some(&key) {
+            return;
+        }
         self.viewers.insert(
             key,
             Kept {
@@ -542,6 +565,16 @@ impl Viewers {
         self.viewers.retain(|key, _| waiting(&key.session));
         self.loading.retain(|key, _| waiting(&key.session));
         self.ahead.retain(|job| waiting(&job.key.session));
+        if let Some(window) = &mut self.window {
+            window.retain(|key| waiting(&key.session));
+        }
+        if self
+            .shown
+            .as_ref()
+            .is_some_and(|key| !waiting(&key.session))
+        {
+            self.shown = None;
+        }
         if self
             .waiting
             .as_ref()
@@ -613,6 +646,19 @@ impl Viewers {
     #[cfg(test)]
     pub(super) fn pending(&self) -> Vec<EntryKey> {
         self.loading.keys().map(|key| key.entry).collect()
+    }
+}
+
+/// Forgets the notes of the queued jobs `dropped` names by key and ticket.
+/// A note with another ticket belongs to a later job, which runs.
+fn forget_dropped(loading: &mut HashMap<ViewerKey, Request>, dropped: &[(ViewerKey, u64)]) {
+    for (key, ticket) in dropped {
+        if loading
+            .get(key)
+            .is_some_and(|request| request.ticket == *ticket)
+        {
+            loading.remove(key);
+        }
     }
 }
 
@@ -1195,6 +1241,93 @@ mod tests {
 
         assert_eq!(row(&buf, 0), "1 fn main() {}");
         assert_eq!(viewers.built, 2, "one build each");
+    }
+
+    /// A job runs to its end, as patine cannot be stopped. Leaving its
+    /// entry's window and coming back takes the running job over instead
+    /// of starting a second one for the same entry.
+    #[test]
+    fn a_job_that_left_the_window_is_adopted_when_its_entry_comes_back() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = gated(&gate, Duration::ZERO);
+        let (code, other) = (entry(FETCH), entry(r#"{"type": "code", "content": "x"}"#));
+        built(&mut viewers, "s", QUESTION, &code);
+
+        viewers.load_window("s", &[(OPTION, &other)], None, COLOURED);
+        assert_eq!(viewers.pending(), [QUESTION], "still noted while it runs");
+        viewers.load_window("s", &[(QUESTION, &code)], None, COLOURED);
+        built(&mut viewers, "s", QUESTION, &code);
+
+        assert_eq!(viewers.built, 1);
+        gate.open();
+        test_support::wait_until(&woken, 1);
+        assert_eq!(
+            row(&drawn_by(&mut viewers, &code, 40, 10, 0), 0),
+            "1 fn main() {}"
+        );
+    }
+
+    /// What a job made for an entry outside the window, and not shown,
+    /// goes when it arrives.
+    #[test]
+    fn a_result_outside_the_window_is_dropped() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = gated(&gate, Duration::ZERO);
+        let (code, other) = (entry(FETCH), entry(r#"{"type": "code", "content": "x"}"#));
+        built(&mut viewers, "s", QUESTION, &code);
+        viewers.load_window("s", &[(OPTION, &other)], None, COLOURED);
+        built(&mut viewers, "s", OPTION, &other);
+
+        gate.open();
+        test_support::wait_until(&woken, 2);
+        viewers.collect();
+
+        let kept: Vec<EntryKey> = viewers.viewers.keys().map(|key| key.entry).collect();
+        assert_eq!(kept, [OPTION]);
+        assert_eq!(viewers.pending(), []);
+    }
+
+    /// A job for an entry the session file has since replaced is not taken
+    /// over: the new entry gets a job of its own, and only its result is
+    /// taken.
+    #[test]
+    fn a_replaced_entry_is_not_adopted() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = gated(&gate, Duration::ZERO);
+        let (old, new) = (entry(FETCH), entry(r#"{"type": "code", "content": "new"}"#));
+        let other = entry(r#"{"type": "code", "content": "x"}"#);
+        built(&mut viewers, "s", QUESTION, &old);
+        viewers.load_window("s", &[(OPTION, &other)], None, COLOURED);
+        viewers.load_window("s", &[(QUESTION, &new)], None, COLOURED);
+
+        built(&mut viewers, "s", QUESTION, &new);
+
+        assert_eq!(viewers.built, 2);
+        gate.open();
+        test_support::wait_until(&woken, 2);
+        assert_eq!(row(&drawn_by(&mut viewers, &new, 40, 10, 0), 0), "1 new");
+    }
+
+    /// The pane asks for the entry of a question before the window of that
+    /// question is sent, so the entry shown counts as inside the window.
+    #[test]
+    fn a_result_for_the_entry_shown_is_kept_before_its_window_arrives() {
+        let gate = Gate::default();
+        let (mut viewers, _) = gated(&gate, Duration::from_secs(60));
+        let (code, other) = (entry(FETCH), entry(r#"{"type": "code", "content": "x"}"#));
+        viewers.load_window("s", &[(QUESTION, &code)], None, COLOURED);
+        let opener = gate.clone();
+        let opening = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            opener.open();
+        });
+
+        let (viewer, _) = viewers.laid_out("s", OPTION, &other, 40, 10, COLOURED);
+        let buf = test_support::drawn(viewer, 40, 10, Offset::default());
+
+        opening.join().expect("the opening thread ends");
+        assert_eq!(row(&buf, 0), "1 x");
+        assert_eq!(viewers.built, 1);
     }
 
     #[test]

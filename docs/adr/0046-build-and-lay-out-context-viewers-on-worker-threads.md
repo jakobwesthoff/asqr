@@ -65,6 +65,9 @@ The lead decided under Jakob's delegation:
   its job out of that queue when it has not started.
 - Results come back on a channel the viewers own; a payload-free event
   wakes the run loop, which draws again.
+- The entry shown counts as inside the window when its result arrives,
+  as the pane asks for the entry of a new question before the window of
+  that question is sent.
 - Files are opened without waiting on a FIFO.
 - An image keeps the bytes of its file as read and the format they were
   decoded in, and holds the decoded picture only until its first
@@ -86,9 +89,13 @@ The lead decided under Jakob's delegation:
 - Every job has a ticket, and only the result of the latest job for an
   entry is taken: a session that left and came back under its id, an
   entry replaced or an image forgotten on regaining the focus leaves
-  the result of an older job unused. That job keeps its thread to the
-  end, as patine cannot be stopped; so does every entry shown one after
-  another.
+  the result of an older job unused. A job keeps its thread to the end,
+  as patine cannot be stopped. It stays noted when its entry leaves the
+  window, and a frame that wants the same entry with the same quote
+  style again takes it over instead of starting another, so coming back
+  to an entry never starts a second job for it. Its result is dropped
+  if it arrives while its entry is outside the window and is not the
+  entry shown.
 - A panic on a worker ends asqr as a panic while drawing does: the panic
   hook passes over the worker, the drawing thread panics with the
   worker's message on the frame the load woke, and the hook gives the

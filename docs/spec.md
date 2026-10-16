@@ -1185,7 +1185,8 @@ Loading (ADR 46):
   context. An entry loaded ahead before the pane changed its size may
   show `loading…` when it is shown.
 - A load that is no longer shown runs to its end, and what it loaded is
-  kept while it is inside the window.
+  kept while it is inside the window. Coming back to an entry whose load
+  still runs waits for that load instead of starting another.
 - A file that turns into a FIFO between asqr's check of its path and its
   opening shows the card of a path that is not a regular file.
 
