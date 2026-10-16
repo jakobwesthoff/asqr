@@ -17,59 +17,52 @@ use super::patine_adapter::source_line;
 use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
-use super::viewer::{ContentSize, Loaded, Placeholder, Viewer, loaded};
+use super::viewer::{Content, ContentSize, Placeholder, Viewer};
 use crate::format::CodeEntry;
 use crate::tui::Offset;
 
 pub struct CodeViewer {
-    entry: CodeEntry,
-    content: Option<Loaded<Lines>>,
+    content: Content<Lines>,
 }
 
 impl CodeViewer {
+    /// Reads and highlights the whole text once, as nothing of it depends
+    /// on the body's size.
     pub fn new(entry: &CodeEntry) -> Self {
+        let source = read_source(entry.path.as_deref(), entry.content.as_deref());
         CodeViewer {
-            entry: entry.clone(),
-            content: None,
+            content: content_of(entry, source),
         }
     }
+}
 
-    /// What the viewer shows of `source`, as read for its entry: its
-    /// lines, or a note when the file cannot be read or there is no text
-    /// at all.
-    fn content_of(&self, source: Result<Source, Unreadable>) -> Loaded<Lines> {
-        match source {
-            Err(unreadable) => Loaded::Note(unreadable.placeholder("code not shown")),
-            Ok(Source { text, cut }) => {
-                let lines: Vec<SourceLine> =
-                    patine::highlight(&text, language(&self.entry).as_deref())
-                        .iter()
-                        .map(source_line)
-                        .collect();
-                if lines.is_empty() {
-                    Loaded::Note(Placeholder::note("empty"))
-                } else {
-                    Loaded::Body(Lines::new(lines, cut))
-                }
+/// What the viewer of `entry` shows of `source`, as read for the entry:
+/// its lines, or a note when the file cannot be read or there is no text
+/// at all.
+fn content_of(entry: &CodeEntry, source: Result<Source, Unreadable>) -> Content<Lines> {
+    match source {
+        Err(unreadable) => Content::Note(unreadable.placeholder("code not shown")),
+        Ok(Source { text, cut }) => {
+            let lines: Vec<SourceLine> = patine::highlight(&text, language(entry).as_deref())
+                .iter()
+                .map(source_line)
+                .collect();
+            if lines.is_empty() {
+                Content::Note(Placeholder::note("empty"))
+            } else {
+                Content::Body(Lines::new(lines, cut))
             }
         }
     }
 }
 
 impl Viewer for CodeViewer {
-    /// Reads and highlights the whole text once, as nothing of it depends
-    /// on the body's size.
-    fn load(&mut self) {
-        let source = read_source(self.entry.path.as_deref(), self.entry.content.as_deref());
-        self.content = Some(self.content_of(source));
-    }
-
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        loaded(&mut self.content).lay_out(width, height)
+        self.content.lay_out(width, height)
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        loaded(&mut self.content).draw(area, buf, offset);
+        self.content.draw(area, buf, offset);
     }
 }
 
@@ -178,24 +171,22 @@ mod tests {
         serde_json::from_str(json).expect("test entry parses")
     }
 
-    fn loaded(json: &str) -> CodeViewer {
-        let mut viewer = CodeViewer::new(&entry(json));
-        viewer.load();
-        viewer
+    fn built(json: &str) -> CodeViewer {
+        CodeViewer::new(&entry(json))
     }
 
     const FETCH: &str = r#"{"type": "code", "title": "fetch.rs", "content": "use std::time::Duration;\n\n// Fetches a page.\npub fn fetch(url: &str) -> Result<Response> {\n    get(url)\n}\n"}"#;
 
     #[test]
     fn code_shows_with_numbered_lines_under_its_language() {
-        let mut viewer = loaded(FETCH);
+        let mut viewer = built(FETCH);
 
         insta::assert_snapshot!("rust_40", shown(&mut viewer, 40, 0));
     }
 
     #[test]
     fn highlighting_colours_the_tokens_from_the_terminals_palette() {
-        let mut viewer = loaded(FETCH);
+        let mut viewer = built(FETCH);
         let buf = drawn(&mut viewer, 60, 6, Offset::default());
 
         assert_eq!(
@@ -225,7 +216,7 @@ mod tests {
 
     #[test]
     fn the_content_is_as_wide_as_the_gutter_and_the_widest_line() {
-        let mut viewer = loaded(FETCH);
+        let mut viewer = built(FETCH);
 
         let size = viewer.lay_out(30, 10);
 
@@ -242,7 +233,7 @@ mod tests {
 
     #[test]
     fn a_long_line_scrolls_sideways_under_a_gutter_that_stays() {
-        let mut viewer = loaded(FETCH);
+        let mut viewer = built(FETCH);
 
         insta::assert_snapshot!("scrolled", shown(&mut viewer, 24, 20));
         let buf = drawn(&mut viewer, 24, 6, Offset::default());
@@ -252,7 +243,7 @@ mod tests {
 
     #[test]
     fn it_draws_from_the_offsets_line_on() {
-        let mut viewer = loaded(FETCH);
+        let mut viewer = built(FETCH);
 
         let buf = drawn(&mut viewer, 40, 2, Offset { top: 4, left: 0 });
 
@@ -263,7 +254,7 @@ mod tests {
     #[test]
     fn the_gutter_grows_with_the_number_of_lines() {
         let text: String = (1..=12).map(|line| format!("line {line}\\n")).collect();
-        let mut viewer = loaded(&format!(r#"{{"type": "code", "content": "{text}"}}"#));
+        let mut viewer = built(&format!(r#"{{"type": "code", "content": "{text}"}}"#));
 
         let buf = drawn(&mut viewer, 20, 12, Offset::default());
 
@@ -273,7 +264,7 @@ mod tests {
 
     #[test]
     fn tabs_line_up_at_stops_of_four_and_controls_show_their_pictures() {
-        let mut viewer = loaded(r#"{"type": "code", "content": "\tx = 1;\u001b\n"}"#);
+        let mut viewer = built(r#"{"type": "code", "content": "\tx = 1;\u001b\n"}"#);
 
         let buf = drawn(&mut viewer, 20, 1, Offset::default());
 
@@ -282,7 +273,7 @@ mod tests {
 
     #[test]
     fn windows_line_ends_do_not_show() {
-        let mut viewer = loaded(r#"{"type": "code", "content": "a\r\nb\r\n"}"#);
+        let mut viewer = built(r#"{"type": "code", "content": "a\r\nb\r\n"}"#);
 
         assert_eq!(shown(&mut viewer, 10, 0), "\"1 a       \"\n\"2 b       \"");
     }
@@ -320,7 +311,7 @@ mod tests {
     #[test]
     fn a_name_without_an_extension_picks_its_grammar() {
         let mut viewer =
-            loaded(r#"{"type": "code", "title": "Dockerfile", "content": "FROM rust:1.97\n"}"#);
+            built(r#"{"type": "code", "title": "Dockerfile", "content": "FROM rust:1.97\n"}"#);
 
         let buf = drawn(&mut viewer, 30, 1, Offset::default());
 
@@ -329,7 +320,7 @@ mod tests {
 
     #[test]
     fn markdown_as_code_shows_its_source() {
-        let mut viewer = loaded(
+        let mut viewer = built(
             r##"{"type": "code", "title": "README.md", "content": "# Retries\n\n**Three** tries.\n"}"##,
         );
 
@@ -346,7 +337,7 @@ mod tests {
 
     #[test]
     fn without_a_language_the_text_stays_plain() {
-        let mut viewer = loaded(r#"{"type": "code", "content": "fn main() {}\n"}"#);
+        let mut viewer = built(r#"{"type": "code", "content": "fn main() {}\n"}"#);
 
         let buf = drawn(&mut viewer, 20, 1, Offset::default());
 
@@ -364,7 +355,7 @@ mod tests {
         fs::write(&path, "fn main() {}\n").expect("file is writable");
         let json = serde_json::json!({"type": "code", "path": path}).to_string();
 
-        let mut viewer = loaded(&json);
+        let mut viewer = built(&json);
 
         let buf = drawn(&mut viewer, 20, 1, Offset::default());
         assert_eq!(row(&buf, 0), "1 fn main() {}");
@@ -373,11 +364,16 @@ mod tests {
 
     #[test]
     fn the_start_of_a_file_too_long_to_read_whole_says_so_above_and_below_its_lines() {
-        let mut viewer = CodeViewer::new(&entry(r#"{"type": "code", "path": "/var/log/big.log"}"#));
-        viewer.content = Some(viewer.content_of(Ok(Source {
+        let source = Ok(Source {
             text: "one\ntwo\n".into(),
             cut: true,
-        })));
+        });
+        let mut viewer = CodeViewer {
+            content: content_of(
+                &entry(r#"{"type": "code", "path": "/var/log/big.log"}"#),
+                source,
+            ),
+        };
 
         assert_eq!(
             viewer.lay_out(12, 3),
@@ -414,7 +410,7 @@ mod tests {
 
     #[test]
     fn a_body_narrower_than_the_gutter_shows_what_fits_of_it() {
-        let mut viewer = loaded(FETCH);
+        let mut viewer = built(FETCH);
 
         let buf = drawn(&mut viewer, 1, 1, Offset::default());
         assert_eq!(row(&buf, 0), "1");
@@ -426,7 +422,7 @@ mod tests {
 
     #[test]
     fn a_file_that_cannot_be_read_shows_why_as_the_content() {
-        let mut viewer = loaded(r#"{"type": "code", "path": "/nowhere/fetch.rs"}"#);
+        let mut viewer = built(r#"{"type": "code", "path": "/nowhere/fetch.rs"}"#);
 
         let buf = drawn(&mut viewer, 30, 3, Offset::default());
 
@@ -438,7 +434,7 @@ mod tests {
 
     #[test]
     fn empty_text_says_so() {
-        let mut viewer = loaded(r#"{"type": "code", "content": ""}"#);
+        let mut viewer = built(r#"{"type": "code", "content": ""}"#);
 
         assert_eq!(
             viewer.lay_out(30, 5),

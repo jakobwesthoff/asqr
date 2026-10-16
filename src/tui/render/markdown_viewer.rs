@@ -14,20 +14,21 @@ use ratatui::widgets::Widget;
 use super::patine_adapter::markdown_rows;
 use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{Note, SourceLine, rows_from};
-use super::viewer::{ContentSize, Loaded, Placeholder, Viewer, loaded};
+use super::viewer::{Content, ContentSize, Placeholder, Viewer};
 use crate::format::MarkdownEntry;
 use crate::tui::Offset;
 
 pub struct MarkdownViewer {
-    entry: MarkdownEntry,
-    content: Option<Loaded<Markdown>>,
+    content: Content<Markdown>,
 }
 
 impl MarkdownViewer {
+    /// Reads the text. Rendering depends on the width, so it waits for
+    /// `lay_out`.
     pub fn new(entry: &MarkdownEntry) -> Self {
+        let source = read_source(entry.path.as_deref(), entry.content.as_deref());
         MarkdownViewer {
-            entry: entry.clone(),
-            content: None,
+            content: content_of(source),
         }
     }
 }
@@ -35,13 +36,13 @@ impl MarkdownViewer {
 /// What the viewer shows of `source`, as read for its entry: its
 /// Markdown, or a note when the file cannot be read or there is no text
 /// at all.
-fn content_of(source: Result<Source, Unreadable>) -> Loaded<Markdown> {
+fn content_of(source: Result<Source, Unreadable>) -> Content<Markdown> {
     match source {
-        Err(unreadable) => Loaded::Note(unreadable.placeholder("markdown not shown")),
+        Err(unreadable) => Content::Note(unreadable.placeholder("markdown not shown")),
         Ok(Source { text, .. }) if text.trim().is_empty() => {
-            Loaded::Note(Placeholder::note("empty"))
+            Content::Note(Placeholder::note("empty"))
         }
-        Ok(Source { text, cut }) => Loaded::Body(Markdown {
+        Ok(Source { text, cut }) => Content::Body(Markdown {
             source: text,
             cut,
             rows: Vec::new(),
@@ -53,19 +54,12 @@ fn content_of(source: Result<Source, Unreadable>) -> Loaded<Markdown> {
 }
 
 impl Viewer for MarkdownViewer {
-    /// Reads the text. Rendering depends on the width, so it waits for
-    /// `lay_out`.
-    fn load(&mut self) {
-        let source = read_source(self.entry.path.as_deref(), self.entry.content.as_deref());
-        self.content = Some(content_of(source));
-    }
-
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        loaded(&mut self.content).lay_out(width, height)
+        self.content.lay_out(width, height)
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        loaded(&mut self.content).draw(area, buf, offset);
+        self.content.draw(area, buf, offset);
     }
 }
 
@@ -144,15 +138,13 @@ mod tests {
     use super::super::test_support::{drawn, row, shown};
     use super::*;
 
-    fn loaded(json: &str) -> MarkdownViewer {
+    fn built(json: &str) -> MarkdownViewer {
         let entry: MarkdownEntry = serde_json::from_str(json).expect("test entry parses");
-        let mut viewer = MarkdownViewer::new(&entry);
-        viewer.load();
-        viewer
+        MarkdownViewer::new(&entry)
     }
 
     fn inline(markdown: &str) -> MarkdownViewer {
-        loaded(&serde_json::json!({"type": "markdown", "content": markdown}).to_string())
+        built(&serde_json::json!({"type": "markdown", "content": markdown}).to_string())
     }
 
     const NOTES: &str = "# Retries\n\nA failed request is tried **again** up to three times, with `delay` doubling.\n\n## Settings\n\n- tries: 3\n- delay: 100 ms\n\n```rust\nlet delay = Duration::from_millis(100);\n```\n";
@@ -184,7 +176,7 @@ mod tests {
     /// How often `viewer`'s Markdown was rendered.
     fn renders(viewer: &MarkdownViewer) -> usize {
         match &viewer.content {
-            Some(Loaded::Body(markdown)) => markdown.renders,
+            Content::Body(markdown) => markdown.renders,
             _ => panic!("the viewer holds Markdown"),
         }
     }
@@ -269,7 +261,7 @@ mod tests {
         let path = directory.path().join("plan.md");
         fs::write(&path, "**Plan**\n").expect("file is writable");
 
-        let mut viewer = loaded(&serde_json::json!({"type": "markdown", "path": path}).to_string());
+        let mut viewer = built(&serde_json::json!({"type": "markdown", "path": path}).to_string());
 
         let buf = drawn(&mut viewer, 20, 1, Offset::default());
         assert_eq!(row(&buf, 0), "Plan");
@@ -278,11 +270,12 @@ mod tests {
 
     #[test]
     fn the_start_of_a_file_too_long_to_read_whole_says_so_first_and_last() {
-        let mut viewer = inline("unused");
-        viewer.content = Some(content_of(Ok(Source {
-            text: "**Plan**\n".into(),
-            cut: true,
-        })));
+        let mut viewer = MarkdownViewer {
+            content: content_of(Ok(Source {
+                text: "**Plan**\n".into(),
+                cut: true,
+            })),
+        };
 
         let buf = drawn(&mut viewer, 40, 3, Offset::default());
         assert_eq!(row(&buf, 0), "first 8 MiB shown");
@@ -310,7 +303,7 @@ mod tests {
 
     #[test]
     fn a_file_that_cannot_be_read_shows_why_as_the_content() {
-        let mut viewer = loaded(r#"{"type": "markdown", "path": "/nowhere/plan.md"}"#);
+        let mut viewer = built(r#"{"type": "markdown", "path": "/nowhere/plan.md"}"#);
 
         let buf = drawn(&mut viewer, 30, 3, Offset::default());
 

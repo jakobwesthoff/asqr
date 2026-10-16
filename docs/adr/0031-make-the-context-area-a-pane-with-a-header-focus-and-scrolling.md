@@ -24,6 +24,10 @@ Amended by [45. Keep image handling in a graphics module around an asqr-owned va
 the screen is cleared after an overlay closes over an image entry only
 under Sixel and iTerm2
 
+Amended by [46. Build context viewers loaded](0046-build-context-viewers-loaded.md):
+building a viewer prepares its content, and the separate `load` step
+of the lifecycle is gone
+
 ## Context
 
 ADR 30 placed the context area beside or below the question. It drew an

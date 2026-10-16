@@ -15,7 +15,7 @@ use super::markdown_viewer::MarkdownViewer;
 use super::source_file::{Unreadable, regular_file};
 use super::theme;
 use super::wrap::wrap;
-use crate::format::ContextEntry;
+use crate::format::{ContextEntry, ImageEntry};
 use crate::graphics::{Graphics, Image, Images, KittyBook};
 use crate::tui::{EntryKey, Offset};
 use ratatui::buffer::Buffer;
@@ -35,19 +35,15 @@ pub struct ContentSize {
 ///
 /// A viewer owns its content, which does not change for the viewer's life,
 /// and anything derived from it. The pane owns everything around it: the
-/// header, the scroll position and the keys. The pane calls `load` once,
-/// then `lay_out` before the first `draw` and again whenever the body's size
-/// changes, and calls `draw` on every frame with an area of the size last
-/// passed to `lay_out`.
+/// header, the scroll position and the keys.
+///
+/// Building a viewer prepares everything that does not depend on the
+/// body's size: reading files, decoding images, highlighting, computing a
+/// diff. A failure is not returned; the viewer keeps it and shows it as
+/// its content. The pane then calls `lay_out` before the first `draw` and
+/// again whenever the body's size changes, and calls `draw` on every frame
+/// with an area of the size last passed to `lay_out`.
 pub trait Viewer {
-    /// Prepares everything that does not depend on the body's size: reading
-    /// files, decoding images, highlighting, computing a diff. Called once,
-    /// before the first `lay_out`. A failure is not returned; the viewer
-    /// keeps it and shows it as its content. Content that is complete when
-    /// it is made, such as a placeholder or what a `load` made, has nothing
-    /// to load.
-    fn load(&mut self) {}
-
     /// Lays the content out for a body of `width`×`height` cells and returns
     /// its size: the number of lines and the width of the widest line. The
     /// pane scrolls vertically when `lines` exceeds `height` and sideways
@@ -80,8 +76,8 @@ struct Kept {
 /// Builds the viewer for an entry, given what makes its images.
 type Build = Box<dyn Fn(&ContextEntry, &Images) -> Box<dyn Viewer>>;
 
-/// One viewer per entry shown, built and loaded when the entry is first
-/// shown and kept while the entry stays the same and its session waits. A
+/// One viewer per entry shown, built when the entry is first shown and
+/// kept while the entry stays the same and its session waits. A
 /// viewer is laid out again only when the body's size changes, as its
 /// content does not.
 pub struct Viewers {
@@ -107,9 +103,9 @@ impl Viewers {
 
     /// The viewer of `entry`, which session `session` shows as `key`, laid
     /// out for a body of `width`×`height` cells, and the size its content
-    /// takes there. A viewer is built and loaded when its key shows an
-    /// entry for the first time or another entry than before, as a
-    /// replaced session file can.
+    /// takes there. A viewer is built when its key shows an entry for the
+    /// first time or another entry than before, as a replaced session file
+    /// can.
     pub fn laid_out(
         &mut self,
         session: &str,
@@ -131,11 +127,9 @@ impl Viewers {
             {
                 self.built += 1;
             }
-            let mut viewer = (self.build)(entry, &self.images);
-            viewer.load();
             let kept = Kept {
                 entry: entry.clone(),
-                viewer,
+                viewer: (self.build)(entry, &self.images),
                 laid_out: None,
             };
             self.viewers.insert(key.clone(), kept);
@@ -198,12 +192,7 @@ impl Viewers {
 
 fn viewer_for(entry: &ContextEntry, images: &Images) -> Box<dyn Viewer> {
     match entry {
-        ContextEntry::Image(image) => Box::new(ImageViewer {
-            path: image.path.clone(),
-            enlarge: image.enlarge,
-            images: images.clone(),
-            content: None,
-        }),
+        ContextEntry::Image(image) => Box::new(ImageViewer::new(image, images)),
         ContextEntry::Code(code) => Box::new(CodeViewer::new(code)),
         ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown)),
         ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff)),
@@ -211,39 +200,31 @@ fn viewer_for(entry: &ContextEntry, images: &Images) -> Box<dyn Viewer> {
 }
 
 // ---------------------------------------------------------------------
-// What a viewer loaded
+// What a viewer shows
 // ---------------------------------------------------------------------
 
-/// What a viewer's `load` made of its entry: the content it shows, or a
-/// placeholder in its place, such as for a file that cannot be read. The
-/// viewer keeps it and hands laying out and drawing on to it.
-pub(super) enum Loaded<T> {
+/// What a viewer made of its entry when it was built: the content it
+/// shows, or a placeholder in its place, such as for a file that cannot be
+/// read. The viewer keeps it and hands laying out and drawing on to it.
+pub(super) enum Content<T> {
     Body(T),
     Note(Placeholder),
 }
 
-impl<T: Viewer> Viewer for Loaded<T> {
+impl<T: Viewer> Viewer for Content<T> {
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
         match self {
-            Loaded::Body(body) => body.lay_out(width, height),
-            Loaded::Note(placeholder) => placeholder.lay_out(width, height),
+            Content::Body(body) => body.lay_out(width, height),
+            Content::Note(placeholder) => placeholder.lay_out(width, height),
         }
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
         match self {
-            Loaded::Body(body) => body.draw(area, buf, offset),
-            Loaded::Note(placeholder) => placeholder.draw(area, buf, offset),
+            Content::Body(body) => body.draw(area, buf, offset),
+            Content::Note(placeholder) => placeholder.draw(area, buf, offset),
         }
     }
-}
-
-/// What a viewer's `load` left in `content`. The pane calls `load` before
-/// it lays a viewer out or draws it.
-pub(super) fn loaded<T>(content: &mut Option<Loaded<T>>) -> &mut Loaded<T> {
-    content
-        .as_mut()
-        .expect("the pane loads a viewer before laying it out")
 }
 
 // ---------------------------------------------------------------------
@@ -255,37 +236,38 @@ pub(super) fn loaded<T>(content: &mut Option<Loaded<T>>) -> &mut Loaded<T> {
 /// cannot be shown shows why instead, in the placeholder every viewer of a
 /// file shows, which scrolls when its lines do not fit.
 struct ImageViewer {
-    path: String,
-    enlarge: bool,
-    images: Images,
-    content: Option<Loaded<Picture>>,
+    content: Content<Picture>,
 }
 
-impl Viewer for ImageViewer {
+impl ImageViewer {
     /// Opens the path by the rule every viewer of a file follows, then
-    /// decodes the image.
-    fn load(&mut self) {
-        let loaded = regular_file(&self.path).and_then(|()| {
-            self.images.load(&self.path).map_err(|error| Unreadable {
-                path: self.path.clone(),
+    /// decodes the image. It is encoded when it is laid out, as that
+    /// depends on the body's size.
+    fn new(entry: &ImageEntry, images: &Images) -> Self {
+        let decoded = regular_file(&entry.path).and_then(|()| {
+            images.load(&entry.path).map_err(|error| Unreadable {
+                path: entry.path.clone(),
                 reason: error.to_string(),
             })
         });
-        self.content = Some(match loaded {
-            Ok(image) => Loaded::Body(Picture {
+        let content = match decoded {
+            Ok(image) => Content::Body(Picture {
                 image,
-                enlarge: self.enlarge,
+                enlarge: entry.enlarge,
             }),
-            Err(unreadable) => Loaded::Note(unreadable.placeholder("image not shown")),
-        });
+            Err(unreadable) => Content::Note(unreadable.placeholder("image not shown")),
+        };
+        ImageViewer { content }
     }
+}
 
+impl Viewer for ImageViewer {
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        loaded(&mut self.content).lay_out(width, height)
+        self.content.lay_out(width, height)
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        loaded(&mut self.content).draw(area, buf, offset);
+        self.content.draw(area, buf, offset);
     }
 }
 
@@ -405,12 +387,24 @@ mod tests {
     /// The viewer draws as `Viewers` laid it out, with no lay out of the
     /// test's own, as the pane draws it.
     fn drawn(entry: &ContextEntry, width: u16, height: u16, top: usize) -> Vec<String> {
-        let mut viewers = viewers();
+        let buf = drawn_by(&mut viewers(), entry, width, height, top);
+        (0..height).map(|y| row(&buf, y)).collect()
+    }
+
+    /// The buffer the viewer `viewers` keep for `entry` draws into
+    /// `width`×`height` cells from line `top` on, as the pane draws it.
+    fn drawn_by(
+        viewers: &mut Viewers,
+        entry: &ContextEntry,
+        width: u16,
+        height: u16,
+        top: usize,
+    ) -> Buffer {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
         let (viewer, _) = viewers.laid_out("s", QUESTION, entry, width, height);
         viewer.draw(area, &mut buf, Offset { top, left: 0 });
-        (0..height).map(|y| row(&buf, y)).collect()
+        buf
     }
 
     /// The text `viewer`, laid out and drawn into `width`×`height` cells
@@ -428,7 +422,7 @@ mod tests {
     /// What `Viewers` asked of the viewers a test built.
     #[derive(Debug, Default, PartialEq, Eq)]
     struct Calls {
-        loads: usize,
+        builds: usize,
         lay_outs: Vec<(u16, u16)>,
     }
 
@@ -436,10 +430,6 @@ mod tests {
     struct Recording(Rc<RefCell<Calls>>);
 
     impl Viewer for Recording {
-        fn load(&mut self) {
-            self.0.borrow_mut().loads += 1;
-        }
-
         fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
             self.0.borrow_mut().lay_outs.push((width, height));
             ContentSize {
@@ -451,19 +441,24 @@ mod tests {
         fn draw(&mut self, _area: Rect, _buf: &mut Buffer, _offset: Offset) {}
     }
 
-    /// Viewers whose every viewer records into the returned calls.
+    /// Viewers whose every viewer records into the returned calls, its
+    /// building included.
     fn recording() -> (Viewers, Rc<RefCell<Calls>>) {
         let calls = Rc::new(RefCell::new(Calls::default()));
         let mut viewers = viewers();
         let shared = Rc::clone(&calls);
-        viewers.build = Box::new(move |_, _| Box::new(Recording(Rc::clone(&shared))));
+        viewers.build = Box::new(move |_, _| {
+            shared.borrow_mut().builds += 1;
+            Box::new(Recording(Rc::clone(&shared)))
+        });
         (viewers, calls)
     }
 
     #[test]
-    fn a_viewer_is_loaded_once_and_laid_out_only_when_the_size_changes() {
+    fn a_viewer_is_built_when_its_entry_first_shows_and_laid_out_only_when_the_size_changes() {
         let (mut viewers, calls) = recording();
         let text = entry(r#"{"type": "code", "content": "notes"}"#);
+        assert_eq!(calls.borrow().builds, 0, "nothing shows yet");
 
         for _ in 0..3 {
             let (_, size) = viewers.laid_out("s", QUESTION, &text, 40, 10);
@@ -483,7 +478,7 @@ mod tests {
         assert_eq!(
             *calls.borrow(),
             Calls {
-                loads: 1,
+                builds: 1,
                 lay_outs: vec![(40, 10), (30, 10), (30, 12)]
             }
         );
@@ -507,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn a_replaced_entry_gets_a_new_viewer_loaded_and_laid_out() {
+    fn a_replaced_entry_gets_a_new_viewer_built_and_laid_out() {
         let (mut viewers, calls) = recording();
         built(
             &mut viewers,
@@ -525,7 +520,7 @@ mod tests {
 
         assert_eq!(viewers.built, 2);
         assert_eq!(viewers.viewers.len(), 1, "the old one is gone");
-        assert_eq!(calls.borrow().loads, 2);
+        assert_eq!(calls.borrow().builds, 2);
         assert_eq!(calls.borrow().lay_outs.len(), 2, "at the same size");
     }
 
@@ -556,6 +551,52 @@ mod tests {
         built(&mut viewers, "s", OPTION, &text);
 
         assert_eq!(viewers.built, 3, "the image again, the text kept");
+    }
+
+    /// The entry's file is read when the entry first shows, and a viewer
+    /// laid out for another size shows what was read then.
+    #[test]
+    fn a_file_is_read_when_its_entry_first_shows_and_not_again() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("notes.txt");
+        let code: ContextEntry =
+            serde_json::from_value(serde_json::json!({"type": "code", "path": path}))
+                .expect("test entry parses");
+        let mut viewers = viewers();
+        std::fs::write(&path, "first\n").expect("file is writable");
+
+        let buf = drawn_by(&mut viewers, &code, 40, 1, 0);
+        assert_eq!(row(&buf, 0), "1 first");
+
+        std::fs::write(&path, "second\n").expect("file is writable");
+        let buf = drawn_by(&mut viewers, &code, 30, 2, 0);
+        assert_eq!(row(&buf, 0), "1 first", "a resize reads nothing");
+    }
+
+    /// An image is decoded when its entry first shows. Laying it out for
+    /// another size encodes the picture decoded then, without reading the
+    /// file again.
+    #[test]
+    fn an_image_is_decoded_when_its_entry_first_shows_and_not_again() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let dot = picture(&directory, "a.png");
+        let mut viewers = viewers();
+        let shows = |buf: &Buffer, colour: ratatui::style::Color| {
+            buf.content
+                .iter()
+                .any(|cell| cell.fg == colour || cell.bg == colour)
+        };
+        let red = ratatui::style::Color::Rgb(255, 0, 0);
+        let green = ratatui::style::Color::Rgb(0, 255, 0);
+
+        assert!(shows(&drawn_by(&mut viewers, &dot, 40, 10, 0), red));
+
+        image::RgbImage::from_pixel(2, 2, image::Rgb([0, 255, 0]))
+            .save(directory.path().join("a.png"))
+            .expect("image written");
+        let buf = drawn_by(&mut viewers, &dot, 30, 8, 0);
+        assert!(shows(&buf, red), "the picture read first: {buf:?}");
+        assert!(!shows(&buf, green), "not the file as it is now");
     }
 
     // -----------------------------------------------------------------
@@ -840,8 +881,6 @@ mod tests {
     #[test]
     fn a_note_is_one_dim_line() {
         let mut note = Placeholder::note("empty");
-        // Known when made, so loading changes nothing.
-        note.load();
 
         assert_eq!(
             note.lay_out(30, 4),

@@ -18,15 +18,15 @@ use similar::{Algorithm, ChangeTag, InlineChange, InlineChangeOptions, TextDiff}
 use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
-use super::viewer::{ContentSize, Loaded, Viewer, loaded};
+use super::viewer::{Content, ContentSize, Viewer};
 use crate::format::{DiffEntry, DiffSide};
 use crate::tui::Offset;
 
 /// Unchanged lines shown before and after each change, as `diff -u` does.
 const CONTEXT_LINES: usize = 3;
 
-/// How long computing a diff may take. `load` runs while the person waits
-/// for the screen, so past this, similar settles for a diff that is correct
+/// How long computing a diff may take. The viewer is built while the
+/// person waits for the screen, so past this, similar settles for a diff that is correct
 /// but larger than it needs to be.
 const DIFF_TIME: Duration = Duration::from_secs(1);
 
@@ -37,42 +37,33 @@ const SEPARATOR: &str = "┈";
 /// line numbers in a dim gutter, removed lines red and added ones green,
 /// with the changed words of a changed line reversed on top.
 pub struct DiffViewer {
-    old: Option<DiffSide>,
-    new: Option<DiffSide>,
     /// The diff's rows, or why it cannot show.
-    content: Option<Loaded<Rows>>,
+    content: Content<Rows>,
 }
 
 impl DiffViewer {
+    /// Reads both sides and computes the whole diff, so drawing only
+    /// copies cells.
     pub fn new(entry: &DiffEntry) -> Self {
-        DiffViewer {
-            old: entry.old.clone(),
-            new: entry.new.clone(),
-            content: None,
-        }
+        let sides = read(entry.old.as_ref()).and_then(|old| Ok((old, read(entry.new.as_ref())?)));
+        let content = match sides {
+            Ok((old, new)) => {
+                let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
+                Content::Body(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
+            }
+            Err(unreadable) => Content::Note(unreadable.placeholder("diff not shown")),
+        };
+        DiffViewer { content }
     }
 }
 
 impl Viewer for DiffViewer {
-    /// Reads both sides and computes the whole diff, so drawing only
-    /// copies cells.
-    fn load(&mut self) {
-        let sides = read(self.old.as_ref()).and_then(|old| Ok((old, read(self.new.as_ref())?)));
-        self.content = Some(match sides {
-            Ok((old, new)) => {
-                let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
-                Loaded::Body(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
-            }
-            Err(unreadable) => Loaded::Note(unreadable.placeholder("diff not shown")),
-        });
-    }
-
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        loaded(&mut self.content).lay_out(width, height)
+        self.content.lay_out(width, height)
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        loaded(&mut self.content).draw(area, buf, offset);
+        self.content.draw(area, buf, offset);
     }
 }
 
@@ -375,7 +366,7 @@ mod tests {
     use super::super::test_support::{drawn, row, shown};
     use super::*;
 
-    /// A loaded viewer of the change from `old` to `new`, given inline.
+    /// The viewer of the change from `old` to `new`, given inline.
     fn inline(old: Option<&str>, new: Option<&str>) -> DiffViewer {
         let side = |text: Option<&str>| {
             text.map(|text| DiffSide {
@@ -383,7 +374,7 @@ mod tests {
                 content: Some(text.to_owned()),
             })
         };
-        loaded(DiffEntry {
+        DiffViewer::new(&DiffEntry {
             title: None,
             old: side(old),
             new: side(new),
@@ -392,10 +383,12 @@ mod tests {
         })
     }
 
-    fn loaded(entry: DiffEntry) -> DiffViewer {
-        let mut viewer = DiffViewer::new(&entry);
-        viewer.load();
-        viewer
+    /// The viewer of the rows of `old` and `new`, where `cut` says a side
+    /// is only the start of a longer file.
+    fn of_rows(old: &str, new: &str, cut: bool) -> DiffViewer {
+        DiffViewer {
+            content: Content::Body(Rows::of(Some(old), Some(new), cut)),
+        }
     }
 
     fn file(path: &str) -> Option<DiffSide> {
@@ -406,7 +399,7 @@ mod tests {
     }
 
     fn from_files(old: Option<DiffSide>, new: Option<DiffSide>) -> DiffViewer {
-        loaded(DiffEntry {
+        DiffViewer::new(&DiffEntry {
             title: None,
             old,
             new,
@@ -802,8 +795,7 @@ impl Fetcher {
 
     #[test]
     fn a_side_too_long_to_read_whole_says_so_above_and_below_the_hunks() {
-        let mut viewer = inline(None, None);
-        viewer.content = Some(Loaded::Body(Rows::of(Some("a\n"), Some("b\n"), true)));
+        let mut viewer = of_rows("a\n", "b\n", true);
 
         let buf = drawn(&mut viewer, 30, 4, Offset::default());
 
@@ -838,9 +830,7 @@ impl Fetcher {
 
     #[test]
     fn sides_cut_alike_say_so_after_no_changes() {
-        let rows = Rows::of(Some("a\n"), Some("a\n"), true);
-        let mut viewer = inline(None, None);
-        viewer.content = Some(Loaded::Body(rows));
+        let mut viewer = of_rows("a\n", "a\n", true);
 
         let buf = drawn(&mut viewer, 30, 3, Offset::default());
 

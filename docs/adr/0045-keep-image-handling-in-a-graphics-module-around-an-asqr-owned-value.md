@@ -16,6 +16,8 @@ Amends [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-
 
 Amends [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-images-through-tmux-from-a-hidden-pane.md)
 
+Amended by [46. Build context viewers loaded](0046-build-context-viewers-loaded.md)
+
 ## Context
 
 - ADR 8 has the library take the detected image protocol as
@@ -80,9 +82,9 @@ Amends [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-i
   called it 0 times, where the library's tests before this change
   called `tmux set -p allow-passthrough on` 272 times. The comparison
   with the picker checks nothing in such a terminal.
-- An image is decoded when its viewer loads and encoded for the body's
-  size when the viewer is laid out, once per size, with ratatui-image's
-  fixed-size protocols. A failed encoding drops the decoded picture.
+- An image is decoded when its viewer is built (ADR 46) and encoded for
+  the body's size when the viewer is laid out, once per size, with
+  ratatui-image's fixed-size protocols. A failed encoding drops the decoded picture.
 - Under half blocks and the Kitty protocol, closing an overlay over an
   image no longer redraws the whole screen. Outside tmux with `on`,
   regaining the focus no longer reads the images again or writes the
