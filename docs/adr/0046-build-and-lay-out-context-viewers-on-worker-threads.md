@@ -68,8 +68,11 @@ The lead decided under Jakob's delegation:
 - Files are opened without waiting on a FIFO.
 - An image keeps the bytes of its file as read and the format they were
   decoded in, and holds the decoded picture only until its first
-  encoding. Each later encoding, for another size, decodes the bytes
-  again on the worker.
+  encoding. Each later encoding, for another size of the image in
+  cells, decodes the bytes again on the worker. The image keeps its
+  width and height in pixels from the first decoding, which give its
+  cells for a new pane size, so a pane that changes size but leaves the
+  image's cells as they were decodes nothing.
 - An image file larger than 64 MiB is not read, and its card says
   "image file larger than 64 MiB". The size comes from the opened file,
   and the read stops one byte past the limit, so a file that grows in
@@ -103,7 +106,8 @@ The lead decided under Jakob's delegation:
   never sent; their deletes, when they go, reach a terminal that never
   had them.
 - A shown image holds its file's bytes and its encoding, not its
-  decoded picture; another size costs a decoding again. An image file
+  decoded picture; another size of the image in cells costs a decoding
+  again. An image file
   changed on disk keeps showing what asqr read first.
 - Writing an image to the terminal still happens while a frame is
   drawn; the workers do not shorten it.

@@ -1304,7 +1304,9 @@ Images:
   can pick options.
 - An image entry is read when it is loaded and kept while it is inside
   the window: asqr keeps the file as it read it, not its decoded pixels,
-  and decodes it again to show it at another size. An image file larger
+  and decodes it again only when it is to show at another size in
+  cells; a pane that changes size but leaves the image's cells as they
+  were decodes nothing. An image file larger
   than 64 MiB is not read; its card says "image file larger than
   64 MiB". A file that grows past that while asqr reads it is refused
   the same way. asqr asks the

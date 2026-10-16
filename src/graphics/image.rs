@@ -9,9 +9,9 @@
 //!
 //! Between encodings an image keeps its file as it was read, compressed
 //! in its own format, rather than the decoded picture, which takes four
-//! bytes a pixel: 144 MB for one of 6000×6000. A new size decodes it
-//! again. What shows stays what was read first, also when the file
-//! changes on disk.
+//! bytes a pixel: 144 MB for one of 6000×6000. A new size of the image
+//! in cells decodes it again. What shows stays what was read first, also
+//! when the file changes on disk.
 
 use std::io::Cursor;
 
@@ -51,13 +51,15 @@ enum State {
     Failed,
 }
 
-/// The bytes of an image file as asqr read them, and the format they were
-/// first decoded in. The format is kept, as a file without a signature,
-/// such as TGA, was told by the extension of a path the bytes no longer
-/// have.
+/// The bytes of an image file as asqr read them, the format they were
+/// first decoded in and the picture's width and height in pixels. The
+/// format is kept, as a file without a signature, such as TGA, was told
+/// by the extension of a path the bytes no longer have. The pixel size
+/// tells the cells the picture takes at a new size without decoding it.
 pub(super) struct Read {
     pub(super) bytes: Vec<u8>,
     pub(super) format: ImageFormat,
+    pub(super) pixels: (u32, u32),
 }
 
 impl Read {
@@ -107,8 +109,9 @@ impl Image {
     /// goes for deleting after the frame (ADR 42).
     ///
     /// The picture decoded when the image was made serves the first
-    /// encoding; every later one decodes the file as read again, as the
-    /// size an image takes depends on its pixel size.
+    /// encoding; every later one decodes the file as read again. An area
+    /// in which the picture takes the cells it has already decodes
+    /// nothing.
     pub fn lay_out(&mut self, available: Size, enlarge: bool) {
         let State::Ready {
             read,
@@ -119,6 +122,15 @@ impl Image {
             return;
         };
         if available.width == 0 || available.height == 0 {
+            return;
+        }
+        let graphics = self.images.graphics;
+        let font = FontSize::new(graphics.cell.width, graphics.cell.height);
+        let size = cells_for(read.pixels, font, available, enlarge);
+        if encoding
+            .as_ref()
+            .is_some_and(|encoding| encoding.encoded.size() == size)
+        {
             return;
         }
         let picture = match picture.take().map_or_else(|| read.decode(), Ok) {
@@ -134,15 +146,6 @@ impl Image {
         } else {
             Resize::Fit(Some(SCALING))
         };
-        let graphics = self.images.graphics;
-        let font = FontSize::new(graphics.cell.width, graphics.cell.height);
-        let size = resize.size_for(&picture, font, available);
-        if encoding
-            .as_ref()
-            .is_some_and(|encoding| encoding.encoded.size() == size)
-        {
-            return;
-        }
         let resized = resize.resize(&picture, font, size, None);
         drop(picture);
         let encoded = encode(&self.images, resized, size);
@@ -194,6 +197,65 @@ impl Image {
             encoding.encoded.size(),
             kitty_id.id,
         ))
+    }
+}
+
+/// The cells a picture of `pixels` (width, height) takes in `available`
+/// cells of `font`: scaled to fill them as far as its proportions allow
+/// with `enlarge`, else at its natural size and shrunk only where it does
+/// not fit. This is `Resize::size_for` of ratatui-image 12.0.0-rc.2 for
+/// `Scale` and `Fit`, which takes a decoded picture only for its width
+/// and height; computed from the pixel size kept at the first decoding,
+/// it tells whether a new area needs a new encoding before anything is
+/// decoded.
+fn cells_for(pixels: (u32, u32), font: FontSize, available: Size, enlarge: bool) -> Size {
+    let (width, height) = pixels;
+    let room_width = u32::from(available.width) * u32::from(font.width);
+    let room_height = u32::from(available.height) * u32::from(font.height);
+    let (width_px, height_px) = if enlarge {
+        fit_area_proportionally(width, height, room_width, room_height)
+    } else {
+        fit_area_proportionally(
+            width,
+            height,
+            room_width.min(width),
+            room_height.min(height),
+        )
+    };
+    // ratatui-image's `round_pixel_size_to_cells`, whose cast saturates a
+    // side past `u16::MAX` cells.
+    Size::new(
+        (width_px as f32 / f32::from(font.width)).ceil() as u16,
+        (height_px as f32 / f32::from(font.height)).ceil() as u16,
+    )
+}
+
+/// The size of a picture of `width`×`height` pixels scaled to fit inside
+/// `room_width`×`room_height`, its proportions kept: ratatui-image's
+/// `fit_area_proportionally`, which it took from the `image` crate.
+fn fit_area_proportionally(
+    width: u32,
+    height: u32,
+    room_width: u32,
+    room_height: u32,
+) -> (u32, u32) {
+    let ratio = f64::min(
+        f64::from(room_width) / f64::from(width),
+        f64::from(room_height) / f64::from(height),
+    );
+    let fitted_width = ((f64::from(width) * ratio).round() as u64).max(1);
+    let fitted_height = ((f64::from(height) * ratio).round() as u64).max(1);
+    if fitted_width > u64::from(u16::MAX) {
+        let ratio = f64::from(u16::MAX) / f64::from(width);
+        (
+            u32::MAX,
+            ((f64::from(height) * ratio).round() as u32).max(1),
+        )
+    } else if fitted_height > u64::from(u16::MAX) {
+        let ratio = f64::from(u16::MAX) / f64::from(height);
+        (((f64::from(width) * ratio).round() as u32).max(1), u32::MAX)
+    } else {
+        (fitted_width as u32, fitted_height as u32)
     }
 }
 
@@ -384,6 +446,71 @@ mod tests {
         let area = Rect::new(0, 0, 4, 8);
         assert_eq!(drawn(&mut image, area, true), Buffer::empty(area));
         assert!(matches!(image.state, State::Failed));
+    }
+
+    /// `cells_for` follows ratatui-image's sizing, which an upgrade of the
+    /// crate could change. The last two cases scale a picture past
+    /// `u16::MAX` pixels wide and high, where both clamp that side.
+    #[test]
+    fn the_cells_of_a_picture_are_those_ratatui_image_gives_it() {
+        let pixels = [
+            (1, 1),
+            (7, 3),
+            (20, 40),
+            (33, 1000),
+            (4000, 1),
+            (1, 4000),
+            (640, 480),
+        ];
+        let areas = [(1, 1), (4, 8), (80, 24), (300, 100)];
+        let fonts = [FontSize::new(10, 20), FontSize::new(7, 15)];
+        let mut cases: Vec<((u32, u32), Size, FontSize, bool)> = Vec::new();
+        for &(width, height) in &pixels {
+            for &(columns, rows) in &areas {
+                for font in fonts {
+                    for enlarge in [false, true] {
+                        cases.push(((width, height), Size::new(columns, rows), font, enlarge));
+                    }
+                }
+            }
+        }
+        cases.push(((4000, 1), Size::new(7000, 100), FontSize::new(10, 20), true));
+        cases.push(((1, 4000), Size::new(100, 7000), FontSize::new(10, 20), true));
+
+        for (pixels, available, font, enlarge) in cases {
+            let picture = DynamicImage::new_luma8(pixels.0, pixels.1);
+            let resize = if enlarge {
+                Resize::Scale(None)
+            } else {
+                Resize::Fit(None)
+            };
+            assert_eq!(
+                cells_for(pixels, font, available, enlarge),
+                resize.size_for(&picture, font, available),
+                "{pixels:?} in {available:?} of {font:?}, enlarge {enlarge}"
+            );
+        }
+    }
+
+    /// A body that changes size but leaves the image's cells as they were
+    /// costs no decoding: bytes that no longer decode still draw the
+    /// encoding there is.
+    #[test]
+    fn a_new_body_size_with_the_same_image_size_decodes_nothing() {
+        let mut image = Images::half_blocks().image(testing::red());
+        drawn(&mut image, Rect::new(0, 0, 2, 2), false);
+        let State::Ready { read, .. } = &mut image.state else {
+            panic!("encoded");
+        };
+        read.bytes.truncate(8);
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 4, 8), false);
+
+        assert!(matches!(image.state, State::Ready { .. }), "not decoded");
+        assert!(
+            colours(&buf).contains(&format!("{:?}", ratatui::style::Color::Rgb(255, 0, 0))),
+            "{buf:?}"
+        );
     }
 
     #[test]

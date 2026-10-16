@@ -203,7 +203,12 @@ impl Images {
         let format = reader.format();
         let picture = reader.decode()?;
         let format = format.expect("a decoded picture had a format");
-        Ok(Image::new(self, Read { bytes, format }, picture))
+        let read = Read {
+            bytes,
+            format,
+            pixels: (picture.width(), picture.height()),
+        };
+        Ok(Image::new(self, read, picture))
     }
 
     /// Makes an image of `picture`, which is decoded already. It is
@@ -217,6 +222,7 @@ impl Images {
         let read = Read {
             bytes,
             format: ImageFormat::Png,
+            pixels: (picture.width(), picture.height()),
         };
         Image::new(self, read, picture)
     }
