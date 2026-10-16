@@ -549,6 +549,8 @@ mod tests {
             "{:?}",
             shown.errors
         );
+        // A frame showed the first dialog, so the key closes it.
+        app.set_dialog_shown(true);
         app.handle(key('x'));
         let shown = app.invalid_shown().expect("the second dialog");
         assert_eq!(shown.id, "garbage");

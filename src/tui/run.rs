@@ -123,6 +123,7 @@ where
         if let Some(page) = drawn.pane_page {
             app.set_pane_page(page);
         }
+        app.set_dialog_shown(drawn.invalid_dialog);
         // A field entered from above finds its first row only in its first
         // draw, and its text cursor goes there; that draw showed it
         // elsewhere.
@@ -640,6 +641,40 @@ mod tests {
             harness.result("b-without-context").answers[0].selected,
             ["b"]
         );
+    }
+
+    /// Under the message of a terminal too small for asqr, the dialog of
+    /// an invalid session is not on the screen: `ctrl-c` quits and leaves
+    /// it for the next start's frame. Once a frame shows it, a key closes
+    /// it.
+    #[test]
+    fn a_key_under_the_too_small_message_leaves_the_dialog() {
+        let mut harness = Harness::new();
+        fs::write(harness.location.inbox().join("garbage.json"), "not json").expect("written");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        assert!(app.invalid_shown().is_some(), "the scan found it");
+        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
+        let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+        harness.terminal.backend_mut().resize(40, 10);
+        harness
+            .run_with_view(&mut app, &mut inbox, &mut view, vec![ctrl_c])
+            .expect("runs");
+        assert!(
+            app.invalid_shown().is_some(),
+            "ctrl-c closed a dialog no frame showed"
+        );
+
+        harness.terminal.backend_mut().resize(80, 24);
+        harness
+            .run_with_view(
+                &mut app,
+                &mut inbox,
+                &mut view,
+                vec![key(KeyCode::Char('x'))],
+            )
+            .expect("runs");
+        assert_eq!(app.invalid_shown(), None, "the frame showed it");
     }
 
     /// `SESSION` with an intro of thirty bullet lines.

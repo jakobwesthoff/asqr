@@ -40,8 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other list item.
 - An invalid session opens a dialog framed in yellow that lists each of
   its errors on a line of its own; the next key closes it and does
-  nothing else. Before, the errors showed only in the status line,
-  joined with `; ` and cut at its edge.
+  nothing else. Under the message of a terminal too small for asqr,
+  which hides the dialog, a key acts as without it, and the dialog
+  shows once the terminal has room. Before, the errors showed only in
+  the status line, joined with `; ` and cut at its edge.
 
 ### Changed
 

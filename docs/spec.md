@@ -243,6 +243,10 @@ counts them. The dialog leaves the status line and the key bar free;
 the status line says "<id> is invalid and was answered with an error"
 while the dialog shows. When several files fail in one scan, their
 dialogs show one after another, each closed by a key (section 7.2).
+A key pressed while the dialog waits but no frame showed it, as under
+the message of a terminal too small for asqr, acts on the session as it
+would without the dialog, and the dialog shows on the next frame with
+room for it.
 
 An error result never overwrites an existing `outbox/<id>.json`: in that
 case the file is archived without a result and the conflict is logged
@@ -861,8 +865,9 @@ On an option row (vim style plus arrows):
   from anywhere, also from inside a field, while a pane shows. These
   are the intro overlay's keys and conventions.
 - Help closes on any key.
-- The dialog of an invalid session closes on any key, and that key does
-  nothing else. While it shows, the key bar says `any key  close`.
+- A key pressed while the dialog of an invalid session shows closes it
+  and does nothing else. While it shows, the key bar says
+  `any key  close`.
 - `i` shows the session's whole intro in a frame over the question,
   rendered as in the header (section 7.6), with the key
   bar left free. An

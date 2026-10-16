@@ -89,6 +89,10 @@ pub struct Drawn {
     /// Where the field or note that has the keys was drawn, for
     /// [`App::set_field_shape`].
     pub field_shape: Option<FieldShape>,
+    /// Whether the frame showed the dialog of an invalid session, for
+    /// [`App::set_dialog_shown`]: only a dialog the person saw takes the
+    /// next key.
+    pub invalid_dialog: bool,
 }
 
 /// What the screen shows besides the state, and what it keeps from one
@@ -267,7 +271,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     frame.render_widget(status_line(app, app.active(), status.width), status);
 
     let overlay = app.overlay();
-    let (drawn, hints, image) = match app.active() {
+    let (mut drawn, hints, image) = match app.active() {
         None => {
             let empty = EmptyQueue {
                 glyphs: view.glyphs,
@@ -326,6 +330,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 intro_page: Some(intro_page),
                 pane_page: Some(pane_page),
                 field_shape,
+                invalid_dialog: false,
             };
             (drawn, hints, image)
         }
@@ -357,6 +362,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         let [above, _] = Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
         draw_invalid(above, frame.buffer_mut(), invalid);
         view.overlay_shown = true;
+        drawn.invalid_dialog = true;
     }
 
     // The overlays drew over the Kitty image's placeholders, and the
@@ -1821,6 +1827,8 @@ mod tests {
             "a newer notice wins"
         );
 
+        // A frame showed the first dialog, so the key closes it.
+        app.set_dialog_shown(true);
         app.handle(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
         assert_eq!(
             status_line(&app, None, 80).to_string(),
@@ -1853,6 +1861,25 @@ mod tests {
         let mut waiting = app(&[("release", RELEASE)]);
         waiting.report_invalid(invalid("broken", &ERRORS));
         insta::assert_snapshot!("invalid_dialog_60x15", screen(&waiting, 60, 15));
+    }
+
+    /// The app lets a key close the dialog only after a frame showed it,
+    /// so the frame says whether it did.
+    #[test]
+    fn the_frame_says_whether_it_showed_the_dialog() {
+        let shown = |app: &App, width, height| {
+            let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+            measured_in(app, &mut view, width, height).1.invalid_dialog
+        };
+        let mut with_dialog = app(&[("release", RELEASE)]);
+        with_dialog.report_invalid(invalid("broken", &ERRORS));
+        let mut over_the_empty_queue = App::default();
+        over_the_empty_queue.report_invalid(invalid("broken", &ERRORS));
+
+        assert!(shown(&with_dialog, 80, 24));
+        assert!(shown(&over_the_empty_queue, 80, 24));
+        assert!(!shown(&with_dialog, 40, 10), "too small for asqr");
+        assert!(!shown(&app(&[("release", RELEASE)]), 80, 24), "no dialog");
     }
 
     #[test]
@@ -1964,6 +1991,8 @@ mod tests {
         }
         find(open.buffer(), "Session broken is invalid");
 
+        // That frame showed the dialog, so the key closes it.
+        app.set_dialog_shown(true);
         app.handle(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
         let closed = screen(&app, 80, 36);
         let rect = emblem_rect(80, 36).expect("room for Talqi");
@@ -2394,7 +2423,7 @@ mod tests {
     }
 
     /// Draws `app` with `view` on `terminal` and hands the app what the
-    /// pane showed, as the run loop does.
+    /// pane and the dialog showed, as the run loop does.
     fn draw_on(terminal: &mut Terminal<TestBackend>, app: &mut App, view: &mut View) {
         let mut drawn = Drawn::default();
         terminal
@@ -2403,6 +2432,7 @@ mod tests {
         if let Some(page) = drawn.pane_page {
             app.set_pane_page(page);
         }
+        app.set_dialog_shown(drawn.invalid_dialog);
     }
 
     /// The help, the intro and the session list over the pane, and the

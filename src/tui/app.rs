@@ -125,6 +125,10 @@ pub struct App {
     /// The invalid sessions whose dialogs are still to be closed, the one
     /// shown first.
     invalid: VecDeque<Invalid>,
+    /// Whether the last frame showed the dialog in front. False until a
+    /// frame does, as before the first or under the message of a terminal
+    /// too small for asqr.
+    dialog_seen: bool,
 }
 
 impl App {
@@ -216,6 +220,22 @@ impl App {
         self.invalid.push_back(invalid);
     }
 
+    /// Takes whether the last frame showed the dialog of an invalid
+    /// session, which decides whether the next key closes it.
+    pub fn set_dialog_shown(&mut self, shown: bool) {
+        self.dialog_seen = shown;
+    }
+
+    /// Closes the dialog in front if the last frame showed it, and says
+    /// whether it did. The next dialog waits for a frame of its own.
+    fn close_seen_dialog(&mut self) -> bool {
+        if self.dialog_seen && self.invalid.pop_front().is_some() {
+            self.dialog_seen = false;
+            return true;
+        }
+        false
+    }
+
     /// The invalid session whose dialog shows.
     pub fn invalid_shown(&self) -> Option<&Invalid> {
         self.invalid.front()
@@ -297,8 +317,10 @@ impl App {
         // The dialog of an invalid session closes on any key, `ctrl-c`
         // included, as the help does, and the key does nothing else: it
         // stands over the screen, so the person cannot see what the key
-        // would act on.
-        if self.invalid.pop_front().is_some() {
+        // would act on. A dialog no frame showed, as under the message of
+        // a terminal too small for asqr, is not what the person sees, so
+        // the key acts as without it.
+        if self.close_seen_dialog() {
             return AppEffect::None;
         }
         if let Some(scroll) = self.intro {
@@ -351,8 +373,9 @@ impl App {
     /// it goes nowhere, as they take every key.
     pub fn paste(&mut self, text: &str) -> AppEffect {
         self.notice = None;
-        // As over the help, a paste closes the dialog and goes nowhere.
-        if self.invalid.pop_front().is_some() {
+        // As over the help, a paste closes the dialog the person saw and
+        // goes nowhere.
+        if self.close_seen_dialog() {
             return AppEffect::None;
         }
         if self.intro.is_some() || self.list.is_some() {
@@ -898,6 +921,17 @@ mod tests {
             .collect()
     }
 
+    /// Draws `app` at 80×24 with `view` and hands the app whether the
+    /// frame showed the dialog of an invalid session, as the run loop does.
+    fn drawn_and_handed_on(app: &mut App, view: &mut View) {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
+        let mut shown = false;
+        terminal
+            .draw(|frame| shown = draw(frame, app, view).invalid_dialog)
+            .expect("draws");
+        app.set_dialog_shown(shown);
+    }
+
     /// A view under the Sixel protocol, whose image cells a closed overlay
     /// leaves to be cleared.
     fn view() -> View<'static> {
@@ -1017,13 +1051,24 @@ mod tests {
         }
     }
 
+    /// `key` on the dialog in front, after a frame showed it, as the run
+    /// loop hands on before every key.
+    fn press_on_dialog(app: &mut App, key: KeyEvent) -> AppEffect {
+        app.set_dialog_shown(true);
+        app.handle(key)
+    }
+
     #[test]
     fn an_invalid_session_closes_on_the_next_key_which_does_nothing_else() {
         let mut app = app(&["one"]);
         app.report_invalid(invalid("broken"));
         assert_eq!(app.invalid_shown(), Some(&invalid("broken")));
 
-        assert_eq!(app.handle(key('q')), AppEffect::None, "q only closes it");
+        assert_eq!(
+            press_on_dialog(&mut app, key('q')),
+            AppEffect::None,
+            "q only closes it"
+        );
         assert_eq!(app.invalid_shown(), None);
         assert_eq!(active_id(&app), Some("one"));
         assert_eq!(app.handle(key('q')), AppEffect::Quit);
@@ -1038,7 +1083,11 @@ mod tests {
             code(KeyCode::Enter),
         ] {
             app.report_invalid(invalid("broken"));
-            assert_eq!(app.handle(close), AppEffect::None, "{close:?}");
+            assert_eq!(
+                press_on_dialog(&mut app, close),
+                AppEffect::None,
+                "{close:?}"
+            );
             assert_eq!(app.invalid_shown(), None, "{close:?}");
         }
         assert_eq!(
@@ -1058,6 +1107,7 @@ mod tests {
         app.add(SessionState::new("typed", session, None));
         app.report_invalid(invalid("broken"));
 
+        app.set_dialog_shown(true);
         assert_eq!(app.paste("pasted"), AppEffect::None);
 
         assert_eq!(app.invalid_shown(), None);
@@ -1071,9 +1121,9 @@ mod tests {
         app.report_invalid(invalid("second"));
 
         assert_eq!(app.invalid_shown(), Some(&invalid("first")));
-        app.handle(key('x'));
+        press_on_dialog(&mut app, key('x'));
         assert_eq!(app.invalid_shown(), Some(&invalid("second")));
-        app.handle(key('x'));
+        press_on_dialog(&mut app, key('x'));
         assert_eq!(app.invalid_shown(), None);
     }
 
@@ -1082,8 +1132,49 @@ mod tests {
         let mut app = App::default();
         app.report_invalid(invalid("broken"));
 
-        assert_eq!(app.handle(key('q')), AppEffect::None);
+        assert_eq!(press_on_dialog(&mut app, key('q')), AppEffect::None);
         assert_eq!(app.handle(key('q')), AppEffect::Quit);
+    }
+
+    /// Before the first frame, no dialog has shown, so `ctrl-c` quits and
+    /// the dialog waits for the frame that never comes.
+    #[test]
+    fn a_dialog_no_frame_showed_takes_no_key() {
+        let mut app = App::default();
+        app.report_invalid(invalid("broken"));
+
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(app.handle(ctrl_c), AppEffect::Quit);
+        assert_eq!(app.invalid_shown(), Some(&invalid("broken")));
+    }
+
+    /// A frame too small for the dialog shows the message that says so;
+    /// the person sees the session's keys at work, not the dialog.
+    #[test]
+    fn a_dialog_a_small_frame_hid_lets_the_key_act() {
+        let mut app = app(&["one"]);
+        app.report_invalid(invalid("broken"));
+        app.set_dialog_shown(true);
+        app.set_dialog_shown(false);
+
+        assert_eq!(app.handle(key('L')), AppEffect::None);
+
+        assert_eq!(app.list_cursor(), Some(0), "L opened the session list");
+        assert_eq!(app.invalid_shown(), Some(&invalid("broken")));
+    }
+
+    #[test]
+    fn a_paste_under_a_dialog_no_frame_showed_reaches_the_field() {
+        let session: Session = serde_json::from_str(
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+        )
+        .expect("parses");
+        let mut app = App::default();
+        app.add(SessionState::new("typed", session, None));
+        app.report_invalid(invalid("broken"));
+
+        assert!(matches!(app.paste("pasted"), AppEffect::SaveDraft(_)));
+        assert_eq!(app.invalid_shown(), Some(&invalid("broken")));
     }
 
     #[test]
@@ -1091,7 +1182,7 @@ mod tests {
         let mut app = overlays(false, false, false);
         app.report_invalid(invalid("broken"));
         let mut view = view();
-        drawn(&app, &mut view);
+        drawn_and_handed_on(&mut app, &mut view);
         assert!(!view.must_clear(&app), "nothing to clear while it is open");
 
         app.handle(key('x'));

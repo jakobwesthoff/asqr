@@ -80,3 +80,8 @@ message to tell failures apart.
   differ by their words.
 - The status line no longer carries an invalid session's errors; the
   dialog does.
+- A key closes the dialog only once a frame showed it. The message of a
+  terminal too small for asqr leaves the dialog off the screen; a key
+  there acts as it would without the dialog, and the dialog waits for
+  the next frame with room for it. The review of 2026-10-16 found that
+  such a key closed a dialog the person never saw.
