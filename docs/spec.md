@@ -1003,8 +1003,9 @@ and shows its own notice instead.
 - The terminal title counts the waiting sessions, "asqr · N waiting",
   and changes with the count (OSC 0, the window and the icon title).
   Before the first title asqr pushes the terminal's title (`CSI 22;0 t`).
-  On quitting it writes an empty title and then pops the pushed one
-  (`CSI 23;0 t`), both before it leaves the alternate screen: a terminal
+  On quitting, also after a panic, it writes an empty title and then
+  pops the pushed one (`CSI 23;0 t`), both before it leaves the
+  alternate screen: a terminal
   with a title stack shows its title from before asqr again, one without
   keeps the empty title, which some show as a title of their own (ADR
   40). Inside tmux these go to tmux
@@ -1234,8 +1235,9 @@ Images:
   was replaced, or when its session left. Where regaining the focus
   sends the images again, it also writes the deletes since the last
   time again, as tmux with `allow-passthrough on` drops them while
-  asqr's pane is hidden. On quitting, asqr deletes every image it sent and has
-  not deleted yet, before it leaves the alternate screen (ADR 42).
+  asqr's pane is hidden. On quitting, also after a panic, asqr deletes
+  every image it sent and has not deleted yet, before it leaves the
+  alternate screen (ADR 42).
 - Talqi on the empty queue (section 7.1) is text, built into asqr. It
   uses no image protocol.
 - A relative path, a missing file, a path that is not a regular file or

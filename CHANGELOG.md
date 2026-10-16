@@ -112,14 +112,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In kitty and Ghostty, asqr asks the terminal to delete an image of a
   context entry once the screen no longer shows it: after sending it
   again on regaining the focus, when its entry is replaced, when its
-  session leaves, and on quitting. Inside tmux, regaining the focus
-  writes the deletes again, as a hidden pane drops them. Before, every
-  copy stayed in the terminal, in Ghostty up to its limit of 320 MB.
+  session leaves, and on quitting, also when asqr panics. Inside tmux,
+  regaining the focus writes the deletes again, as a hidden pane drops
+  them. Before, every copy stayed in the terminal, in Ghostty up to its
+  limit of 320 MB.
 - On Unix, SIGTERM, SIGINT and SIGHUP quit asqr as `q` does, with exit
   code 0: it deletes its images, gives the title back, turns focus
   reports and bracketed paste off and leaves raw mode and the alternate
   screen. Before, a signal such as `kill <pid>` ended asqr at once and
   left the terminal as asqr had set it up. SIGKILL still does.
+- When asqr panics, it gives the title back before it leaves the
+  alternate screen, as on quitting. Before, it gave the title back on
+  the main screen, after the alternate screen was left.
 - In kitty and Ghostty, an image whose pane changes size is sent under
   a new id, and its old copy is deleted. Before, it was sent again
   under the same id, and Ghostty showed it blank while the new copy

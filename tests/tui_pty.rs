@@ -991,6 +991,47 @@ fn inside_tmux_the_deletes_on_quitting_go_out_before_the_pane_s_passthrough_is_p
     );
 }
 
+/// A panic in the run loop gives the terminal back as quitting does: the
+/// Kitty images are deleted and the title given back while the alternate
+/// screen is on, focus reports and bracketed paste are turned off, and
+/// the pane gets its passthrough back as the panic unwinds (ADRs 40, 42
+/// and 44). Only a debug build of asqr panics on `o` when told to.
+#[cfg(debug_assertions)]
+#[test]
+fn a_panic_deletes_the_kitty_images_and_gives_the_title_back_on_the_alternate_screen() {
+    let sandbox = Sandbox::new();
+    let mut tui = showing_a_kitty_image_with(
+        &sandbox,
+        "on\t1\t\t1\t1\t0\t3.4",
+        &[("TERM", "tmux-256color"), ("ASQR_TEST_PANIC_ON_OPEN", "1")],
+    );
+    let shown = sent_kitty_image(&tui, 0);
+    tui.press("o");
+
+    assert_eq!(tui.wait_for_exit(), 101, "a panic");
+    let output = tui.output();
+    let deleted = first(&output, &wrapped(&kitty_delete(shown)));
+    let pop = first(&output, POP_TITLE);
+    let focus_off = first(&output, "\x1b[?1004l");
+    let paste_off = first(&output, "\x1b[?2004l");
+    let main_screen = first(&output, "\x1b[?1049l");
+    let put_back = last(&output, &tmux_set("-p allow-passthrough on"));
+    assert!(
+        deleted < pop
+            && pop < main_screen
+            && focus_off < main_screen
+            && paste_off < main_screen
+            && main_screen < put_back,
+        "{output:?}"
+    );
+    assert_eq!(output.matches(POP_TITLE).count(), 1, "{output:?}");
+    assert_eq!(
+        output.matches(&wrapped(&kitty_delete(shown))).count(),
+        1,
+        "deleted once: {output:?}"
+    );
+}
+
 /// Inside tmux 3.4 or later, asqr sets `allow-passthrough all` for its
 /// pane once the terminal answered as one with Kitty graphics, so images
 /// and their deletes pass while the pane is hidden, and puts the pane's

@@ -9,6 +9,10 @@ Accepted
 Supersedes the consequence "asqr does not ask the terminal to delete the
 earlier copies" of [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md)
 
+Amends [40. Set the terminal title](0040-set-the-terminal-title.md):
+on a panic, the title is given back before asqr leaves the alternate
+screen
+
 Amended by [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-images-through-tmux-from-a-hidden-pane.md):
 inside tmux 3.4 or later, the deletes on quitting from a hidden pane
 reach the terminal
@@ -140,3 +144,14 @@ deletes.
   it goes. A guard dropped next writes the deletes of every id left in
   the book while the alternate screen is on, then the terminal is given
   back, and last the pane's passthrough (ADR 44).
+- On a panic, asqr's panic hook runs before the one ratatui installs,
+  which leaves the alternate screen. It writes the deletes of every id
+  in the book, those of the images still shown included, gives the
+  title back and turns focus reports and bracketed paste off, then
+  ratatui's hook runs. The pane's passthrough is given back as the
+  panic unwinds, after both hooks, so the deletes pass while the pane
+  has `all` (ADR 44). The hook only tries the book: after a panic while
+  the book was locked, the deletes are written once the alternate
+  screen is left already. This replaces the consequence that a panic
+  ends asqr without the deletes on quitting; a SIGKILL, and a panic in
+  a build that aborts, still do.

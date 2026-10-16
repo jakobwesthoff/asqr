@@ -6,6 +6,10 @@ Date: 2026-10-15
 
 Accepted
 
+Amended by [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-images-the-terminal-no-longer-shows.md):
+on a panic, the title is given back before asqr leaves the alternate
+screen
+
 ## Context
 
 asqr runs in a terminal of its own, often in a tab the person does not
@@ -170,3 +174,10 @@ showed before asqr. Accepted gaps, where they do not:
   version 2.15's binary, not on its source.
 
 Under `--no-title` asqr leaves the terminal's title alone.
+
+## Amendment (2026-10-16, a panic gives the title back on the alternate screen)
+
+asqr puts a panic hook in front of ratatui's, which writes the empty
+title and the pop before ratatui's hook leaves the alternate screen
+(ADR 42). This replaces the statement above that on a panic they land
+on the main screen.

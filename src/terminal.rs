@@ -10,17 +10,16 @@
 //! runs the terminal and those programs; its parts that write escape
 //! sequences are tested against a byte buffer.
 
-use std::cell::Cell;
 use std::io::{self, IsTerminal, Write};
 use std::process::{Command, Stdio};
-use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
 use asqr::graphics::{
-    Graphics, Images, KittyDeletes, KittyExit, PanePassthrough, QUERY_WAIT,
+    Graphics, Images, KittyBook, KittyDeletes, KittyExit, PanePassthrough, QUERY_WAIT,
     answers_may_follow_the_query, may_query_protocol, passthrough_all_for_images,
     settle_passthrough,
 };
@@ -85,13 +84,14 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // `try_init` also installs the panic hook that gives the terminal back
     // before a panic message is printed. That hook knows nothing of focus
     // reports and bracketed paste, so the guard turns those off too, on
-    // every return from this function from here on and on a panic.
+    // every return from this function from here on and on a panic. Once
+    // the images exist, asqr's own hook runs before ratatui's.
     let mut terminal = ratatui::try_init().context("setting up the terminal")?;
-    let title_pushed = Rc::new(Cell::new(false));
+    let title_pushed = Arc::new(AtomicBool::new(false));
     let _guard = TerminalGuard {
         out: io::stdout(),
         restore: ratatui::restore,
-        title_pushed: Rc::clone(&title_pushed),
+        title_pushed: Arc::clone(&title_pushed),
     };
     // SIGTERM, SIGINT and SIGHUP would end the process without the guard.
     // Caught, they end the run as `q` does, and the guard runs. SIGKILL
@@ -130,6 +130,16 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         "graphics protocol detected"
     );
     log_window_size();
+
+    let images = Images::new(graphics);
+    hook_in_before_ratatui_on_panic(images.kitty_book().clone(), Arc::clone(&title_pushed));
+    // What is left at the end is dropped in the reverse order it was made
+    // in: the view first, whose images hand their ids on as they go, then
+    // `_kitty_exit`, which deletes the images while the alternate screen is
+    // on, then `_guard`, which leaves it, and last `pane`, which gives the
+    // pane its passthrough back, so the deletes pass while it has `all`
+    // (ADRs 42 and 44).
+    let _kitty_exit = KittyExit::new(images.kitty_book().clone(), io::stdout());
 
     // Focus reports tell asqr when it comes back into view, so it can send
     // images again whose transfer tmux dropped while it was hidden (spec
@@ -175,14 +185,6 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         title_pushed,
         env,
     };
-    let images = Images::new(graphics);
-    // What is left at the end is dropped in the reverse order it was made
-    // in: the view first, whose images hand their ids on as they go, then
-    // `_kitty_exit`, which deletes the images while the alternate screen is
-    // on, then `_guard`, which leaves it, and last `pane`, which gives the
-    // pane its passthrough back, so the deletes pass while it has `all`
-    // (ADRs 42 and 44).
-    let _kitty_exit = KittyExit::new(images.kitty_book().clone(), io::stdout());
     let mut view = View::new(&queue, watch.layout(), images)
         .no_color(watch.no_color())
         .glyphs(glyphs);
@@ -235,15 +237,15 @@ fn query_graphics(tmux: Option<&TmuxState>) -> Graphics {
 /// The guard covers a panic only because a panic unwinds and drops it. A
 /// build with `panic = "abort"` would skip the drop and leave both modes
 /// on in the shell. On a panic, ratatui's hook leaves the alternate screen
-/// before the unwinding reaches the guard, so there the title is given
-/// back on the main screen.
+/// before the unwinding reaches the guard, so asqr's hook gives the title
+/// back before it (see [`hook_in_before_ratatui_on_panic`]).
 struct TerminalGuard<W: Write> {
     out: W,
     /// [`ratatui::restore`]; tests pass a function that only notes the call.
     restore: fn(),
     /// Whether [`write_title`] pushed the terminal's title, shared with
-    /// the [`TerminalHost`] that writes the titles.
-    title_pushed: Rc<Cell<bool>>,
+    /// the [`TerminalHost`] that writes the titles and the panic hook.
+    title_pushed: Arc<AtomicBool>,
 }
 
 /// Saves the window and the icon title on the terminal's title stack.
@@ -257,40 +259,83 @@ const POP_TITLE: &[u8] = b"\x1b[23;0t";
 /// the alternate screen is on, so the push, every title and the pop all
 /// happen on that screen (ADR 40). tmux takes all of them for the pane
 /// itself, so they go out plain there too, not through the passthrough.
-fn write_title(out: &mut impl Write, title: &str, pushed: &Cell<bool>) -> io::Result<()> {
-    if !pushed.get() {
+fn write_title(out: &mut impl Write, title: &str, pushed: &AtomicBool) -> io::Result<()> {
+    if !pushed.load(Ordering::Relaxed) {
         out.write_all(PUSH_TITLE)?;
-        pushed.set(true);
+        pushed.store(true, Ordering::Relaxed);
     }
     queue!(out, SetTitle(title))?;
     out.flush()
 }
 
+/// Gives back the title asqr pushed and turns focus reports and bracketed
+/// paste off, before the alternate screen is left. On a panic the hook
+/// and then the guard both run it; the title is given back once.
+fn give_back_title_and_modes(out: &mut impl Write, title_pushed: &AtomicBool) {
+    // Only a push is popped. The empty title comes first: a terminal
+    // without a title stack keeps it instead of asqr's, and one with a
+    // stack then takes back the pushed title. The other way round, the
+    // empty title would replace the title just taken back (ADR 40).
+    if title_pushed.swap(false, Ordering::Relaxed) {
+        let given_back = queue!(out, SetTitle(""))
+            .and_then(|()| out.write_all(POP_TITLE))
+            .and_then(|()| out.flush());
+        if let Err(error) = given_back {
+            tracing::warn!(%error, "could not give the terminal title back");
+        }
+    }
+    // Left on, the shell would receive the reports as typed text, and its
+    // pastes wrapped in the markers.
+    if let Err(error) = execute!(out, DisableFocusChange) {
+        tracing::warn!(%error, "could not turn focus reports off");
+    }
+    if let Err(error) = execute!(out, DisableBracketedPaste) {
+        tracing::warn!(%error, "could not turn bracketed paste off");
+    }
+}
+
 impl<W: Write> Drop for TerminalGuard<W> {
     fn drop(&mut self) {
-        // Only a push is popped, and before `restore` leaves the alternate
-        // screen. The empty title comes first: a terminal without a title
-        // stack keeps it instead of asqr's, and one with a stack then takes
-        // back the pushed title. The other way round, the empty title
-        // would replace the title just taken back (ADR 40).
-        if self.title_pushed.get() {
-            let given_back = queue!(self.out, SetTitle(""))
-                .and_then(|()| self.out.write_all(POP_TITLE))
-                .and_then(|()| self.out.flush());
-            if let Err(error) = given_back {
-                tracing::warn!(%error, "could not give the terminal title back");
-            }
-        }
-        // Left on, the shell would receive the reports as typed text, and
-        // its pastes wrapped in the markers.
-        if let Err(error) = execute!(self.out, DisableFocusChange) {
-            tracing::warn!(%error, "could not turn focus reports off");
-        }
-        if let Err(error) = execute!(self.out, DisableBracketedPaste) {
-            tracing::warn!(%error, "could not turn bracketed paste off");
-        }
+        give_back_title_and_modes(&mut self.out, &self.title_pushed);
         (self.restore)();
     }
+}
+
+/// Puts a panic hook in front of the one `ratatui::try_init` installed,
+/// which leaves the alternate screen before the unwinding drops
+/// [`KittyExit`] and [`TerminalGuard`]. What has to happen on that screen
+/// happens here first (ADRs 40 and 42). The pane's passthrough is given
+/// back during the unwinding, after both hooks, so the deletes pass while
+/// it has `all` (ADR 44).
+///
+/// The hook stays for the rest of the process, as ratatui's does. After
+/// the run the book is empty and the title given back, so it only turns
+/// the modes off again.
+fn hook_in_before_ratatui_on_panic(book: KittyBook, title_pushed: Arc<AtomicBool>) {
+    let ratatui_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        give_back_on_panic(&mut io::stdout(), &book, &title_pushed);
+        ratatui_hook(info);
+    }));
+}
+
+/// Deletes the Kitty images, those still shown included, gives the title
+/// back and turns focus reports and bracketed paste off, on a panic.
+///
+/// The hook runs before the unwinding lets go of a lock, so it only tries
+/// the book: after a panic while the book was locked, the exit guard
+/// writes the deletes, once the alternate screen is gone already. What
+/// the hook took, the exit guard does not write again.
+fn give_back_on_panic(out: &mut impl Write, book: &KittyBook, title_pushed: &AtomicBool) {
+    if let Some(deletes) = book.try_drain().filter(|deletes| !deletes.is_empty()) {
+        let deleted = out
+            .write_all(&deletes.to_bytes())
+            .and_then(|()| out.flush());
+        if let Err(error) = deleted {
+            tracing::warn!(%error, "could not delete the images");
+        }
+    }
+    give_back_title_and_modes(out, title_pushed);
 }
 
 /// Sends [`Event::Quit`] on `sender` for every SIGTERM, SIGINT and SIGHUP.
@@ -399,7 +444,7 @@ struct TerminalHost {
     /// Off under `--no-title`, which writes no title byte at all: no
     /// title, and so no push the guard would pop.
     title: bool,
-    title_pushed: Rc<Cell<bool>>,
+    title_pushed: Arc<AtomicBool>,
     env: TerminalEnv,
 }
 
@@ -429,6 +474,12 @@ impl Host for TerminalHost {
     }
 
     fn open_image(&mut self, path: &str) -> io::Result<()> {
+        // A debug build panics here when the PTY tests ask it to, so they
+        // see what asqr gives back on a panic in its run loop.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ASQR_TEST_PANIC_ON_OPEN").is_some() {
+            panic!("ASQR_TEST_PANIC_ON_OPEN is set");
+        }
         let viewer = if cfg!(target_os = "macos") {
             "open"
         } else {
@@ -447,6 +498,11 @@ impl Host for TerminalHost {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
+    use asqr::graphics::{Image, Protocol};
+    use ratatui::layout::Size;
+
     use super::*;
 
     thread_local! {
@@ -457,9 +513,6 @@ mod tests {
         RESTORED.set(true);
     }
 
-    // The panic path itself is not run here: it needs a real terminal and
-    // a panicking TUI. What it relies on is that unwinding drops the guard,
-    // and the drop is what this test runs.
     /// What dropping a guard writes, when asqr did or did not push the
     /// title.
     fn dropped(pushed: bool) -> String {
@@ -467,7 +520,7 @@ mod tests {
         drop(TerminalGuard {
             out: &mut written,
             restore: note_restore,
-            title_pushed: Rc::new(Cell::new(pushed)),
+            title_pushed: Arc::new(AtomicBool::new(pushed)),
         });
         String::from_utf8(written).expect("escape sequences are ASCII")
     }
@@ -504,7 +557,7 @@ mod tests {
     #[test]
     fn the_first_title_comes_after_a_push_and_the_others_alone() {
         let mut written = Vec::new();
-        let pushed = Cell::new(false);
+        let pushed = AtomicBool::new(false);
 
         write_title(&mut written, "asqr · 1 waiting", &pushed).expect("written");
         write_title(&mut written, "asqr · 0 waiting", &pushed).expect("written");
@@ -513,17 +566,68 @@ mod tests {
             String::from_utf8(written).expect("UTF-8"),
             "\x1b[22;0t\x1b]0;asqr · 1 waiting\x07\x1b]0;asqr · 0 waiting\x07"
         );
-        assert!(pushed.get());
+        assert!(pushed.load(Ordering::Relaxed));
     }
 
     #[test]
     fn a_push_the_terminal_refused_is_not_popped() {
         let mut full: [u8; 0] = [];
-        let pushed = Cell::new(false);
+        let pushed = AtomicBool::new(false);
 
         assert!(write_title(&mut &mut full[..], "asqr · 1 waiting", &pushed).is_err());
 
-        assert!(!pushed.get());
+        assert!(!pushed.load(Ordering::Relaxed));
+    }
+
+    /// The book of a Kitty image laid out and still shown, and the image.
+    fn book_with_an_image() -> (KittyBook, Image) {
+        let images = Images::new(Graphics {
+            protocol: Protocol::Kitty,
+            ..Graphics::HALF_BLOCKS
+        });
+        let mut image = images.image(image::DynamicImage::new_rgba8(20, 40));
+        image.lay_out(Size::new(2, 2), true);
+        (images.kitty_book().clone(), image)
+    }
+
+    /// The panic hook deletes the images still shown, then gives the
+    /// title back and turns the modes off. Run again, as the guard's drop
+    /// runs after it, only the modes are turned off again.
+    #[test]
+    fn a_panic_deletes_the_images_and_gives_the_title_back_once() {
+        let (book, _shown) = book_with_an_image();
+        let pushed = AtomicBool::new(true);
+        let mut written = Vec::new();
+
+        give_back_on_panic(&mut written, &book, &pushed);
+        give_back_on_panic(&mut written, &book, &pushed);
+
+        let written = String::from_utf8(written).expect("escape sequences are ASCII");
+        let modes = "\x1b[?1004l\x1b[?2004l";
+        let given_back = format!("\x1b]0;\x07\x1b[23;0t{modes}{modes}");
+        let delete = written
+            .strip_suffix(&given_back)
+            .unwrap_or_else(|| panic!("the title once, the modes twice: {written:?}"));
+        assert!(
+            delete.starts_with("\x1b_Ga=d,d=I,i=") && delete.matches("\x1b_G").count() == 1,
+            "one delete first: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_panic_hook_that_cannot_write_goes_on() {
+        let (book, _shown) = book_with_an_image();
+        let pushed = AtomicBool::new(true);
+        // A full buffer fails every write with `WriteZero`.
+        let mut full: [u8; 0] = [];
+
+        give_back_on_panic(&mut &mut full[..], &book, &pushed);
+
+        assert!(book.drain().is_empty(), "the deletes were taken");
+        assert!(
+            !pushed.load(Ordering::Relaxed),
+            "the pop is not tried twice"
+        );
     }
 
     /// A picker that found no graphics protocol says why in the log: with
@@ -558,7 +662,7 @@ mod tests {
         drop(TerminalGuard {
             out: &mut full[..],
             restore: note_restore,
-            title_pushed: Rc::new(Cell::new(true)),
+            title_pushed: Arc::new(AtomicBool::new(true)),
         });
         assert!(RESTORED.get());
     }

@@ -10,7 +10,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 
 use super::Graphics;
 use crate::terminal_env::passthrough;
@@ -159,6 +159,17 @@ impl KittyBook {
     /// those that went, then those that exist. A second call finds none.
     pub fn drain(&self) -> KittyDeletes {
         self.lock().drain()
+    }
+
+    /// Like [`KittyBook::drain`], for a panic hook. The hook runs before
+    /// the unwinding lets go of a lock, so where the book is locked,
+    /// waiting for it would never end; it gives `None` then.
+    pub fn try_drain(&self) -> Option<KittyDeletes> {
+        match self.0.try_lock() {
+            Ok(mut ids) => Some(ids.drain()),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner().drain()),
+            Err(TryLockError::WouldBlock) => None,
+        }
     }
 
     /// The ids of the images that exist.
@@ -464,6 +475,36 @@ mod tests {
         drop(KittyExit::new(book.clone(), &mut full[..]));
 
         assert_eq!(book.drain().ids(), [0_u32; 0], "taken out all the same");
+    }
+
+    /// A panic hook takes what a drain takes, unless the book is locked,
+    /// and a poisoned book is no reason to keep the images.
+    #[test]
+    fn a_panic_hook_drains_the_book_unless_it_is_locked() {
+        let book = counting(Graphics::KITTY);
+        let _image = HeldId::issued(&book);
+
+        let locked = book.0.lock();
+        assert_eq!(book.try_drain(), None, "locked");
+        drop(locked);
+
+        assert_eq!(book.try_drain().map(|deletes| deletes.ids), Some(vec![1]));
+        assert_eq!(
+            book.try_drain().map(|deletes| deletes.ids),
+            Some(Vec::new()),
+            "taken once"
+        );
+        drop(HeldId::issued(&book));
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _locked = book.0.lock();
+            panic!("a panic while the book is locked");
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(
+            book.try_drain().map(|deletes| deletes.ids),
+            Some(vec![2]),
+            "poisoned"
+        );
     }
 
     #[test]
