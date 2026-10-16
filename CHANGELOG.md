@@ -170,9 +170,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.7.1).
 - In a Markdown list item, a list after the text of a quote gets the
   blank line, with the quote's bar, that it gets in any other quote,
-  and a paragraph in an item that starts with an empty code block, or
-  in a Markdown entry with an HTML block, follows the bullet on the
-  next line without a blank line (patine 1.7.1).
+  and a paragraph in an item that starts with an empty code block
+  follows the bullet on the next line without a blank line (patine
+  1.7.1).
 - A code block or a nested list inside a Markdown quote sits inside the
   quote's bar, as `│   code`, where it showed as `  │ code` (patine
   1.7.0).
