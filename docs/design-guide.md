@@ -152,7 +152,7 @@ without any colour.
 | Role | Terminal colour | Where |
 |---|---|---|
 | Primary | cyan | the name `asqr` in the title line, the current tab and the line under it, the keys in the key bar, chosen marks, overlay borders, the submit button |
-| Focus | yellow, as a fill | the row under the cursor, the focused field's head, the focused context pane's header |
+| Focus | yellow, as a fill | the row under the cursor, the focused field's head, the current entry of the session list, the focused context pane's header |
 | Warning | yellow | a length counter near or past its limit, a key that was refused, the frame of the dialog of an invalid session |
 | Success | green | a length counter in range, a submitted session |
 | Error | red | a failure, such as an inbox that cannot be read; the frame, mark and reason of a context entry asqr cannot show, and the `✗` before its name in the pane's header |
