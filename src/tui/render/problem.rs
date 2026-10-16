@@ -19,43 +19,64 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Padding, Paragraph, Widget};
 use unicode_segmentation::UnicodeSegmentation;
 
+use super::overlay::popup;
+use super::panes::READING_WIDTH;
 use super::source_line::columns;
 use super::theme;
 use super::viewer::{ContentSize, Viewer};
-use super::wrap::wrap;
+use super::wrap::{cut, wrap};
 use crate::graphics::PlacedImage;
-use crate::tui::Offset;
+use crate::tui::{Notice, Offset, Tone};
 
 // ---------------------------------------------------------------------
 // The problem
 // ---------------------------------------------------------------------
 
-/// How bad a problem is. The mark carries it where colours are off.
+/// How bad a problem is, as the kinds of notices sort it (ADR 38). The
+/// mark carries it where colours are off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Severity {
     /// Something failed, such as a file that cannot be read.
     Error,
+    /// asqr refused something or set it aside on purpose, such as an
+    /// invalid session it answered with an error.
+    Warning,
 }
 
 impl Severity {
+    /// The severity of a notice of `tone`. Plain news and a sent session
+    /// are no problem, and their lines carry their own marks where they
+    /// have one, such as `✔ sent`.
+    pub(super) fn of(tone: Tone) -> Option<Severity> {
+        match tone {
+            Tone::Error => Some(Severity::Error),
+            Tone::Warning => Some(Severity::Warning),
+            Tone::Info | Tone::Success => None,
+        }
+    }
+
     pub(super) fn mark(self) -> &'static str {
         match self {
             Severity::Error => "✗",
+            Severity::Warning => "!",
         }
     }
 
     pub(super) fn style(self) -> Style {
         match self {
             Severity::Error => theme::error(),
+            Severity::Warning => theme::warning(),
         }
     }
 }
 
-/// What went wrong, in the words it was reported in.
+/// What went wrong, in the words it was reported in, and the details that
+/// make it up, such as each error of an invalid session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Problem {
     severity: Severity,
     headline: String,
+    details: Vec<String>,
 }
 
 impl Problem {
@@ -63,7 +84,19 @@ impl Problem {
         Problem {
             severity: Severity::Error,
             headline: headline.into(),
+            details: Vec::new(),
         }
+    }
+
+    pub(super) fn warning(headline: impl Into<String>) -> Self {
+        Problem {
+            severity: Severity::Warning,
+            ..Problem::error(headline)
+        }
+    }
+
+    pub(super) fn with_details(self, details: Vec<String>) -> Self {
+        Problem { details, ..self }
     }
 
     /// The problem of one side of a diff, `old` or `new`, which the
@@ -267,6 +300,103 @@ impl Viewer for Card {
     }
 }
 
+// ---------------------------------------------------------------------
+// The status line
+// ---------------------------------------------------------------------
+
+/// `notice` as the status line shows it in `width` columns: in its tone's
+/// colour, an error or a warning after its mark. A notice that names a
+/// session is cut in the name, which ends in `…` then, to the room the
+/// mark and the rest leave, so they show whole (ADR 38); any other is cut
+/// at the edge.
+pub(super) fn status_line(notice: &Notice, width: u16) -> Line<'static> {
+    let mark = Severity::of(notice.tone)
+        .map(|severity| Span::styled(format!("{} ", severity.mark()), Style::new().bold()));
+    let text = match notice.name.clone() {
+        None => notice.text.clone(),
+        Some(name) => {
+            let (before, after) = (&notice.text[..name.start], &notice.text[name.end..]);
+            let taken = mark.as_ref().map_or(0, Span::width) + columns(before) + columns(after);
+            let name = cut(&notice.text[name], usize::from(width).saturating_sub(taken));
+            format!("{before}{name}{after}")
+        }
+    };
+    let spans: Vec<Span<'static>> = mark.into_iter().chain([Span::from(text)]).collect();
+    Line::from(spans).style(theme::for_tone(notice.tone))
+}
+
+// ---------------------------------------------------------------------
+// The dialog
+// ---------------------------------------------------------------------
+
+/// The dialog of `problem` titled `title`, over the middle of `area`: the
+/// headline, a blank row and each detail behind a `•`, in a frame in the
+/// problem's colour with its mark before the title. It is as wide as what
+/// it holds, up to the reading width. Details that do not fit are left out
+/// whole, and a last row counts them.
+pub(super) fn draw_dialog(area: Rect, buf: &mut Buffer, title: &str, problem: &Problem) {
+    let severity = problem.severity;
+    let most = area
+        .width
+        .saturating_sub(4)
+        .min(READING_WIDTH + FRAME_COLUMNS);
+    let inner = usize::from(most.saturating_sub(FRAME_COLUMNS)).max(1);
+
+    let mut rows = wrap(Line::from(problem.headline.clone()), inner, 0, 0);
+    rows.push(Line::default());
+    let details: Vec<Vec<Line<'static>>> = problem
+        .details
+        .iter()
+        .map(|detail| {
+            let line = Line::from(vec![
+                Span::styled("• ", severity.style()),
+                Span::from(detail.clone()),
+            ]);
+            wrap(line, inner, 0, 2)
+        })
+        .collect();
+    let room = usize::from(area.height.saturating_sub(2));
+    let all: usize = details.iter().map(Vec::len).sum();
+    if rows.len() + all <= room {
+        rows.extend(details.into_iter().flatten());
+    } else {
+        // One row is kept for the count, and a detail that does not fit
+        // whole goes into it, so no detail shows in part.
+        let left = room.saturating_sub(rows.len() + 1);
+        let mut used = 0;
+        let shown = details
+            .iter()
+            .take_while(|detail| {
+                used += detail.len();
+                used <= left
+            })
+            .count();
+        let more = details.len() - shown;
+        rows.extend(details.into_iter().take(shown).flatten());
+        rows.push(Line::styled(format!("… {more} more"), theme::secondary()));
+    }
+
+    // The title stands on the frame between the corners, ` ! ` before it
+    // and a blank after it.
+    let title_width = columns(title) + 6;
+    let widest = rows.iter().map(shown_columns).max().unwrap_or(0);
+    let width = u16::try_from((widest + usize::from(FRAME_COLUMNS)).max(title_width))
+        .unwrap_or(u16::MAX)
+        .min(most);
+    let height = u16::try_from(rows.len() + 2).unwrap_or(u16::MAX);
+    let at = popup(area, width, height, buf);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(severity.style())
+        .title(Line::from(vec![
+            Span::styled(format!(" {} ", severity.mark()), severity.style().bold()),
+            Span::styled(format!("{title} "), theme::title()),
+        ]))
+        .title_bottom(Line::styled(" any key closes ", theme::secondary()).right_aligned())
+        .padding(Padding::horizontal(1));
+    Paragraph::new(rows).block(block).render(at, buf);
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -424,6 +554,56 @@ mod tests {
     #[test]
     fn a_card_shows_a_problem_in_place_of_content() {
         assert!(card(MISSING, "/a.rs").failed());
+    }
+
+    // -----------------------------------------------------------------
+    // The dialog
+    // -----------------------------------------------------------------
+
+    /// The rows of the dialog of `problem` drawn into `width`×`height`
+    /// cells.
+    fn dialog(problem: &Problem, width: u16, height: u16) -> Vec<String> {
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        draw_dialog(area, &mut buf, "Session broken is invalid", problem);
+        (0..height).map(|y| row(&buf, y)).collect()
+    }
+
+    #[test]
+    fn a_dialog_with_no_room_for_a_detail_counts_them_all() {
+        let problem = Problem::warning("Why:").with_details(vec!["one".into(), "two".into()]);
+
+        // 3 rows inside the frame: the headline, the blank row and the
+        // count.
+        let rows = dialog(&problem, 40, 5);
+
+        assert!(rows[3].contains("│ … 2 more"), "{rows:#?}");
+        assert!(!rows.iter().any(|row| row.contains('•')), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_dialog_is_as_wide_as_its_title_when_that_is_its_widest_part() {
+        let problem = Problem::warning("Why:").with_details(vec!["one".into()]);
+
+        let rows = dialog(&problem, 80, 7);
+
+        // ` ! ` and the title with a blank after it stand between the
+        // corners: 25 + 4 + 2 columns.
+        let top = rows.iter().find(|row| row.contains('╭')).expect("a frame");
+        assert_eq!(super::super::columns(top.trim_start()), 31, "{rows:#?}");
+    }
+
+    #[test]
+    fn a_detail_wraps_under_its_start() {
+        let problem = Problem::warning("Why:").with_details(vec!["word ".repeat(12)]);
+
+        let rows = dialog(&problem, 40, 9);
+
+        let first = rows
+            .iter()
+            .position(|row| row.contains("• word"))
+            .expect("the detail");
+        assert!(rows[first + 1].contains("│   word"), "{rows:#?}");
     }
 
     // -----------------------------------------------------------------

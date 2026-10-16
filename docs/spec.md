@@ -234,9 +234,15 @@ expected a sequence`, and a `context` that is no list adds `context is a
 list with one entry: wrap the entry in [ ]`. For a field inside a
 context entry, the path ends at the entry, as in
 `questions[0].context[0]: invalid type: null, expected a string` for a
-`path` of `null`. The TUI shows a notice for an invalid session file,
-also when no session is waiting. The status line holds one notice, so
-when several files fail in one scan, the last one shows.
+`path` of `null`. The TUI shows an invalid session file answered with
+an error in a dialog framed in the warning colour, also when no session
+is waiting (ADR 49): its title names the session, and each error of the
+file stands on a line of its own behind a `•`, wrapped under its start.
+Errors that do not fit the screen are left out whole, and a last line
+counts them. The dialog leaves the status line and the key bar free;
+the status line says "<id> is invalid and was answered with an error"
+while the dialog shows. When several files fail in one scan, their
+dialogs show one after another, each closed by a key (section 7.2).
 
 An error result never overwrites an existing `outbox/<id>.json`: in that
 case the file is archived without a result and the conflict is logged
@@ -767,9 +773,11 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   cursor's line the row above it; where the area has no room for both,
   the cursor's line shows.
 - With nothing waiting, the screen says "Nothing to answer. New sessions
-  show up here as soon as they arrive." Notices still show. Above the
-  sentence, with a blank row between them, Talqi, asqr's mascot, shows
-  as asqr's terminal emblem drawn in text cells (ADR 43): a fixed block
+  show up here as soon as they arrive." Notices still show. While the
+  dialog of an invalid session shows (section 3.8), the sentence stands
+  alone. Otherwise, above the sentence, with a blank row between them,
+  Talqi, asqr's mascot, shows as asqr's terminal emblem drawn in text
+  cells (ADR 43): a fixed block
   of 44 columns by 22 rows, each cell a glyph with its own 24-bit
   foreground and background. Cells outside the figure keep the
   terminal's background. Talqi is centred across, and Talqi and
@@ -815,7 +823,8 @@ On an option row (vim style plus arrows):
   note.
 - Inside a field every key that produces text types, so `n`, `q` and
   the others work again after `esc`. `ctrl-c` quits everywhere, except
-  over the help, which it closes like any other key.
+  over the help and over the dialog of an invalid session (section 3.8),
+  which it closes like any other key.
 - `o` opens the image shown (section 7.7) with the system's opener
   (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
   started, a notice says why. On a code, Markdown or diff entry it
@@ -852,6 +861,8 @@ On an option row (vim style plus arrows):
   from anywhere, also from inside a field, while a pane shows. These
   are the intro overlay's keys and conventions.
 - Help closes on any key.
+- The dialog of an invalid session closes on any key, and that key does
+  nothing else. While it shows, the key bar says `any key  close`.
 - `i` shows the session's whole intro in a frame over the question,
   rendered as in the header (section 7.6), with the key
   bar left free. An
@@ -930,8 +941,9 @@ a frame (user, 2026-09-27):
   "a paste goes into a field" otherwise. In the focused context pane
   the message is "a paste goes into a field; esc leaves the pane", in
   the full-screen view "a paste goes into a field; z/esc leave the full
-  screen". Over the help, a paste closes it and does nothing else; over
-  the intro and the session list it does nothing.
+  screen". Over the help and over the dialog of an invalid session, a
+  paste closes it and does nothing else; over the intro and the session
+  list it does nothing.
 - `tab` and `shift-tab` never type into a field: they move the focus
   into the context pane where one shows, and do nothing otherwise. Where
   a pane shows, `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll it from
@@ -1047,16 +1059,18 @@ and shows its own notice instead.
   open intro overlay closes when the new file has no intro. A session
   list open while a session leaves keeps its cursor on a waiting
   session, and closes when none is left.
-- A session colliding with an unread result (section 3.7), an invalid
-  file (section 3.8) and a failure to write a draft or a result trigger
-  a notice. A failure never ends asqr; answers stay in the TUI.
+- A session colliding with an unread result (section 3.7) and a failure
+  to write a draft or a result trigger a notice, an invalid file a
+  dialog (section 3.8). A failure never ends asqr; answers stay in the
+  TUI.
 - Every notice and message has a kind, which gives it its colour in the
   status line (ADR 38):
-  - error, red: an operation failed and nothing was done, such as an
+  - error, red, after a `✗`: an operation failed and nothing was done,
+    such as an
     inbox or a session file that cannot be read, a draft or a result
     that cannot be written, or an image that cannot be opened;
-  - warning, yellow: asqr refused an action or set something aside on
-    purpose, such as a refused key or paste, a session archived next to
+  - warning, yellow, after a `!`: asqr refused an action or set
+    something aside on purpose, such as a refused key or paste, a session archived next to
     an unread result, an invalid session answered with an error, or a
     submit not sent because the file changed on disk;
   - information, the text colour: plain news, such as a session file

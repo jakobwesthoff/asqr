@@ -153,7 +153,7 @@ without any colour.
 |---|---|---|
 | Primary | cyan | the name `asqr` in the title line, the current tab and the line under it, the keys in the key bar, chosen marks, overlay borders, the submit button |
 | Focus | yellow, as a fill | the row under the cursor, the focused field's head, the focused context pane's header |
-| Warning | yellow | a length counter near or past its limit, a key that was refused |
+| Warning | yellow | a length counter near or past its limit, a key that was refused, the frame of the dialog of an invalid session |
 | Success | green | a length counter in range, a submitted session |
 | Error | red | a failure, such as an inbox that cannot be read; the frame, mark and reason of a context entry asqr cannot show, and the `✗` before its name in the pane's header |
 | Secondary | dim | hints, unanswered tabs, the descriptions in the key bar, the queue in the title line, the count beside a session's title, the `from` and `follows` line under it |
@@ -175,5 +175,6 @@ without any colour.
 - The session's intro is the asker's content and keeps the text colour.
 - Meaning never depends on colour alone. Marks, pointers, text and the fill
   carry it, so the interface reads the same without colours.
-- A context entry asqr cannot show carries the mark `✗` as well as the
-  error colour.
+- A problem carries a mark as well as its colour: `✗` for an error, `!`
+  for a warning, on a context entry asqr cannot show, on the dialog of an
+  invalid session and in the status line.

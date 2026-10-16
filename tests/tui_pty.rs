@@ -222,6 +222,31 @@ impl Tui {
         }
     }
 
+    /// Waits until the screen no longer shows `text`.
+    fn wait_until_gone(&self, text: &str) {
+        let start = Instant::now();
+        while self.screen().contains(text) {
+            assert!(
+                start.elapsed() < PATIENCE,
+                "{text:?} never went; the screen:\n{}",
+                self.screen()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// The row of the screen where `text` first shows, counted from the
+    /// top.
+    fn row_of(&self, text: &str) -> u16 {
+        let terminal = self.terminal();
+        let row = terminal
+            .screen()
+            .rows(0, self.size.1)
+            .position(|line| line.contains(text))
+            .unwrap_or_else(|| panic!("{text:?} is not on the screen"));
+        u16::try_from(row).expect("a screen row")
+    }
+
     /// Waits until asqr has asked the terminal for its graphics protocol.
     /// The status request ends the query.
     fn wait_for_the_query(&self) {
@@ -642,6 +667,8 @@ struct Colours {
     title: vt100::Cell,
     /// The first cell of a notice in the status line.
     notice: vt100::Cell,
+    /// The first cell of the title of the dialog of an invalid session.
+    dialog: vt100::Cell,
     /// The first cell of inline code in the intro.
     intro_code: vt100::Cell,
     /// The first cell of the dim hint under the question.
@@ -657,7 +684,7 @@ fn colours_under(no_color: &str) -> Colours {
     const RED: [u8; 3] = [255, 0, 0];
     let sandbox = Sandbox::new();
     let dir = sandbox.queue_dir();
-    let tui = Tui::start_with(
+    let mut tui = Tui::start_with(
         &sandbox,
         &[
             "--dir",
@@ -670,13 +697,25 @@ fn colours_under(no_color: &str) -> Colours {
     );
     tui.wait_for("Nothing to answer");
 
-    // An invalid session is answered at once and leaves a notice, which
-    // stays over the next session until a key is pressed. It is written
-    // under another name and renamed, so asqr never reads half of it.
+    // An invalid session is answered at once and opens a dialog, with its
+    // line in the status line, until a key is pressed. It is written under
+    // another name and renamed, so asqr never reads half of it. The
+    // dialog's title holds the words "broken is invalid" too, so the
+    // status line is found by the words only it has.
     let written = dir.join("inbox/.broken.part");
     std::fs::write(&written, "not json").expect("written");
     std::fs::rename(&written, dir.join("inbox/broken.json")).expect("renamed");
-    tui.wait_for("broken is invalid");
+    tui.wait_for("Session broken is invalid");
+    tui.wait_for("was answered with an error");
+    assert_eq!(
+        tui.row_of("was answered with an error"),
+        tui.size.0 - 2,
+        "the status line stays free"
+    );
+    let notice = tui.cell_of("! broken is invalid and was answered");
+    let dialog = tui.cell_of("Session broken is invalid");
+    tui.press("x");
+    tui.wait_until_gone("Session broken is invalid");
 
     let picture = sandbox.home().join("red.png");
     image::RgbImage::from_pixel(40, 40, image::Rgb(RED))
@@ -705,7 +744,8 @@ fn colours_under(no_color: &str) -> Colours {
     let red = vt100::Color::Rgb(RED[0], RED[1], RED[2]);
     Colours {
         title: tui.cell_of("asqr"),
-        notice: tui.cell_of("broken is invalid"),
+        notice,
+        dialog,
         intro_code: tui.cell_of("stalk"),
         hint: tui.cell_of("pick one"),
         red_image: tui
@@ -721,6 +761,7 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
     let Colours {
         title,
         notice,
+        dialog,
         intro_code,
         hint,
         red_image,
@@ -729,6 +770,9 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
     assert_eq!((title.fgcolor(), title.bgcolor()), default);
     assert!(title.bold(), "the name keeps its bold");
     assert_eq!((notice.fgcolor(), notice.bgcolor()), default);
+    assert!(notice.bold(), "the mark keeps its bold");
+    assert_eq!((dialog.fgcolor(), dialog.bgcolor()), default);
+    assert!(dialog.bold(), "the dialog's title keeps its bold");
     assert_eq!((intro_code.fgcolor(), intro_code.bgcolor()), default);
     assert!(!intro_code.dim(), "the intro is in the text colour");
     assert_eq!((hint.fgcolor(), hint.bgcolor()), default);
@@ -739,6 +783,7 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
     let coloured = colours_under("");
     assert_eq!(coloured.title.fgcolor(), vt100::Color::Idx(6), "cyan");
     assert_eq!(coloured.notice.fgcolor(), vt100::Color::Idx(3), "yellow");
+    assert_eq!(coloured.dialog.fgcolor(), vt100::Color::Idx(3), "yellow");
     assert_ne!(coloured.intro_code.fgcolor(), vt100::Color::Default);
     assert!(!coloured.intro_code.dim());
     assert!(coloured.hint.dim());

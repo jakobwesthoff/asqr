@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 
-use super::{App, AppEffect, Notice, Outcome, SessionState, Tone};
+use super::{App, AppEffect, Invalid, Notice, Outcome, SessionState, Tone};
 use crate::format::{
     SessionResult, is_valid_session_id, now_rfc3339, parse_session, same_session_id, validate,
 };
@@ -167,21 +167,19 @@ impl Inbox {
             return Ok(false);
         }
 
+        // Each error stays apart up to the dialog, which lists them; the
+        // result and the log join them.
         let session = parse_session(&bytes)
-            .map_err(|error| error.to_string())
+            .map_err(|error| vec![error.to_string()])
             .and_then(|(_, session)| match validate(&session, Some(&waiting.id)) {
                 Ok(()) => Ok(session),
-                Err(errors) => Err(errors
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("; ")),
+                Err(errors) => Err(errors.iter().map(ToString::to_string).collect()),
             });
         let session = match session {
             Ok(session) => session,
-            Err(message) => {
+            Err(errors) => {
                 self.forget(app, &waiting.id);
-                self.reject(app, waiting, &bytes, &message);
+                self.reject(app, waiting, &bytes, &errors);
                 return Ok(false);
             }
         };
@@ -243,21 +241,23 @@ impl Inbox {
         })
     }
 
-    fn reject(&mut self, app: &mut App, waiting: &Waiting, bytes: &[u8], message: &str) {
+    fn reject(&mut self, app: &mut App, waiting: &Waiting, bytes: &[u8], errors: &[String]) {
         let id = &waiting.id;
+        let message = errors.join("; ");
         tracing::warn!(%id, %message, "rejected an invalid session");
         match reject_invalid(
             &self.location,
             &waiting.path,
             bytes,
-            message,
+            &message,
             &now_rfc3339(),
         ) {
-            Ok(Rejected::ErrorResult) => {
-                app.notice(Tone::Warning, format!(
-                    "{id} is invalid and was answered with an error: {message}"
-                ));
-            }
+            // The dialog lists the errors and the status line says what
+            // happened while it shows, so no notice repeats it.
+            Ok(Rejected::ErrorResult) => app.report_invalid(Invalid {
+                id: id.clone(),
+                errors: errors.to_vec(),
+            }),
             Ok(Rejected::Conflict) => app.notice(Tone::Warning, format!(
                 "{id} is invalid and was archived without a result, since an unread result with \
                  that id is in the outbox: {message}"
@@ -505,7 +505,7 @@ mod tests {
     }
 
     #[test]
-    fn an_invalid_session_gets_an_error_result_and_a_notice() {
+    fn an_invalid_session_gets_an_error_result_and_a_dialog() {
         let (_scratch, location) = queue();
         put(
             &location,
@@ -538,9 +538,50 @@ mod tests {
             "{:?}",
             garbage.error
         );
-        assert_notice(&app, Tone::Warning, |text| {
-            text.contains("answered with an error")
-        });
+        // The dialog says it, so no notice repeats it. The files load in
+        // the order they came in, and both came at once, so by id.
+        assert_eq!(app.current_notice(), None);
+        let shown = app.invalid_shown().expect("a dialog");
+        assert_eq!(shown.id, "broken");
+        assert_eq!(shown.errors.len(), 1, "{:?}", shown.errors);
+        assert!(
+            shown.errors[0].contains("questions[0]"),
+            "{:?}",
+            shown.errors
+        );
+        app.handle(key('x'));
+        let shown = app.invalid_shown().expect("the second dialog");
+        assert_eq!(shown.id, "garbage");
+        assert_eq!(shown.errors.len(), 1, "{:?}", shown.errors);
+        assert!(
+            shown.errors[0].starts_with("not a session file: "),
+            "{:?}",
+            shown.errors
+        );
+    }
+
+    #[test]
+    fn every_validation_error_of_an_invalid_session_stays_apart() {
+        let (_scratch, location) = queue();
+        put(
+            &location,
+            "broken.json",
+            r#"{"asqr": 2, "questions": [
+                {"id": "q", "text": "?", "kind": "single", "min": 2,
+                 "options": [{"id": "a", "label": "A"}]},
+                {"id": "q", "text": "?", "kind": "text"}]}"#,
+        );
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        let errors = &app.invalid_shown().expect("a dialog").errors;
+        assert!(errors.len() >= 2, "{errors:?}");
+        assert_eq!(
+            result(&location, "broken").error.as_deref(),
+            Some(errors.join("; ").as_str()),
+            "the result joins them"
+        );
     }
 
     #[test]
@@ -1028,11 +1069,12 @@ mod tests {
             modified: std::time::SystemTime::UNIX_EPOCH,
         };
 
-        inbox.reject(&mut app, &waiting, b"{", "broken");
+        inbox.reject(&mut app, &waiting, b"{", &["broken".to_owned()]);
 
         assert_notice(&app, Tone::Warning, |text| {
-            text.contains("without a result")
+            text.contains("without a result") && text.ends_with(": broken")
         });
+        assert_eq!(app.invalid_shown(), None, "no dialog");
         assert_eq!(names(&location.inbox()), Vec::<String>::new());
     }
 
@@ -1049,9 +1091,10 @@ mod tests {
             modified: std::time::SystemTime::UNIX_EPOCH,
         };
 
-        inbox.reject(&mut app, &waiting, b"{", "broken");
+        inbox.reject(&mut app, &waiting, b"{", &["broken".to_owned()]);
 
         assert_notice(&app, Tone::Error, |text| text.starts_with("cannot reject"));
+        assert_eq!(app.invalid_shown(), None, "no dialog");
     }
 
     #[test]

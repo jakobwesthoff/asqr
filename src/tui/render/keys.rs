@@ -176,6 +176,12 @@ pub(super) fn intro_hints(page: Extent) -> Vec<Hint> {
 }
 
 /// The keys over an empty queue.
+/// The hint while the dialog of an invalid session shows, which any key
+/// closes.
+pub(super) fn dialog_hints() -> Vec<Hint> {
+    vec![hint("any key", "close", Rank::Leave)]
+}
+
 pub(super) fn empty_queue_hints() -> Vec<Hint> {
     vec![QUIT_HINT]
 }

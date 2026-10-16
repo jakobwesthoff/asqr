@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen(&waiting, 60, 15)"
+---
+" asqr  Release 0.2.0                    default · 1 waiting "
+"       from release script                                  "
+"       Three decisions before the release. Skip wh… i: more "
+"  ╭ ! Session broken is invalid ─────────────────────────╮  "
+"──│ asqr answered it with an error result, so the agent  │──"
+" A│ learns why:                                          │  "
+" p│                                                      │  "
+"  │ • questions[0].options[1].id: duplicate id "yes"     │  "
+" ❯│ • questions[1].min: 3 is more than the 1 options, so │  "
+"  │   no answer could ever be given to it                │  "
+"  ╰────────────────────────────────────── any key closes ╯  "
+"   ( ) 3. Do not publish  Delete the tag again.             "
+"                                                     ↓ more "
+"! broken is invalid and was answered with an error          "
+" any key  close                                             "

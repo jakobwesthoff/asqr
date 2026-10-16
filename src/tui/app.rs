@@ -7,6 +7,7 @@
 //! `i`, and notices about the queue. Sessions are kept in the order they are added, which the running
 //! app keeps in queue order.
 
+use std::collections::VecDeque;
 use std::ops::Range;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -99,6 +100,15 @@ impl Notice {
     }
 }
 
+/// A session asqr answered with an error result because its file is
+/// invalid, which a dialog shows with every error (spec section 3.8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Invalid {
+    pub id: String,
+    /// Each problem the file has, apart, as validation found them.
+    pub errors: Vec<String>,
+}
+
 #[derive(Debug, Default)]
 pub struct App {
     sessions: Vec<SessionState>,
@@ -112,6 +122,9 @@ pub struct App {
     /// far its keys can scroll it.
     intro_page: Extent,
     notice: Option<Notice>,
+    /// The invalid sessions whose dialogs are still to be closed, the one
+    /// shown first.
+    invalid: VecDeque<Invalid>,
 }
 
 impl App {
@@ -197,6 +210,17 @@ impl App {
         self.notice.as_ref()
     }
 
+    /// Shows the dialog of `invalid` after those still open, so a scan
+    /// that finds several invalid files shows each of them in turn.
+    pub fn report_invalid(&mut self, invalid: Invalid) {
+        self.invalid.push_back(invalid);
+    }
+
+    /// The invalid session whose dialog shows.
+    pub fn invalid_shown(&self) -> Option<&Invalid> {
+        self.invalid.front()
+    }
+
     /// The first line of the intro shown while its overlay is open.
     pub fn intro_scroll(&self) -> Option<usize> {
         self.intro
@@ -270,6 +294,13 @@ impl App {
 
     pub fn handle(&mut self, key: KeyEvent) -> AppEffect {
         self.notice = None;
+        // The dialog of an invalid session closes on any key, `ctrl-c`
+        // included, as the help does, and the key does nothing else: it
+        // stands over the screen, so the person cannot see what the key
+        // would act on.
+        if self.invalid.pop_front().is_some() {
+            return AppEffect::None;
+        }
         if let Some(scroll) = self.intro {
             return self.intro_key(key, scroll);
         }
@@ -320,6 +351,10 @@ impl App {
     /// it goes nowhere, as they take every key.
     pub fn paste(&mut self, text: &str) -> AppEffect {
         self.notice = None;
+        // As over the help, a paste closes the dialog and goes nowhere.
+        if self.invalid.pop_front().is_some() {
+            return AppEffect::None;
+        }
         if self.intro.is_some() || self.list.is_some() {
             return AppEffect::None;
         }
@@ -969,6 +1004,99 @@ mod tests {
         assert!(view.must_clear(&app), "the help over the image is gone");
         let screen = drawn(&app, &mut view);
         assert!(!screen.iter().any(|row| row.contains(" Intro ")));
+    }
+
+    // -----------------------------------------------------------------
+    // The dialog of an invalid session
+    // -----------------------------------------------------------------
+
+    fn invalid(id: &str) -> Invalid {
+        Invalid {
+            id: id.to_owned(),
+            errors: vec![format!("questions[0].id: duplicate id in {id}")],
+        }
+    }
+
+    #[test]
+    fn an_invalid_session_closes_on_the_next_key_which_does_nothing_else() {
+        let mut app = app(&["one"]);
+        app.report_invalid(invalid("broken"));
+        assert_eq!(app.invalid_shown(), Some(&invalid("broken")));
+
+        assert_eq!(app.handle(key('q')), AppEffect::None, "q only closes it");
+        assert_eq!(app.invalid_shown(), None);
+        assert_eq!(active_id(&app), Some("one"));
+        assert_eq!(app.handle(key('q')), AppEffect::Quit);
+    }
+
+    #[test]
+    fn ctrl_c_and_esc_close_the_dialog_like_any_key() {
+        let mut app = app(&["one"]);
+        for close in [
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            code(KeyCode::Esc),
+            code(KeyCode::Enter),
+        ] {
+            app.report_invalid(invalid("broken"));
+            assert_eq!(app.handle(close), AppEffect::None, "{close:?}");
+            assert_eq!(app.invalid_shown(), None, "{close:?}");
+        }
+        assert_eq!(
+            app.active().expect("active").answers()[0].selected,
+            Vec::<String>::new(),
+            "enter picked nothing"
+        );
+    }
+
+    #[test]
+    fn a_paste_closes_the_dialog_and_goes_nowhere() {
+        let session: Session = serde_json::from_str(
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+        )
+        .expect("parses");
+        let mut app = App::default();
+        app.add(SessionState::new("typed", session, None));
+        app.report_invalid(invalid("broken"));
+
+        assert_eq!(app.paste("pasted"), AppEffect::None);
+
+        assert_eq!(app.invalid_shown(), None);
+        assert_eq!(app.active().expect("active").answers()[0].custom, None);
+    }
+
+    #[test]
+    fn invalid_sessions_show_one_after_another() {
+        let mut app = app(&["one"]);
+        app.report_invalid(invalid("first"));
+        app.report_invalid(invalid("second"));
+
+        assert_eq!(app.invalid_shown(), Some(&invalid("first")));
+        app.handle(key('x'));
+        assert_eq!(app.invalid_shown(), Some(&invalid("second")));
+        app.handle(key('x'));
+        assert_eq!(app.invalid_shown(), None);
+    }
+
+    #[test]
+    fn the_dialog_shows_over_the_empty_queue() {
+        let mut app = App::default();
+        app.report_invalid(invalid("broken"));
+
+        assert_eq!(app.handle(key('q')), AppEffect::None);
+        assert_eq!(app.handle(key('q')), AppEffect::Quit);
+    }
+
+    #[test]
+    fn the_screen_is_cleared_after_a_dialog_over_a_sixel_image() {
+        let mut app = overlays(false, false, false);
+        app.report_invalid(invalid("broken"));
+        let mut view = view();
+        drawn(&app, &mut view);
+        assert!(!view.must_clear(&app), "nothing to clear while it is open");
+
+        app.handle(key('x'));
+
+        assert!(view.must_clear(&app));
     }
 
     #[test]

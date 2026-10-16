@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   delimiter row (`:--`, `:-:`, `--:`). Both come with patine 1.7.0.
 - A long word in a task item wraps under the item's text, as in any
   other list item.
+- An invalid session opens a dialog framed in yellow that lists each of
+  its errors on a line of its own; the next key closes it and does
+  nothing else. Before, the errors showed only in the status line,
+  joined with `; ` and cut at its edge.
 
 ### Changed
 
@@ -61,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cyan frames with a blank column inside, which moves the help's keys
   and the session list's rows one column in.
 - The status line colours each notice and message by its kind instead
-  of showing all of them in yellow. Failures, such as a draft that
+  of showing all of them in yellow, an error after `✗` and a warning
+  after `!`. Failures, such as a draft that
   cannot be saved or an inbox that cannot be read, are red. Refused keys
   and pastes and sessions set aside, such as an invalid session answered
   with an error, stay yellow. News, such as a session file reloaded

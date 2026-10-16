@@ -20,19 +20,19 @@ use super::content::{TabState, draw_tab};
 use super::context::{DrawnPane, draw_pane};
 use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
-use super::keys::{draw_help, empty_queue_hints, intro_hints, key_hints, key_line};
+use super::keys::{dialog_hints, draw_help, empty_queue_hints, intro_hints, key_hints, key_line};
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{MIN_BELOW_HEIGHT, PaneLayout};
 use super::patine_adapter::quote_style;
+use super::problem::{self, Problem, draw_dialog};
 use super::source_line::columns;
 use super::tabs::tab_bar;
 use super::theme;
-use super::wrap::cut;
 use crate::format::ContextEntry;
 use crate::graphics::{Images, KittyBook};
 use crate::tui::text_field::FieldShape;
-use crate::tui::{App, Extent, Overlay, Page, SessionState};
+use crate::tui::{App, Extent, Invalid, Notice, Overlay, Page, SessionState, Tone};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -156,6 +156,7 @@ impl<'a> View<'a> {
         self.overlay_shown
             && self.image_shown
             && app.overlay().is_none()
+            && app.invalid_shown().is_none()
             && self.tab.viewers.graphics().cells_are_skipped()
     }
 
@@ -250,6 +251,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         None => {
             let empty = EmptyQueue {
                 glyphs: view.glyphs,
+                talqi: app.invalid_shown().is_none(),
                 no_color: view.no_color,
             };
             frame.render_widget(empty, main);
@@ -308,6 +310,13 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             (drawn, hints, image)
         }
     };
+    // Any key closes the dialog of an invalid session, and only that, so
+    // the keys of what stands behind it would not do what they say.
+    let hints = if app.invalid_shown().is_some() {
+        dialog_hints()
+    } else {
+        hints
+    };
     frame.render_widget(key_line(&hints, keys.width), keys);
 
     // These overlays use the whole screen, key bar included, so they fit
@@ -320,6 +329,15 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         Some((Overlay::Intro(_), _)) | None => {}
     }
     view.overlay_shown = overlay.is_some();
+
+    // The dialog of an invalid session shows over everything, also over
+    // the empty queue, and leaves the status line and the key bar free, as
+    // they say what happened and that any key closes it.
+    if let Some(invalid) = app.invalid_shown() {
+        let [above, _] = Layout::vertical([Constraint::Fill(1), Constraint::Length(2)]).areas(area);
+        draw_invalid(above, frame.buffer_mut(), invalid);
+        view.overlay_shown = true;
+    }
 
     // The overlays drew over the Kitty image's placeholders, and the
     // image's cells beside them, or its data, are lost to the terminal
@@ -355,30 +373,36 @@ fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
     .render(area, buf);
 }
 
-/// The status line: the app's notice, else the message of the session
-/// shown, if there is one. A notice matters most over an empty queue: an
-/// invalid session that was the only one leaves the queue empty, and the
-/// notice is all that says why. Its tone gives the line its colour.
-///
-/// A notice that names a session is cut in the name, which ends in `…`
-/// then, to what the rest of it leaves of `width`: the rest, such as a
-/// confirmation's counts and the quotes around the name, shows whole.
-/// Any other notice is cut at the edge.
-fn status_line<'a>(app: &'a App, state: Option<&'a SessionState>, width: u16) -> Line<'a> {
-    let Some(notice) = app
+/// The dialog of the invalid session `invalid`, which lists its errors.
+fn draw_invalid(area: Rect, buf: &mut Buffer, invalid: &Invalid) {
+    let problem =
+        Problem::warning("asqr answered it with an error result, so the agent learns why:")
+            .with_details(invalid.errors.clone());
+    draw_dialog(
+        area,
+        buf,
+        &format!("Session {} is invalid", invalid.id),
+        &problem,
+    );
+}
+
+/// The status line: the app's notice, else the line of the invalid
+/// session whose dialog shows, else the message of the session shown, if
+/// there is one. A notice matters most over an empty queue: a session file
+/// that cannot be read leaves the queue as it is, and the notice is all
+/// that says why. The line is the problem component's (ADR 49).
+fn status_line(app: &App, state: Option<&SessionState>, width: u16) -> Line<'static> {
+    let invalid = app.invalid_shown().map(|invalid| {
+        Notice::new(
+            Tone::Warning,
+            format!("{} is invalid and was answered with an error", invalid.id),
+        )
+    });
+    let notice = app
         .current_notice()
-        .or_else(|| state.and_then(SessionState::message))
-    else {
-        return Line::default();
-    };
-    let style = theme::for_tone(notice.tone);
-    let Some(name) = notice.name.clone() else {
-        return Line::styled(notice.text.as_str(), style);
-    };
-    let (before, after) = (&notice.text[..name.start], &notice.text[name.end..]);
-    let room = usize::from(width).saturating_sub(columns(before) + columns(after));
-    let name = cut(&notice.text[name], room);
-    Line::styled(format!("{before}{name}{after}"), style)
+        .or(invalid.as_ref())
+        .or_else(|| state.and_then(SessionState::message));
+    notice.map_or_else(Line::default, |notice| problem::status_line(notice, width))
 }
 
 #[cfg(test)]
@@ -396,7 +420,7 @@ mod tests {
     use super::*;
     use crate::format::{Session, result_answers};
     use crate::graphics::{Graphics, Passthrough, testing};
-    use crate::tui::{Focus, Notice, SessionState, Tone};
+    use crate::tui::{Focus, Invalid, Notice, SessionState, Tone};
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
     const RELEASE: &str = include_str!("../../../examples/sessions/release-checklist.json");
@@ -1212,7 +1236,7 @@ mod tests {
         assert_drawn(buf, Glyphs::Quadrant, false, rect);
         assert_eq!(
             row(buf, 30),
-            "broken is invalid and was answered with an error"
+            "! broken is invalid and was answered with an error"
         );
     }
 
@@ -1539,7 +1563,7 @@ mod tests {
         let buf = backend.buffer();
         assert_eq!(
             row(buf, 18),
-            "broken is invalid and was answered with an error",
+            "! broken is invalid and was answered with an error",
             "{backend}"
         );
         assert_eq!(style_at(buf, "broken").fg, Some(Color::Yellow));
@@ -1616,7 +1640,7 @@ mod tests {
 
         let backend = screen(&app, 80, 24);
         let buf = backend.buffer();
-        assert_eq!(row(buf, 22), message, "{backend}");
+        assert_eq!(row(buf, 22), format!("! {message}"), "{backend}");
         assert_eq!(style_at(buf, &message).fg, Some(Color::Yellow));
         assert_eq!(row(buf, 23), key_bar, "{backend}");
 
@@ -1628,7 +1652,7 @@ mod tests {
         let buf = backend.buffer();
         assert_eq!(
             row(buf, 22),
-            "batch-01 collided with an unread result and was archived",
+            "! batch-01 collided with an unread result and was archived",
             "{backend}"
         );
         assert_eq!(style_at(buf, "batch-01").fg, Some(Color::Yellow));
@@ -1646,7 +1670,7 @@ mod tests {
         keys(&mut app, "l23");
         let state = app.active().cloned();
         let line = status_line(&app, state.as_ref(), 80);
-        assert_eq!(text(line.clone()), "at most 2 options");
+        assert_eq!(text(line.clone()), "! at most 2 options");
         assert_eq!(line.style.fg, Some(Color::Yellow));
         assert_eq!(
             text(status_line(&app, None, 80)),
@@ -1658,7 +1682,7 @@ mod tests {
             Tone::Warning,
             "batch-01 collided with an unread result and was archived",
         );
-        let expected = "batch-01 collided with an unread result and was archived";
+        let expected = "! batch-01 collided with an unread result and was archived";
         let line = status_line(&app, state.as_ref(), 80);
         assert_eq!(text(line.clone()), expected);
         assert_eq!(line.style.fg, Some(Color::Yellow));
@@ -1669,15 +1693,15 @@ mod tests {
     fn the_status_line_colours_a_notice_by_its_tone() {
         let mut app = App::default();
         let tones = [
-            (Tone::Info, Style::new()),
-            (Tone::Warning, Style::new().fg(Color::Yellow)),
-            (Tone::Error, Style::new().fg(Color::Red)),
-            (Tone::Success, Style::new().fg(Color::Green)),
+            (Tone::Info, Style::new(), "news"),
+            (Tone::Warning, Style::new().fg(Color::Yellow), "! news"),
+            (Tone::Error, Style::new().fg(Color::Red), "✗ news"),
+            (Tone::Success, Style::new().fg(Color::Green), "news"),
         ];
-        for (tone, style) in tones {
+        for (tone, style, text) in tones {
             app.notice(tone, "news");
             let line = status_line(&app, None, 80);
-            assert_eq!(line.to_string(), "news");
+            assert_eq!(line.to_string(), text, "{tone:?}");
             assert_eq!(line.style, style, "{tone:?}");
         }
     }
@@ -1709,6 +1733,224 @@ mod tests {
     }
 
     #[test]
+    fn the_status_line_marks_errors_and_warnings() {
+        let mut app = App::default();
+        app.notice(Tone::Error, "cannot save the draft of batch: disk full");
+
+        let line = status_line(&app, None, 80);
+
+        assert_eq!(line.spans[0], Span::styled("✗ ", Style::new().bold()));
+        assert_eq!(
+            line.to_string(),
+            "✗ cannot save the draft of batch: disk full"
+        );
+        assert_eq!(line.style.fg, Some(Color::Red), "the line keeps its colour");
+
+        let mut app = app_with_message();
+        let state = app.active().cloned();
+        let line = status_line(&app, state.as_ref(), 80);
+        assert_eq!(line.spans[0], Span::styled("! ", Style::new().bold()));
+        assert_eq!(line.style.fg, Some(Color::Yellow));
+        app.show(Notice::naming(Tone::Success, "✔ sent \"", "batch", "\""));
+        assert_eq!(status_line(&app, None, 80).to_string(), "✔ sent \"batch\"");
+    }
+
+    /// The release session after a third pick its `max` of 2 refuses,
+    /// which leaves a warning message.
+    fn app_with_message() -> App {
+        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
+        keys(&mut app, "l23");
+        app
+    }
+
+    #[test]
+    fn the_status_line_cuts_a_name_to_the_room_the_mark_and_the_rest_leave() {
+        let mut app = App::default();
+        app.show(Notice::naming(
+            Tone::Warning,
+            "kept \"",
+            "Release 0.2.0",
+            "\" aside",
+        ));
+
+        let line = status_line(&app, None, 20).to_string();
+
+        // `! `, `kept "` and `" aside` take 15 columns, which leaves the
+        // name 5.
+        assert_eq!(line, "! kept \"Rele…\" aside");
+        assert_eq!(columns(&line), 20);
+    }
+
+    #[test]
+    fn the_status_line_shows_the_line_of_the_dialog_in_front() {
+        let mut app = App::default();
+        app.report_invalid(invalid("broken", &["one"]));
+        app.report_invalid(invalid("garbage", &["two"]));
+
+        let line = status_line(&app, None, 80);
+        assert_eq!(
+            line.to_string(),
+            "! broken is invalid and was answered with an error"
+        );
+        assert_eq!(line.style.fg, Some(Color::Yellow));
+
+        app.notice(Tone::Error, "cannot read the inbox: gone");
+        assert_eq!(
+            status_line(&app, None, 80).to_string(),
+            "✗ cannot read the inbox: gone",
+            "a newer notice wins"
+        );
+
+        app.handle(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert_eq!(
+            status_line(&app, None, 80).to_string(),
+            "! garbage is invalid and was answered with an error"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // The dialog of an invalid session
+    // -----------------------------------------------------------------
+
+    fn invalid(id: &str, errors: &[&str]) -> Invalid {
+        Invalid {
+            id: id.to_owned(),
+            errors: errors.iter().map(|error| (*error).to_owned()).collect(),
+        }
+    }
+
+    const ERRORS: [&str; 2] = [
+        "questions[0].options[1].id: duplicate id \"yes\"",
+        "questions[1].min: 3 is more than the 1 options, so no answer could ever be given to it",
+    ];
+
+    #[test]
+    fn the_dialog_lists_every_error_of_an_invalid_session() {
+        let mut empty = App::default();
+        empty.report_invalid(invalid("broken", &ERRORS));
+        insta::assert_snapshot!("invalid_dialog_80x24", screen(&empty, 80, 24));
+
+        let mut waiting = app(&[("release", RELEASE)]);
+        waiting.report_invalid(invalid("broken", &ERRORS));
+        insta::assert_snapshot!("invalid_dialog_60x15", screen(&waiting, 60, 15));
+    }
+
+    #[test]
+    fn the_dialog_is_framed_in_yellow_with_a_bold_mark() {
+        let mut app = App::default();
+        app.report_invalid(invalid("broken", &ERRORS));
+
+        let backend = screen(&app, 80, 24);
+        let buf = backend.buffer();
+
+        let (x, y) = find(buf, "! Session broken is invalid");
+        assert_eq!(look_at(buf, "! Session"), (Color::Yellow, Modifier::BOLD));
+        assert_eq!(
+            buf[(x + 2, y)].modifier,
+            Modifier::BOLD,
+            "the title is bold"
+        );
+        assert_eq!(buf[(x - 2, y)].symbol(), "╭");
+        assert_eq!(buf[(x - 2, y)].fg, Color::Yellow, "{backend}");
+        assert_eq!(look_at(buf, "• questions[0]").0, Color::Yellow);
+        assert_eq!(
+            look_at(buf, "questions[0]"),
+            (Color::Reset, Modifier::empty()),
+            "the error in the text colour"
+        );
+        assert_eq!(
+            look_at(buf, "any key closes"),
+            (Color::Yellow, Modifier::DIM)
+        );
+    }
+
+    #[test]
+    fn a_dialog_taller_than_the_screen_says_how_many_more() {
+        let errors: Vec<String> = (1..=30).map(|n| format!("error {n}")).collect();
+        let mut app = App::default();
+        app.report_invalid(Invalid {
+            id: "broken".to_owned(),
+            errors,
+        });
+
+        let backend = screen(&app, 60, 15);
+        let buf = backend.buffer();
+        let text = backend.to_string();
+
+        // The dialog leaves the status line and the key bar free: 13 rows,
+        // 11 inside its frame. The headline takes 2, a blank row 1, and the
+        // row that counts the rest 1, which leaves 7 errors.
+        assert!(row(buf, 0).contains('╭'), "{backend}");
+        assert!(row(buf, 12).trim_start().starts_with('╰'), "{backend}");
+        assert!(text.contains("• error 7 "), "{backend}");
+        assert!(!text.contains("• error 8 "), "{backend}");
+        assert!(text.contains("… 23 more"), "{backend}");
+        assert_eq!(
+            row(buf, 13),
+            "! broken is invalid and was answered with an error"
+        );
+
+        // An error of two rows that does not fit goes whole into the count.
+        let mut errors: Vec<String> = (1..=6).map(|n| format!("error {n}")).collect();
+        errors.push(format!("error 7 {}", "long ".repeat(12)));
+        errors.extend((8..=30).map(|n| format!("error {n}")));
+        let mut app = App::default();
+        app.report_invalid(Invalid {
+            id: "broken".to_owned(),
+            errors,
+        });
+        let text = screen(&app, 60, 15).to_string();
+        assert!(text.contains("• error 6 "), "{text}");
+        assert!(!text.contains("error 7"), "{text}");
+        assert!(text.contains("… 24 more"), "{text}");
+    }
+
+    #[test]
+    fn a_dialog_that_fits_shows_every_error_without_a_count() {
+        let errors: Vec<String> = (1..=8).map(|n| format!("error {n}")).collect();
+        let mut app = App::default();
+        app.report_invalid(Invalid {
+            id: "broken".to_owned(),
+            errors,
+        });
+
+        let text = screen(&app, 60, 15).to_string();
+
+        assert!(text.contains("• error 8 "), "{text}");
+        assert!(!text.contains("more"), "{text}");
+    }
+
+    #[test]
+    fn the_key_bar_offers_any_key_to_close_the_dialog() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.report_invalid(invalid("broken", &ERRORS));
+
+        let backend = screen(&app, 80, 24);
+
+        assert_eq!(row(backend.buffer(), 23), " any key  close", "{backend}");
+    }
+
+    #[test]
+    fn talqi_gives_way_to_the_dialog_on_the_empty_queue() {
+        let mut app = App::default();
+        app.report_invalid(invalid("broken", &ERRORS));
+
+        let open = screen(&app, 80, 36);
+        for cell in open.buffer().content() {
+            let rgb = colours(cell)
+                .iter()
+                .any(|colour| matches!(colour, Color::Rgb(..)));
+            assert!(!rgb && !emblem_glyph(cell), "{cell:?}");
+        }
+        find(open.buffer(), "Session broken is invalid");
+
+        app.handle(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        let closed = screen(&app, 80, 36);
+        let rect = emblem_rect(80, 36).expect("room for Talqi");
+        assert_drawn(closed.buffer(), Glyphs::Quadrant, false, rect);
+    }
+
+    #[test]
     fn a_reloaded_session_says_so_in_plain_text() {
         let mut app = app(&[("release", RELEASE)]);
         let replaced: Session = serde_json::from_str(RELEASE).expect("example parses");
@@ -1734,7 +1976,7 @@ mod tests {
         // The notice shows only in the margin beside the intro's frame.
         let backend = screen(&app, 60, 15);
         let buf = backend.buffer();
-        assert!(row(buf, 13).starts_with("ba╰───"), "{backend}");
+        assert!(row(buf, 13).starts_with("! ╰───"), "{backend}");
         assert!(row(buf, 13).ends_with("╯"), "{backend}");
         assert!(row(buf, 14).starts_with(" ↑/↓  scroll"), "{backend}");
     }
@@ -2140,6 +2382,36 @@ mod tests {
             let shown = assert_kitty_cells_placed(terminal.backend().buffer(), origin, &after);
             assert_eq!(shown, whole, "{after}");
         }
+    }
+
+    /// The dialog of an invalid session over the pane covers part of the
+    /// image's rows, as the overlays do, and leaves the cells beside it and,
+    /// once a key closes it, the whole image in place.
+    #[test]
+    fn a_dialog_over_a_kitty_image_leaves_the_cells_beside_it_in_place() {
+        let image = wide_png(400, 200);
+        let mut app = with_image_and_intro(image.path().to_str().expect("UTF-8 path"));
+        let mut view = kitty_beside();
+        let mut terminal = kept_terminal(200, 30);
+
+        draw_on(&mut terminal, &mut app, &mut view);
+        let origin = kitty_origin(terminal.backend().buffer());
+        let whole = assert_kitty_cells_placed(terminal.backend().buffer(), origin, "before");
+
+        app.report_invalid(invalid("broken", &ERRORS));
+        draw_on(&mut terminal, &mut app, &mut view);
+        let buf = terminal.backend().buffer();
+        let beside = assert_kitty_cells_placed(buf, origin, "under the dialog");
+        assert!(beside < whole, "it covers part of the image");
+        assert!(
+            a_placeholder_follows_a_gap(buf, origin),
+            "cells of the image show right of it"
+        );
+
+        special(&mut app, KeyCode::Char('x'));
+        draw_on(&mut terminal, &mut app, &mut view);
+        let shown = assert_kitty_cells_placed(terminal.backend().buffer(), origin, "after");
+        assert_eq!(shown, whole);
     }
 
     /// An image first drawn while the help covers its first cell, as after

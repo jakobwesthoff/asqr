@@ -17,9 +17,13 @@ const SENTENCE: &str = "Nothing to answer. New sessions show up here as soon as 
 /// The rows kept for the sentence, which wraps on a narrow screen.
 const SENTENCE_ROWS: u16 = 3;
 
-/// The empty queue: Talqi's emblem in `glyphs` above the sentence.
+/// The empty queue: Talqi's emblem in `glyphs` above the sentence, where
+/// `talqi` holds.
 pub(super) struct EmptyQueue {
     pub(super) glyphs: Glyphs,
+    /// Whether Talqi shows: the dialog of an invalid session hides him
+    /// while it is open (ADR 49).
+    pub(super) talqi: bool,
     /// Whether the screen is drawn without colours (`NO_COLOR`). Talqi is
     /// then the emblem's outline, which has no colour at all.
     pub(super) no_color: bool,
@@ -27,7 +31,11 @@ pub(super) struct EmptyQueue {
 
 impl Widget for EmptyQueue {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let (emblem, sentence) = emblem_screen_areas(area);
+        let (emblem, sentence) = if self.talqi {
+            emblem_screen_areas(area)
+        } else {
+            (None, sentence_alone(area))
+        };
         if let Some(emblem) = emblem {
             self.glyphs.template(self.no_color).render(emblem, buf);
         }
@@ -137,7 +145,12 @@ mod tests {
     fn drawn(glyphs: Glyphs, no_color: bool, width: u16, height: u16) -> Buffer {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
-        EmptyQueue { glyphs, no_color }.render(area, &mut buf);
+        EmptyQueue {
+            glyphs,
+            talqi: true,
+            no_color,
+        }
+        .render(area, &mut buf);
         buf
     }
 
