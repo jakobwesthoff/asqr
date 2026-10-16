@@ -17,7 +17,12 @@ mod placeholders;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use ::image::{DynamicImage, ImageError};
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
+
+use ::image::error::{ImageFormatHint, UnsupportedError, UnsupportedErrorKind};
+use ::image::{DynamicImage, ImageError, ImageFormat};
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 
 #[cfg(unix)]
@@ -168,13 +173,33 @@ impl Images {
         self.graphics
     }
 
-    /// Reads and decodes the image at `path`. The caller checks first
-    /// that the path may be opened at all.
-    pub fn load(&self, path: &str) -> Result<Image, ImageError> {
-        let decoded = ::image::ImageReader::open(path)?
-            .with_guessed_format()?
-            .decode()?;
-        Ok(self.image(decoded))
+    /// Reads and decodes the image in `file`, opened from `path`. The
+    /// caller opens it, by the rule that decides which paths may be
+    /// opened at all.
+    ///
+    /// The format comes from the file's first bytes, else from the
+    /// extension of `path`, as `ImageReader::open` finds it: TGA, for
+    /// one, has no signature to recognise. An extension no format knows
+    /// fails with the error that names it.
+    pub fn decode(&self, file: File, path: &str) -> Result<Image, ImageError> {
+        let mut reader = ::image::ImageReader::new(BufReader::new(file)).with_guessed_format()?;
+        if reader.format().is_none()
+            && let Some(extension) = Path::new(path).extension().filter(|ext| !ext.is_empty())
+        {
+            match ImageFormat::from_extension(extension) {
+                Some(format) => reader.set_format(format),
+                None => {
+                    let hint = ImageFormatHint::PathExtension(extension.into());
+                    return Err(ImageError::Unsupported(
+                        UnsupportedError::from_format_and_kind(
+                            hint.clone(),
+                            UnsupportedErrorKind::Format(hint),
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(self.image(reader.decode()?))
     }
 
     /// Makes an image of `picture`, which is decoded already. It is

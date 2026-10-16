@@ -184,6 +184,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   waiting for it, and the further answers inside tmux with several
   clients attached, no longer reach asqr as keys. Before, their digits
   could pick an option.
+- A context file swapped for a FIFO between asqr's check of its path
+  and its opening shows the card of a path that is not a regular file.
+  Before, asqr waited until something wrote to the FIFO.
 
 ## [0.11.0] - 2026-10-15
 

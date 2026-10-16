@@ -14,7 +14,7 @@ use super::code::CodeViewer;
 use super::diff::DiffViewer;
 use super::markdown_viewer::MarkdownViewer;
 use super::problem::Card;
-use super::source_file::{Unreadable, regular_file};
+use super::source_file::{Unreadable, open_regular};
 use super::theme;
 use super::wrap::wrap;
 use crate::format::{ContextEntry, ImageEntry};
@@ -298,9 +298,9 @@ impl ImageViewer {
 /// The image of `entry`, opened by the rule every viewer of a file follows
 /// and decoded.
 fn load(entry: &ImageEntry, images: &Images) -> Result<Image, Unreadable> {
-    regular_file(&entry.path)?;
+    let file = open_regular(&entry.path)?;
     images
-        .load(&entry.path)
+        .decode(file, &entry.path)
         .map_err(|error| Unreadable::image(&entry.path, &error))
 }
 
@@ -392,7 +392,7 @@ mod tests {
     use patine::AnsiColor;
 
     use super::super::patine_adapter::quote_style;
-    use super::super::source_file::Failure;
+    use super::super::source_file::{Failure, regular_file};
     use super::super::test_support::{self, row};
     use super::*;
     use crate::graphics::Protocol;
@@ -868,6 +868,46 @@ mod tests {
             refused
                 .reason
                 .contains("was not recognized as an image format"),
+            "{}",
+            refused.reason
+        );
+    }
+
+    /// TGA has no signature in its first bytes, so only the extension
+    /// names its format.
+    #[test]
+    fn a_tga_file_loads_by_its_extension() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("dot.tga");
+        image::RgbImage::from_pixel(2, 2, image::Rgb([255, 0, 0]))
+            .save(&path)
+            .expect("image written");
+        let image: ContextEntry =
+            serde_json::from_value(serde_json::json!({"type": "image", "path": path}))
+                .expect("test entry parses");
+
+        let buf = drawn_by(&mut viewers(), &image, 20, 10, 0);
+
+        let red = ratatui::style::Color::Rgb(255, 0, 0);
+        assert!(
+            buf.content
+                .iter()
+                .any(|cell| cell.fg == red || cell.bg == red),
+            "{buf:?}"
+        );
+    }
+
+    #[test]
+    fn a_file_without_extension_that_is_no_image_cannot_be_decoded() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("notes");
+        std::fs::write(&path, b"no picture in here").expect("file is writable");
+
+        let refused = refused_image(&path);
+
+        assert_eq!(refused.failure, Failure::FormatUnsupported);
+        assert!(
+            refused.reason.contains("could not be determined"),
             "{}",
             refused.reason
         );

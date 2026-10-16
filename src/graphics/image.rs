@@ -205,10 +205,12 @@ mod tests {
     use super::*;
     use crate::terminal_env::TerminalEnv;
 
-    /// Why the file at `path` does not load, or `None` when it does.
+    /// Why the file at `path` does not open or decode, or `None` when it
+    /// does.
     fn refused(path: &str) -> Option<String> {
-        Images::half_blocks()
-            .load(path)
+        fs::File::open(path)
+            .map_err(::image::ImageError::IoError)
+            .and_then(|file| Images::half_blocks().decode(file, path))
             .err()
             .map(|error| error.to_string())
     }
