@@ -12,6 +12,7 @@
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::io;
 use std::panic::{AssertUnwindSafe, PanicHookInfo, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
@@ -170,9 +171,25 @@ pub(super) fn finish(job: Job, tools: &Tools) {
 /// it on a thread of its own, and a new window replaces what did not
 /// start.
 pub(super) struct Ahead {
-    queue: Arc<(Mutex<Queue>, Condvar)>,
+    queue: Shared,
     /// Whether the thread runs; it starts with the first job.
     started: bool,
+    /// Whether a refused thread was logged since the last one started.
+    warned: bool,
+    /// Starts the thread; tests refuse it there.
+    spawn: fn(Shared) -> io::Result<()>,
+}
+
+/// The queue as the thread that loads ahead and the viewers share it.
+type Shared = Arc<(Mutex<Queue>, Condvar)>;
+
+/// Starts the thread that runs the jobs of `queue`.
+fn spawn_worker(queue: Shared) -> io::Result<()> {
+    thread::Builder::new()
+        .name("asqr-ahead".to_owned())
+        .stack_size(STACK)
+        .spawn(move || work(&queue))
+        .map(drop)
 }
 
 #[derive(Default)]
@@ -187,6 +204,8 @@ impl Ahead {
         Ahead {
             queue: Arc::default(),
             started: false,
+            warned: false,
+            spawn: spawn_worker,
         }
     }
 
@@ -212,28 +231,50 @@ impl Ahead {
         &mut self,
         choose: impl FnOnce(&[ViewerKey]) -> Option<Vec<(Job, Tools)>>,
     ) {
-        {
+        let changed = {
             let mut queue = self.lock();
             let queued: Vec<ViewerKey> =
                 queue.jobs.iter().map(|(job, _)| job.key.clone()).collect();
-            let Some(jobs) = choose(&queued) else {
-                return;
-            };
-            queue.jobs.clear();
-            queue.jobs.extend(jobs);
+            match choose(&queued) {
+                Some(jobs) => {
+                    queue.jobs.clear();
+                    queue.jobs.extend(jobs);
+                    true
+                }
+                None => false,
+            }
+        };
+        if changed {
+            self.queue.1.notify_all();
         }
-        self.queue.1.notify_all();
-        if !self.started && !self.lock().jobs.is_empty() {
-            self.started = true;
-            let queue = Arc::clone(&self.queue);
-            let spawned = thread::Builder::new()
-                .name("asqr-ahead".to_owned())
-                .stack_size(STACK)
-                .spawn(move || work(&queue));
-            // Without the thread the jobs wait in the queue, where the
-            // entry shown still takes its own out to run it.
-            if let Err(error) = spawned {
-                tracing::warn!(%error, "could not start the thread that loads ahead");
+        // Also a queue that did not change asks for its thread again,
+        // where the system refused one before.
+        if !self.lock().jobs.is_empty() {
+            self.ensure_worker();
+        }
+    }
+
+    /// Starts the thread unless it runs. Without it the jobs wait in the
+    /// queue, where the entry shown still takes its own out to run it,
+    /// and the next call asks again. Every frame with a pane asks, so a
+    /// refusal is logged once until a thread starts.
+    fn ensure_worker(&mut self) {
+        if self.started {
+            return;
+        }
+        match (self.spawn)(Arc::clone(&self.queue)) {
+            Ok(()) => {
+                self.started = true;
+                self.warned = false;
+            }
+            Err(error) => {
+                if !self.warned {
+                    tracing::warn!(
+                        %error,
+                        "could not start the thread that loads ahead; the next requeue tries again"
+                    );
+                    self.warned = true;
+                }
             }
         }
     }
@@ -377,6 +418,55 @@ mod tests {
         };
         assert_eq!(message, "boom");
         assert!(!LOADING.get(), "the thread runs no job any more");
+    }
+
+    /// A spawn that fails, as at the system's limit of threads.
+    fn refuse(_: Shared) -> io::Result<()> {
+        Err(io::Error::other("no thread for the test"))
+    }
+
+    /// Tools whose builds make a loading note, and where results go.
+    fn noting() -> (Tools, mpsc::Receiver<Finished>) {
+        let (results, finished) = mpsc::channel();
+        let tools = Tools {
+            build: Arc::new(|_, _, _, _| Box::new(super::super::viewer::LoadingNote)),
+            images: Images::half_blocks(),
+            home: None,
+            results,
+            wake: Arc::new(|| {}),
+        };
+        (tools, finished)
+    }
+
+    /// A thread the system refused is asked for again by every requeue
+    /// until one starts, and only the first refusal of a run is logged.
+    #[test]
+    fn a_refused_thread_is_tried_again_by_the_next_requeue() {
+        let (tools, finished) = noting();
+        let mut ahead = Ahead::new();
+        ahead.spawn = refuse;
+
+        ahead.requeue(|_| Some(vec![(job(), tools.clone())]));
+        assert!(!ahead.started);
+        assert!(ahead.warned);
+        let short = std::time::Duration::from_millis(100);
+        assert!(finished.recv_timeout(short).is_err(), "no thread ran it");
+
+        ahead.requeue(|_| Some(vec![(job(), tools.clone())]));
+        assert!(!ahead.started, "refused again");
+        assert!(ahead.warned);
+
+        // A requeue that leaves the queue as it is asks again too.
+        ahead.spawn = spawn_worker;
+        ahead.requeue(|_| None);
+        assert!(ahead.started);
+        assert!(!ahead.warned, "the next refusal warns again");
+        assert!(
+            finished
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .is_ok(),
+            "the thread runs the job"
+        );
     }
 
     /// The viewers going close the queue, and its thread ends after its
