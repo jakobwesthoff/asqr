@@ -8,6 +8,8 @@
 //! asqr runs as if inside tmux, with a stand-in `tmux` on the path. When
 //! it reports passthrough off, asqr skips the graphics query; when it
 //! reports passthrough on, the test answers the query as a terminal would.
+//! Each `tmux set` it gets shows in the output as a [`tmux_set`] mark, so
+//! a test sees where among asqr's own writes it ran.
 //! Stand-ins for `open` and `xdg-open` record what the image viewer was
 //! asked to show.
 
@@ -46,6 +48,12 @@ const PASSTHROUGH_ON: &str = "on\t1\t\t1\t1\t0\t3.5";
 /// The file in the sandbox's home where the stand-in tmux notes each
 /// command it gets, one line each.
 const TMUX_COMMANDS: &str = "tmux-commands";
+
+/// The mark the stand-in tmux writes to the terminal for `tmux set` with
+/// `arguments`: an OSC sequence no terminal acts on.
+fn tmux_set(arguments: &str) -> String {
+    format!("\x1b]7777;tmux set {arguments}\x07")
+}
 
 /// How long asqr waits for the answer to the graphics query.
 const QUERY_WAIT: Duration = Duration::from_secs(5);
@@ -87,6 +95,7 @@ impl Tui {
                      case \"$1\" in\n\
                      display-message) echo '{tmux_state}' ;;\n\
                      show-options) echo on ;;\n\
+                     set) printf '\\033]7777;tmux %s\\007' \"$*\" > /dev/tty ;;\n\
                      esac",
                     commands.display()
                 ),
@@ -829,25 +838,43 @@ fn kitty_delete(id: u32) -> String {
     format!("\x1b_Ga=d,d=I,i={id},q=2\x1b\\")
 }
 
+/// `sequence` wrapped for tmux's passthrough, with the escapes inside
+/// doubled.
+fn wrapped(sequence: &str) -> String {
+    format!("\x1bPtmux;{}\x1b\\", sequence.replace('\x1b', "\x1b\x1b"))
+}
+
 /// Starts asqr in a terminal that answers the graphics query as one with
 /// Kitty graphics and cells of 10×20 pixels, and has it show a session
 /// with a red image.
 fn showing_a_kitty_image(sandbox: &Sandbox) -> Tui {
+    showing_a_kitty_image_with(sandbox, PASSTHROUGH_ON, &[])
+}
+
+/// Like [`showing_a_kitty_image`], inside a tmux that reports
+/// `tmux_state`, with the variables in `environment` set.
+fn showing_a_kitty_image_with(
+    sandbox: &Sandbox,
+    tmux_state: &str,
+    environment: &[(&str, &str)],
+) -> Tui {
     let dir = sandbox.queue_dir();
     // asqr inherits the variables of the terminal the tests run in. A
     // `TERM_PROGRAM` of tmux makes ratatui-image wrap every command for
     // passthrough, and WezTerm's or Konsole's variable rules the Kitty
     // protocol out whatever the terminal answers (ratatui-image
     // 12.0.0-rc.2 `picker.rs` l.131-138), where empty counts as unset.
+    let mut variables = vec![
+        ("TERM_PROGRAM", "pty-test"),
+        ("WEZTERM_EXECUTABLE", ""),
+        ("KONSOLE_VERSION", ""),
+    ];
+    variables.extend_from_slice(environment);
     let mut tui = Tui::start_with(
         sandbox,
         &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
-        PASSTHROUGH_ON,
-        &[
-            ("TERM_PROGRAM", "pty-test"),
-            ("WEZTERM_EXECUTABLE", ""),
-            ("KONSOLE_VERSION", ""),
-        ],
+        tmux_state,
+        &variables,
     );
     tui.answer_the_query(KITTY_GRAPHICS);
     tui.wait_for("Nothing to answer");
@@ -931,6 +958,35 @@ fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
             && old_deleted < again_deleted
             && again_deleted < pop
             && pop < main_screen,
+        "{output:?}"
+    );
+}
+
+/// Inside tmux 3.4 or later, asqr writes the deletes of its Kitty images
+/// while its pane has `allow-passthrough all`, so they pass from a hidden
+/// pane: the deletes, then the title given back and the main screen, and
+/// only then the pane's own value back (ADRs 42 and 44).
+#[test]
+fn inside_tmux_the_deletes_on_quitting_go_out_before_the_pane_s_passthrough_is_put_back() {
+    let sandbox = Sandbox::new();
+    // `TERM` makes ratatui-image wrap its commands for tmux.
+    let mut tui = showing_a_kitty_image_with(
+        &sandbox,
+        "on\t1\t\t1\t1\t0\t3.4",
+        &[("TERM", "tmux-256color")],
+    );
+    let shown = sent_kitty_image(&tui, 0);
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let output = tui.output();
+    let deleted = first(&output, &wrapped(&kitty_delete(shown)));
+    let pop = last(&output, POP_TITLE);
+    let main_screen = last(&output, "\x1b[?1049l");
+    let all = first(&output, &tmux_set("-p allow-passthrough all"));
+    let put_back = last(&output, &tmux_set("-p allow-passthrough on"));
+    assert!(
+        all < deleted && deleted < pop && pop < main_screen && main_screen < put_back,
         "{output:?}"
     );
 }

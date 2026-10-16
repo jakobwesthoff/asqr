@@ -9,6 +9,7 @@
 
 use std::collections::{BTreeSet, HashSet};
 use std::hash::{BuildHasher, RandomState};
+use std::io::Write;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::Graphics;
@@ -238,6 +239,41 @@ impl KittyDeletes {
     }
 }
 
+/// Deletes every Kitty image still in the book when dropped, as asqr
+/// quits, also when the run ended in an error (ADR 42).
+///
+/// Ghostty keeps Kitty images per screen, and the alternate screen with
+/// them after asqr leaves it, where a delete no longer reaches them;
+/// erasing the screen skips images placed by placeholders. So it is
+/// dropped while the alternate screen is still on, after the view, whose
+/// images hand their ids on as they go.
+pub struct KittyExit<W: Write> {
+    book: KittyBook,
+    out: W,
+}
+
+impl<W: Write> KittyExit<W> {
+    pub fn new(book: KittyBook, out: W) -> Self {
+        KittyExit { book, out }
+    }
+}
+
+impl<W: Write> Drop for KittyExit<W> {
+    fn drop(&mut self) {
+        let deletes = self.book.drain();
+        if deletes.is_empty() {
+            return;
+        }
+        let deleted = self
+            .out
+            .write_all(&deletes.to_bytes())
+            .and_then(|()| self.out.flush());
+        if let Err(error) = deleted {
+            tracing::warn!(%error, "could not delete the images");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::Passthrough;
@@ -392,6 +428,42 @@ mod tests {
         assert!(panicked.is_err());
         drop(image);
         assert_eq!(book.after_frame().ids(), [1]);
+    }
+
+    /// On quitting, the images that went and those still there are
+    /// deleted once, also where the view let them go before.
+    #[test]
+    fn the_exit_deletes_every_image_still_in_the_book() {
+        let book = counting(Graphics::KITTY);
+        let [went, stays] = [(); 2].map(|()| HeldId::issued(&book));
+        drop(went);
+        let mut written = Vec::new();
+
+        drop(KittyExit::new(book.clone(), &mut written));
+        drop(stays);
+
+        assert_eq!(
+            written,
+            b"\x1b_Ga=d,d=I,i=1,q=2\x1b\\\x1b_Ga=d,d=I,i=2,q=2\x1b\\"
+        );
+        assert_eq!(book.drain().ids(), [0_u32; 0], "deleted once");
+    }
+
+    /// Without an image left, the exit writes nothing; a terminal that
+    /// refuses the deletes is logged, and asqr goes on quitting.
+    #[test]
+    fn the_exit_writes_nothing_without_images_and_survives_a_refusal() {
+        let book = counting(Graphics::KITTY);
+        let mut written = Vec::new();
+        drop(KittyExit::new(book.clone(), &mut written));
+        assert_eq!(written, b"");
+
+        let _image = HeldId::issued(&book);
+        // A full buffer fails every write with `WriteZero`.
+        let mut full: [u8; 0] = [];
+        drop(KittyExit::new(book.clone(), &mut full[..]));
+
+        assert_eq!(book.drain().ids(), [0_u32; 0], "taken out all the same");
     }
 
     #[test]

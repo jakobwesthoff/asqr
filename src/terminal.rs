@@ -10,7 +10,7 @@
 //! runs the terminal and those programs; its parts that write escape
 //! sequences are tested against a byte buffer.
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::io::{self, IsTerminal, Write};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
@@ -20,8 +20,9 @@ use std::time::Instant;
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
 use asqr::graphics::{
-    Graphics, Images, KittyDeletes, PanePassthrough, QUERY_WAIT, answers_may_follow_the_query,
-    may_query_protocol, passthrough_all_for_images, settle_passthrough,
+    Graphics, Images, KittyDeletes, KittyExit, PanePassthrough, QUERY_WAIT,
+    answers_may_follow_the_query, may_query_protocol, passthrough_all_for_images,
+    settle_passthrough,
 };
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
@@ -77,8 +78,8 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // Every `Picker` constructor turns passthrough on for the pane. This
     // guard gives the pane its own setting back once the picker is built,
     // or as asqr ends when the pane gets `all` for Kitty images (spec
-    // section 7.7). Made before the terminal guard, it is dropped after
-    // it, so the deletes that guard writes still pass from a hidden pane.
+    // section 7.7). Made first, it is dropped last, so the deletes of the
+    // Kitty images on quitting still pass from a hidden pane.
     let mut pane = PanePassthrough::snapshot(&env, run_tmux);
 
     // `try_init` also installs the panic hook that gives the terminal back
@@ -87,12 +88,10 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // every return from this function from here on and on a panic.
     let mut terminal = ratatui::try_init().context("setting up the terminal")?;
     let title_pushed = Rc::new(Cell::new(false));
-    let exit_deletes = Rc::new(RefCell::new(Vec::new()));
     let _guard = TerminalGuard {
         out: io::stdout(),
         restore: ratatui::restore,
         title_pushed: Rc::clone(&title_pushed),
-        exit_deletes: Rc::clone(&exit_deletes),
     };
     // SIGTERM, SIGINT and SIGHUP would end the process without the guard.
     // Caught, they end the run as `q` does, and the guard runs. SIGKILL
@@ -176,21 +175,25 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         title_pushed,
         env,
     };
-    let mut view = View::new(&queue, watch.layout(), Images::new(graphics))
+    let images = Images::new(graphics);
+    // What is left at the end is dropped in the reverse order it was made
+    // in: the view first, whose images hand their ids on as they go, then
+    // `_kitty_exit`, which deletes the images while the alternate screen is
+    // on, then `_guard`, which leaves it, and last `pane`, which gives the
+    // pane its passthrough back, so the deletes pass while it has `all`
+    // (ADRs 42 and 44).
+    let _kitty_exit = KittyExit::new(images.kitty_book().clone(), io::stdout());
+    let mut view = View::new(&queue, watch.layout(), images)
         .no_color(watch.no_color())
         .glyphs(glyphs);
-    let ran = run(
+    run(
         &mut terminal,
         &mut app,
         &mut inbox,
         &mut view,
         &events,
         &mut host,
-    );
-    // The guard writes these while the alternate screen is still on, also
-    // when the run ended in an error (ADR 42).
-    exit_deletes.replace(view.kitty_book().drain().to_bytes());
-    ran
+    )
 }
 
 /// Asks the terminal for its graphics protocol, and discards the answers
@@ -225,10 +228,9 @@ fn query_graphics(tmux: Option<&TmuxState>) -> Graphics {
     graphics
 }
 
-/// Gives the terminal back when dropped: deletes the Kitty images asqr
-/// leaves, gives back the title asqr pushed, turns focus reports and
-/// bracketed paste off, then calls `restore`, which leaves raw mode and
-/// the alternate screen.
+/// Gives the terminal back when dropped: gives back the title asqr
+/// pushed, turns focus reports and bracketed paste off, then calls
+/// `restore`, which leaves raw mode and the alternate screen.
 ///
 /// The guard covers a panic only because a panic unwinds and drops it. A
 /// build with `panic = "abort"` would skip the drop and leave both modes
@@ -242,9 +244,6 @@ struct TerminalGuard<W: Write> {
     /// Whether [`write_title`] pushed the terminal's title, shared with
     /// the [`TerminalHost`] that writes the titles.
     title_pushed: Rc<Cell<bool>>,
-    /// The commands that delete the Kitty images asqr still knows of, put
-    /// here when the run ends. A panic leaves it empty.
-    exit_deletes: Rc<RefCell<Vec<u8>>>,
 }
 
 /// Saves the window and the icon title on the terminal's title stack.
@@ -269,18 +268,6 @@ fn write_title(out: &mut impl Write, title: &str, pushed: &Cell<bool>) -> io::Re
 
 impl<W: Write> Drop for TerminalGuard<W> {
     fn drop(&mut self) {
-        // Ghostty keeps Kitty images per screen, and the alternate screen
-        // with them after asqr leaves it, where a delete no longer reaches
-        // them; erasing the screen skips images placed by placeholders. So
-        // the deletes go first, while `restore` has not left it yet
-        // (ADR 42).
-        let deletes = self.exit_deletes.take();
-        if !deletes.is_empty() {
-            let deleted = self.out.write_all(&deletes).and_then(|()| self.out.flush());
-            if let Err(error) = deleted {
-                tracing::warn!(%error, "could not delete the images");
-            }
-        }
         // Only a push is popped, and before `restore` leaves the alternate
         // screen. The empty title comes first: a terminal without a title
         // stack keeps it instead of asqr's, and one with a stack then takes
@@ -476,34 +463,13 @@ mod tests {
     /// What dropping a guard writes, when asqr did or did not push the
     /// title.
     fn dropped(pushed: bool) -> String {
-        dropped_with(pushed, b"")
-    }
-
-    /// What dropping a guard writes, with `deletes` put there as the run
-    /// ended.
-    fn dropped_with(pushed: bool, deletes: &[u8]) -> String {
         let mut written = Vec::new();
         drop(TerminalGuard {
             out: &mut written,
             restore: note_restore,
             title_pushed: Rc::new(Cell::new(pushed)),
-            exit_deletes: Rc::new(RefCell::new(deletes.to_vec())),
         });
         String::from_utf8(written).expect("escape sequences are ASCII")
-    }
-
-    /// The command that deletes the Kitty image 7.
-    const DELETE_7: &[u8] = b"\x1b_Ga=d,d=I,i=7,q=2\x1b\\";
-
-    #[test]
-    fn the_guard_deletes_the_images_before_it_gives_the_terminal_back() {
-        let written = dropped_with(true, DELETE_7);
-
-        assert!(
-            written.starts_with("\x1b_Ga=d,d=I,i=7,q=2\x1b\\\x1b]0;\x07\x1b[23;0t"),
-            "the deletes, then the title: {written:?}"
-        );
-        assert!(RESTORED.get());
     }
 
     #[test]
@@ -593,7 +559,6 @@ mod tests {
             out: &mut full[..],
             restore: note_restore,
             title_pushed: Rc::new(Cell::new(true)),
-            exit_deletes: Rc::new(RefCell::new(DELETE_7.to_vec())),
         });
         assert!(RESTORED.get());
     }

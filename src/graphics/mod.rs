@@ -27,7 +27,7 @@ pub use detect::{
 };
 pub use image::Image;
 use kitty::{IdSource, random_ids};
-pub use kitty::{KittyBook, KittyDeletes};
+pub use kitty::{KittyBook, KittyDeletes, KittyExit};
 
 /// The graphics protocol images are sent in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

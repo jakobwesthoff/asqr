@@ -136,3 +136,7 @@ deletes.
   written after the next frame, or on quitting.
 - The book keeps the deletes since the last focus gain only where the
   images are sent again on regaining the focus (ADR 45).
+- On quitting, the view goes first, and every image hands its id on as
+  it goes. A guard dropped next writes the deletes of every id left in
+  the book while the alternate screen is on, then the terminal is given
+  back, and last the pane's passthrough (ADR 44).
