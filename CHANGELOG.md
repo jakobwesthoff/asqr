@@ -148,6 +148,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a new id, and its old copy is deleted. Before, it was sent again
   under the same id, and Ghostty showed it blank while the new copy
   came in.
+- In Ghostty under tmux, the help, the intro and the session list hide
+  only the part of an image they cover. Before, the image vanished
+  across its full width in every row an overlay covered. An image first
+  sent while an overlay covered its top left corner, as after a resize,
+  shows beside the overlay and whole once it closes; before, it stayed
+  blank until it was sent again.
 - After a graphics query the terminal left unanswered, the first key
   or paste reaches asqr. Before, the query went on reading and took it,
   and a paste lost its start marker, so its line breaks arrived as

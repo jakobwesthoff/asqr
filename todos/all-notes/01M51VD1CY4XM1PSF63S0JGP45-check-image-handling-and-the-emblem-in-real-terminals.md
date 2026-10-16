@@ -24,8 +24,9 @@ looked wrong only through faults in the test files (holes cut into the
 PNG, no alpha channel in JPEG and PPM); scaling, `enlarge: false`,
 extreme aspect ratios and a 6000×6000 image showed right; `z`, `o`, resizing, a
 font-size change, switching tmux windows and zooming another pane
-worked; no image stayed behind. Overlays over a Kitty image are broken
-(a todo of its own). Still open in Ghostty: detach and attach, a second
+worked; no image stayed behind. Overlays over a Kitty image were broken
+and are mended by ADR 48, which is not yet checked in a real terminal.
+Still open in Ghostty: detach and attach, a second
 client, quitting and restarting, the pane's `allow-passthrough` after
 quitting, an image arriving in a background window, and the emblem.
 
@@ -57,6 +58,12 @@ attached, and a tmux before 3.4 if one is at hand.
   it, also without `focus-events`.
 - Resizing the pane in Ghostty does not blank the image; the old id's
   delete is written.
+- The help, the intro and the session list over a Kitty image in the
+  pane, and the help over it with `z`, leave the image's cells beside
+  them in place, in Ghostty and kitty, without tmux and in tmux. An
+  image first drawn under an overlay (a resize with the help open;
+  under tmux `on`, regaining the focus with the help open) shows beside
+  it at once and whole once it closes.
 - A pane hidden at start (another window, or zoomed away) gets blocks
   without the 5 s wait.
 - Quitting and a panic leave no images in the terminal (Ghostty's

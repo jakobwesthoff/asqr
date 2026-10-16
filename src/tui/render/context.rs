@@ -19,7 +19,15 @@ use super::theme;
 use super::viewer::Viewers;
 use super::wrap::cut;
 use crate::format::ContextEntry;
+use crate::graphics::PlacedImage;
 use crate::tui::{Extent, Offset, Page, SessionState};
+
+/// What the pane showed: how far it scrolls, and the Kitty image it drew,
+/// which the screen mends once the overlays are drawn (ADR 48).
+pub struct DrawnPane {
+    pub page: Page,
+    pub image: Option<PlacedImage>,
+}
 
 /// Draws the pane for the entry `state` shows into `area`, scrolled as far
 /// as the person scrolled it, and says what it showed. The header takes the
@@ -30,7 +38,7 @@ pub fn draw_pane(
     buf: &mut Buffer,
     state: &SessionState,
     viewers: &mut Viewers,
-) -> Option<Page> {
+) -> Option<DrawnPane> {
     let (key, entry) = state.shown_entry()?;
     let [header, body] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
 
@@ -49,7 +57,7 @@ pub fn draw_pane(
     };
     // A smaller terminal may have left the offset past the end.
     let offset = page.clamp(state.pane_offset());
-    viewer.draw(body, buf, offset);
+    let image = viewer.draw(body, buf, offset);
     let line = header_line(entry, page, offset, header.width, !state.pane_focused());
     // The focused pane's header takes the focus fill from the question's
     // current row, so the person sees where the keys go.
@@ -59,7 +67,7 @@ pub fn draw_pane(
         line
     };
     line.render(header, buf);
-    Some(page)
+    Some(DrawnPane { page, image })
 }
 
 /// The pane's header: the entry's name in bold, and on the right, where

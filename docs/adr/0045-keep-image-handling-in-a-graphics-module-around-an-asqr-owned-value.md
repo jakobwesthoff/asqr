@@ -18,6 +18,9 @@ Amends [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-i
 
 Amended by [46. Build context viewers loaded](0046-build-context-viewers-loaded.md)
 
+Amended by [48. Mend Kitty images an overlay is drawn over](0048-mend-kitty-images-an-overlay-is-drawn-over.md):
+the screen mends a Kitty image once the overlays are drawn
+
 ## Context
 
 - ADR 8 has the library take the detected image protocol as

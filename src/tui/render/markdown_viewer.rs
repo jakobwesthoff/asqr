@@ -16,6 +16,7 @@ use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{Note, SourceLine, rows_from};
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
 use crate::format::MarkdownEntry;
+use crate::graphics::PlacedImage;
 use crate::tui::Offset;
 
 pub struct MarkdownViewer {
@@ -58,8 +59,8 @@ impl Viewer for MarkdownViewer {
         self.content.lay_out(width, height)
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        self.content.draw(area, buf, offset);
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
+        self.content.draw(area, buf, offset)
     }
 }
 
@@ -119,13 +120,14 @@ impl Viewer for Markdown {
         size
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         for (row_area, row) in rows_from(area, &self.rows, offset.top) {
             match row {
                 Row::Text(text) => text.draw(buf, row_area, 0),
                 Row::Note(note) => note.render(row_area, buf),
             }
         }
+        None
     }
 }
 

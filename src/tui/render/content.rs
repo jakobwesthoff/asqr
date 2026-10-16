@@ -18,7 +18,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Widget};
 
-use super::context::{context_hint, draw_pane};
+use super::context::{DrawnPane, context_hint, draw_pane};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
 use super::source_line::{columns, fitting};
@@ -29,7 +29,7 @@ use super::wrap::{cut, indented, wrap};
 use crate::format::{Kind, Length, has_text};
 use crate::graphics::Images;
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
-use crate::tui::{Focus, Page, Row, SessionState, has_context};
+use crate::tui::{Focus, Row, SessionState, has_context};
 
 /// Descriptions start on the label's line only while that leaves them at
 /// least this much room; otherwise they move to their own lines.
@@ -227,7 +227,7 @@ pub(super) fn draw_tab(
     buf: &mut Buffer,
     state: &SessionState,
     tab: &mut TabState,
-) -> (Option<Page>, Option<FieldShape>) {
+) -> (Option<DrawnPane>, Option<FieldShape>) {
     let arrangement = state.has_context_area().then(|| {
         let arrangement = panes::choose(area.width, area.height, tab.layout, tab.shown);
         if arrangement != Arrangement::Hint {
@@ -759,6 +759,7 @@ mod tests {
 
     use super::super::test_support;
     use super::*;
+    use crate::tui::Page;
 
     /// A one-row buffer as wide as `row`, holding it, with `↓ more` put
     /// over it by [`mark_cut`], the text cursor at `cursor`.

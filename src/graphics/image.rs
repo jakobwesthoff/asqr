@@ -20,6 +20,7 @@ use ratatui_image::protocol::sixel::Sixel;
 use ratatui_image::{FilterType, FontSize, Resize};
 
 use super::kitty::HeldId;
+use super::placeholders::PlacedImage;
 use super::{Images, Protocol};
 
 /// One image file, decoded, and encoded for the size it was last laid out
@@ -42,10 +43,10 @@ enum State {
 
 /// The picture encoded for one size, and under the Kitty protocol the id
 /// the terminal keeps it under. The id's drop hands it on for deleting,
-/// so the image's holder decides when the terminal lets go of it.
+/// so the image's holder decides when the terminal lets go of it, and a
+/// drawn image names it to the screen that mends it.
 struct Encoding {
     encoded: Encoded,
-    #[expect(dead_code, reason = "held for its drop, which hands the id on")]
     kitty_id: Option<HeldId>,
 }
 
@@ -117,15 +118,25 @@ impl Image {
     }
 
     /// Draws the image as it was last laid out into `area` of `buf`, which
-    /// has the size it was laid out for.
-    pub fn draw(&self, area: Rect, buf: &mut Buffer) {
-        if let State::Ready {
+    /// has the size it was laid out for. Under the Kitty protocol it says
+    /// where it was drawn, for the screen to mend once everything over it
+    /// is drawn too (ADR 48).
+    pub fn draw(&self, area: Rect, buf: &mut Buffer) -> Option<PlacedImage> {
+        let State::Ready {
             encoding: Some(encoding),
             ..
         } = &self.state
-        {
-            ratatui_image::Image::new(&encoding.encoded).render(area, buf);
-        }
+        else {
+            return None;
+        };
+        ratatui_image::Image::new(&encoding.encoded).render(area, buf);
+        let kitty_id = encoding.kitty_id.as_ref()?;
+        Some(PlacedImage::read(
+            buf,
+            area,
+            encoding.encoded.size(),
+            kitty_id.id,
+        ))
     }
 }
 
@@ -375,6 +386,43 @@ mod tests {
             transmission(&buf).contains(&placement),
             "the placement names {placement}"
         );
+    }
+
+    /// A Kitty image says where it was drawn: its id, the cells it took,
+    /// which are fewer than the area where it keeps its size, and on its
+    /// first draw the transmission. Other protocols leave nothing to mend.
+    #[test]
+    fn only_a_kitty_image_says_where_it_was_drawn() {
+        let area = Rect::new(1, 1, 6, 4);
+        let mut half_blocks = Images::half_blocks().image(testing::red());
+        half_blocks.lay_out(area.as_size(), false);
+        assert!(
+            half_blocks
+                .draw(area, &mut Buffer::empty(Rect::new(0, 0, 8, 6)))
+                .is_none()
+        );
+
+        let images = Images::with_ids(Graphics::KITTY, [0x2A00_0001]);
+        let mut image = images.image(testing::red());
+        image.lay_out(area.as_size(), false);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 8, 6));
+        let first = image.draw(area, &mut buf).expect("a Kitty image");
+        let again = image.draw(area, &mut buf).expect("a Kitty image");
+
+        assert_eq!(first.id(), 0x2A00_0001);
+        assert_eq!(
+            first.area(),
+            Rect::new(1, 1, 2, 2),
+            "the red picture's 2×2 cells"
+        );
+        assert!(
+            first
+                .transmission()
+                .is_some_and(|sent| sent.starts_with("\x1b_G") && sent.contains(",i=704643073,")),
+            "{:?}",
+            first.transmission()
+        );
+        assert_eq!(again.transmission(), None, "sent once");
     }
 
     /// An image laid out at another size is encoded again. Under the same

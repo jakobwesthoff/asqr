@@ -1251,6 +1251,9 @@ Images:
   draws the whole screen afresh under Sixel and iTerm2, which leave the
   cells under the image to the terminal. Half blocks and the Kitty
   protocol fill those cells with every frame and need no full redraw.
+  Under the Kitty protocol, an overlay hides only the cells of the
+  image it covers, also for an image first sent while the overlay is
+  open (ADR 48).
 - Under the Kitty protocol, which kitty and Ghostty get, asqr asks the
   terminal to delete an image of an entry once the screen no longer
   needs it, after the next frame: when the image was sent again on

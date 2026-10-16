@@ -28,6 +28,9 @@ Amended by [46. Build context viewers loaded](0046-build-context-viewers-loaded.
 building a viewer prepares its content, and the separate `load` step
 of the lifecycle is gone
 
+Amended by [48. Mend Kitty images an overlay is drawn over](0048-mend-kitty-images-an-overlay-is-drawn-over.md):
+a viewer's `draw` returns the Kitty image it drew
+
 ## Context
 
 ADR 30 placed the context area beside or below the question. It drew an

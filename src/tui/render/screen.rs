@@ -15,7 +15,7 @@ use ratatui::widgets::{Paragraph, Widget, Wrap};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::content::{TabState, draw_tab};
-use super::context::draw_pane;
+use super::context::{DrawnPane, draw_pane};
 use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
 use super::keys::{draw_help, empty_queue_hints, intro_hints, key_hints, key_line};
@@ -230,28 +230,31 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     frame.render_widget(status_line(app, app.active(), status.width), status);
 
     let overlay = app.overlay();
-    let (drawn, hints) = match app.active() {
+    let (drawn, hints, image) = match app.active() {
         None => {
             let empty = EmptyQueue {
                 glyphs: view.glyphs,
                 no_color: view.no_color,
             };
             frame.render_widget(empty, main);
-            (Drawn::default(), empty_queue_hints())
+            (Drawn::default(), empty_queue_hints(), None)
         }
         Some(state) => {
             frame.render_widget(Paragraph::new(header_lines), header);
             frame.render_widget(tab_bar(state), tabs);
 
             let main = main.inner(ratatui::layout::Margin::new(1, 0));
-            let (pane_page, field_shape) = if state.full_screen() && state.shown_context().is_some()
-            {
+            let (pane, field_shape) = if state.full_screen() && state.shown_context().is_some() {
                 (
                     draw_pane(main, frame.buffer_mut(), state, &mut view.tab.viewers),
                     None,
                 )
             } else {
                 draw_tab(main, frame.buffer_mut(), state, &mut view.tab)
+            };
+            let (pane_page, image) = match pane {
+                Some(DrawnPane { page, image }) => (Some(page), image),
+                None => (None, None),
             };
             view.image_shown = pane_page.is_some()
                 && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
@@ -280,7 +283,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 pane_page: Some(pane_page),
                 field_shape,
             };
-            (drawn, hints)
+            (drawn, hints, image)
         }
     };
     frame.render_widget(key_line(&hints, keys.width), keys);
@@ -295,6 +298,13 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         Some((Overlay::Intro(_), _)) | None => {}
     }
     view.overlay_shown = overlay.is_some();
+
+    // The overlays drew over the Kitty image's placeholders, and the
+    // image's cells beside them, or its data, are lost to the terminal
+    // until they are mended (ADR 48).
+    if let Some(image) = &image {
+        image.mend(frame.buffer_mut());
+    }
 
     drawn
 }
@@ -363,7 +373,7 @@ mod tests {
     use super::super::test_support::{self, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
-    use crate::graphics::{Passthrough, testing};
+    use crate::graphics::{Graphics, Passthrough, testing};
     use crate::tui::{Focus, Notice, SessionState, Tone};
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
@@ -1939,6 +1949,206 @@ mod tests {
 
         assert_eq!(deleted(&view), shown);
         assert_ne!(view.tab.viewers.held_images(), shown, "sent anew");
+    }
+
+    // -----------------------------------------------------------------
+    // Overlays over Kitty images
+    // -----------------------------------------------------------------
+
+    /// The id the first image of [`kitty_beside`] goes out under. It has a
+    /// high byte, which a placeholder names only with its third mark.
+    const KITTY_ID: u32 = 0x2A00_0001;
+
+    /// A view whose terminal speaks the Kitty protocol, with the pane
+    /// beside the question and ids from [`KITTY_ID`] on.
+    fn kitty_beside() -> View<'static> {
+        View::new(
+            "q",
+            PaneLayout::Beside,
+            Images::with_ids(Graphics::KITTY, (0..100).map(|n| KITTY_ID + n)),
+        )
+    }
+
+    /// A session with one question showing `image`, and an intro.
+    fn with_image_and_intro(image: &str) -> App {
+        app(&[(
+            "pictured",
+            &format!(
+                r#"{{"asqr": 2, "intro": "Fruit", "questions": [{{"id": "q", "text": "Which one?",
+                    "kind": "single", "context": [{{"type": "image", "path": {image:?}}}],
+                    "options": [{{"id": "a", "label": "This one"}}]}}]}}"#
+            ),
+        )])
+    }
+
+    /// A two-colour PNG of `width`×`height` pixels.
+    fn wide_png(width: u32, height: u32) -> tempfile::NamedTempFile {
+        let file = tempfile::Builder::new()
+            .suffix(".png")
+            .tempfile()
+            .expect("temp file");
+        let image = image::RgbImage::from_fn(width, height, |x, _| {
+            if x < width / 2 {
+                image::Rgb([255, 0, 0])
+            } else {
+                image::Rgb([0, 0, 255])
+            }
+        });
+        image.save(file.path()).expect("png is written");
+        file
+    }
+
+    /// The top left cell of the one Kitty image `buf` shows whole.
+    fn kitty_origin(buf: &Buffer) -> (u16, u16) {
+        let cells = testing::placeholder_cells(buf);
+        let left = cells.iter().map(|(x, _)| *x).min().expect("an image");
+        let top = cells.iter().map(|(_, y)| *y).min().expect("an image");
+        (left, top)
+    }
+
+    /// Asserts that the terminal places every Kitty placeholder in `buf`
+    /// at its own cell of the image under [`KITTY_ID`] whose top left cell
+    /// is `origin`, and returns how many there are.
+    fn assert_kitty_cells_placed(buf: &Buffer, (left, top): (u16, u16), what: &str) -> usize {
+        let placed = testing::kitty_positions(buf);
+        let lost: Vec<_> = placed
+            .iter()
+            .filter(|((x, y), position)| *position != Some((y - top, x - left, KITTY_ID)))
+            .collect();
+        assert!(
+            lost.is_empty(),
+            "{what}: {} of {} cells misplaced: {lost:?}",
+            lost.len(),
+            placed.len()
+        );
+        placed.len()
+    }
+
+    /// Whether some placeholder in `buf` right of the image's first column
+    /// has no placeholder on its left: a cell beside an overlay.
+    fn a_placeholder_follows_a_gap(buf: &Buffer, (left, _): (u16, u16)) -> bool {
+        let cells = testing::placeholder_cells(buf);
+        cells
+            .iter()
+            .any(|&(x, y)| x > left && !cells.contains(&(x - 1, y)))
+    }
+
+    /// The cells of `buf` that hold a Kitty command.
+    fn sending(buf: &Buffer) -> usize {
+        buf.content()
+            .iter()
+            .filter(|cell| cell.symbol().contains("\x1b_G"))
+            .count()
+    }
+
+    /// A terminal of `width`×`height` that keeps what it shows from one
+    /// draw to the next, so each draw sends it only the cells that changed,
+    /// as a real terminal gets them.
+    fn kept_terminal(width: u16, height: u16) -> Terminal<TestBackend> {
+        Terminal::new(TestBackend::new(width, height)).expect("test terminal")
+    }
+
+    /// Draws `app` with `view` on `terminal` and hands the app what the
+    /// pane showed, as the run loop does.
+    fn draw_on(terminal: &mut Terminal<TestBackend>, app: &mut App, view: &mut View) {
+        let mut drawn = Drawn::default();
+        terminal
+            .draw(|frame| drawn = draw(frame, app, view))
+            .expect("draws");
+        if let Some(page) = drawn.pane_page {
+            app.set_pane_page(page);
+        }
+    }
+
+    /// The help, the intro and the session list over the pane, and the
+    /// help over the full-screen view, cover part of the image's rows. The
+    /// cells right of each still show their part of the image, and once
+    /// it closes, the cells ratatui writes again leave the whole image in
+    /// place. The full-screen view takes only the help.
+    ///
+    /// The overlays are centred, so the images are wide enough to reach
+    /// past their right edge: twice as wide as tall fills the pane beside
+    /// the question, five times the full-screen view.
+    #[test]
+    fn an_overlay_over_a_kitty_image_leaves_the_cells_beside_it_in_place() {
+        let in_pane = wide_png(400, 200);
+        let full = wide_png(1000, 200);
+        let in_pane = in_pane.path().to_str().expect("UTF-8 path");
+        let full = full.path().to_str().expect("UTF-8 path");
+        let cases = [
+            ("the help", "?", in_pane, false),
+            ("the intro", "i", in_pane, false),
+            ("the session list", "L", in_pane, false),
+            ("the help in full screen", "?", full, true),
+        ];
+        for (overlay, key, image, full_screen) in cases {
+            let mut app = with_image_and_intro(image);
+            if full_screen {
+                keys(&mut app, "z");
+            }
+            let mut view = kitty_beside();
+            let mut terminal = kept_terminal(200, 30);
+
+            draw_on(&mut terminal, &mut app, &mut view);
+            let origin = kitty_origin(terminal.backend().buffer());
+            let whole = assert_kitty_cells_placed(terminal.backend().buffer(), origin, overlay);
+
+            keys(&mut app, key);
+            draw_on(&mut terminal, &mut app, &mut view);
+            let buf = terminal.backend().buffer();
+            let what = format!("under {overlay}");
+            let beside = assert_kitty_cells_placed(buf, origin, &what);
+            assert!(beside < whole, "{what}: it covers part of the image");
+            assert!(
+                a_placeholder_follows_a_gap(buf, origin),
+                "{what}: cells of the image show right of it"
+            );
+
+            special(&mut app, KeyCode::Esc);
+            draw_on(&mut terminal, &mut app, &mut view);
+            let after = format!("after {overlay}");
+            let shown = assert_kitty_cells_placed(terminal.backend().buffer(), origin, &after);
+            assert_eq!(shown, whole, "{after}");
+        }
+    }
+
+    /// An image first drawn while the help covers its first cell, as after
+    /// a resize or on regaining the focus under tmux with the help open,
+    /// still sends its data. The part beside the help shows at once, and
+    /// once the help closes the terminal has the whole image.
+    #[test]
+    fn an_image_first_drawn_under_an_overlay_is_still_sent() {
+        let file = png();
+        let image = file.path().to_str().expect("UTF-8 path");
+        // At 20 rows the help covers the whole image, at 21 and 22 its
+        // first cell and the rows below it, but not all of its cells.
+        for (width, height) in [(200, 20), (200, 21), (200, 22)] {
+            let what = format!("{width}×{height} under the help");
+            let mut app = with_image(image);
+            let whole = screen_in(&app, &mut kitty_beside(), width, height);
+            let origin = kitty_origin(whole.buffer());
+            let whole = testing::placeholder_cells(whole.buffer()).len();
+            let mut view = kitty_beside();
+            let mut terminal = kept_terminal(width, height);
+            keys(&mut app, "?");
+
+            draw_on(&mut terminal, &mut app, &mut view);
+
+            let buf = terminal.backend().buffer();
+            assert!(
+                !testing::placeholder_cells(buf).contains(&origin),
+                "{what}: the help covers the image's first cell"
+            );
+            assert_eq!(sending(buf), 1, "{what}: the image is sent once");
+            let shown = assert_kitty_cells_placed(buf, origin, &what);
+            assert_eq!(shown == 0, height == 20, "{what}: {shown} cells show");
+
+            special(&mut app, KeyCode::Esc);
+            draw_on(&mut terminal, &mut app, &mut view);
+            let after = format!("{width}×{height} after the help");
+            let shown = assert_kitty_cells_placed(terminal.backend().buffer(), origin, &after);
+            assert_eq!(shown, whole, "{after}");
+        }
     }
 
     #[test]

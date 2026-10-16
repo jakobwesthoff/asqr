@@ -20,6 +20,7 @@ use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
 use super::viewer::{Content, ContentSize, Viewer};
 use crate::format::{DiffEntry, DiffSide};
+use crate::graphics::PlacedImage;
 use crate::tui::Offset;
 
 /// Unchanged lines shown before and after each change, as `diff -u` does.
@@ -61,8 +62,8 @@ impl Viewer for DiffViewer {
         self.content.lay_out(width, height)
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        self.content.draw(area, buf, offset);
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
+        self.content.draw(area, buf, offset)
     }
 }
 
@@ -218,7 +219,7 @@ impl Viewer for Rows {
 
     /// Draws the rows from `offset.top` on, each line with its numbers in a
     /// dim gutter and its sign after them.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         let width = usize::from(area.width);
         let digits = self.digits;
         for (row_area, row) in rows_from(area, &self.rows, offset.top) {
@@ -257,6 +258,7 @@ impl Viewer for Rows {
                 }
             }
         }
+        None
     }
 }
 

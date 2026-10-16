@@ -13,6 +13,7 @@
 mod detect;
 mod image;
 mod kitty;
+mod placeholders;
 #[cfg(test)]
 pub(crate) mod testing;
 
@@ -28,6 +29,7 @@ pub use detect::{
 pub use image::Image;
 use kitty::{IdSource, random_ids};
 pub use kitty::{KittyBook, KittyDeletes, KittyExit};
+pub use placeholders::PlacedImage;
 
 /// The graphics protocol images are sent in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -19,6 +19,7 @@ use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
 use crate::format::CodeEntry;
+use crate::graphics::PlacedImage;
 use crate::tui::Offset;
 
 pub struct CodeViewer {
@@ -61,8 +62,8 @@ impl Viewer for CodeViewer {
         self.content.lay_out(width, height)
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        self.content.draw(area, buf, offset);
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
+        self.content.draw(area, buf, offset)
     }
 }
 
@@ -142,7 +143,7 @@ impl Viewer for Lines {
 
     /// Draws the rows from `offset.top` on, each line with its number in
     /// a dim gutter.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         let digits = self.digits;
         for (row_area, row) in rows_from(area, &self.rows, offset.top) {
             match row {
@@ -155,6 +156,7 @@ impl Viewer for Lines {
                 Row::Note(note) => note.render(row_area, buf),
             }
         }
+        None
     }
 }
 

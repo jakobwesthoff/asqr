@@ -16,7 +16,7 @@ use super::source_file::{Unreadable, regular_file};
 use super::theme;
 use super::wrap::wrap;
 use crate::format::{ContextEntry, ImageEntry};
-use crate::graphics::{Graphics, Image, Images, KittyBook};
+use crate::graphics::{Graphics, Image, Images, KittyBook, PlacedImage};
 use crate::tui::{EntryKey, Offset};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Rect, Size};
@@ -55,7 +55,10 @@ pub trait Viewer {
     /// Draws the content as the last `lay_out` arranged it into `area` of
     /// `buf`, starting at line `offset.top` and column `offset.left`. The
     /// offset never exceeds the size `lay_out` returned.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset);
+    ///
+    /// Returns the Kitty image it drew, for the screen to mend once
+    /// everything drawn over it is drawn too (ADR 48).
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage>;
 }
 
 /// Which entry of which session a viewer belongs to.
@@ -219,7 +222,7 @@ impl<T: Viewer> Viewer for Content<T> {
         }
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         match self {
             Content::Body(body) => body.draw(area, buf, offset),
             Content::Note(placeholder) => placeholder.draw(area, buf, offset),
@@ -266,8 +269,8 @@ impl Viewer for ImageViewer {
         self.content.lay_out(width, height)
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
-        self.content.draw(area, buf, offset);
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
+        self.content.draw(area, buf, offset)
     }
 }
 
@@ -289,8 +292,8 @@ impl Viewer for Picture {
     }
 
     /// The offset of an image is always zero, as it never scrolls.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, _offset: Offset) {
-        self.image.draw(area, buf);
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, _offset: Offset) -> Option<PlacedImage> {
+        self.image.draw(area, buf)
     }
 }
 
@@ -345,9 +348,10 @@ impl Viewer for Placeholder {
         }
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) {
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         let lines: Vec<Line<'static>> = self.wrapped.iter().skip(offset.top).cloned().collect();
         Paragraph::new(lines).render(area, buf);
+        None
     }
 }
 
@@ -438,7 +442,9 @@ mod tests {
             }
         }
 
-        fn draw(&mut self, _area: Rect, _buf: &mut Buffer, _offset: Offset) {}
+        fn draw(&mut self, _area: Rect, _buf: &mut Buffer, _offset: Offset) -> Option<PlacedImage> {
+            None
+        }
     }
 
     /// Viewers whose every viewer records into the returned calls, its
