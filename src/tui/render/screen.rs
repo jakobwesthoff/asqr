@@ -116,14 +116,24 @@ impl<'a> View<'a> {
     /// The view of `queue`, with the images of context entries made by
     /// `images`.
     pub fn new(queue: &'a str, layout: PaneLayout, images: Images) -> Self {
+        View::with_tab(queue, TabState::new(layout, images))
+    }
+
+    fn with_tab(queue: &'a str, tab: TabState) -> Self {
         View {
             queue,
             glyphs: Glyphs::Quadrant,
-            tab: TabState::new(layout, images),
+            tab,
             overlay_shown: false,
             image_shown: false,
             no_color: false,
         }
+    }
+
+    /// The view of `queue` as tests need it (see `Viewers::for_tests`).
+    #[cfg(test)]
+    pub(crate) fn for_tests(queue: &'a str, layout: PaneLayout, images: Images) -> Self {
+        View::with_tab(queue, TabState::for_tests(layout, images))
     }
 
     /// This view, drawn without colours when `no_color` is set.
@@ -505,7 +515,7 @@ mod tests {
     fn screen_of_queue(app: &App, queue: &str, width: u16, height: u16) -> TestBackend {
         screen_in(
             app,
-            &mut View::new(queue, PaneLayout::Auto, Images::half_blocks()),
+            &mut View::for_tests(queue, PaneLayout::Auto, Images::half_blocks()),
             width,
             height,
         )
@@ -824,7 +834,7 @@ mod tests {
     #[test]
     fn i_shows_the_whole_intro_and_scrolls_it_on_a_small_screen() {
         let mut app = longer_intro();
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         keys(&mut app, "i");
         insta::assert_snapshot!("intro_overlay_top", drawn(&mut app, &mut view, 60, 15));
 
@@ -1267,7 +1277,7 @@ mod tests {
     fn the_view_draws_talqi_in_the_glyphs_it_is_given() {
         let rect = emblem_rect(80, 40).expect("room for Talqi");
         for no_color in [false, true] {
-            let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks())
+            let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks())
                 .no_color(no_color)
                 .glyphs(Glyphs::Sextant);
             let sextants = screen_in(&App::default(), &mut view, 80, 40);
@@ -1373,7 +1383,7 @@ mod tests {
         // The text fills its last row at 60 columns, so the cursor after it
         // shows on a row of its own.
         let mut app = typed_own_answer();
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         let mut cursor = |app: &mut App| {
             let backend = drawn(app, &mut view, 60, 24);
             let cells = reversed_cells_in_tab(&backend);
@@ -1625,6 +1635,20 @@ mod tests {
         assert_eq!(look_at(buf, "q  quit"), (Color::Cyan, Modifier::BOLD));
     }
 
+    /// The view the terminal gets draws as a test's does; only how long
+    /// it waits for context entries differs.
+    #[test]
+    fn the_terminal_s_view_draws_the_empty_queue() {
+        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+
+        let backend = screen_in(&App::default(), &mut view, 80, 24);
+
+        assert_eq!(
+            title_line(&backend),
+            " asqr · queue: default · 0 sessions waiting"
+        );
+    }
+
     #[test]
     fn the_title_line_has_no_fill_and_names_asqr_in_the_primary_colour() {
         // The empty queue's bar; the one beside a session has a test of
@@ -1650,7 +1674,7 @@ mod tests {
     #[test]
     fn one_focus_fill_shows_at_a_time() {
         let mut app = long_context();
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         let filled = |backend: &TestBackend, row: u16| {
             (0..80)
                 .filter(|&x| {
@@ -1894,7 +1918,7 @@ mod tests {
     fn the_frame_says_whether_the_pane_s_entry_still_loads() {
         let app = app(&[("batch", EXAMPLE)]);
         let gate = Gate::default();
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks())
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks())
             .waiting(std::time::Duration::ZERO);
         let theirs = gate.clone();
         view.tab
@@ -1909,7 +1933,7 @@ mod tests {
         let pane = loading.pane_page.flatten().expect("a pane shows");
         assert!(pane.loading);
 
-        let mut loaded = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut loaded = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         let (_, shown) = measured_in(&app, &mut loaded, 120, 40);
         assert!(!shown.pane_page.flatten().expect("a pane shows").loading);
     }
@@ -1919,7 +1943,7 @@ mod tests {
     #[test]
     fn the_frame_says_whether_it_showed_the_dialog() {
         let shown = |app: &App, width, height| {
-            let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+            let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
             measured_in(app, &mut view, width, height).1.invalid_dialog
         };
         let mut with_dialog = app(&[("release", RELEASE)]);
@@ -2179,7 +2203,7 @@ mod tests {
         let file = png();
         let mut app = with_image(file.path().to_str().expect("UTF-8 path"));
         let pictured = app.active().expect("the pictured session").clone();
-        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
         screen_in(&app, &mut view, 140, 20);
 
         // A green picture under the same path shows only once the image is
@@ -2263,7 +2287,7 @@ mod tests {
         let mut app = with_image(file.path().to_str().expect("UTF-8 path"));
         let woken = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let theirs = std::sync::Arc::clone(&woken);
-        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks())
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks())
             .waiting(std::time::Duration::ZERO)
             .wake_on_load(move || {
                 theirs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -2296,8 +2320,7 @@ mod tests {
                 "options": [{"id": "a", "label": "A"},
                   {"id": "b", "label": "B", "context": [{"type": "code", "content": "b"}]}]}]}"#,
         )]);
-        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks());
-        view.tab.viewers.loading_ahead();
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
 
         keys(&mut app, "z");
         measured_in(&app, &mut view, 140, 24);
@@ -2308,7 +2331,7 @@ mod tests {
 
     /// A view whose terminal speaks the Kitty protocol.
     fn kitty_view() -> View<'static> {
-        View::new("q", PaneLayout::Auto, Images::kitty())
+        View::for_tests("q", PaneLayout::Auto, Images::kitty())
     }
 
     /// The Kitty ids the deletes after the last frame of `view` name.
@@ -2362,7 +2385,7 @@ mod tests {
     fn images_forgotten_on_regaining_the_focus_are_deleted_after_the_next_frame() {
         let file = png();
         let app = with_image(file.path().to_str().expect("UTF-8 path"));
-        let mut view = View::new(
+        let mut view = View::for_tests(
             "q",
             PaneLayout::Auto,
             Images::kitty_through(Passthrough::WhileVisible),
@@ -2387,7 +2410,7 @@ mod tests {
     /// A view whose terminal speaks the Kitty protocol, with the pane
     /// beside the question and ids from [`KITTY_ID`] on.
     fn kitty_beside() -> View<'static> {
-        View::new(
+        View::for_tests(
             "q",
             PaneLayout::Beside,
             Images::with_ids(Graphics::KITTY, (0..100).map(|n| KITTY_ID + n)),
@@ -2902,7 +2925,7 @@ mod tests {
     #[test]
     fn the_focused_pane_scrolls_and_shows_its_keys() {
         let mut app = long_context();
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         let mut drawn = |app: &mut App| screen_handing_on_pane(app, &mut view, 80, 24);
         insta::assert_snapshot!("pane_unfocused", drawn(&mut app));
 
@@ -2926,7 +2949,7 @@ mod tests {
 
     #[test]
     fn a_draw_says_whether_it_showed_a_tab_a_pane_and_a_field() {
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
 
         let (_, empty) = measured_in(&App::default(), &mut view, 80, 24);
         assert_eq!(empty.pane_page, None, "an empty queue shows no tab");
@@ -2952,7 +2975,7 @@ mod tests {
     #[test]
     fn a_frame_too_small_for_asqr_keeps_the_pane_focus_and_the_full_screen() {
         let mut app = long_context();
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         // What the run loop does after each frame.
         let mut drawn = |app: &mut App, width: u16, height: u16| {
             screen_handing_on_pane(app, &mut view, width, height);
@@ -2978,7 +3001,7 @@ mod tests {
     #[test]
     fn the_full_screen_help_says_how_to_leave_the_full_screen() {
         let mut app = long_context();
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         screen_handing_on_pane(&mut app, &mut view, 80, 24);
         // Entered from the pane, where "back to the question" would be wrong.
         special(&mut app, KeyCode::Tab);
@@ -2989,7 +3012,7 @@ mod tests {
     #[test]
     fn the_text_cursor_hides_while_the_pane_has_the_focus() {
         let mut app = long_context();
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         screen_handing_on_pane(&mut app, &mut view, 80, 24);
         keys(&mut app, "jmine");
 
@@ -3018,7 +3041,7 @@ mod tests {
         let mut app = with_image(&path);
         keys(&mut app, "z");
 
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         insta::assert_snapshot!(screen_handing_on_pane(&mut app, &mut view, 80, 16));
 
         // The session has no header text, so at 16 rows the header takes no
@@ -3050,7 +3073,7 @@ mod tests {
     #[test]
     fn a_card_shows_the_home_folder_as_a_tilde() {
         let app = with_image("/home/me/pictures/x.png");
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks())
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks())
             .home(Some("/home/me".into()));
 
         let text = screen_in(&app, &mut view, 80, 24).to_string();
@@ -3236,7 +3259,7 @@ mod tests {
         // 140×40 is landscape, where auto puts the image beside.
         let backend = screen_in(
             &app,
-            &mut View::new("q", PaneLayout::Below, Images::half_blocks()),
+            &mut View::for_tests("q", PaneLayout::Below, Images::half_blocks()),
             140,
             40,
         );
@@ -3252,7 +3275,7 @@ mod tests {
         // rest after the separator.
         let backend = screen_in(
             &app,
-            &mut View::new("q", PaneLayout::Beside, Images::half_blocks()),
+            &mut View::for_tests("q", PaneLayout::Beside, Images::half_blocks()),
             110,
             70,
         );
@@ -3272,7 +3295,7 @@ mod tests {
             "shown fresh, it is below"
         );
 
-        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
         screen_in(&app, &mut view, 230, 60);
         let (columns, rows) = image_cells(&screen_in(&app, &mut view, 192, 106));
         assert_eq!(
@@ -3362,7 +3385,7 @@ mod tests {
         ];
         for (name, questions, rows) in cases {
             let mut app = app(&[("shape", &shaped(&questions))]);
-            let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+            let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
             for tab in 0..questions.len() {
                 assert_eq!(need(&app, &mut view, 58), rows, "{name}, tab {tab}");
                 special(&mut app, KeyCode::Right);
@@ -3373,7 +3396,7 @@ mod tests {
     #[test]
     fn typing_grows_the_need_at_once_and_it_shrinks_only_after_leaving_the_field() {
         let mut app = app(&[("shape", &shaped(&[typed("t"), choice("a", 1, true)]))]);
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
         assert_eq!(need(&app, &mut view, 58), 7);
 
         keys(&mut app, "abc");
@@ -3398,7 +3421,7 @@ mod tests {
     #[test]
     fn the_cursor_after_a_full_line_counts_only_while_typing() {
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
 
         // `❯ ✎ ` and 54 characters fill the 58 columns, so the cursor's
         // blank starts a line of its own on the screen.
@@ -3418,7 +3441,7 @@ mod tests {
     #[test]
     fn moving_the_focus_into_the_pane_counts_as_leaving_the_field() {
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
         ctrl_j(&mut app);
         ctrl_j(&mut app);
         assert_eq!(need(&app, &mut view, 58), 9);
@@ -3434,7 +3457,7 @@ mod tests {
     #[test]
     fn typing_to_an_exact_fill_keeps_the_last_row_in_view() {
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
         let notes = |backend: &TestBackend| {
             test_support::rows(backend.buffer())
                 .iter()
@@ -3473,7 +3496,7 @@ mod tests {
     #[test]
     fn a_resize_a_replaced_file_or_another_session_measure_afresh() {
         let mut app = typed_and_cut_back("shape");
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
         ctrl_j(&mut app);
         assert_eq!(need(&app, &mut view, 58), 9);
         special(&mut app, KeyCode::Backspace);
@@ -3496,7 +3519,7 @@ mod tests {
         assert_eq!(need(&app, &mut view, 78), 8, "after the file was replaced");
 
         let mut other = typed_and_cut_back("other");
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
         ctrl_j(&mut other);
         assert_eq!(need(&other, &mut view, 58), 9);
         other.add(SessionState::new(
@@ -3521,7 +3544,7 @@ mod tests {
             choice("c", 9, false),
         ];
         let mut app = app(&[("shape", &shaped(&questions))]);
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
 
         assert_eq!(need(&app, &mut view, 58), 7);
         assert_eq!(
@@ -3568,7 +3591,7 @@ mod tests {
     fn moving_between_questions_keeps_the_split_and_typing_moves_it_by_lines() {
         let questions = [choice("a", 2, true), choice("b", 6, true), typed("t")];
         let mut app = app(&[("shape", &shaped(&questions))]);
-        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
 
         // A 60×40 terminal is portrait, so the context goes below. The
         // tallest question takes 11 rows under the tab bar's 4.
@@ -3758,7 +3781,7 @@ mod tests {
     fn a_field_taller_than_the_area_keeps_its_text_cursor_in_view() {
         // At 80×24 the question gets 9 rows above its context, 4 to 12.
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
         type_lines(&mut app, &mut view, 80, 24, 30);
 
         // On the last line, the counter takes the area's last row.
@@ -3803,7 +3826,7 @@ mod tests {
     fn a_tall_note_or_own_answer_keeps_its_text_cursor_in_view() {
         for (name, start) in [("note", "n"), ("own answer", "jj")] {
             let mut app = app(&[("shape", &shaped(&[own_and_note("q")]))]);
-            let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+            let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
             keys(&mut app, start);
             type_lines(&mut app, &mut view, 80, 24, 30);
 
@@ -3827,7 +3850,7 @@ mod tests {
         for (name, question, start) in [("text answer", typed("t"), ""), ("own answer", own, "jj")]
         {
             let mut app = app(&[("shape", &shaped(&[question]))]);
-            let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+            let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
             keys(&mut app, start);
             type_lines(&mut app, &mut view, 80, 24, 30);
 
@@ -3849,7 +3872,7 @@ mod tests {
     #[test]
     fn a_text_answer_of_twelve_lines_keeps_the_cursor_on_a_small_screen() {
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
-        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
         type_lines(&mut app, &mut view, 60, 24, 12);
 
         let backend = drawn(&mut app, &mut view, 60, 24);
@@ -3868,7 +3891,7 @@ mod tests {
         // the first starts 4 columns in.
         let full = "x".repeat(74);
         let mut app = app(&[("shape", &shaped(&[typed("t")]))]);
-        let mut view = View::new("q", PaneLayout::Below, Images::half_blocks());
+        let mut view = View::for_tests("q", PaneLayout::Below, Images::half_blocks());
         keys(&mut app, &full);
         ctrl_j(&mut app);
         type_lines(&mut app, &mut view, 80, 24, 29);
@@ -4126,7 +4149,7 @@ mod tests {
     fn with_and_without_colours(app: &App, width: u16, height: u16) -> (Buffer, Buffer) {
         let drawn = |no_color: bool| {
             let mut view =
-                View::new("q", PaneLayout::Auto, Images::half_blocks()).no_color(no_color);
+                View::for_tests("q", PaneLayout::Auto, Images::half_blocks()).no_color(no_color);
             screen_in(app, &mut view, width, height).buffer().clone()
         };
         (drawn(false), drawn(true))
@@ -4380,7 +4403,7 @@ mod tests {
     /// The empty queue at `width`×`height` under NO_COLOR, with the images
     /// of context entries made by `images`.
     fn empty_without_colours(images: Images, width: u16, height: u16) -> Buffer {
-        let mut view = View::new("q", PaneLayout::Auto, images).no_color(true);
+        let mut view = View::for_tests("q", PaneLayout::Auto, images).no_color(true);
         screen_in(&App::default(), &mut view, width, height)
             .buffer()
             .clone()
@@ -4424,7 +4447,7 @@ mod tests {
     fn no_color_keeps_the_rgb_colours_of_half_block_images() {
         let file = png();
         let app = with_image(file.path().to_str().expect("UTF-8 path"));
-        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks()).no_color(true);
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks()).no_color(true);
 
         image_cells(&screen_in(&app, &mut view, 140, 20));
     }

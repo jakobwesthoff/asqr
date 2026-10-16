@@ -939,7 +939,7 @@ mod tests {
             protocol: Protocol::Sixel,
             ..Graphics::HALF_BLOCKS
         };
-        View::new("default", PaneLayout::Auto, Images::new(sixel))
+        View::for_tests("default", PaneLayout::Auto, Images::new(sixel))
     }
 
     /// Whether the screen must be cleared once every overlay of `app` is

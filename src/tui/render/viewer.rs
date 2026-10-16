@@ -121,6 +121,7 @@ const LOAD_WAIT: Duration = Duration::from_millis(100);
 /// How long a draw waits in tests: long enough that every test that does
 /// not ask for the placeholder draws what loaded, short enough that a
 /// load that never ends fails the test.
+#[cfg(test)]
 const TEST_WAIT: Duration = Duration::from_secs(60);
 
 /// One viewer per entry of the window of the question shown: the
@@ -149,22 +150,15 @@ pub struct Viewers {
     ahead: Ahead,
     /// How many jobs run on threads of their own.
     running: Arc<AtomicUsize>,
-    /// How many jobs may run on threads of their own at once. Tests run
-    /// any number, so what they see does not depend on the machine's
-    /// cores, unless they ask for a cap.
+    /// How many jobs may run on threads of their own at once.
     cap: usize,
     /// Whether a key, a paste, a resize or a quit waits to be handled
     /// after this draw, which the next draw replaces at once.
     input_pending: bool,
     /// Whether a draw with input pending shows the placeholder at once
-    /// rather than wait for the entry. Tests feed every event before the
-    /// run loop starts, so every frame but the last would have input
-    /// pending; they skip the wait only where they ask to, so the frames
-    /// they look at show what loaded.
+    /// rather than wait for the entry.
     skips_wait_for_input: bool,
-    /// Whether the entries of the window load before they are shown. Tests
-    /// load ahead only where they ask to, so the Kitty ids and the builds
-    /// they count stay their own.
+    /// Whether the entries of the window load before they are shown.
     loads_ahead: bool,
     /// How many build jobs were started, so tests see that a viewer is
     /// reused.
@@ -198,24 +192,36 @@ impl Viewers {
             window: None,
             shown: None,
             waiting: None,
-            wait: if cfg!(test) { TEST_WAIT } else { LOAD_WAIT },
+            wait: LOAD_WAIT,
             placeholder: LoadingNote,
             ahead: Ahead::new(),
             running: Arc::default(),
-            cap: if cfg!(test) {
-                usize::MAX
-            } else {
-                loading::own_thread_cap()
-            },
+            cap: loading::own_thread_cap(),
             input_pending: false,
-            skips_wait_for_input: !cfg!(test),
-            loads_ahead: !cfg!(test),
+            skips_wait_for_input: true,
+            loads_ahead: true,
             #[cfg(test)]
             built: 0,
             #[cfg(test)]
             waits: Vec::new(),
             #[cfg(test)]
             collected: 0,
+        }
+    }
+
+    /// Viewers as tests need them to see the same on every machine and at
+    /// every speed. A draw waits for its entry up to [`TEST_WAIT`] and also
+    /// while input waits, as tests feed every event before the run loop
+    /// starts and look at frames that show what loaded. Any number of jobs
+    /// run on threads of their own, as machines differ in their cores.
+    /// Tests that need the terminal's way ask for it by name.
+    #[cfg(test)]
+    pub(super) fn for_tests(images: Images) -> Self {
+        Viewers {
+            wait: TEST_WAIT,
+            skips_wait_for_input: false,
+            cap: usize::MAX,
+            ..Viewers::new(images)
         }
     }
 
@@ -693,12 +699,6 @@ impl Viewers {
         self.tools.build = build;
     }
 
-    /// These viewers, loading the entries of the window ahead.
-    #[cfg(test)]
-    pub(super) fn loading_ahead(&mut self) {
-        self.loads_ahead = true;
-    }
-
     /// These viewers, running at most `cap` jobs on threads of their own.
     #[cfg(test)]
     pub(super) fn capping(&mut self, cap: usize) {
@@ -1021,7 +1021,7 @@ mod tests {
     }
 
     fn viewers() -> Viewers {
-        Viewers::new(Images::half_blocks())
+        Viewers::for_tests(Images::half_blocks())
     }
 
     const QUESTION: EntryKey = EntryKey {
@@ -1139,6 +1139,19 @@ mod tests {
             })
         }));
         (viewers, shared)
+    }
+
+    /// The viewers asqr runs with wait 100 ms, skip that wait while input
+    /// waits, cap their threads and load ahead; only the test constructor
+    /// sets them otherwise.
+    #[test]
+    fn new_viewers_are_set_up_for_the_terminal() {
+        let viewers = Viewers::new(Images::half_blocks());
+
+        assert_eq!(viewers.wait, LOAD_WAIT);
+        assert!(viewers.skips_wait_for_input);
+        assert_eq!(viewers.cap, loading::own_thread_cap());
+        assert!(viewers.loads_ahead);
     }
 
     #[test]
@@ -1731,7 +1744,6 @@ mod tests {
         let built = Arc::new(Mutex::new(Vec::new()));
         let began = Arc::new(AtomicUsize::new(0));
         let mut viewers = viewers();
-        viewers.loading_ahead();
         let (theirs, their_count, held_back) =
             (Arc::clone(&built), Arc::clone(&began), gate.clone());
         viewers.building(Arc::new(move |entry, images, quote, home| {
@@ -1916,7 +1928,6 @@ mod tests {
         let by_text: Arc<Mutex<HashMap<String, Shared>>> = Arc::default();
         let began = Arc::new(AtomicUsize::new(0));
         let mut viewers = viewers();
-        viewers.loading_ahead();
         let (theirs, their_count, held_back) =
             (Arc::clone(&by_text), Arc::clone(&began), gate.clone());
         viewers.building(Arc::new(move |entry, _, _, _| {
@@ -2185,7 +2196,6 @@ mod tests {
     fn regaining_the_focus_reloads_only_images_a_frame_showed() {
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
         let mut viewers = kitty_viewers();
-        viewers.loading_ahead();
         let woken = counted(&mut viewers);
         let (shown, ahead) = (picture(&directory, "a.png"), picture(&directory, "b.png"));
         built(&mut viewers, "s", QUESTION, &shown);
@@ -2384,7 +2394,7 @@ mod tests {
     /// Viewers whose terminal speaks the Kitty protocol and whose images
     /// get the ids 1, 2, 3 and so on.
     fn kitty_viewers() -> Viewers {
-        Viewers::new(Images::kitty())
+        Viewers::for_tests(Images::kitty())
     }
 
     /// An image entry for a red picture written into `directory` as
@@ -2485,7 +2495,7 @@ mod tests {
     fn images_without_the_kitty_protocol_drop_no_id() {
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
         for protocol in [Protocol::HalfBlocks, Protocol::Iterm2] {
-            let mut viewers = Viewers::new(Images::new(Graphics {
+            let mut viewers = Viewers::for_tests(Images::new(Graphics {
                 protocol,
                 ..Graphics::HALF_BLOCKS
             }));

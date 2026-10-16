@@ -391,7 +391,7 @@ mod tests {
         let state = SessionState::new("batch", serde_json::from_str(json).expect("parses"), None);
         let area = Rect::new(0, 0, 40, 11);
         let mut buf = Buffer::empty(area);
-        let mut viewers = Viewers::new(Images::half_blocks());
+        let mut viewers = Viewers::for_tests(Images::half_blocks());
 
         draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
 
@@ -407,7 +407,7 @@ mod tests {
         let area = Rect::new(0, 0, 40, 11);
         let mut buf = Buffer::empty(area);
         let gate = Gate::default();
-        let mut viewers = Viewers::new(Images::half_blocks());
+        let mut viewers = Viewers::for_tests(Images::half_blocks());
         let theirs = gate.clone();
         viewers.building(std::sync::Arc::new(move |_, _, _, _| {
             theirs.wait();
@@ -573,7 +573,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 40, 11);
         let mut buf = Buffer::empty(area);
-        let mut viewers = Viewers::new(Images::half_blocks());
+        let mut viewers = Viewers::for_tests(Images::half_blocks());
         let drawn = draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
 
         assert!(!drawn.expect("a pane").loading, "the entry loaded");

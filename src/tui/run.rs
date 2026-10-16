@@ -313,7 +313,7 @@ mod tests {
             inbox: &mut Inbox,
             events: Vec<Event>,
         ) -> anyhow::Result<()> {
-            let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
+            let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
             self.run_with_view(app, inbox, &mut view, events)
         }
 
@@ -455,7 +455,7 @@ mod tests {
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
         let (sender, receiver) = mpsc::channel();
         let woken = sender.clone();
-        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks())
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks())
             .waiting(std::time::Duration::ZERO)
             .wake_on_load(move || {
                 let _ = woken.send(Event::Loaded);
@@ -498,8 +498,8 @@ mod tests {
             "options": [{"id": "a", "label": "Apples"}]}]}"#;
         fs::write(harness.location.inbox().join("coded.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view =
-            View::new("test", PaneLayout::Auto, Images::half_blocks()).skipping_waits_for_input();
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks())
+            .skipping_waits_for_input();
         harness
             .run_with_view(&mut app, &mut inbox, &mut view, events)
             .expect("runs");
@@ -708,7 +708,7 @@ mod tests {
         )
         .expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
         harness
             .run_with_view(&mut app, &mut inbox, &mut view, vec![])
             .expect("runs");
@@ -751,7 +751,7 @@ mod tests {
         fs::write(harness.location.inbox().join("garbage.json"), "not json").expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
         assert!(app.invalid_shown().is_some(), "the scan found it");
-        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
         let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
 
         harness.terminal.backend_mut().resize(40, 10);
@@ -794,7 +794,7 @@ mod tests {
         )
         .expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
         harness
             .run_with_view(
                 &mut app,
@@ -897,7 +897,7 @@ mod tests {
         let session = SESSION.replace("/nowhere/cat.png", picture.to_str().expect("utf-8 path"));
         fs::write(harness.location.inbox().join("pictured.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
 
         harness
             .run_with_view(&mut app, &mut inbox, &mut view, vec![])
@@ -933,7 +933,8 @@ mod tests {
             let mut watched = Watched::new();
             watched.put("a", PICTURE, [255, 0, 0]);
             let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-            let mut view = View::new("test", PaneLayout::Auto, Images::kitty_through(passthrough));
+            let mut view =
+                View::for_tests("test", PaneLayout::Auto, Images::kitty_through(passthrough));
 
             watched.run(&mut app, &mut inbox, &mut view, vec![Event::FocusGained]);
 
@@ -1107,7 +1108,7 @@ mod tests {
         let harness = Harness::new();
         fs::write(harness.location.inbox().join("s.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, images);
+        let mut view = View::for_tests("test", PaneLayout::Auto, images);
         let log = Log::default();
         let mut terminal = Terminal::new(Logging::new(&log)).expect("test terminal");
         let (sender, receiver) = mpsc::channel();
@@ -1286,7 +1287,7 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
         // `2` picks and moves on to the review, where `enter` submits.
         watched.run(
@@ -1320,7 +1321,7 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
         // Should the run go on past the quit, `2` picks and `enter`
         // submits.
@@ -1352,7 +1353,7 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
         watched.run(&mut app, &mut inbox, &mut view, vec![]);
 
         watched.remove("only");
@@ -1376,7 +1377,7 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
         let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
         watched.run(app, inbox, view, vec![]);
 
@@ -1407,7 +1408,7 @@ mod tests {
         watched.put("a", PICTURE, [255, 0, 0]);
         watched.put("b", PICTURE, [0, 0, 255]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new(
+        let mut view = View::for_tests(
             "test",
             PaneLayout::Auto,
             Images::kitty_through(Passthrough::WhileVisible),
@@ -1498,7 +1499,7 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("a", PICTURE, [255, 0, 0]);
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
-        let mut view = View::new(
+        let mut view = View::for_tests(
             "test",
             PaneLayout::Auto,
             Images::kitty_through(Passthrough::WhileVisible),

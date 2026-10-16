@@ -112,6 +112,17 @@ impl TabState {
         }
     }
 
+    /// The state of a tab as tests need it (see [`Viewers::for_tests`]).
+    #[cfg(test)]
+    pub(super) fn for_tests(layout: PaneLayout, images: Images) -> Self {
+        TabState {
+            layout,
+            shown: None,
+            question_height: QuestionHeight::default(),
+            viewers: Viewers::for_tests(images),
+        }
+    }
+
     /// Forgets the viewers and rows of sessions that are no longer among
     /// `sessions`, and the rows of replaced files.
     pub(super) fn retain(&mut self, sessions: &[SessionState]) {
@@ -1268,7 +1279,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 19, 30);
         let mut buf = Buffer::empty(area);
-        let mut tab = TabState::new(PaneLayout::Auto, Images::half_blocks());
+        let mut tab = TabState::for_tests(PaneLayout::Auto, Images::half_blocks());
         draw_tab(area, &mut buf, &state, &mut tab, quote_style(false));
 
         let shown = test_support::rows(&buf);
@@ -1291,8 +1302,7 @@ mod tests {
               {"id": "a", "label": "A"},
               {"id": "b", "label": "B", "context": [{"type": "code", "content": "b"}]}]}]}"#;
         let state = SessionState::new("batch", serde_json::from_str(json).expect("parses"), None);
-        let mut tab = TabState::new(PaneLayout::Beside, Images::half_blocks());
-        tab.viewers.loading_ahead();
+        let mut tab = TabState::for_tests(PaneLayout::Beside, Images::half_blocks());
         let area = Rect::new(0, 0, 140, 30);
         let mut buf = Buffer::empty(area);
 

@@ -876,7 +876,7 @@ mod tests {
         use crate::tui::render::{PaneLayout, View, draw};
 
         let mut terminal = Terminal::new(TestBackend::new(width, 20)).expect("test terminal");
-        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
         terminal
             .draw(|frame| {
                 draw(frame, app, &mut view);
