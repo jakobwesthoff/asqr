@@ -1014,7 +1014,7 @@ mod tests {
     use patine::AnsiColor;
 
     use super::super::patine_adapter::quote_style;
-    use super::super::source_file::{Failure, regular_file};
+    use super::super::source_file::regular_file;
     use super::super::test_support::{self, Gate, row};
     use super::*;
     use crate::graphics::Protocol;
@@ -2619,7 +2619,7 @@ mod tests {
             .expect("sparse file is creatable");
 
         let refused = refused_image(&path);
-        assert_eq!(refused.failure, Failure::TooLarge);
+        assert_eq!(refused.cause, "TooLarge");
 
         let json = serde_json::json!({"type": "image", "path": path}).to_string();
         let rows = drawn(&entry(&json), 50, 8, 0);
@@ -2638,7 +2638,7 @@ mod tests {
 
         let refused = refused_image(&path);
 
-        assert_eq!(refused.failure, Failure::FormatUnsupported);
+        assert_eq!(refused.cause, "Unsupported");
         assert!(
             refused
                 .reason
@@ -2680,7 +2680,7 @@ mod tests {
 
         let refused = refused_image(&path);
 
-        assert_eq!(refused.failure, Failure::FormatUnsupported);
+        assert_eq!(refused.cause, "Unsupported");
         assert!(
             refused.reason.contains("could not be determined"),
             "{}",
@@ -2699,7 +2699,7 @@ mod tests {
         let cut = directory.path().join("cut.png");
         std::fs::write(&cut, &bytes[..bytes.len() / 2]).expect("file is writable");
 
-        assert_eq!(refused_image(&cut).failure, Failure::Damaged);
+        assert_eq!(refused_image(&cut).cause, "IoError(UnexpectedEof)");
     }
 
     #[test]
@@ -2732,7 +2732,7 @@ mod tests {
         let refused = refused_image(&path);
         let rows = drawn(&image, 200, 6, 0);
 
-        assert_eq!(refused.failure, Failure::Damaged);
+        assert_eq!(refused.cause, "Decoding");
         assert!(
             rows[1].contains(&format!("✗ {}", refused.reason)),
             "{rows:#?}"
@@ -2847,6 +2847,28 @@ mod tests {
 
         assert_eq!(log.matches("/nowhere/fetch.rs").count(), 1, "{log}");
         assert_eq!(log.matches(&reason).count(), 1, "{log}");
+        assert!(log.contains("cause=NotFound"), "{log}");
+    }
+
+    /// The log names what failed in the words of the system or the image
+    /// decoder, where the card shows only the reason.
+    #[test]
+    fn a_card_logs_the_cause_of_a_cut_image() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let whole = directory.path().join("whole.png");
+        image::RgbImage::from_pixel(64, 64, image::Rgb([255, 0, 0]))
+            .save(&whole)
+            .expect("image written");
+        let bytes = std::fs::read(&whole).expect("image read");
+        let cut = directory.path().join("cut.png");
+        std::fs::write(&cut, &bytes[..bytes.len() / 2]).expect("file is writable");
+        let image = entry(&serde_json::json!({"type": "image", "path": cut}).to_string());
+
+        let log = logged(|| {
+            viewers().laid_out("s", QUESTION, &image, 40, 10, COLOURED);
+        });
+
+        assert!(log.contains("cause=IoError(UnexpectedEof)"), "{log}");
     }
 
     // -----------------------------------------------------------------

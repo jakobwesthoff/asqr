@@ -66,12 +66,12 @@ error, `!` in yellow for a warning.
   and stays there under a notice; the dialog of an invalid session
   hides him while it is open.
 
-asqr keeps the kind of every failure to read or decode a file: not
-found, permission denied, a directory, not a regular file, a relative
-path, a binary file, an image format asqr cannot decode, a damaged
-image, an image file too large to read, or another failure. It comes from the system's error kind and
-the image decoder's error, so no part of asqr reads the words of a
-message to tell failures apart.
+The card shows the reason as the system, the image decoder or asqr's
+own check wrote it. The log line of the card also names the cause in
+one word: the system's error kind, such as `NotFound`; the image
+decoder's kind of error, such as `Decoding` or `IoError(UnexpectedEof)`
+for image data that ends early; or which of asqr's checks refused the
+file, such as `Directory` or `NotRegular`, which read alike on the card.
 
 ## Consequences
 
