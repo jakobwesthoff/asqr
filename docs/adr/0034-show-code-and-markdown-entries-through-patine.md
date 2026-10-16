@@ -139,3 +139,23 @@ after its number, as `1. ☐ `. The continuation rows of a line too wide
 for its space count these as a list item's marker too: `☐ ` and `☑ `
 after any blanks and bars, like `• `, and a box right after a number
 that counts, which widens the number's marker by two columns.
+
+## Amendment (2026-10-16, tables break long words)
+
+patine 1.7.2 breaks a word wider than its table column between
+characters, inside its cell, so a table fits its width. A long word in
+a cell, and since patine 1.7.1 the `(url)` of a link there, widened its
+table past the pane; every row wrapped, and each continuation row
+repeated the table's border `│ ` as if it were a quote bar. The user
+decided on 2026-10-16 to fix this in patine by breaking long words in
+cells, instead of scrolling a wide table sideways or wrapping it in
+asqr another way.
+
+`markdown_rows` keeps wrapping every line wider than its space. A table
+row still reaches it when not even one character per column fits, and,
+like any line, when it holds a halfwidth sound mark such as `ﾞ`, which
+unicode-width counts as no column and asqr as one (amendment "measuring
+in terminal columns" of ADR 33). Such a row still wraps with its border
+read as a quote bar. The todo
+`01M52SZ3A2KS3K4Q5X943BP9AW-wrap-a-markdown-table-wider-than-the-pane-without-reading-its-border-as.md`
+keeps that open.

@@ -1101,10 +1101,14 @@ highlighted when the fence names a language.
   header's width; an option description in the columns from where it
   starts to the end of the line, beside its label or below it (section
   7.1).
-- A line patine leaves wider than that, such as a line of a code
-  block, a long URL or a table that cannot shrink, wraps as in a
-  Markdown entry: each further row repeats the blanks and quote bars
-  the line starts with, then a dim `↪`, then the rest. Nothing is cut,
+- A table fits the width it gets, as in a Markdown entry: a word wider
+  than its column continues on the next line of its cell, unless not
+  even one character per column fits; then it wraps as below.
+- A line patine leaves wider than the width the text gets, such as a
+  line of a code block, a long URL in running text or a table whose
+  columns do not fit even at one character each, wraps as in a Markdown
+  entry: each further row repeats the blanks and quote bars the line
+  starts with, then a dim `↪`, then the rest. Nothing is cut,
   and nothing scrolls sideways.
 - A single newline breaks the line, and a blank line starts a new
   paragraph. Inside a list item the next line starts under the item's
@@ -1272,8 +1276,15 @@ Code and Markdown (ADR 34):
   alignment of the delimiter row, a column without one with its header
   centred and its data left-aligned, and code blocks highlighted when
   the fence names a language.
+- A table fits the pane: a word wider than its column, such as a long
+  URL, breaks between characters and continues on the next line of its
+  cell in its own style, so a link's URL stays dim, and words that fit
+  their column stay whole. A table whose columns do not fit even at
+  one character each wraps as below.
 - A line patine leaves wider than the pane, such as a line of a code
-  block, a long URL or a table that cannot shrink, wraps: each further
+  block, a long URL in running text, a table whose columns do not fit
+  even at one character each, or any line with a halfwidth sound mark
+  such as `ﾞ`, which patine counts as no column, wraps: each further
   row repeats the blanks and quote bars the line starts with, then
   blanks in place of a list item's `•`, `☐` or `☑`, or its number with
   the box after it, then a dim `↪`, then the rest. A number counts as an

@@ -140,8 +140,8 @@ mod tests {
 
     use ratatui::style::{Color, Modifier};
 
-    use super::super::patine_adapter::quote_style;
-    use super::super::test_support::{drawn, row, shown};
+    use super::super::patine_adapter::{quote_style, source_line};
+    use super::super::test_support::{LONG_LINK_TABLE, LONG_LINK_TABLE_AT_40, drawn, row, shown};
     use super::*;
 
     /// The viewer of the entry `json`, as drawn with colours.
@@ -326,6 +326,67 @@ mod tests {
         };
         assert!(at("retry").contains(Modifier::BOLD), "{buf:?}");
         assert!(at("https").contains(Modifier::DIM), "{buf:?}");
+    }
+
+    /// A word wider than its table column, here a link's URL, continues
+    /// on the next line inside its cell, so the table fits the pane and no
+    /// row wraps behind a `↪`. The URL stays dim on each of its lines.
+    #[test]
+    fn a_long_url_in_a_table_cell_breaks_inside_its_cell() {
+        let mut viewer = inline(LONG_LINK_TABLE);
+
+        assert_eq!(
+            shown(&mut viewer, 40, 0),
+            LONG_LINK_TABLE_AT_40
+                .map(|row| format!("\"{row}\""))
+                .join("\n")
+        );
+        let buf = drawn(&mut viewer, 40, 7, Offset::default());
+        assert!(buf[(11, 4)].modifier.contains(Modifier::DIM), "the URL");
+        assert!(buf[(10, 5)].modifier.contains(Modifier::DIM), "its rest");
+    }
+
+    /// patine breaks a long word in a table cell, so a table fits its
+    /// width. Its rows still come out wider where not even one character
+    /// per column fits, and where patine counts a character narrower than
+    /// asqr draws it. They wrap behind a `↪` like any other wide line.
+    #[test]
+    fn a_table_row_patine_leaves_wider_still_wraps() {
+        // The lines patine renders `markdown` into for the viewer, and the
+        // rows the viewer shows of them.
+        let rendered = |markdown: &str, width: u16| {
+            let options = RenderOptions::new().with_quote_style(quote_style(false));
+            let lines = patine::render_lines_with(markdown, usize::from(width), &options);
+            (lines, shown(&mut inline(markdown), width, 0))
+        };
+
+        // Twelve columns take 49 at one character each.
+        let twelve_columns = format!(
+            "|{}\n|{}\n|{}\n",
+            "a|".repeat(12),
+            "-|".repeat(12),
+            "b|".repeat(12)
+        );
+        let (lines, rows) = rendered(&twelve_columns, 20);
+        assert!(
+            lines.iter().any(|line| line.width() > 20),
+            "patine overflows"
+        );
+        assert!(rows.contains('↪'), "{rows}");
+
+        // The halfwidth sound mark of `ｶﾞ` takes no column for patine and
+        // one for asqr.
+        let sound_marks = format!("| a | b |\n|--|--|\n| x | {} |\n", "ｶﾞ".repeat(6));
+        let (lines, rows) = rendered(&sound_marks, 12);
+        assert!(
+            lines.iter().all(|line| line.width() <= 12),
+            "patine fits it"
+        );
+        assert!(
+            lines.iter().any(|line| source_line(line).width() > 12),
+            "asqr does not"
+        );
+        assert!(rows.contains('↪'), "{rows}");
     }
 
     #[test]

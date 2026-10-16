@@ -160,12 +160,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A Markdown table with a word wider than its column, such as a long
+  URL, fits the pane: the word continues on the next line of its cell,
+  a link's URL dim on each line, and words that fit stay whole. Before,
+  such a word widened the table past the pane, every row wrapped behind
+  `↪`, and the wrapped rows started with the table's border; since
+  patine 1.7.1 the URL of any link in a cell did this. Running text
+  still wraps a long word behind `↪`, and a table whose columns do not
+  fit even at one character each wraps row by row (patine 1.7.2).
 - Markdown table cells keep their inline styles: bold, italic,
   strikethrough, inline code and links show as in running text, and a
   header cell adds bold on top. A link shows its dimmed `(url)`, so a
   column of links is wider, and an image shows `[image: alt]` with its
   path, where its cell was empty. Cell text wraps like running text,
-  and a run of spaces or inline HTML that is not drawn no longer
+  apart from a word wider than its column (see above), and a run of
+  spaces or inline HTML that is not drawn no longer
   widens a column. Before, table cells showed as plain text (patine
   1.7.1).
 - In a Markdown list item, a list after the text of a quote gets the

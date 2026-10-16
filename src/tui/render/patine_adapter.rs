@@ -78,13 +78,17 @@ pub fn source_line(line: &StyledLine) -> SourceLine {
 /// The rows that show Markdown rendered by patine in `width` columns.
 ///
 /// patine wraps prose, but leaves some lines wider: code blocks and
-/// frontmatter, a word or URL longer than the width, a table that cannot
-/// shrink further. Such a line wraps here: each further row repeats the
-/// line's indent, the blanks and blockquote bars it starts with and a list
-/// item's marker as blanks (see [`indent`]), so a code block's lines stay
-/// inside the block and an item's text inside the item, then a dim `↪`
-/// and the next part. Where the indent leaves no room, the rows start with the marker
-/// alone, and where not even that fits, the line breaks without one.
+/// frontmatter, a word or URL in running text longer than the width, a
+/// table whose columns do not fit even at one character each. Any line is
+/// also wider here than patine measured it where it holds a halfwidth
+/// sound mark such as `ﾞ`, which unicode-width counts as no column and
+/// [`columns`] as one; a table row then no longer fits either. Such a
+/// line wraps here: each further row repeats the line's indent, the
+/// blanks and blockquote bars it starts with and a list item's marker as
+/// blanks (see [`indent`]), so a code block's lines stay inside the block
+/// and an item's text inside the item, then a dim `↪` and the next part.
+/// Where the indent leaves no room, the rows start with the marker alone,
+/// and where not even that fits, the line breaks without one.
 pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
     let marker = theme::secondary();
     let marker_width = 2;

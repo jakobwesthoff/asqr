@@ -6,7 +6,8 @@
 //! text starts and the style it starts in. The tests draw into buffers whose
 //! area starts at the origin, so a cell's column and row index the buffer
 //! directly. Tests of lines not yet drawn read their text here too. Also
-//! the paths that every loader of a file must refuse.
+//! the paths that every loader of a file must refuse, and a Markdown table
+//! that the Markdown viewer and the text fields must both fit.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -20,6 +21,27 @@ use ratatui::text::Line;
 use super::source_line::columns;
 use super::viewer::Viewer;
 use crate::tui::Offset;
+
+// ---------------------------------------------------------------------
+// A table with a word wider than its column
+// ---------------------------------------------------------------------
+
+/// A Markdown table whose cell holds a link with a long URL, which the
+/// Markdown viewer and the text fields both render.
+pub(super) const LONG_LINK_TABLE: &str = "| step | doc |\n|--|--|\n\
+    | retry | see [the policy](https://example.com/handbook/operations/retry-policy) |\n";
+
+/// [`LONG_LINK_TABLE`] at a width of 40, where its URL cannot fit its
+/// column: the URL breaks inside its cell, and the table fits the width.
+pub(super) const LONG_LINK_TABLE_AT_40: [&str; 7] = [
+    "┌───────┬──────────────────────────────┐",
+    "│ step  │             doc              │",
+    "├───────┼──────────────────────────────┤",
+    "│ retry │ see the policy               │",
+    "│       │ (https://example.com/handboo │",
+    "│       │ k/operations/retry-policy)   │",
+    "└───────┴──────────────────────────────┘",
+];
 
 // ---------------------------------------------------------------------
 // Holding a load back

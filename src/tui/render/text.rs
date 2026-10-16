@@ -46,6 +46,7 @@ pub fn field_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<Line<'s
 mod tests {
     use super::super::patine_adapter::quote_style;
     use super::super::source_line::columns;
+    use super::super::test_support::{LONG_LINK_TABLE, LONG_LINK_TABLE_AT_40};
     use ratatui::style::{Color, Modifier, Style};
 
     use super::*;
@@ -144,6 +145,14 @@ mod tests {
                 .iter()
                 .all(|line| columns(&texts(std::slice::from_ref(line))[0]) <= 20)
         );
+    }
+
+    /// The text fields render a table as a Markdown entry does: a word
+    /// wider than its column, here a link's URL, continues inside its cell,
+    /// and the table fits the width.
+    #[test]
+    fn a_long_url_in_a_table_cell_breaks_inside_its_cell() {
+        assert_eq!(texts(&lines(LONG_LINK_TABLE, 40)), LONG_LINK_TABLE_AT_40);
     }
 
     #[test]
