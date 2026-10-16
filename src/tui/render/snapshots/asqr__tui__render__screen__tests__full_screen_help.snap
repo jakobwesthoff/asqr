@@ -2,8 +2,8 @@
 source: src/tui/render/screen.rs
 expression: "screen_in(&app, &mut view, 80, 24)"
 ---
-" asqr · queue: default · 1 session waiting                                      "
-" long                                                                           "
+" asqr  long                                                 default · 1 waiting "
+"                                                                                "
 "   ☐ q  ✔ Review                                                                "
 "──━━━━━─────────────────────────────────────────────────────────────────────────"
 " Thirty lines                                                        1–17 of 31 "

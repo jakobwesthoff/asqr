@@ -2,67 +2,140 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The session header under the title bar (spec section 7.1): the session's
-//! title and intro, each cut to the lines the screen gives it.
+//! The session in the title bar and the header under it (spec section
+//! 7.1, ADR 47): the title beside `asqr`, then `from`, `follows` and the
+//! intro, which hang under the title. On a low terminal the header gives
+//! its rows to the tab's area, the blank line first, then intro lines.
 
 use ratatui::text::{Line, Span};
 
+use super::panes::READING_WIDTH;
 use super::parts::question_key;
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::theme;
-use super::wrap::{indented, wrap};
+use super::wrap::{cut, indented};
 use crate::tui::SessionState;
 
-/// The session header in `width` columns: the title line, then the intro,
-/// both wrapped. The title takes at most two lines and the intro three,
-/// one each on short terminals, so the question keeps its room. A cut
-/// title ends in `…`; a cut intro ends in `… i: more`, as `i` shows all
-/// of it, or in `… esc, i: more` where `i` would be typed or taken by the
-/// pane.
-pub(super) fn header_lines(state: &SessionState, width: usize, height: u16) -> Vec<Line<'static>> {
-    let short = height < 24;
-    let session = state.session();
-    let mut spans = vec![Span::styled(state.name().to_owned(), theme::title())];
-    if let Some(from) = &session.from {
-        spans.push(Span::from(format!("  ({from})")));
-    }
-    if let Some(follows) = &session.follows {
-        spans.push(Span::styled(
-            format!("  follows: {follows}"),
-            theme::secondary(),
-        ));
-    }
-    // Lines end a column before the edge, as the question's text does.
-    let room = width.saturating_sub(1);
-    let mut lines = at_most(
-        wrap(Line::from(spans), room, 1, 1),
-        if short { 1 } else { 2 },
-        "…",
-        room,
-    );
+/// The column the session's title starts in, after ` asqr` and two
+/// blanks. The lines under the title start there too.
+const INDENT: usize = 7;
 
-    let Some(intro) = session.intro.as_deref() else {
-        return lines;
+/// The most lines the intro takes; `i` shows the rest.
+const INTRO_LINES: usize = 2;
+
+/// The blanks that at least stand between the title and the queue.
+const GAP: usize = 2;
+
+/// The columns the header's text takes after [`INDENT`] on a terminal of
+/// `width` columns. It ends where the question's text ends: a column
+/// before the edge, and never past the reading width.
+fn text_width(width: usize) -> usize {
+    let header = width.min(usize::from(READING_WIDTH) + 2);
+    header.saturating_sub(1 + INDENT)
+}
+
+/// `text` on one line with single blanks, as ratatui drops a line break
+/// without a blank in its place; `None` when nothing but blanks is left.
+fn one_line(text: &str) -> Option<String> {
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!line.is_empty()).then_some(line)
+}
+
+/// The title bar while `state` is shown, `width` columns wide: `asqr`, the
+/// session's title and, dim at the right end, the queue and how many
+/// sessions wait. The title matters more than the queue: where both do not
+/// fit, the queue goes, and only then is the title cut. The count always
+/// shows.
+pub(super) fn title_bar(
+    state: &SessionState,
+    queue: &str,
+    waiting: usize,
+    width: usize,
+) -> Line<'static> {
+    let text_width = text_width(width);
+    let title = one_line(state.name()).unwrap_or_default();
+    let count = format!("{waiting} waiting ");
+    let queue = format!("{queue} · ");
+
+    let whole_title = columns(&title).min(text_width);
+    let queue = if INDENT + whole_title + GAP + columns(&queue) + columns(&count) <= width {
+        queue
+    } else {
+        String::new()
     };
-    // The secondary role comes on top of patine's styles, which still
-    // show underneath.
-    let intro: Vec<Line<'static>> = intro_lines(intro, room)
+    let right = columns(&queue) + columns(&count);
+    let title = cut(
+        &title,
+        text_width.min(width.saturating_sub(INDENT + GAP + right)),
+    );
+    let blanks = width.saturating_sub(INDENT + columns(&title) + right);
+
+    Line::from(vec![
+        Span::styled(" asqr", theme::app_name()),
+        Span::from("  "),
+        Span::styled(title, theme::title()),
+        Span::from(" ".repeat(blanks)),
+        Span::styled(format!("{queue}{count}"), theme::secondary()),
+    ])
+}
+
+/// The session header on a terminal of `width` columns, in at most
+/// `spare` lines where it can: `from` and `follows` in one line, the intro
+/// in at most two, then a blank line before the tab bar, all under the
+/// title. With fewer lines to spare the blank line goes first, then intro
+/// lines down to one; the `from` and `follows` line stays.
+///
+/// A cut intro ends in `… i: more`, as `i` shows all of it, or in
+/// `… esc, i: more` where `i` would be typed or taken by the pane.
+pub(super) fn header_lines(state: &SessionState, width: usize, spare: usize) -> Vec<Line<'static>> {
+    let text_width = text_width(width);
+    let meta = meta_line(state, text_width);
+    // The intro keeps patine's styles in the text colour: it is the
+    // asker's content, not a hint.
+    let intro: Vec<Line<'static>> = state
+        .session()
+        .intro
+        .as_deref()
+        .map(|intro| field_lines(intro, text_width))
+        .unwrap_or_default()
         .into_iter()
-        .map(|line| line.patch_style(theme::secondary()))
+        .map(|line| indented(line, INDENT))
         .collect();
+
+    let meta_rows = usize::from(meta.is_some());
+    let mut intro_rows = intro.len().min(INTRO_LINES);
+    let blank = meta_rows + intro_rows < spare;
+    while meta_rows + intro_rows > spare && intro_rows > 1 {
+        intro_rows -= 1;
+    }
+
     let more = format!("… {}: more", question_key(state, "i"));
-    lines.extend(at_most(intro, if short { 1 } else { 3 }, &more, room));
+    let mut lines: Vec<Line<'static>> = meta.into_iter().collect();
+    lines.extend(at_most(intro, intro_rows, &more, INDENT + text_width));
+    if blank {
+        lines.push(Line::default());
+    }
     lines
 }
 
-/// The session's intro in patine's styles, wrapped so that each line,
-/// with the blank column it starts with, takes at most `width` columns.
-fn intro_lines(intro: &str, width: usize) -> Vec<Line<'static>> {
-    field_lines(intro, width.saturating_sub(1))
-        .into_iter()
-        .map(|line| indented(line, 1))
-        .collect()
+/// `from` and `follows`, dim in one line under the title and cut with `…`
+/// to `text_width`, or `None` where the session has neither.
+fn meta_line(state: &SessionState, text_width: usize) -> Option<Line<'static>> {
+    let session = state.session();
+    let from = session.from.as_deref().and_then(one_line);
+    let follows = session.follows.as_deref().and_then(one_line);
+    let parts: Vec<String> = [
+        from.map(|from| format!("from {from}")),
+        follows.map(|follows| format!("follows {follows}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!parts.is_empty()).then(|| {
+        let text = cut(&parts.join(" · "), text_width);
+        indented(Line::styled(text, theme::secondary()), INDENT)
+    })
 }
 
 /// The first `count` of `lines`; when that cuts some off, the last one
@@ -122,33 +195,53 @@ mod tests {
     use super::super::test_support::line_texts;
     use super::*;
 
+    /// The state of a session of one `single` question with `fields`
+    /// before its questions, such as `"title": "Release",`. No field has the
+    /// keys, so `i` needs no `esc` first.
+    fn session_with(fields: &str) -> SessionState {
+        let json = format!(
+            r#"{{"asqr": 2, {fields} "questions": [{{"id": "q", "text": "?", "kind": "single",
+                "options": [{{"id": "a", "label": "A"}}]}}]}}"#
+        );
+        SessionState::new("batch", serde_json::from_str(&json).expect("parses"), None)
+    }
+
     #[test]
-    fn the_header_names_the_session_by_its_title_else_by_its_id() {
-        let header = |title: &str| {
-            let json = format!(
-                r#"{{"asqr": 2, {title} "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#
-            );
-            let state =
-                SessionState::new("batch", serde_json::from_str(&json).expect("parses"), None);
-            header_lines(&state, 40, 30).remove(0)
+    fn the_title_bar_names_the_session_by_its_title_else_by_its_id() {
+        let title = |fields: &str| {
+            let bar = title_bar(&session_with(fields), "default", 1, 40);
+            bar.spans[2].clone()
         };
 
         assert_eq!(
-            header(r#""title": "Release","#).spans,
-            [Span::from(" "), Span::from("Release").bold()]
+            title(r#""title": "Release","#),
+            Span::from("Release").bold()
         );
+        assert_eq!(title(""), Span::from("batch").bold());
+    }
+
+    #[test]
+    fn a_title_with_line_breaks_shows_on_one_line() {
+        let state = session_with(r#""title": "Round\n  two\tof it","#);
+
+        // 7 + 15 + 2 + 20 columns would not fit with the queue, so it goes.
         assert_eq!(
-            header("").spans,
-            [Span::from(" "), Span::from("batch").bold()]
+            line_texts(&[title_bar(&state, "default", 1, 40)]),
+            [format!(" asqr  Round two of it{}1 waiting ", " ".repeat(8))]
         );
     }
 
     #[test]
-    fn the_intro_wraps_within_its_width_behind_a_blank_column() {
-        let lines = intro_lines("Round **two** of the layout", 12);
+    fn the_intro_wraps_under_the_title_in_its_markdown_styles() {
+        // 20 columns leave the intro 12 after the indent and the column
+        // before the edge.
+        let state = session_with(r#""intro": "Round **two** of the new layout here","#);
+        let lines = header_lines(&state, 20, 10);
 
-        assert_eq!(line_texts(&lines), [" Round two", " of the", " layout"]);
-        assert_eq!(lines[0].spans[0], Span::from(" "));
+        assert_eq!(
+            line_texts(&lines),
+            ["       Round two of", "       the… i: more", ""]
+        );
         assert!(
             lines[0]
                 .spans

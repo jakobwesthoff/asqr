@@ -2,8 +2,7 @@
 source: src/tui/render/screen.rs
 expression: "screen(&app, 60, 15)"
 ---
-" asqr · queue: default · 1 session waiting                  "
-" approach                                                   "
+" asqr  approach                         default · 1 waiting "
 "   ☐ q  ✔ Review                                            "
 "──━━━━━─────────────────────────────────────────────────────"
 " Which approach?                                            "
@@ -15,5 +14,6 @@ expression: "screen(&app, 60, 15)"
 "       Quick, but the grammar stays odd.                    "
 "                                                            "
 " Notes: —                                                   "
+"                                                            "
 "                                                            "
 " ↑/↓  move   enter  pick   ←/→  question   ?  help   q  quit"

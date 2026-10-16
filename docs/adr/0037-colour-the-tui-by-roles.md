@@ -12,6 +12,8 @@ Amends [31. Make the context area a pane with a header, focus and scrolling](003
 
 Amended by [38. Give notices kinds and confirm a finished session](0038-give-notices-kinds-and-confirm-a-finished-session.md)
 
+Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-title-in-the-title-bar.md)
+
 ## Context
 
 The TUI marked nearly everything the same way, with reversed video: the
@@ -102,3 +104,13 @@ terminal's theme decides how they look:
   holds what colouring it would take.
 - The rule under the tab bar and the rounded overlay corners change the
   text of the screen, not only its colours.
+
+## Amendment (2026-10-16, ADR 47)
+
+With a session shown, the title line holds the session's title, bold in
+the text colour, after `asqr`, and the queue and the count stand
+secondary at its right end. The user chose the dim count on 2026-10-16,
+over the text colour the bullet "Title line and key bar have no fills"
+gives it; on the empty queue the count keeps the text colour. The
+`from` and `follows` line under the title is secondary. The intro keeps
+the text colour.

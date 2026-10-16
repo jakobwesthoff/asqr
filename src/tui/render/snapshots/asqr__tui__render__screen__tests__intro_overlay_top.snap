@@ -2,9 +2,9 @@
 source: src/tui/render/screen.rs
 expression: "drawn(&mut app, &mut view, 60, 15)"
 ---
-" a╭ Intro ───────────────────────────────────────────────╮  "
-" R│ • Round 1 asked about the queue watcher and the      │  "
-" •│   review tab, and the answers went into the plan.    │e "
+" a╭ Intro ───────────────────────────────────────────────╮g "
+"  │ • Round 1 asked about the queue watcher and the      │  "
+"  │   review tab, and the answers went into the plan.    │e "
 "  │ • Round 2 asked about the queue watcher and the      │  "
 "──│   review tab, and the answers went into the plan.    │──"
 " A│ • Round 3 asked about the queue watcher and the      │  "

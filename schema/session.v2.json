@@ -542,7 +542,7 @@
       ]
     },
     "intro": {
-      "description": "Markdown, shown dimmed under the title in at most three lines. A\nsingle newline breaks the line, and raw HTML shows as written.",
+      "description": "Markdown, shown under the title in at most two lines. A single\nnewline breaks the line, and raw HTML shows as written.",
       "type": [
         "string",
         "null"

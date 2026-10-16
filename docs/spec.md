@@ -318,10 +318,10 @@ Session fields:
   ULID and names the dropped file after it. A file dropped by hand
   without `id` has its stem as the id. The name of the file given to
   `asqr ask` or `asqr validate` does not matter.
-- `title`, `intro`, `from` (optional): shown in the session header. The
-  header shows the id when there is no `title`.
+- `title` (optional): shown in the title bar, which shows the id when
+  there is none. `intro`, `from` (optional): shown in the session header.
 - `follows` (optional): the id of an earlier session this one continues.
-  The header shows `follows: <id>`.
+  The header shows `follows <id>` (section 7.1).
 - `questions` (required, at least one).
 
 Question fields:
@@ -600,9 +600,10 @@ question kept to a reading width and a context pane beside or below it
 when the question has context (user, 2026-10-14; ADRs 30 and 31):
 
 ```
- asqr · queue: default · 2 sessions waiting
- Alt rework 3, batch 1  (claude-code, torchsnap mascots)
- Pick the best line per mascot. More sends it back with new variations.
+ asqr  Alt rework 3, batch 1                          default · 2 waiting
+       from claude-code, torchsnap mascots · follows alt-rework-3-batch-00
+       Pick the best line per mascot. More sends it back with new variations.
+
  ← ☒ 300  ☐ 301  ☐ 302  ☐ 303  ✔ Review
  ─━━━━━━━──────────────────────────────────────────────────
  holly-crown-green-robe-feast-ghost: Ghost of Christmas
@@ -623,18 +624,28 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
  ↑/↓ move  enter pick  ←/→ question  n note  ? help  q quit
 ```
 
-- The title bar names the queue and counts the waiting sessions, without
-  a fill: `asqr` bold in the primary colour, the queue dim, the count in
-  the text colour. A queue name too long for the line is cut from the
-  left with `…`, at a `/` where possible, so the count stays visible.
-- The session header shows the title (or the id), `from` and `follows`,
-  then the intro, both wrapped at the reading width. The title takes at
-  most two lines and the intro three, one each on terminals below 24
-  rows. A cut title ends in `…`, a cut intro in `… i: more`, and `i`
-  shows the whole intro (section 7.2). While a field, a note or the
-  context pane has the keys, where `i` would be typed or taken by the
-  pane, the intro ends in `… esc, i: more`. The tab bar keeps the full
-  width.
+- The title bar has no fill: `asqr` is bold in the primary colour. With
+  nothing waiting it reads `asqr · queue: <queue> · N sessions waiting`,
+  the queue dim and the count in the text colour. A queue name too long
+  for the line is cut from the left with `…`, at a `/` where possible,
+  so the count stays visible.
+- With a session shown, the session's title (or its id) follows `asqr`
+  after two blanks, bold, in one line that ends where the reading width
+  ends. The queue and `N waiting` stand dim at the right end. Where the
+  whole title and the queue do not both fit, the queue goes, then the
+  title is cut and ends in `…`. The count always shows.
+- Under the title, from its first column: `from` and `follows` in one
+  dim line, `from <from> · follows <follows>`, cut with `…`; then the
+  intro in the text colour, wrapped at the reading width, at most two
+  lines; then a blank line before the tab bar. A cut intro ends in
+  `… i: more`, and `i` shows the whole intro (section 7.2). While a
+  field, a note or the context pane has the keys, where `i` would be
+  typed or taken by the pane, it ends in `… esc, i: more`. The tab bar
+  keeps the full width.
+- On a low terminal the header gives way while the tab's area would
+  have fewer than 15 rows, the rows a context pane below the question
+  needs: first the blank line, then intro lines down to one. The `from`
+  and `follows` line stays.
 - The tab bar lists every question by its `header` (or id) with `☒`
   once it is answered and a dim `☐` while it is not, and `✔ Review`
   last. The current tab is bold in the primary colour, and the line under
@@ -832,7 +843,7 @@ On an option row (vim style plus arrows):
   are the intro overlay's keys and conventions.
 - Help closes on any key.
 - `i` shows the session's whole intro in a frame over the question,
-  rendered as in the header but not dimmed (section 7.6), with the key
+  rendered as in the header (section 7.6), with the key
   bar left free. An
   intro longer than the frame scrolls: `↑`/`↓` and `k`/`j` by line,
   `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` by page, `g`/`G` and `home`/`end`
@@ -1071,8 +1082,8 @@ highlighted when the fence names a language.
   is a link.
 - Markdown entries (section 7.7) are documents and keep CommonMark's
   rules: a single newline joins the lines, and raw HTML is left out.
-- The intro under the title is dim on top of these styles. The `i`
-  frame shows it without the dim.
+- The intro under the title shows these styles in the text colour, as
+  the `i` frame does.
 
 ### 7.7 Context
 

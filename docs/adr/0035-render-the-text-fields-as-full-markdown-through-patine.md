@@ -10,6 +10,8 @@ Supersedes the Markdown subset of [7. Session and result format version 1](0007-
 
 Amends [9. Crate choices](0009-crate-choices.md)
 
+Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-title-in-the-title-bar.md)
+
 ## Context
 
 ADR 7 limited the text fields, the intro, question texts and option
@@ -110,3 +112,11 @@ plain function from the text and a width to its rows. The reasons:
   build and 3.1 ms in a debug build, far below what a person notices.
 - Large content belongs in the context pane, whose viewers keep their
   own layout per size (ADR 31).
+
+## Amendment (2026-10-16, ADR 47)
+
+The intro under the title is no longer dim: it shows patine's styles in
+the text colour, as the `i` frame does. A cut intro keeps at most two
+rendered rows instead of three. Instead of one row on terminals under 24
+rows, it gives way row by row while the tab's area would have fewer
+than 15 rows, down to one row.

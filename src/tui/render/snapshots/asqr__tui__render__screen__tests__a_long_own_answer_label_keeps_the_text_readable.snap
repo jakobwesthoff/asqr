@@ -2,8 +2,7 @@
 source: src/tui/render/screen.rs
 expression: "screen(&app, 60, 15)"
 ---
-" asqr · queue: default · 1 session waiting                  "
-" name                                                       "
+" asqr  name                             default · 1 waiting "
 "   ☒ q  ✔ Review                                            "
 "──━━━━━─────────────────────────────────────────────────────"
 " Name it                                                    "
@@ -14,6 +13,7 @@ expression: "screen(&app, 60, 15)"
 "     list, the release channel, the team chat and a short   "
 "     post on the project page, written by whoever has the   "
 "     time on the day                                        "
-"                                                     ↓ more "
+"                                                            "
+" Notes: —                                                   "
 "                                                            "
 " ctrl-j  new line   enter  pick   esc  stop typing          "

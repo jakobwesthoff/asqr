@@ -168,8 +168,8 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 
-    /// Markdown, shown dimmed under the title in at most three lines. A
-    /// single newline breaks the line, and raw HTML shows as written.
+    /// Markdown, shown under the title in at most two lines. A single
+    /// newline breaks the line, and raw HTML shows as written.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intro: Option<String>,
 

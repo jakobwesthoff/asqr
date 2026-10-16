@@ -2,8 +2,7 @@
 source: src/tui/render/screen.rs
 expression: backend
 ---
-" asqr · queue: default · 1 session waiting                                                                              "
-" code                                                                                                                   "
+" asqr  code                                                                                         default · 1 waiting "
 "   ☐ q  ✔ Review                                                                                                        "
 "──━━━━━─────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
 " Keep the retry?                                              fetch.rs                                                  "
@@ -12,6 +11,7 @@ expression: backend
 " ❯ ( ) 1. Yes                                                 3 }                                                       "
 "                                                                                                                        "
 " Notes: —                                                                                                               "
+"                                                                                                                        "
 "                                                                                                                        "
 "                                                                                                                        "
 "                                                                                                                        "

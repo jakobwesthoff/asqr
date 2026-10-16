@@ -17,11 +17,11 @@ use unicode_segmentation::UnicodeSegmentation;
 use super::content::{TabState, draw_tab};
 use super::context::draw_pane;
 use super::empty::EmptyQueue;
-use super::header::header_lines;
+use super::header::{header_lines, title_bar};
 use super::keys::{draw_help, empty_queue_hints, intro_hints, key_hints, key_line};
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
-use super::panes::{PaneLayout, READING_WIDTH};
+use super::panes::{MIN_BELOW_HEIGHT, PaneLayout};
 use super::source_line::columns;
 use super::tabs::tab_bar;
 use super::theme;
@@ -34,6 +34,11 @@ use crate::tui::{App, Extent, Overlay, Page, SessionState};
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
 pub const MIN_HEIGHT: u16 = 15;
+
+/// The rows of the screen besides the header and the tab's area: the title
+/// bar, the tab bar's labels and the rule under them, the status line and
+/// the key bar, as [`draw_screen`] lays them out.
+const FRAME_ROWS: u16 = 5;
 
 /// `text` in at most `room` columns: whole as long as it fits, otherwise
 /// its end behind `…`, cut at a `/` where one is in reach, since the end
@@ -191,18 +196,23 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         return Drawn::default();
     }
 
-    // The header text keeps to the reading width the question has, after
-    // the margin on the left and before the one on the right.
-    let header_width = usize::from(area.width.min(READING_WIDTH + 2));
+    // The header gives its rows to the tab's area until that has the rows
+    // a context pane below the question needs.
+    let spare = area.height.saturating_sub(FRAME_ROWS + MIN_BELOW_HEIGHT);
     let header_lines = app
         .active()
-        .map(|state| header_lines(state, header_width, area.height))
+        .map(|state| header_lines(state, usize::from(area.width), usize::from(spare)))
         .unwrap_or_default();
-    let header_height = u16::try_from(header_lines.len()).expect("at most five header lines");
+    // The empty queue keeps a header row, below which Talqi's place is
+    // measured.
+    let header_height = match app.active() {
+        Some(_) => u16::try_from(header_lines.len()).expect("at most four header lines"),
+        None => 1,
+    };
 
     let [title, header, tabs, main, status, keys] = Layout::vertical([
         Constraint::Length(1),
-        Constraint::Length(header_height.max(1)),
+        Constraint::Length(header_height),
         Constraint::Length(2),
         Constraint::Fill(1),
         Constraint::Length(1),
@@ -210,7 +220,12 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     ])
     .areas(area);
 
-    draw_title(title, frame.buffer_mut(), view.queue, app.sessions().len());
+    let waiting = app.sessions().len();
+    match app.active() {
+        Some(state) => title_bar(state, view.queue, waiting, usize::from(title.width))
+            .render(title, frame.buffer_mut()),
+        None => draw_title(title, frame.buffer_mut(), view.queue, waiting),
+    }
     // The intro overlay covers the status line, so the line comes first.
     frame.render_widget(status_line(app, app.active(), status.width), status);
 
@@ -284,7 +299,8 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     drawn
 }
 
-/// The title bar: the queue and how many sessions wait. A queue too long
+/// The title bar of the empty queue: the queue and how many sessions wait
+/// (the bar beside a session is the header's). A queue too long
 /// for the bar gives way to the count, shortened from its start. The bar
 /// has no fill: `asqr` stands out in the primary colour, the queue is
 /// secondary, and the count, which changes, keeps the text colour.
@@ -343,6 +359,7 @@ mod tests {
     use ratatui::style::{Color, Modifier, Style};
 
     use super::super::empty::emblem_screen_areas;
+    use super::super::panes::READING_WIDTH;
     use super::super::test_support::{self, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
@@ -462,10 +479,16 @@ mod tests {
         let backend = screen(&long_header(), 160, 30);
         let lines = test_support::rows(backend.buffer());
 
-        for (row, line) in lines.iter().enumerate().take(6).skip(1) {
+        // The `from` line and the intro's two lines.
+        for (row, line) in lines.iter().enumerate().take(4).skip(1) {
             let used = line.trim_end().chars().count();
             assert!(used <= 101, "header row {row} ends at {used}:\n{backend}");
         }
+        // The title stops where the header's text does, and the count
+        // stands at the right end of the whole bar.
+        let title_end = lines[0].find('…').expect("the title is cut");
+        assert_eq!(lines[0][..title_end].chars().count(), 100, "{backend}");
+        assert!(lines[0].ends_with("default · 1 waiting "), "{backend}");
         insta::assert_snapshot!("header_wrapped_160x30", backend);
 
         let questions: Vec<String> = (1..=20)
@@ -483,15 +506,178 @@ mod tests {
     }
 
     #[test]
-    fn a_long_title_takes_two_lines_or_one_on_short_terminals() {
-        let app = long_header();
-        let lines = test_support::rows(screen(&app, 80, 24).buffer());
-        assert!(lines[2].trim_end().ends_with('…'), "{lines:#?}");
-        assert!(lines[5].trim_end().ends_with("… i: more"), "{lines:#?}");
+    fn a_long_intro_takes_two_lines_and_ends_in_more() {
+        let backend = screen(&long_header(), 80, 24);
+        let buf = backend.buffer();
 
-        let lines = test_support::rows(screen(&app, 80, 20).buffer());
-        assert!(lines[1].trim_end().ends_with('…'), "{lines:#?}");
-        assert!(lines[2].trim_end().ends_with("… i: more"), "{lines:#?}");
+        // The release session keeps its `from`, which takes the first
+        // line under the title.
+        assert_eq!(row(buf, 1), "       from release script", "{backend}");
+        assert!(
+            row(buf, 2).starts_with("       Three decisions"),
+            "{backend}"
+        );
+        assert!(row(buf, 3).ends_with("… i: more"), "{backend}");
+        assert_eq!(row(buf, 4), "", "{backend}");
+        assert!(row(buf, 5).contains("Go?"), "{backend}");
+    }
+
+    /// The release session under `title`.
+    fn titled(title: &str) -> App {
+        let session = RELEASE.replace(
+            r#""title": "Release 0.2.0""#,
+            &format!(r#""title": {title:?}"#),
+        );
+        app(&[("release", &session)])
+    }
+
+    #[test]
+    fn the_title_bar_names_the_session_beside_asqr() {
+        let backend = screen(&app(&[("release", RELEASE)]), 80, 24);
+        let buf = backend.buffer();
+
+        // ` asqr` and two blanks put the title in column 7, where the lines
+        // under it start; the queue and the count end a column before the
+        // edge, as the bar starts a column after it.
+        assert_eq!(
+            test_support::rows(buf)[0],
+            format!(" asqr  Release 0.2.0{}default · 1 waiting ", " ".repeat(40))
+        );
+        assert_eq!(look_at(buf, "asqr"), (Color::Cyan, Modifier::BOLD));
+        assert_eq!(look_at(buf, "Release"), (Color::Reset, Modifier::BOLD));
+        assert_eq!(look_at(buf, "default"), (Color::Reset, Modifier::DIM));
+        assert_eq!(look_at(buf, "1 waiting"), (Color::Reset, Modifier::DIM));
+        assert!(
+            (0..80).all(|x| !buf[(x, 0)].modifier.contains(Modifier::REVERSED)),
+            "{backend}"
+        );
+    }
+
+    #[test]
+    fn a_long_title_drops_the_queue_then_ends_in_an_ellipsis() {
+        // At 80 columns ` asqr  `, the title, two blanks and
+        // `default · 1 waiting ` take 7 + 51 + 2 + 20 = 80 columns.
+        let fits = "a".repeat(51);
+        let row = title_line(&screen(&titled(&fits), 80, 24));
+        assert!(row.ends_with("default · 1 waiting"), "{row}");
+        assert!(row.contains(&fits), "{row}");
+
+        let queue_goes = "a".repeat(52);
+        let row = title_line(&screen(&titled(&queue_goes), 80, 24));
+        assert!(!row.contains("default"), "{row}");
+        assert!(
+            row.ends_with(&format!("{queue_goes}{}1 waiting", " ".repeat(11))),
+            "{row}"
+        );
+
+        // Without the queue the title gets what the count leaves, 61
+        // columns, and is cut there.
+        let row = title_line(&screen(&long_header(), 80, 24));
+        let title = row[" asqr  ".len()..].split("  ").next().expect("a title");
+        assert_eq!(title.chars().count(), 61, "{row}");
+        assert!(title.ends_with('…'), "{row}");
+        assert!(row.ends_with(" 1 waiting"), "{row}");
+    }
+
+    #[test]
+    fn from_follows_and_the_intro_hang_under_the_title() {
+        let backend = screen(&app(&[("batch", EXAMPLE)]), 110, 32);
+        let buf = backend.buffer();
+
+        assert_eq!(
+            row(buf, 1),
+            "       from claude-code, torchsnap mascots · follows alt-rework-3-batch-00",
+            "{backend}"
+        );
+        assert_eq!(look_at(buf, "from claude"), (Color::Reset, Modifier::DIM));
+        assert_eq!(
+            row(buf, 2),
+            "       Pick the best line per mascot. More sends it back with new variations.",
+            "{backend}"
+        );
+        assert_eq!(look_at(buf, "Pick"), (Color::Reset, Modifier::empty()));
+        assert_eq!(row(buf, 3), "", "{backend}");
+        assert!(row(buf, 4).contains("☐ 301"), "{backend}");
+    }
+
+    /// A follow-up whose title and `from` are too long to share a line
+    /// with its `follows` id at 80 columns, with an intro of three lines
+    /// at that width and a question with code as its context: the session
+    /// that showed the context pane only as a hint at 80×24.
+    fn follow_up() -> App {
+        let json = serde_json::json!({
+            "asqr": 2,
+            "title": "Review the retry change, round 2",
+            "intro": "Second round on retrying failed requests in the fetcher. The backoff now stops at two seconds and the README section from round one is in. Three points are still open.",
+            "from": "claude-code, fetcher retries",
+            "follows": "01M51VZTB20Y36XSFZ43GMZMZF",
+            "questions": [{"id": "merge", "header": "Merge?", "text": "Merge the change?", "kind": "single",
+                "context": [{"type": "code", "title": "fetch.rs",
+                             "content": "pub fn fetch(url: &str) -> Response {\n    retry(|| get(url))\n}\n"}],
+                "options": [{"id": "yes", "label": "Merge"}, {"id": "no", "label": "Not yet"}]}]
+        });
+        app(&[("round-2", &json.to_string())])
+    }
+
+    #[test]
+    fn a_follow_up_at_80x24_keeps_its_context_pane() {
+        let backend = screen(&follow_up(), 80, 24);
+        let buf = backend.buffer();
+        let text = backend.to_string();
+
+        assert!(row(buf, 1).starts_with("       from"), "{backend}");
+        // The rule under the tab bar on row 6 leaves the tab 15 rows, the
+        // fewest a context pane below the question needs.
+        assert!(row(buf, 6).contains('━'), "{backend}");
+        assert!(text.contains("1 pub fn fetch"), "{backend}");
+        assert!(!text.contains("▸ code: fetch.rs"), "{backend}");
+    }
+
+    #[test]
+    fn the_header_gives_way_to_the_context_pane_row_by_row() {
+        let app = follow_up();
+        let header = |backend: &TestBackend| {
+            let buf = backend.buffer();
+            assert!(row(buf, 1).starts_with("       from "), "{backend}");
+            assert!(row(buf, 2).starts_with("       Second round"), "{backend}");
+        };
+
+        // First the blank line goes.
+        let backend = screen(&app, 80, 23);
+        header(&backend);
+        assert!(row(backend.buffer(), 4).contains("Merge?"), "{backend}");
+        assert!(backend.to_string().contains("1 pub fn fetch"), "{backend}");
+
+        // Then the intro's second line.
+        let backend = screen(&app, 80, 22);
+        header(&backend);
+        assert!(row(backend.buffer(), 2).ends_with("… i: more"), "{backend}");
+        assert!(row(backend.buffer(), 3).contains("Merge?"), "{backend}");
+        assert!(backend.to_string().contains("1 pub fn fetch"), "{backend}");
+
+        // The `from` line and one line of the intro stay, and the tab's
+        // 14 rows leave the context its hint.
+        let backend = screen(&app, 80, 21);
+        header(&backend);
+        assert!(row(backend.buffer(), 3).contains("Merge?"), "{backend}");
+        assert!(
+            backend.to_string().contains("▸ code: fetch.rs"),
+            "{backend}"
+        );
+    }
+
+    #[test]
+    fn a_session_without_header_text_has_only_the_blank_line() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#;
+        let app = app(&[("bare", json)]);
+
+        let backend = screen(&app, 80, 24);
+        assert_eq!(row(backend.buffer(), 1), "", "{backend}");
+        assert!(row(backend.buffer(), 2).contains("☐ q"), "{backend}");
+
+        // On the smallest screen the blank line goes as well.
+        let backend = screen(&app, 60, 15);
+        assert!(row(backend.buffer(), 1).contains("☐ q"), "{backend}");
     }
 
     /// A session whose intro takes far more lines than a 60×15 screen.
@@ -758,21 +944,16 @@ mod tests {
     }
 
     #[test]
-    fn the_intro_is_dim_over_its_markdown_styles() {
+    fn the_intro_is_in_the_text_colour_over_its_markdown_styles() {
         let app = markdown_session("Round **two** of `layout`.", "Which?", "Alpha", "");
         let backend = screen(&app, 80, 24);
         let buffer = backend.buffer();
 
         let two = find(backend.buffer(), "two");
-        assert!(
-            buffer[two]
-                .modifier
-                .contains(Modifier::BOLD | Modifier::DIM),
-            "{backend}"
-        );
+        assert_eq!(buffer[two].modifier, Modifier::BOLD, "{backend}");
         let layout = find(backend.buffer(), "layout");
         assert_eq!(buffer[layout].fg, Color::Indexed(3));
-        assert!(buffer[layout].modifier.contains(Modifier::DIM));
+        assert!(!buffer[layout].modifier.contains(Modifier::DIM));
         assert!(!backend.to_string().contains('`'), "{backend}");
     }
 
@@ -1328,19 +1509,21 @@ mod tests {
 
     #[test]
     fn the_title_line_has_no_fill_and_names_asqr_in_the_primary_colour() {
-        let backend = screen(&app(&[("release", RELEASE)]), 80, 24);
+        // The empty queue's bar; the one beside a session has a test of
+        // its own.
+        let backend = screen(&App::default(), 80, 24);
         let buf = backend.buffer();
 
         assert_eq!(
             title_line(&backend),
-            " asqr · queue: default · 1 session waiting"
+            " asqr · queue: default · 0 sessions waiting"
         );
         assert_eq!(look_at(buf, "asqr"), (Color::Cyan, Modifier::BOLD));
         let secondary = (Color::Reset, Modifier::DIM);
         assert_eq!(look_at(buf, " · queue"), secondary);
         assert_eq!(look_at(buf, "default"), secondary);
         assert_eq!(
-            look_at(buf, " · 1 session"),
+            look_at(buf, " · 0 sessions"),
             (Color::Reset, Modifier::empty())
         );
         assert!(
@@ -1591,7 +1774,9 @@ mod tests {
             70,
             "right of the question text: {columns:?}"
         );
-        assert_eq!(*rows.start(), 5, "under the pane's header: {rows:?}");
+        // Without header text the header takes no row at this height, so
+        // the tab starts on row 3 and the pane's header takes it.
+        assert_eq!(*rows.start(), 4, "under the pane's header: {rows:?}");
     }
 
     #[test]
@@ -1603,7 +1788,7 @@ mod tests {
 
         let (columns, rows) = image_cells(&screen(&app, 140, 20));
 
-        assert_eq!(rows, 5..=17, "every row of the pane's body");
+        assert_eq!(rows, 4..=17, "every row of the pane's body");
         assert!(columns.end() - columns.start() > 16, "{columns:?}");
     }
 
@@ -1665,7 +1850,7 @@ mod tests {
         let mut app = with_image_kept_small(file.path().to_str().expect("UTF-8 path"));
 
         let (columns, rows) = image_cells(&screen(&app, 140, 20));
-        assert_eq!((columns, rows), (70..=85, 5..=12), "in the pane");
+        assert_eq!((columns, rows), (70..=85, 4..=11), "in the pane");
 
         keys(&mut app, "z");
         let (columns, rows) = image_cells(&screen(&app, 140, 20));
@@ -1683,7 +1868,7 @@ mod tests {
 
         let (_, rows) = image_cells(&screen(&app, 140, 20));
 
-        assert_eq!(rows, 5..=17, "the pane's body, no more");
+        assert_eq!(rows, 4..=17, "the pane's body, no more");
     }
 
     /// A view whose terminal speaks the Kitty protocol.
@@ -1892,7 +2077,8 @@ mod tests {
                 .find(|row| row.contains('✎'))
                 .expect("the own answer shows");
             assert!(own.contains("( ) ✎"), "{name}: not chosen\n{backend}");
-            assert!(rows[2].contains("☐ q"), "{name}: the tab\n{backend}");
+            // Without header text the tab bar follows the title bar at once.
+            assert!(rows[1].contains("☐ q"), "{name}: the tab\n{backend}");
             assert_eq!(state.counts().answered, 0, "{name}");
             assert_eq!(state.counts().skipped, 1, "{name}");
             assert!(
@@ -2169,11 +2355,13 @@ mod tests {
         let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
         insta::assert_snapshot!(screen_handing_on_pane(&mut app, &mut view, 80, 16));
 
+        // The session has no header text, so at 16 rows the header takes no
+        // row and the pane shows 10 of the 13 lines.
         for _ in 0..4 {
             special(&mut app, KeyCode::Down);
         }
         let text = screen_in(&app, &mut view, 80, 16).to_string();
-        assert!(text.contains("5–13 of 13"), "{text}");
+        assert!(text.contains("4–13 of 13"), "{text}");
         assert!(text.contains("No such file"), "the reason: {text}");
     }
 
@@ -2271,11 +2459,13 @@ mod tests {
 
     #[test]
     fn a_terminal_too_small_for_the_context_shows_a_hint() {
-        // 80×20 leaves 78×14 for the tab: beside needs 101 columns, below
-        // 8 rows for the context with the question at half the height.
+        // The session has no header text, so on a terminal this low the
+        // header takes no row, and 80×19 leaves 78×14 for the tab: beside
+        // needs 101 columns, below 8 rows for the context with the
+        // question at half the height.
         insta::assert_snapshot!(
-            "context_hint_80x20",
-            screen(&with_image("/pictures/x.png"), 80, 20)
+            "context_hint_80x19",
+            screen(&with_image("/pictures/x.png"), 80, 19)
         );
     }
 
@@ -2788,13 +2978,14 @@ mod tests {
         let app = app(&[("full", &json.to_string())]);
 
         // The text fills whole lines of 58 columns, each further one
-        // behind `↪`. The option under the cursor ends the 9 rows of the
-        // tab on a 60×15 terminal, so the text's first lines are cut off
-        // above, under a full line.
+        // behind `↪`. The option under the cursor ends the 10 rows of the
+        // tab on a 60×15 terminal, where a session without header text has
+        // no header row, so the text's first lines are cut off above, under
+        // a full line.
         let backend = screen(&app, 60, 15);
         let rows = test_support::rows(backend.buffer());
-        assert_eq!(find(backend.buffer(), "↑ more"), (53, 4), "{backend}");
-        assert_eq!(rows[4], format!(" ↪ {} ↑ more ", "x".repeat(49)));
+        assert_eq!(find(backend.buffer(), "↑ more"), (53, 3), "{backend}");
+        assert_eq!(rows[3], format!(" ↪ {} ↑ more ", "x".repeat(49)));
         assert_eq!(find(backend.buffer(), "↓ more"), (53, 12), "{backend}");
     }
 
@@ -3043,7 +3234,7 @@ mod tests {
     const WIDE_TEXT: &str = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほ";
 
     /// A session in Japanese with an emoji in its title, whose intro runs
-    /// past the three lines the header gives it at 60×24.
+    /// past the two lines the header gives it.
     fn wide_session() -> App {
         let intro = "変更点を確認してから公開してください。 ".repeat(6);
         let json = serde_json::json!({
@@ -3109,8 +3300,9 @@ mod tests {
         let backend = screen(&app, 60, 24);
         insta::assert_snapshot!("wide_own_answer_60x24", backend);
         let rows = test_support::rows(backend.buffer());
+        // The intro's second line, under the title bar and the first.
         assert!(
-            rows[4].trim_end().ends_with("… esc, i: more"),
+            rows[2].trim_end().ends_with("… esc, i: more"),
             "the cut intro keeps its marker:\n{backend}"
         );
         // Without blanks, the text is one word longer than the room after

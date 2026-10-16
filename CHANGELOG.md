@@ -104,9 +104,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Before, it also did so after a quick answer that named no graphics
   protocol, and a key typed in the first moments after the start was
   lost.
+- The session's title moves into the title line next to `asqr`, with the
+  queue and the count dim at its right end, as `default · 2 waiting`.
+  `from` and `follows` share one dim line under it, and the intro hangs
+  under the title in the text colour instead of dim, in at most two
+  lines instead of three, with a blank line before the tabs. On a low
+  terminal the header gives up that blank line, then intro lines, before
+  the context pane shrinks to its one-line hint.
 
 ### Fixed
 
+- On an 80×24 terminal, a session with `from`, `follows` and a long
+  intro showed its context pane only as a one-line hint, as `follows`
+  pushed the title onto a second line.
 - The notes around a Markdown file cut at 8 MiB are cut at the pane's
   edge, as those of code and diffs are. Before, they wrapped onto
   further rows in a pane narrower than the note.

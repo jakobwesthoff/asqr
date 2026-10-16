@@ -156,7 +156,7 @@ without any colour.
 | Warning | yellow | a length counter near or past its limit, a key that was refused |
 | Success | green | a length counter in range, a submitted session |
 | Error | red | a failure, such as an inbox that cannot be read |
-| Secondary | dim | hints, unanswered tabs, the descriptions in the key bar |
+| Secondary | dim | hints, unanswered tabs, the descriptions in the key bar, the queue in the title line, the count beside a session's title, the `from` and `follows` line under it |
 
 - Only the focus and the submit button are filled areas. The button is
   always filled in the primary colour and keeps its brackets,
@@ -171,5 +171,6 @@ without any colour.
   including yellow inline code.
 - An answered question is not a status: its tab mark keeps the text
   colour, and an unanswered one is dim.
+- The session's intro is the asker's content and keeps the text colour.
 - Meaning never depends on colour alone. Marks, pointers, text and the fill
   carry it, so the interface reads the same without colours.

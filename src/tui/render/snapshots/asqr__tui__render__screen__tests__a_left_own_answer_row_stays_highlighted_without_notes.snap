@@ -2,8 +2,7 @@
 source: src/tui/render/screen.rs
 expression: "screen(&app, 60, 15)"
 ---
-" asqr · queue: default · 1 session waiting                  "
-" name                                                       "
+" asqr  name                             default · 1 waiting "
 "   ☒ q  ✔ Review                                            "
 "──━━━━━─────────────────────────────────────────────────────"
 " Name it                                                    "
@@ -11,6 +10,7 @@ expression: "screen(&app, 60, 15)"
 "                                                            "
 "   ( ) 1. asqr                                              "
 " ❯ (•) ✎ Own answer: mine                                   "
+"                                                            "
 "                                                            "
 "                                                            "
 "                                                            "

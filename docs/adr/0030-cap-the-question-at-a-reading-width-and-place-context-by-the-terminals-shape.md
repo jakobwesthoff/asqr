@@ -12,6 +12,8 @@ Amends [22. Answer in place with a tab bar and a review step](0022-answer-in-pla
 
 Amended by [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
 
+Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-title-in-the-title-bar.md)
+
 ## Context
 
 ADR 22 laid the TUI out in one column over the full width. On a
@@ -154,3 +156,12 @@ Agent's choices within that rule:
   the field.
 - A text question gives its field the keys as soon as it shows, so on
   one the split moves back up only after `esc` or `tab`.
+
+## Amendment (2026-10-16, ADR 47)
+
+The bullet "Header" and the choice "The title takes at most two lines,
+one below 24 rows" no longer hold. The session's title stands in the
+title bar in one line, and the intro shows at most two lines. Instead
+of a fixed limit at 24 rows, the header gives way while the tab's area
+would have fewer than the 15 rows a context pane below the question
+needs: its blank line first, then intro lines down to one.

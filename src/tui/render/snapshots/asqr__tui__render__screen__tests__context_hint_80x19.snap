@@ -1,9 +1,8 @@
 ---
 source: src/tui/render/screen.rs
-expression: "screen(&with_image(\"/pictures/x.png\"), 80, 20)"
+expression: "screen(&with_image(\"/pictures/x.png\"), 80, 19)"
 ---
-" asqr · queue: default · 1 session waiting                                      "
-" pictured                                                                       "
+" asqr  pictured                                             default · 1 waiting "
 "   ☐ q  ✔ Review                                                                "
 "──━━━━━─────────────────────────────────────────────────────────────────────────"
 " Which one?                                                                     "

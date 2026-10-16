@@ -2,10 +2,10 @@
 source: src/tui/render/screen.rs
 expression: "screen(&app, 80, 24)"
 ---
-" asqr · queue: default · 2 sessions waiting                                     "
-" Alt rework 3, batch 1  (claude-code, torchsnap mascots)  follows:              "
-" alt-rework-3-batch-00                                                          "
-" Pick the best line per mascot. More sends it back with new variations.         "
+" asqr  Alt rework 3, batch 1                                default · 2 waiting "
+"       from claude-code, torchsnap mascots · follows alt-rework-3-batch-00      "
+"       Pick the best line per mascot. More sends it back with new variations.   "
+"                                                                                "
 "   ☐ 301  ☒ extras  ☐ comment  ✔ Review                                         "
 "──━━━━━━━───────────────────────────────────────────────────────────────────────"
 " holly-crown-green-robe-feast-ghost: Ghost of Christmas Present (A Christmas    "

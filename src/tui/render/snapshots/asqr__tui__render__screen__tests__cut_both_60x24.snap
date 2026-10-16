@@ -2,9 +2,9 @@
 source: src/tui/render/screen.rs
 expression: backend
 ---
-" asqr · queue: default · 1 session waiting                  "
-" Mascot lines                                               "
-" Pick the line the mascot says.                             "
+" asqr  Mascot lines                     default · 1 waiting "
+"       Pick the line the mascot says.                       "
+"                                                            "
 "   ☐ line  ✔ Review                                         "
 "──━━━━━━━━──────────────────────────────────────────────────"
 " pick one, or type your own                          ↑ more "

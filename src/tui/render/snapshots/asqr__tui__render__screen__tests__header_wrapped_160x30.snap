@@ -2,12 +2,11 @@
 source: src/tui/render/screen.rs
 expression: backend
 ---
-" asqr · queue: default · 1 session waiting                                                                                                                      "
-" Release 0.2.0 of the queue watcher, the new session format and the reworked review tab with its note                                                           "
-" field and the layout that keeps questions readable  (release script)                                                                                           "
-" Three decisions before the release, each with its own question. Three decisions before the release,                                                            "
-" each with its own question. Three decisions before the release, each with its own question. Three                                                              "
-" decisions before the release, each with its own question.                                                                                                      "
+" asqr  Release 0.2.0 of the queue watcher, the new session format and the reworked review tab with i…                                       default · 1 waiting "
+"       from release script                                                                                                                                      "
+"       Three decisions before the release, each with its own question. Three decisions before the                                                               "
+"       release, each with its own question. Three decisions before the release, each with it… i: more                                                           "
+"                                                                                                                                                                "
 "   ☐ Go?  ☒ Channels  ☐ Highlights  ✔ Review                                                                                                                    "
 "──━━━━━━━───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
 " All checks passed. Publish 0.2.0 now?                                                                                                                          "
@@ -18,6 +17,7 @@ expression: backend
 "   ( ) 3. Do not publish  Delete the tag again.                                                                                                                 "
 "                                                                                                                                                                "
 " Notes: —                                                                                                                                                       "
+"                                                                                                                                                                "
 "                                                                                                                                                                "
 "                                                                                                                                                                "
 "                                                                                                                                                                "

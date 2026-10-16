@@ -174,8 +174,8 @@ Once asked, asqr fits best when:
   their source instead of formatting the text. Keep option descriptions
   short. Long code belongs in a `code` entry of the `context`, which
   shows it with line numbers, not in a question text.
-- `intro` shows dimmed under the title in at most three lines of at
-  most 100 columns, one line on terminals under 24 rows. Anything longer
+- `intro` shows under the title in at most two lines of the reading
+  width, fewer on a low terminal. Anything longer
   is cut off with `… i: more`, and the person reads the rest only by
   pressing `i`. Keep it to a sentence or two that
   identifies the session, such as which round of which piece of work it

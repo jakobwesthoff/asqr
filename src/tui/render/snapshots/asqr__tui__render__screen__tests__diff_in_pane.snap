@@ -2,9 +2,9 @@
 source: src/tui/render/screen.rs
 expression: "screen(&titled, 120, 20)"
 ---
-" asqr · queue: default · 1 session waiting                                                                              "
-" Review the retry change  (code review)                                                                                 "
-" Three decisions about retrying failed requests in the fetcher.                                                         "
+" asqr  Review the retry change                                                                      default · 1 waiting "
+"       from code review                                                                                                 "
+"       Three decisions about retrying failed requests in the fetcher.                                                   "
 "   ☐ Merge?  ☐ Docs  ☐ Checks  ✔ Review                                                                                 "
 "──━━━━━━━━━━────────────────────────────────────────────────────────────────────────────────────────────────────────────"
 " The fetcher retries a failed request up to three times,      Retry with backoff                                        "

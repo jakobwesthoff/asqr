@@ -31,6 +31,11 @@ pub const MIN_CONTEXT_WIDTH: u16 = 40;
 /// The fewest rows of a context area below the question.
 pub const MIN_CONTEXT_ROWS: u16 = 8;
 
+/// The lowest tab area that holds a context area below the question. The
+/// question takes at most half of it, rounded down, so the context gets
+/// [`MIN_CONTEXT_ROWS`] from 15 rows on.
+pub const MIN_BELOW_HEIGHT: u16 = 2 * MIN_CONTEXT_ROWS - 1;
+
 /// The blank column between the question and a context area beside it.
 const SEPARATOR: u16 = 1;
 
@@ -78,7 +83,7 @@ pub fn choose(
     let beside_fits = width >= MIN_BESIDE_WIDTH;
     // Measured with the question at its largest, so a question that grows
     // while the person types never flips the arrangement.
-    let below_fits = height - height / 2 >= MIN_CONTEXT_ROWS;
+    let below_fits = height >= MIN_BELOW_HEIGHT;
     match (beside_fits, below_fits) {
         (true, true) => {}
         (true, false) => return Arrangement::Beside,

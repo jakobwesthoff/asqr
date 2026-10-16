@@ -2,9 +2,9 @@
 source: src/tui/render/screen.rs
 expression: "screen(&app, width, height)"
 ---
-" asqr · queue: default · 1 session waiting                  "
-" Release 0.2.0  (release script)                            "
-" Three decisions before the release. Skip what you… i: more "
+" asqr  Release 0.2.0                    default · 1 waiting "
+"       from release script                                  "
+"       Three decisions before the release. Skip wh… i: more "
 "   ☐ Go?  ☒ Channels  ☐ Highlights  ✔ Review                "
 "──━━━━━━━───────────────────────────────────────────────────"
 " All checks passed. Publish 0.2.0 now?                      "

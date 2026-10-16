@@ -642,8 +642,10 @@ struct Colours {
     title: vt100::Cell,
     /// The first cell of a notice in the status line.
     notice: vt100::Cell,
-    /// The first cell of inline code in the dim intro.
+    /// The first cell of inline code in the intro.
     intro_code: vt100::Cell,
+    /// The first cell of the dim hint under the question.
+    hint: vt100::Cell,
     /// Whether the red test image shows in its colour.
     red_image: bool,
 }
@@ -705,6 +707,7 @@ fn colours_under(no_color: &str) -> Colours {
         title: tui.cell_of("asqr"),
         notice: tui.cell_of("broken is invalid"),
         intro_code: tui.cell_of("stalk"),
+        hint: tui.cell_of("pick one"),
         red_image: tui
             .cells()
             .iter()
@@ -719,6 +722,7 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
         title,
         notice,
         intro_code,
+        hint,
         red_image,
     } = &colourless;
     let default = (vt100::Color::Default, vt100::Color::Default);
@@ -726,7 +730,9 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
     assert!(title.bold(), "the name keeps its bold");
     assert_eq!((notice.fgcolor(), notice.bgcolor()), default);
     assert_eq!((intro_code.fgcolor(), intro_code.bgcolor()), default);
-    assert!(intro_code.dim(), "the intro stays dim");
+    assert!(!intro_code.dim(), "the intro is in the text colour");
+    assert_eq!((hint.fgcolor(), hint.bgcolor()), default);
+    assert!(hint.dim(), "the hint keeps its dim");
     assert!(red_image, "the image keeps its colours");
 
     // An empty NO_COLOR counts as unset.
@@ -734,7 +740,8 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
     assert_eq!(coloured.title.fgcolor(), vt100::Color::Idx(6), "cyan");
     assert_eq!(coloured.notice.fgcolor(), vt100::Color::Idx(3), "yellow");
     assert_ne!(coloured.intro_code.fgcolor(), vt100::Color::Default);
-    assert!(coloured.intro_code.dim());
+    assert!(!coloured.intro_code.dim());
+    assert!(coloured.hint.dim());
     assert!(coloured.red_image);
 }
 

@@ -2,9 +2,8 @@
 source: src/tui/render/screen.rs
 expression: backend
 ---
-" asqr · queue: default · 1 session waiting                                      "
-" pictured                                                                       "
-" First line of the intro… esc, i: more                                          "
+" asqr  pictured                                             default · 1 waiting "
+"       First line of the intro… esc, i: more                                    "
 "   ☐ q  ✔ Review                                                                "
 "──━━━━━─────────────────────────────────────────────────────────────────────────"
 " Which one?                                                                     "
@@ -14,6 +13,7 @@ expression: backend
 " ❯ ( ) ✎ Own answer:                                                            "
 "                                                                                "
 " Notes: —                                                                       "
+"                                                                                "
 "                                                                                "
 "                                                                                "
 "                                                                                "

@@ -2,9 +2,10 @@
 source: src/tui/render/screen.rs
 expression: backend
 ---
-" asqr · queue: default · 1 session waiting                                                          "
-" Alt rework 3, batch 1  (claude-code, torchsnap mascots)  follows: alt-rework-3-batch-00            "
-" Pick the best line per mascot. More sends it back with new variations.                             "
+" asqr  Alt rework 3, batch 1                                                    default · 1 waiting "
+"       from claude-code, torchsnap mascots · follows alt-rework-3-batch-00                          "
+"       Pick the best line per mascot. More sends it back with new variations.                       "
+"                                                                                                    "
 "   ☒ 301  ☒ extras  ☐ comment  ✔ Review                                                             "
 "──━━━━━━━───────────────────────────────────────────────────────────────────────────────────────────"
 " pick one, or type your own                                                                  ↑ more "
@@ -19,7 +20,6 @@ expression: backend
 " image not shown                                                                                    "
 " /tmp/asqr-example/301-holly-crown-green-robe-feast-ghost.png                                       "
 " No such file or directory (os error 2)                                                             "
-"                                                                                                    "
 "                                                                                                    "
 "                                                                                                    "
 "                                                                                                    "

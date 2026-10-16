@@ -2,8 +2,8 @@
 source: src/tui/render/screen.rs
 expression: backend
 ---
-" asqr · queue: default · 1 session waiting                  "
-" wide                                                       "
+" asqr  wide                             default · 1 waiting "
+"                                                            "
 "   ☒ Go  ☒ a日本語のとても長い見出し  ✔ Review              " Hidden by multi-width symbols: [(13, " "), (15, " "), (17, " "), (19, " "), (21, " "), (23, " "), (25, " "), (27, " "), (29, " "), (31, " "), (33, " "), (35, " ")]
 "─────────────────────────────────────━━━━━━━━━━─────────────"
 " Review your answers, then submit or reject.                "
