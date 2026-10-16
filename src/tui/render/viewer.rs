@@ -249,7 +249,8 @@ impl Viewers {
     /// flight for that other entry is outrun, and its result is not taken.
     /// A viewer kept for another size is laid out again; while that job
     /// holds it, the pane waits for it. A job queued to load ahead leaves
-    /// the queue and starts at once, as the entry shown goes first.
+    /// the queue and starts at once at the size the pane asks for, as the
+    /// entry shown goes first.
     fn request(
         &mut self,
         key: &ViewerKey,
@@ -266,7 +267,8 @@ impl Viewers {
             .get(key)
             .is_some_and(|request| request.entry == *entry && request.quote == quote);
         if in_flight {
-            if let Some(queued) = self.ahead.take(key) {
+            if let Some(mut queued) = self.ahead.take(key) {
+                queued.size = size;
                 #[cfg(test)]
                 {
                     self.built += 1;
@@ -285,7 +287,10 @@ impl Viewers {
     }
 
     /// Starts a job for `key` under a new ticket: one that lays `kept` out
-    /// again, or without it one that builds the viewer.
+    /// again, or without it one that builds the viewer. A job still queued
+    /// for `key` was asked for another entry or quote, as `request` takes
+    /// the right one out of the queue, and goes: a queued job is always
+    /// the one its key's note names.
     fn start(
         &mut self,
         key: &ViewerKey,
@@ -298,6 +303,7 @@ impl Viewers {
         if kept.is_none() {
             self.built += 1;
         }
+        drop(self.ahead.take(key));
         let job = self.job(key, entry, quote, size, kept);
         loading::start(job, &self.tools);
     }
@@ -349,14 +355,14 @@ impl Viewers {
             .collect();
         self.viewers.retain(|key, _| keys.contains(key));
         self.loading.retain(|key, _| keys.contains(key));
-        self.ahead.retain(|key| keys.contains(key));
+        self.ahead.retain(|job| keys.contains(&job.key));
         let Some(size) = size.filter(|_| self.loads_ahead) else {
             return;
         };
 
-        // The queue stays locked while the jobs are chosen, so its thread
-        // cannot take one between the look at what waits and the new
-        // queue: a job it took is in flight and is not queued again.
+        // The queue stays locked while it is rebuilt, so its thread cannot
+        // take a job between the look at what waits and the new queue: a
+        // job it took is in flight and is not queued again.
         let Viewers {
             ahead,
             viewers,
@@ -365,34 +371,44 @@ impl Viewers {
             tools,
             ..
         } = self;
-        ahead.requeue(|queued| {
-            let wanted: Vec<(&ViewerKey, &ContextEntry)> = keys
-                .iter()
-                .zip(window)
-                .filter(|(key, (_, entry))| {
-                    let current = viewers
-                        .get(key)
-                        .is_some_and(|kept| kept.entry == **entry && kept.quote == quote);
-                    let started = loading.contains_key(key) && !queued.contains(key);
-                    !current && !started
-                })
-                .map(|(key, (_, entry))| (key, *entry))
-                .collect();
-            if wanted.iter().map(|(key, _)| *key).eq(queued.iter()) {
-                return None;
+        ahead.requeue(|queue| {
+            let mut waiting: Vec<(Job, Tools)> = queue.drain(..).collect();
+            for (key, (_, entry)) in keys.iter().zip(window) {
+                let entry = *entry;
+                let current = viewers
+                    .get(key)
+                    .is_some_and(|kept| kept.entry == *entry && kept.quote == quote);
+                if current {
+                    continue;
+                }
+                let note = loading.get(key);
+                let noted = |job: &Job| note.is_some_and(|request| request.ticket == job.ticket);
+                // A queued job of the entry keeps its ticket and its note,
+                // takes the window's place and is laid out for its size.
+                if let Some(at) = waiting
+                    .iter()
+                    .position(|(job, _)| job.key == *key && noted(job))
+                {
+                    let (mut job, job_tools) = waiting.remove(at);
+                    if job.entry == *entry && job.quote == quote {
+                        job.size = size;
+                        queue.push_back((job, job_tools));
+                        continue;
+                    }
+                } else if note
+                    .is_some_and(|request| request.entry == *entry && request.quote == quote)
+                {
+                    // Noted and not queued: it runs already.
+                    continue;
+                }
+                viewers.remove(key);
+                let job = noted_job(loading, next_ticket, key, entry, quote, size, None);
+                queue.push_back((job, tools.clone()));
             }
-            for key in queued {
-                loading.remove(key);
-            }
-            let jobs = wanted
-                .into_iter()
-                .map(|(key, entry)| {
-                    viewers.remove(key);
-                    let job = noted_job(loading, next_ticket, key, entry, quote, size, None);
-                    (job, tools.clone())
-                })
-                .collect();
-            Some(jobs)
+            // Every queued job left is of an entry replaced in the window,
+            // and a new job holds its key's note. The jobs outside the
+            // window went with `retain` above.
+            drop(waiting);
         });
     }
 
@@ -516,6 +532,8 @@ impl Viewers {
             .retain(|_, kept| !(kept.shown && image(&kept.entry)));
         self.loading
             .retain(|_, request| !(request.lays_out && image(&request.entry)));
+        self.ahead
+            .retain(|job| !(job.viewer.is_some() && image(&job.entry)));
     }
 
     /// Drops the viewers of every session `waiting` says no longer waits,
@@ -523,7 +541,7 @@ impl Viewers {
     pub fn retain_sessions(&mut self, waiting: impl Fn(&str) -> bool) {
         self.viewers.retain(|key, _| waiting(&key.session));
         self.loading.retain(|key, _| waiting(&key.session));
-        self.ahead.retain(|key| waiting(&key.session));
+        self.ahead.retain(|job| waiting(&job.key.session));
         if self
             .waiting
             .as_ref()
@@ -577,6 +595,17 @@ impl Viewers {
             .queued()
             .into_iter()
             .map(|key| key.entry)
+            .collect()
+    }
+
+    /// The entry, ticket and size of each job queued to load ahead and not
+    /// started yet.
+    #[cfg(test)]
+    pub(super) fn queued_jobs(&self) -> Vec<(EntryKey, u64, (u16, u16))> {
+        self.ahead
+            .queued_jobs()
+            .into_iter()
+            .map(|(key, ticket, size)| (key.entry, ticket, size))
             .collect()
     }
 
@@ -1596,6 +1625,190 @@ mod tests {
         noting.viewers.collect();
         assert_eq!(noting.texts(), ["a", "c"], "a once, b never");
         assert_eq!(noting.viewers.viewers.len(), 2, "both kept");
+    }
+
+    /// Viewers that load ahead, whose every code entry builds a
+    /// [`Recording`] noting into the calls kept for its text, each build
+    /// waiting for `gate` while `held` says so of its text, and how many
+    /// builds began and loads woke the run loop.
+    struct PerEntry {
+        viewers: Viewers,
+        by_text: Arc<Mutex<HashMap<String, Shared>>>,
+        began: Arc<AtomicUsize>,
+        woken: Arc<AtomicUsize>,
+    }
+
+    impl PerEntry {
+        /// The builds and lay-outs of the entries with `text`.
+        fn of(&self, text: &str) -> (usize, Vec<(u16, u16)>) {
+            let by_text = self.by_text.lock().expect("no test thread panicked");
+            by_text.get(text).map_or((0, Vec::new()), |shared| {
+                let recorded = calls(shared);
+                (recorded.builds, recorded.lay_outs.clone())
+            })
+        }
+    }
+
+    fn per_entry(gate: &Gate, held: fn(&str) -> bool) -> PerEntry {
+        let by_text: Arc<Mutex<HashMap<String, Shared>>> = Arc::default();
+        let began = Arc::new(AtomicUsize::new(0));
+        let mut viewers = viewers();
+        viewers.loading_ahead();
+        let (theirs, their_count, held_back) =
+            (Arc::clone(&by_text), Arc::clone(&began), gate.clone());
+        viewers.building(Arc::new(move |entry, _, _, _| {
+            let ContextEntry::Code(code) = entry else {
+                unreachable!("the tests build code entries only")
+            };
+            let text = code.content.clone().unwrap_or_default();
+            their_count.fetch_add(1, Ordering::SeqCst);
+            if held(&text) {
+                held_back.wait();
+            }
+            let shared = Arc::clone(
+                theirs
+                    .lock()
+                    .expect("no test thread panicked")
+                    .entry(text)
+                    .or_default(),
+            );
+            calls(&shared).builds += 1;
+            Box::new(Recording {
+                calls: shared,
+                gate: None,
+            })
+        }));
+        let woken = counted(&mut viewers);
+        PerEntry {
+            viewers,
+            by_text,
+            began,
+            woken,
+        }
+    }
+
+    /// An entry queued to load ahead at one size and shown at another
+    /// starts at the size shown, and is laid out once.
+    #[test]
+    fn a_queued_entry_shown_at_another_size_lays_out_once() {
+        let gate = Gate::default();
+        let mut entries = per_entry(&gate, |text| text == "a");
+        let (a, b) = (code("a"), code("b"));
+        entries.viewers.load_window(
+            "s",
+            &[(at(0, Some(0)), &a), (at(0, Some(1)), &b)],
+            Some((40, 10)),
+            COLOURED,
+        );
+        test_support::wait_until(&entries.began, 1);
+        entries.viewers.waiting(Duration::from_secs(10));
+
+        entries
+            .viewers
+            .laid_out("s", at(0, Some(1)), &b, 30, 10, COLOURED);
+
+        gate.open();
+        test_support::wait_until(&entries.woken, 2);
+        assert_eq!(entries.of("b"), (1, vec![(30, 10)]));
+    }
+
+    /// A window sent again at a new size gives its queued jobs that size,
+    /// and keeps them: the same ticket, no new job.
+    #[test]
+    fn a_window_sent_at_a_new_size_rewrites_the_queued_sizes() {
+        let gate = Gate::default();
+        let mut entries = per_entry(&gate, |text| text == "a");
+        let (a, b) = (code("a"), code("b"));
+        let window = [(at(0, Some(0)), &a), (at(0, Some(1)), &b)];
+        entries
+            .viewers
+            .load_window("s", &window, Some((40, 10)), COLOURED);
+        test_support::wait_until(&entries.began, 1);
+        let [(_, ticket, _)] = entries.viewers.queued_jobs()[..] else {
+            panic!("b waits behind a");
+        };
+
+        entries
+            .viewers
+            .load_window("s", &window, Some((30, 10)), COLOURED);
+
+        assert_eq!(
+            entries.viewers.queued_jobs(),
+            [(at(0, Some(1)), ticket, (30, 10))]
+        );
+        gate.open();
+        test_support::wait_until(&entries.woken, 2);
+    }
+
+    /// A replaced session file can show an entry under a key whose old
+    /// entry still waits in the queue. The new entry's job is the one
+    /// noted, and the next window neither queues it again nor runs the
+    /// old one.
+    #[test]
+    fn a_replaced_entry_queued_ahead_is_built_once() {
+        let gate = Gate::default();
+        let mut entries = per_entry(&gate, |text| text.starts_with('a'));
+        let (a, old, new, l) = (code("a"), code("k1"), code("a2"), code("l"));
+        let (shown, replaced, last) = (at(0, Some(0)), at(0, Some(1)), at(0, Some(2)));
+        entries.viewers.load_window(
+            "s",
+            &[(shown, &a), (replaced, &old)],
+            Some((40, 10)),
+            COLOURED,
+        );
+        test_support::wait_until(&entries.began, 1);
+        entries.viewers.waiting(Duration::ZERO);
+
+        entries
+            .viewers
+            .laid_out("s", replaced, &new, 40, 10, COLOURED);
+        entries.viewers.load_window(
+            "s",
+            &[(shown, &a), (replaced, &new), (last, &l)],
+            Some((40, 10)),
+            COLOURED,
+        );
+
+        gate.open();
+        test_support::wait_until(&entries.woken, 3);
+        assert_eq!(entries.of("a2").0, 1);
+        assert_eq!(entries.of("k1").0, 0, "the old entry never ran");
+    }
+
+    /// A window whose entry was replaced while its job waited queues a job
+    /// for the new entry in the old one's place.
+    #[test]
+    fn a_window_with_a_replaced_entry_queues_the_new_one() {
+        let gate = Gate::default();
+        let mut entries = per_entry(&gate, |text| text == "a");
+        let (a, old, new) = (code("a"), code("k1"), code("k2"));
+        let (first, replaced) = (at(0, Some(0)), at(0, Some(1)));
+        entries.viewers.load_window(
+            "s",
+            &[(first, &a), (replaced, &old)],
+            Some((40, 10)),
+            COLOURED,
+        );
+        test_support::wait_until(&entries.began, 1);
+        let [(_, old_ticket, _)] = entries.viewers.queued_jobs()[..] else {
+            panic!("k1 waits behind a");
+        };
+
+        entries.viewers.load_window(
+            "s",
+            &[(first, &a), (replaced, &new)],
+            Some((40, 10)),
+            COLOURED,
+        );
+
+        let [(key, ticket, _)] = entries.viewers.queued_jobs()[..] else {
+            panic!("k2 waits behind a");
+        };
+        assert_eq!(key, replaced);
+        assert_ne!(ticket, old_ticket);
+        gate.open();
+        test_support::wait_until(&entries.woken, 2);
+        assert_eq!((entries.of("k1").0, entries.of("k2").0), (0, 1));
     }
 
     /// Only an image a frame showed can have had its transfer dropped by

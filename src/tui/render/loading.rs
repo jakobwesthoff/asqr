@@ -223,33 +223,30 @@ impl Ahead {
             .collect()
     }
 
-    /// Replaces the jobs not started yet by those `choose` returns, given
-    /// the keys of those jobs; `None` leaves them. The queue stays locked
-    /// meanwhile, so no job starts between the keys `choose` sees and the
-    /// new queue.
-    pub(super) fn requeue(
-        &mut self,
-        choose: impl FnOnce(&[ViewerKey]) -> Option<Vec<(Job, Tools)>>,
-    ) {
-        let changed = {
+    /// The key, ticket and size of each job not started yet, in their
+    /// order.
+    #[cfg(test)]
+    pub(super) fn queued_jobs(&self) -> Vec<(ViewerKey, u64, (u16, u16))> {
+        self.lock()
+            .jobs
+            .iter()
+            .map(|(job, _)| (job.key.clone(), job.ticket, job.size))
+            .collect()
+    }
+
+    /// Hands `rearrange` the jobs not started yet, to reorder, change or
+    /// replace. The queue stays locked meanwhile, so no job starts
+    /// between what `rearrange` sees and the queue it leaves.
+    pub(super) fn requeue(&mut self, rearrange: impl FnOnce(&mut VecDeque<(Job, Tools)>)) {
+        let waiting = {
             let mut queue = self.lock();
-            let queued: Vec<ViewerKey> =
-                queue.jobs.iter().map(|(job, _)| job.key.clone()).collect();
-            match choose(&queued) {
-                Some(jobs) => {
-                    queue.jobs.clear();
-                    queue.jobs.extend(jobs);
-                    true
-                }
-                None => false,
-            }
+            rearrange(&mut queue.jobs);
+            !queue.jobs.is_empty()
         };
-        if changed {
-            self.queue.1.notify_all();
-        }
         // Also a queue that did not change asks for its thread again,
         // where the system refused one before.
-        if !self.lock().jobs.is_empty() {
+        if waiting {
+            self.queue.1.notify_all();
             self.ensure_worker();
         }
     }
@@ -286,9 +283,9 @@ impl Ahead {
         queue.jobs.remove(position).map(|(job, _)| job)
     }
 
-    /// Drops the jobs not started yet whose key `keep` refuses.
-    pub(super) fn retain(&self, keep: impl Fn(&ViewerKey) -> bool) {
-        self.lock().jobs.retain(|(job, _)| keep(&job.key));
+    /// Drops the jobs not started yet that `keep` refuses.
+    pub(super) fn retain(&self, keep: impl Fn(&Job) -> bool) {
+        self.lock().jobs.retain(|(job, _)| keep(job));
     }
 }
 
@@ -446,19 +443,19 @@ mod tests {
         let mut ahead = Ahead::new();
         ahead.spawn = refuse;
 
-        ahead.requeue(|_| Some(vec![(job(), tools.clone())]));
+        ahead.requeue(|queue| queue.push_back((job(), tools.clone())));
         assert!(!ahead.started);
         assert!(ahead.warned);
         let short = std::time::Duration::from_millis(100);
         assert!(finished.recv_timeout(short).is_err(), "no thread ran it");
 
-        ahead.requeue(|_| Some(vec![(job(), tools.clone())]));
+        ahead.requeue(|queue| queue.push_back((job(), tools.clone())));
         assert!(!ahead.started, "refused again");
         assert!(ahead.warned);
 
         // A requeue that leaves the queue as it is asks again too.
         ahead.spawn = spawn_worker;
-        ahead.requeue(|_| None);
+        ahead.requeue(|_| {});
         assert!(ahead.started);
         assert!(!ahead.warned, "the next refusal warns again");
         assert!(
@@ -482,7 +479,7 @@ mod tests {
             wake: Arc::new(|| {}),
         };
         let mut ahead = Ahead::new();
-        ahead.requeue(|_| Some(vec![(job(), tools)]));
+        ahead.requeue(|queue| queue.push_back((job(), tools)));
         assert!(
             finished
                 .recv_timeout(std::time::Duration::from_secs(5))
