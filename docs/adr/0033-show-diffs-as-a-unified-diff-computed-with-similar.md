@@ -182,3 +182,23 @@ decided its wording:
 Agent's choices: the kinds are named in the order CRLF, LF, CR, and a
 side with all three is `mixed CRLF, LF and CR`. A note owns its text
 where the text is built for the content, as this one is.
+
+## Amendment (2026-10-16, a cut between CR and LF)
+
+The user chose on 2026-10-16 to fix a side whose 8 MiB limit fell
+between the `\r` and the `\n` of a `\r\n`. Its text ended in a lone
+`\r`, so the note named a `CR` end the file does not use: `old mixed
+CRLF and CR` against an LF side, and a note against a CRLF side, where
+none belongs.
+
+Agent's choices:
+
+- When the limit falls inside a `\r\n`, the text stops before the `\r`.
+  The read takes one byte past the limit to tell a cut file from a whole
+  one, and that byte tells such a `\r` from a lone one, which stays.
+- A blank line whose line end straddles the limit is then left out, as
+  if the limit fell one byte earlier, right after the `\r\n` before it.
+- The rule lives in `src/tui/render/source_file.rs`, so the code and
+  Markdown viewers (ADR 34) read the same way. Dropping a trailing `\r`
+  in the diff instead would not see the byte past the limit, and would
+  also drop the last line end of a CR file cut right after one.

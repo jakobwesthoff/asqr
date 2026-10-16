@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The logo at the top of the README shows on crates.io in a dark color
   scheme as well. Its dark variant was linked relative to the
   repository, which crates.io does not rewrite in a `<source>` element.
+- A diff side cut at 8 MiB between the `\r` and the `\n` of a line end
+  stops before that `\r`. Before, the note on line endings named a `CR`
+  end the file does not use, as `old mixed CRLF and CR`, and said the
+  line endings differ between two CRLF files.
 
 ## [0.12.0] - 2026-10-16
 

@@ -1247,7 +1247,10 @@ Diffs (ADR 33):
   "first 8 MiB shown" heads the content and a dim "… the rest is cut
   after 8 MiB" ends it, so the end of what shows does not pass for the
   end of the file. In a diff, the rest of the other side then shows as
-  removed or added.
+  removed or added. When the 8 MiB limit falls between the `\r` and the
+  `\n` of a line end, the read stops before the `\r`, for code and
+  Markdown files too, so the note on line endings names no `CR` end the
+  file does not use.
 - Computing a diff may take up to a second. Past that, asqr shows a
   diff that is still correct but may mark more lines as changed than
   needed.

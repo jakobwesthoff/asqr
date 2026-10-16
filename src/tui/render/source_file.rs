@@ -49,7 +49,9 @@ pub fn between_cut_notes<T>(
 #[derive(Debug, PartialEq, Eq)]
 pub struct Source {
     pub text: String,
-    /// The file is longer than [`MAX_BYTES`], and `text` holds that many.
+    /// The file is longer than [`MAX_BYTES`], and `text` holds its first
+    /// `MAX_BYTES` bytes, or one fewer where the limit falls inside a
+    /// `\r\n`.
     pub cut: bool,
 }
 
@@ -274,16 +276,32 @@ pub fn read_source(path: Option<&str>, content: Option<&str>) -> Result<Source, 
     let Some(path) = path else {
         return Ok(whole(String::new()));
     };
-    let file = open_regular(path)?;
+    text_within(path, open_regular(path)?, MAX_BYTES)
+}
+
+/// The text in `reader` up to `limit` bytes: all of it, or the start of a
+/// longer text, marked as cut. `path` names the file a failure is about.
+fn text_within(path: &str, reader: impl Read, limit: u64) -> Result<Source, Unreadable> {
     // One byte past the limit tells a file that ends there from a longer
     // one.
     let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1)
+    reader
+        .take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|error| Unreadable::io(path, &error))?;
-    let limit = usize::try_from(MAX_BYTES).expect("8 MiB fit into memory");
+    let limit = usize::try_from(limit).expect("a limit read into memory fits a usize");
     let cut = bytes.len() > limit;
-    bytes.truncate(limit);
+    // The limit can fall between the `\r` and the `\n` of a Windows line
+    // end. Kept alone, the `\r` would count as a classic Mac OS line end,
+    // and a diff's note would name a `CR` end the file does not use, so the
+    // text stops before it. The byte read past the limit tells such a `\r`
+    // from a lone one.
+    let end = if cut && bytes.ends_with(b"\r\n") {
+        limit - 1
+    } else {
+        limit
+    };
+    bytes.truncate(end);
     // A NUL byte marks a binary file, as git decides; its lines would be
     // noise, however they were decoded.
     if bytes.contains(&0) {
@@ -363,6 +381,46 @@ mod tests {
 
         assert!(!source.cut);
         assert_eq!(source.text.len(), limit);
+    }
+
+    /// The limit can fall between the `\r` and the `\n` of a line end;
+    /// the text then stops before the `\r`, which alone would be a line end
+    /// of another kind. The byte past the limit decides, so a lone `\r`
+    /// stays.
+    #[test]
+    fn a_cut_inside_a_crlf_leaves_its_cr_out() {
+        for (bytes, limit, text, cut) in [
+            (&b"ab\r\ncd"[..], 3, "ab", true),
+            (b"ab\rcd", 3, "ab\r", true),
+            (b"a\r\nb", 3, "a\r\n", true),
+            (b"ab\r\n", 4, "ab\r\n", false),
+            // The blank line whose end the limit cuts is left out too.
+            (b"a\r\n\r\nb", 4, "a\r\n", true),
+        ] {
+            assert_eq!(
+                text_within("/a.txt", bytes, limit),
+                Ok(Source {
+                    text: text.to_owned(),
+                    cut
+                }),
+                "{bytes:?} at {limit}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_that_fails_says_why() {
+        struct Failing;
+        impl Read for Failing {
+            fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::other("the disk went away"))
+            }
+        }
+
+        let unreadable = text_within("/a.txt", Failing, 3).expect_err("the read fails");
+
+        assert_eq!(unreadable.cause, "Other");
+        assert_eq!(unreadable.reason, "the disk went away");
     }
 
     #[test]

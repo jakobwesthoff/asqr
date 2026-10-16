@@ -357,6 +357,7 @@ mod tests {
 
     use ratatui::style::{Color, Modifier};
 
+    use super::super::source_file::MAX_BYTES;
     use super::super::test_support::{drawn, row, shown};
     use super::*;
 
@@ -866,6 +867,70 @@ impl Fetcher {
 
         assert_eq!(row(&buf, 1), "no changes");
         assert_eq!(row(&buf, 2), "… the rest is cut after 8 MiB");
+    }
+
+    /// A line `a` and lines of distinct numbers, each followed by `end`,
+    /// and the last without one when `last_end` is false. With `\r\n` and the last end,
+    /// they fill [`MAX_BYTES`] and one byte more, so the last `\r` is the
+    /// last byte under the limit and its `\n` the first past it. Lines of
+    /// 1 KiB keep a diff of a few of them cheap where a single line of
+    /// 8 MiB would not be.
+    fn lines_past_the_limit(end: &str, last_end: bool) -> String {
+        let numbered = (0..8191).map(|number| format!("{number:0>1022}"));
+        let last = format!("{:0>1020}", 8192);
+        let lines: Vec<String> = std::iter::once("a".to_owned())
+            .chain(numbered)
+            .chain([last])
+            .collect();
+        let text = lines.join(end);
+        if last_end { text + end } else { text }
+    }
+
+    /// The first rows of the diff between a file of
+    /// [`lines_past_the_limit`] with `\r\n`, cut between the `\r` and the
+    /// `\n` of its last line end, and the lines it keeps, given inline with
+    /// `new_end`.
+    fn cut_inside_a_crlf_against(new_end: &str) -> Vec<String> {
+        let old_text = lines_past_the_limit("\r\n", true);
+        assert_eq!(old_text.len() as u64, MAX_BYTES + 1);
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let old = directory.path().join("old.txt");
+        fs::write(&old, old_text).expect("old file is writable");
+        let new = DiffSide {
+            path: None,
+            content: Some(lines_past_the_limit(new_end, false)),
+        };
+        let mut viewer = from_files(file(old.to_str().expect("a UTF-8 path")), Some(new));
+
+        let buf = drawn(&mut viewer, 60, 4, Offset::default());
+
+        (0..4).map(|y| row(&buf, y)).collect()
+    }
+
+    #[test]
+    fn a_side_cut_inside_a_crlf_names_its_line_ends_crlf() {
+        assert_eq!(
+            cut_inside_a_crlf_against("\n"),
+            [
+                "first 8 MiB shown",
+                "no changes",
+                "line endings differ: old CRLF, new LF",
+                "… the rest is cut after 8 MiB",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_side_cut_inside_a_crlf_has_the_line_ends_of_a_crlf_side() {
+        assert_eq!(
+            cut_inside_a_crlf_against("\r\n"),
+            [
+                "first 8 MiB shown",
+                "no changes",
+                "… the rest is cut after 8 MiB",
+                "",
+            ]
+        );
     }
 
     #[test]
