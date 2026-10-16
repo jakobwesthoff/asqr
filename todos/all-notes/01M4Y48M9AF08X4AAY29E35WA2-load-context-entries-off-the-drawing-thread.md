@@ -10,59 +10,66 @@ tags: [ux, field-test]
 # Load context entries off the drawing thread
 
 Found in the adversarial review of the 0.11.0 work on 2026-10-14 and
-seen by Jakob on 2026-10-16. The viewers of code, Markdown, diff and
-image entries read, highlight or decode their content on the thread
-that draws the screen, so a large or slow file freezes the whole
-interface until the work ends.
+seen by Jakob on 2026-10-16. Context entries are read, highlighted,
+rendered, decoded, scaled and encoded on the thread that draws the
+screen, so a large entry freezes the whole interface until the work
+ends: no key takes effect, and nothing says why.
 
 ## Problem
 
-Since ADR 46 a viewer loads in its constructor: building it reads the
-file (`read_source` in `src/tui/render/source_file.rs`), highlights the
-whole text with patine (`src/tui/render/code.rs`), computes the diff or
-decodes the image (`Images::load` in `src/graphics/mod.rs`). The viewer
-is built the first time its entry shows, on the drawing thread. Commit
-`30e4d3d` limits the damage: only regular files are read, checked with
-a stat before the open, and text stops after 8 MiB (ADR 0033). Two gaps
-remain:
+Measured on 2026-10-16 with a release build of `f5f26a3` (the
+preparation round; measurements and scripts in Jakob's logbook,
+`~/playground/2026_10_15_asqr-maskottchen/vorbereitung/loading/`):
 
-- Reading, highlighting or decoding a large entry stalls the screen for
-  as long as it takes. Jakob, 2026-10-16, release build of `9b22439`
-  under tmux: moving to a question whose context is an
-  8.5 MiB log (120,000 lines) took "wahnsinnig lange" and blocked the
-  whole UI. Which step costs the time (read, highlighting, building the
-  lines) is not measured yet.
-- Images stall the same way. Same build and terminal (Ghostty, tmux),
-  a `multi` question whose ten options each carry a 768 px image in
-  another format: the first move onto each option took "ewig", moving
-  back was quick. Yet a 6000×6000 PNG (14 MB) on a question of its own
-  showed almost at once. Why the small images are slower is not
-  understood; measure decoding, scaling, encoding and the transfer
-  through tmux separately before choosing a fix. Jakob asks to handle
-  images and text with one form of background loading.
-- A path swapped for a FIFO between the stat and the open still blocks
-  until a writer appears (read in the code, 2026-10-14).
+- Building a viewer reads its file and highlights its text in the
+  constructor (ADR 46). Markdown rendering
+  (`src/tui/render/markdown_viewer.rs:89-100`) and the scaling and
+  encoding of images (`viewer.rs:283` into `src/graphics/image.rs:80-103`)
+  run in `lay_out`, also on the drawing thread, and again on every width
+  change.
+- The 8.5 MiB test log (asqr shows its first 8 MiB, 113,518 lines):
+  `patine::highlight` with the `log` grammar takes 23.0 s, linear at
+  0.19 ms per line. Reading takes 5.5 ms, plain lines 110 ms,
+  `CodeViewer::new` 31.7 s in all. A Rust file of 941 lines highlights in
+  50 to 70 ms.
+- Images cost 80 to 380 ms of CPU from read to encoded frame, a
+  6000×6000 PNG 790 to 890 ms. The transfer of an encoded image through
+  tmux costs far more, but that runs inside `terminal.draw` and is the
+  matter of its own todo (see Relations).
+- A path swapped for a FIFO between the stat and the open blocks until
+  a writer appears (read in the code, 2026-10-14).
 
-## Impact
+## Decisions (Jakob, 2026-10-16, asqr session 01M51Z9860935MZKGH148W7PSB)
 
-No key takes effect while a load runs, since keys are handled between
-frames: the person cannot type, scroll, move on or quit, and the screen
-does not say why.
+- A worker builds the viewer and lays it out, in one form for every
+  kind of entry.
+- While an entry loads, the pane shows a dim `loading…`, centred in the
+  pane.
+- asqr waits up to 100 ms for the result before it shows the
+  placeholder, so quick entries never flash it.
+- A load whose entry is no longer shown runs to its end and is kept.
+- Loading ahead: the entry shown always goes first; then the other
+  options of the current question, then the next question.
+- Highlighting: text above 1 MiB stays plain. Below that, an entry shows
+  once it is highlighted; there is no plain first pass that colours in
+  later.
+- ADR 46 is rewritten to the new design (no new ADR that amends it).
 
-## Proposal
+## Decided by the lead (delegated)
 
-Build each viewer on a worker thread and show a dim "loading…" in the
-pane until it arrives; the run loop redraws when it does. ADR 46 gave
-up the separate load step and notes that it can come back when loading
-ahead of time is needed; this is that case, so the change amends ADR
-46. Opening with `O_NONBLOCK` (then clearing it) closes the FIFO gap.
-
-## Open questions
-
-- Whether a load that is no longer shown (the person moved on) is
-  dropped or cached, and whether entries of the next question load
-  ahead.
-- How the result reaches the run loop: through the existing event
-  channel in `src/terminal.rs` or a channel of its own.
-- Whether highlighting only what the pane shows would remove most of
-  the wait on its own; this depends on the measurement above.
+- Results come back on a channel that `Viewers` owns; a payload-free
+  `Event::Loaded` through the existing sender (`src/terminal.rs:57`)
+  only wakes the run loop, since `Event` derives `Debug`, `Clone` and
+  `Eq` (`run.rs:25`) and the loop blocks in `events.recv()`
+  (`run.rs:129`). Viewer trait objects become `Send`; `Images` is
+  `Clone` and its book sits behind `Arc<Mutex>`.
+- The entry shown gets a thread at once; loading ahead runs on one
+  background thread in priority order. patine cannot be cancelled, so a
+  long highlight only holds that thread.
+- Open files with `O_NONBLOCK` and clear it after the open, or a FIFO
+  holds a worker for ever.
+- Mind memory when loading ahead: an image keeps its decoded source for
+  re-encoding (`image.rs:33-37`), 144 MB for the 6000×6000 PNG.
+- `forget_images` on regaining the focus (`viewer.rs:164`) re-reads and
+  re-decodes every image; with the worker this becomes a reload behind
+  the placeholder.
