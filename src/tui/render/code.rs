@@ -22,20 +22,12 @@ use crate::format::CodeEntry;
 use crate::graphics::PlacedImage;
 use crate::tui::Offset;
 
-pub struct CodeViewer {
-    content: Content<Lines>,
-}
-
-impl CodeViewer {
-    /// Reads and highlights the whole text once, as nothing of it depends
-    /// on the body's size. The home folder `home` shows as `~` in the path
-    /// of a file that cannot be read.
-    pub fn new(entry: &CodeEntry, home: Option<&Path>) -> Self {
-        let source = read_source(entry.path.as_deref(), entry.content.as_deref());
-        CodeViewer {
-            content: content_of(entry, source, home),
-        }
-    }
+/// The viewer of `entry`: reads and highlights the whole text once, as
+/// nothing of it depends on the body's size. The home folder `home` shows
+/// as `~` in the path of a file that cannot be read.
+pub(super) fn code_content(entry: &CodeEntry, home: Option<&Path>) -> Content<Lines> {
+    let source = read_source(entry.path.as_deref(), entry.content.as_deref());
+    content_of(entry, source, home)
 }
 
 /// What the viewer of `entry` shows of `source`, as read for the entry:
@@ -60,20 +52,6 @@ fn content_of(
                 Content::Body(Lines::new(lines, cut))
             }
         }
-    }
-}
-
-impl Viewer for CodeViewer {
-    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        self.content.lay_out(width, height)
-    }
-
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
-        self.content.draw(area, buf, offset)
-    }
-
-    fn failed(&self) -> bool {
-        self.content.failed()
     }
 }
 
@@ -114,7 +92,7 @@ fn kind_of_file(name: &str) -> Option<String> {
 
 /// The highlighted lines with the notes of a cut file around them, and how
 /// many digits the lines' numbers take.
-struct Lines {
+pub(super) struct Lines {
     rows: Vec<Row>,
     digits: usize,
 }
@@ -197,8 +175,8 @@ mod tests {
         serde_json::from_str(json).expect("test entry parses")
     }
 
-    fn built(json: &str) -> CodeViewer {
-        CodeViewer::new(&entry(json), None)
+    fn built(json: &str) -> Content<Lines> {
+        code_content(&entry(json), None)
     }
 
     const FETCH: &str = r#"{"type": "code", "title": "fetch.rs", "content": "use std::time::Duration;\n\n// Fetches a page.\npub fn fetch(url: &str) -> Result<Response> {\n    get(url)\n}\n"}"#;
@@ -419,13 +397,11 @@ mod tests {
             text: "one\ntwo\n".into(),
             cut: true,
         });
-        let mut viewer = CodeViewer {
-            content: content_of(
-                &entry(r#"{"type": "code", "path": "/var/log/big.log"}"#),
-                source,
-                None,
-            ),
-        };
+        let mut viewer = content_of(
+            &entry(r#"{"type": "code", "path": "/var/log/big.log"}"#),
+            source,
+            None,
+        );
 
         assert_eq!(
             viewer.lay_out(12, 3),

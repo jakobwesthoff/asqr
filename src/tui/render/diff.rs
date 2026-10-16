@@ -35,42 +35,21 @@ const DIFF_TIME: Duration = Duration::from_secs(1);
 /// What fills a separator line between two hunks.
 const SEPARATOR: &str = "┈";
 
-/// A diff entry as a unified diff: hunks with three lines of context, both
-/// line numbers in a dim gutter, removed lines red and added ones green.
-pub struct DiffViewer {
-    /// The diff's rows, or why it cannot show.
-    content: Content<Rows>,
-}
-
-impl DiffViewer {
-    /// Reads both sides and computes the whole diff, so drawing only
-    /// copies cells. The home folder `home` shows as `~` in the path of a
-    /// side that cannot be read.
-    pub fn new(entry: &DiffEntry, home: Option<&Path>) -> Self {
-        let sides = read("old", entry.old.as_ref())
-            .and_then(|old| Ok((old, read("new", entry.new.as_ref())?)));
-        let content = match sides {
-            Ok((old, new)) => {
-                let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
-                Content::Body(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
-            }
-            Err((side, unreadable)) => Content::Problem(unreadable.card_on_side(side, home)),
-        };
-        DiffViewer { content }
-    }
-}
-
-impl Viewer for DiffViewer {
-    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        self.content.lay_out(width, height)
-    }
-
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
-        self.content.draw(area, buf, offset)
-    }
-
-    fn failed(&self) -> bool {
-        self.content.failed()
+/// The viewer of `entry` as a unified diff: hunks with three lines of
+/// context, both line numbers in a dim gutter, removed lines red and added
+/// ones green, or the card of the first side that cannot be read. Reads
+/// both sides and computes the whole diff, so drawing only copies cells.
+/// The home folder `home` shows as `~` in the path of a side that cannot
+/// be read.
+pub(super) fn diff_content(entry: &DiffEntry, home: Option<&Path>) -> Content<Rows> {
+    let sides =
+        read("old", entry.old.as_ref()).and_then(|old| Ok((old, read("new", entry.new.as_ref())?)));
+    match sides {
+        Ok((old, new)) => {
+            let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
+            Content::Body(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
+        }
+        Err((side, unreadable)) => Content::Problem(unreadable.card_on_side(side, home)),
     }
 }
 
@@ -99,7 +78,7 @@ fn text_of(side: Option<&Source>) -> Option<&str> {
 // ---------------------------------------------------------------------
 
 /// The rows of a diff, and how many digits its line numbers take.
-struct Rows {
+pub(super) struct Rows {
     rows: Vec<Row>,
     digits: usize,
 }
@@ -382,14 +361,14 @@ mod tests {
     use super::*;
 
     /// The viewer of the change from `old` to `new`, given inline.
-    fn inline(old: Option<&str>, new: Option<&str>) -> DiffViewer {
+    fn inline(old: Option<&str>, new: Option<&str>) -> Content<Rows> {
         let side = |text: Option<&str>| {
             text.map(|text| DiffSide {
                 path: None,
                 content: Some(text.to_owned()),
             })
         };
-        DiffViewer::new(
+        diff_content(
             &DiffEntry {
                 title: None,
                 old: side(old),
@@ -403,10 +382,8 @@ mod tests {
 
     /// The viewer of the rows of `old` and `new`, where `cut` says a side
     /// is only the start of a longer file.
-    fn of_rows(old: &str, new: &str, cut: bool) -> DiffViewer {
-        DiffViewer {
-            content: Content::Body(Rows::of(Some(old), Some(new), cut)),
-        }
+    fn of_rows(old: &str, new: &str, cut: bool) -> Content<Rows> {
+        Content::Body(Rows::of(Some(old), Some(new), cut))
     }
 
     fn file(path: &str) -> Option<DiffSide> {
@@ -416,8 +393,8 @@ mod tests {
         })
     }
 
-    fn from_files(old: Option<DiffSide>, new: Option<DiffSide>) -> DiffViewer {
-        DiffViewer::new(
+    fn from_files(old: Option<DiffSide>, new: Option<DiffSide>) -> Content<Rows> {
+        diff_content(
             &DiffEntry {
                 title: None,
                 old,

@@ -16,10 +16,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use super::code::CodeViewer;
-use super::diff::DiffViewer;
+use super::code::code_content;
+use super::diff::diff_content;
 use super::loading::{self, Ahead, Finished, Job, Loaded, Tools, Wake};
-use super::markdown_viewer::MarkdownViewer;
+use super::markdown_viewer::markdown_content;
 use super::problem::Card;
 use super::source_file::{Unreadable, read_image};
 use super::theme;
@@ -799,10 +799,10 @@ fn viewer_for(
     home: Option<&Path>,
 ) -> Box<dyn Viewer> {
     match entry {
-        ContextEntry::Image(image) => Box::new(ImageViewer::new(image, images, home)),
-        ContextEntry::Code(code) => Box::new(CodeViewer::new(code, home)),
-        ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown, quote, home)),
-        ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff, home)),
+        ContextEntry::Image(image) => Box::new(image_content(image, images, home)),
+        ContextEntry::Code(code) => Box::new(code_content(code, home)),
+        ContextEntry::Markdown(markdown) => Box::new(markdown_content(markdown, quote, home)),
+        ContextEntry::Diff(diff) => Box::new(diff_content(diff, home)),
     }
 }
 
@@ -859,27 +859,20 @@ impl<T: Viewer> Viewer for Content<T> {
 // Images
 // ---------------------------------------------------------------------
 
-/// An image file, scaled to fill the body as far as its proportions allow,
-/// or, without `enlarge`, at its natural size where that fits. A file that
-/// cannot be shown shows why instead, in the card every viewer of a file
-/// shows, which scrolls when it does not fit.
-struct ImageViewer {
-    content: Content<Picture>,
-}
-
-impl ImageViewer {
-    /// Decodes the image, which is encoded when it is laid out, as that
-    /// depends on the body's size. The home folder `home` shows as `~` in
-    /// the path of an image that cannot be shown.
-    fn new(entry: &ImageEntry, images: &Images, home: Option<&Path>) -> Self {
-        let content = match load(entry, images) {
-            Ok(image) => Content::Body(Picture {
-                image,
-                enlarge: entry.enlarge,
-            }),
-            Err(unreadable) => Content::Problem(unreadable.card(home)),
-        };
-        ImageViewer { content }
+/// The viewer of the image file of `entry`, scaled to fill the body as far
+/// as its proportions allow, or, without `enlarge`, at its natural size
+/// where that fits. A file that cannot be shown shows why instead, in the
+/// card every viewer of a file shows, which scrolls when it does not fit.
+/// Decodes the image, which is encoded when it is laid out, as that
+/// depends on the body's size. The home folder `home` shows as `~` in the
+/// path of an image that cannot be shown.
+fn image_content(entry: &ImageEntry, images: &Images, home: Option<&Path>) -> Content<Picture> {
+    match load(entry, images) {
+        Ok(image) => Content::Body(Picture {
+            image,
+            enlarge: entry.enlarge,
+        }),
+        Err(unreadable) => Content::Problem(unreadable.card(home)),
     }
 }
 
@@ -889,20 +882,6 @@ fn load(entry: &ImageEntry, images: &Images) -> Result<Image, Unreadable> {
     images
         .decode(bytes, &entry.path)
         .map_err(|error| Unreadable::image(&entry.path, &error))
-}
-
-impl Viewer for ImageViewer {
-    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        self.content.lay_out(width, height)
-    }
-
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
-        self.content.draw(area, buf, offset)
-    }
-
-    fn failed(&self) -> bool {
-        self.content.failed()
-    }
 }
 
 /// A decoded image and whether it is enlarged to fill the body.
@@ -1145,6 +1124,69 @@ mod tests {
             })
         }));
         (viewers, shared)
+    }
+
+    /// Every kind of entry builds through `viewer_for` into its viewer,
+    /// which shows the entry or, where it cannot, the card.
+    #[test]
+    fn every_kind_of_entry_draws_through_viewer_for() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let png = directory.path().join("dot.png");
+        image::RgbImage::from_pixel(2, 2, image::Rgb([255, 0, 0]))
+            .save(&png)
+            .expect("image written");
+        let cases = [
+            (
+                serde_json::json!({"type": "code", "content": "fn main() {}"}),
+                "1 fn main() {}",
+                false,
+            ),
+            (
+                serde_json::json!({"type": "markdown", "content": "Some *notes*"}),
+                "Some notes",
+                false,
+            ),
+            (
+                serde_json::json!({"type": "diff", "old": {"content": "a\n"}, "new": {"content": "b\n"}}),
+                "1   - a",
+                false,
+            ),
+            (serde_json::json!({"type": "image", "path": png}), "", false),
+            (
+                serde_json::json!({"type": "code", "path": "/nowhere/a.rs"}),
+                "╭",
+                true,
+            ),
+            (
+                serde_json::json!({"type": "markdown", "path": "/nowhere/a.md"}),
+                "╭",
+                true,
+            ),
+            (
+                serde_json::json!({"type": "diff", "old": {"path": "/nowhere/a"}, "new": {"content": "b"}}),
+                "╭",
+                true,
+            ),
+            (
+                serde_json::json!({"type": "image", "path": "/nowhere/a.png"}),
+                "╭",
+                true,
+            ),
+        ];
+        for (json, first, failed) in cases {
+            let entry = entry(&json.to_string());
+            let mut viewer = viewer_for(&entry, &Images::half_blocks(), COLOURED, None);
+            let buf = test_support::drawn(viewer.as_mut(), 40, 10, Offset::default());
+            let shown: Vec<String> = (0..10).map(|y| row(&buf, y)).collect();
+
+            assert!(
+                shown
+                    .iter()
+                    .any(|line| line.trim_start().starts_with(first)),
+                "{json}: {shown:#?}"
+            );
+            assert_eq!(viewer.failed(), failed, "{json}");
+        }
     }
 
     /// The PTY tests make a debug build panic while it loads the image

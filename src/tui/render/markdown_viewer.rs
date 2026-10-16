@@ -22,20 +22,16 @@ use crate::format::MarkdownEntry;
 use crate::graphics::PlacedImage;
 use crate::tui::Offset;
 
-pub struct MarkdownViewer {
-    content: Content<Markdown>,
-}
-
-impl MarkdownViewer {
-    /// Reads the text, whose quotes show in `quote`. Rendering depends on
-    /// the width, so it waits for `lay_out`. The home folder `home` shows
-    /// as `~` in the path of a file that cannot be read.
-    pub fn new(entry: &MarkdownEntry, quote: QuoteStyle, home: Option<&Path>) -> Self {
-        let source = read_source(entry.path.as_deref(), entry.content.as_deref());
-        MarkdownViewer {
-            content: content_of(source, quote, home),
-        }
-    }
+/// The viewer of `entry`: reads the text, whose quotes show in `quote`.
+/// Rendering depends on the width, so it waits for `lay_out`. The home
+/// folder `home` shows as `~` in the path of a file that cannot be read.
+pub(super) fn markdown_content(
+    entry: &MarkdownEntry,
+    quote: QuoteStyle,
+    home: Option<&Path>,
+) -> Content<Markdown> {
+    let source = read_source(entry.path.as_deref(), entry.content.as_deref());
+    content_of(source, quote, home)
 }
 
 /// What the viewer shows of `source`, as read for its entry: its
@@ -66,22 +62,8 @@ fn content_of(
     }
 }
 
-impl Viewer for MarkdownViewer {
-    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-        self.content.lay_out(width, height)
-    }
-
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
-        self.content.draw(area, buf, offset)
-    }
-
-    fn failed(&self) -> bool {
-        self.content.failed()
-    }
-}
-
 /// The Markdown of an entry with the rows it was last laid out into.
-struct Markdown {
+pub(super) struct Markdown {
     source: String,
     /// `source` is only the start of a longer file.
     cut: bool,
@@ -163,12 +145,12 @@ mod tests {
     use super::*;
 
     /// The viewer of the entry `json`, as drawn with colours.
-    fn built(json: &str) -> MarkdownViewer {
+    fn built(json: &str) -> Content<Markdown> {
         let entry: MarkdownEntry = serde_json::from_str(json).expect("test entry parses");
-        MarkdownViewer::new(&entry, quote_style(false), None)
+        markdown_content(&entry, quote_style(false), None)
     }
 
-    fn inline(markdown: &str) -> MarkdownViewer {
+    fn inline(markdown: &str) -> Content<Markdown> {
         built(&serde_json::json!({"type": "markdown", "content": markdown}).to_string())
     }
 
@@ -199,8 +181,8 @@ mod tests {
     }
 
     /// How often `viewer`'s Markdown was rendered.
-    fn renders(viewer: &MarkdownViewer) -> usize {
-        match &viewer.content {
+    fn renders(viewer: &Content<Markdown>) -> usize {
+        match viewer {
             Content::Body(markdown) => markdown.renders,
             _ => panic!("the viewer holds Markdown"),
         }
@@ -277,7 +259,7 @@ mod tests {
             serde_json::from_str(r#"{"type": "markdown", "content": "> quoted"}"#)
                 .expect("test entry parses");
         let bar_and_text = |no_color| {
-            let mut viewer = MarkdownViewer::new(&entry, quote_style(no_color), None);
+            let mut viewer = markdown_content(&entry, quote_style(no_color), None);
             let buf = drawn(&mut viewer, 20, 1, Offset::default());
             assert_eq!(row(&buf, 0), "│ quoted");
             (buf[(0, 0)].clone(), buf[(2, 0)].clone())
@@ -347,16 +329,14 @@ mod tests {
 
     #[test]
     fn the_start_of_a_file_too_long_to_read_whole_says_so_first_and_last() {
-        let mut viewer = MarkdownViewer {
-            content: content_of(
-                Ok(Source {
-                    text: "**Plan**\n".into(),
-                    cut: true,
-                }),
-                quote_style(false),
-                None,
-            ),
-        };
+        let mut viewer = content_of(
+            Ok(Source {
+                text: "**Plan**\n".into(),
+                cut: true,
+            }),
+            quote_style(false),
+            None,
+        );
 
         let buf = drawn(&mut viewer, 40, 3, Offset::default());
         assert_eq!(row(&buf, 0), "first 8 MiB shown");
