@@ -18,6 +18,7 @@ use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
 
 use super::render::{Drawn, View, draw};
 use super::{App, Applied, Inbox, Tone};
+use crate::graphics::KittyDeletes;
 use crate::queue::QueueLocation;
 
 /// What wakes the loop.
@@ -46,9 +47,9 @@ pub trait Host {
     /// Show `title` as the terminal's title, unless the person switched
     /// titles off.
     fn title(&mut self, title: &str);
-    /// Ask the terminal to delete the Kitty images `ids` names, which the
-    /// frame just written no longer shows (ADR 42).
-    fn delete_images(&mut self, ids: &[u32]);
+    /// Ask the terminal to delete the Kitty images `deletes` names, which
+    /// the frame just written no longer shows (ADR 42).
+    fn delete_images(&mut self, deletes: &KittyDeletes) -> io::Result<()>;
 }
 
 /// The terminal title for the state of `app`, so a tab in the background
@@ -81,12 +82,6 @@ where
     // Every key draws again, but the title goes to the terminal only when
     // its text changes. No title is empty, so the first pass sends one.
     let mut sent_title = String::new();
-    // Inside tmux with `allow-passthrough on`, a delete written while the
-    // pane is hidden is lost, as a transfer is (ADR 24). The deletes since
-    // the last focus gain are written again after the frame that follows
-    // the next one, and only then forgotten (ADR 42).
-    let mut deleted_since_focus: Vec<u32> = Vec::new();
-    let mut focus_regained = false;
     loop {
         let title = terminal_title(app);
         if title != sent_title {
@@ -103,15 +98,15 @@ where
             .draw(|frame| drawn = draw(frame, app, view))
             .context("drawing the screen")?;
         // The frame is flushed and shows no Kitty image that went, so the
-        // terminal may let go of them (ADR 42).
-        let mut deletes = std::mem::take(&mut drawn.deleted_images);
-        if std::mem::take(&mut focus_regained) {
-            deletes.splice(0..0, deleted_since_focus.drain(..));
-        } else {
-            deleted_since_focus.extend(&deletes);
-        }
-        if !deletes.is_empty() {
-            host.delete_images(&deletes);
+        // terminal may let go of them (ADR 42). A frame that failed returned
+        // above and left them in the book, for the deletes on quitting.
+        let book = view.kitty_book();
+        let deletes = book.after_frame();
+        if !deletes.is_empty()
+            && let Err(error) = host.delete_images(&deletes)
+        {
+            tracing::warn!(%error, "could not delete the images");
+            book.put_back(deletes);
         }
         // How far the intro overlay and the context pane can scroll depends
         // on the size they were drawn at, and where `↑`/`↓` go in a field
@@ -146,10 +141,7 @@ where
             // Coming back into view is when a transfer lost in the
             // background can be repeated, where one can be lost at all.
             Event::FocusGained => {
-                if view.resends_on_focus() {
-                    view.forget_images();
-                    focus_regained = true;
-                }
+                view.focus_gained();
                 continue;
             }
             // The inbox coming back or not is out of asqr's hands; the
@@ -210,14 +202,23 @@ mod tests {
         titles: Vec<String>,
         /// Opening an image fails with this, when set.
         viewer_missing: bool,
+        /// Writing deletes fails, as writing to a terminal that went away
+        /// does, when set.
+        refuse_deletes: bool,
         /// Where the Kitty images the loop deletes go, among the frames a
         /// [`Logging`] backend notes.
         log: Log,
     }
 
     impl Host for Recorder {
-        fn delete_images(&mut self, ids: &[u32]) {
-            self.log.borrow_mut().push(Step::Deleted(ids.to_vec()));
+        fn delete_images(&mut self, deletes: &KittyDeletes) -> io::Result<()> {
+            if self.refuse_deletes {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "terminal gone"));
+            }
+            self.log
+                .borrow_mut()
+                .push(Step::Deleted(deletes.ids().to_vec()));
+            Ok(())
         }
 
         fn title(&mut self, title: &str) {
@@ -842,62 +843,81 @@ mod tests {
     struct Logging {
         backend: TestBackend,
         log: Log,
+        /// Flushing a frame fails, as writing to a terminal that went
+        /// away does, when set.
+        refuse_flush: bool,
+    }
+
+    impl Logging {
+        fn new(log: &Log) -> Self {
+            Logging {
+                backend: TestBackend::new(80, 24),
+                log: Rc::clone(log),
+                refuse_flush: false,
+            }
+        }
+    }
+
+    /// `result` of the test backend, which never fails, as the I/O result
+    /// the logging backend gives where a real terminal could fail.
+    fn infallible<T>(result: Result<T, std::convert::Infallible>) -> io::Result<T> {
+        result.map_err(|never| match never {})
     }
 
     impl Backend for Logging {
-        type Error = <TestBackend as Backend>::Error;
+        type Error = io::Error;
 
-        fn draw<'a, I>(&mut self, content: I) -> Result<(), Self::Error>
+        fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
         where
             I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
         {
-            self.backend.draw(content)
+            infallible(self.backend.draw(content))
         }
 
-        fn hide_cursor(&mut self) -> Result<(), Self::Error> {
-            self.backend.hide_cursor()
+        fn hide_cursor(&mut self) -> io::Result<()> {
+            infallible(self.backend.hide_cursor())
         }
 
-        fn show_cursor(&mut self) -> Result<(), Self::Error> {
-            self.backend.show_cursor()
+        fn show_cursor(&mut self) -> io::Result<()> {
+            infallible(self.backend.show_cursor())
         }
 
-        fn get_cursor_position(&mut self) -> Result<ratatui::layout::Position, Self::Error> {
-            self.backend.get_cursor_position()
+        fn get_cursor_position(&mut self) -> io::Result<ratatui::layout::Position> {
+            infallible(self.backend.get_cursor_position())
         }
 
         fn set_cursor_position<P: Into<ratatui::layout::Position>>(
             &mut self,
             position: P,
-        ) -> Result<(), Self::Error> {
-            self.backend.set_cursor_position(position)
+        ) -> io::Result<()> {
+            infallible(self.backend.set_cursor_position(position))
         }
 
-        fn clear(&mut self) -> Result<(), Self::Error> {
+        fn clear(&mut self) -> io::Result<()> {
             self.log.borrow_mut().push(Step::Clear);
-            self.backend.clear()
+            infallible(self.backend.clear())
         }
 
-        fn clear_region(
-            &mut self,
-            clear_type: ratatui::backend::ClearType,
-        ) -> Result<(), Self::Error> {
+        fn clear_region(&mut self, clear_type: ratatui::backend::ClearType) -> io::Result<()> {
             self.log.borrow_mut().push(Step::Clear);
-            self.backend.clear_region(clear_type)
+            infallible(self.backend.clear_region(clear_type))
         }
 
-        fn size(&self) -> Result<ratatui::layout::Size, Self::Error> {
-            self.backend.size()
+        fn size(&self) -> io::Result<ratatui::layout::Size> {
+            infallible(self.backend.size())
         }
 
-        fn window_size(&mut self) -> Result<ratatui::backend::WindowSize, Self::Error> {
-            self.backend.window_size()
+        fn window_size(&mut self) -> io::Result<ratatui::backend::WindowSize> {
+            infallible(self.backend.window_size())
         }
 
-        fn flush(&mut self) -> Result<(), Self::Error> {
+        fn flush(&mut self) -> io::Result<()> {
+            if self.refuse_flush {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "terminal gone"));
+            }
             let shown = kitty_ids_on_screen(self.backend.buffer());
             self.log.borrow_mut().push(Step::Frame(shown));
-            self.backend.flush()
+            infallible(self.backend.flush())
         }
     }
 
@@ -909,11 +929,7 @@ mod tests {
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
         let mut view = View::new("test", PaneLayout::Auto, images);
         let log = Log::default();
-        let mut terminal = Terminal::new(Logging {
-            backend: TestBackend::new(80, 24),
-            log: Rc::clone(&log),
-        })
-        .expect("test terminal");
+        let mut terminal = Terminal::new(Logging::new(&log)).expect("test terminal");
         let (sender, receiver) = mpsc::channel();
         for event in events {
             sender.send(event).expect("sent");
@@ -1023,11 +1039,7 @@ mod tests {
             harness.host.log = Rc::clone(&log);
             Watched {
                 harness,
-                terminal: Terminal::new(Logging {
-                    backend: TestBackend::new(80, 24),
-                    log: Rc::clone(&log),
-                })
-                .expect("test terminal"),
+                terminal: Terminal::new(Logging::new(&log)).expect("test terminal"),
                 log,
             }
         }
@@ -1057,6 +1069,16 @@ mod tests {
         }
 
         fn run(&mut self, app: &mut App, inbox: &mut Inbox, view: &mut View, events: Vec<Event>) {
+            self.try_run(app, inbox, view, events).expect("runs");
+        }
+
+        fn try_run(
+            &mut self,
+            app: &mut App,
+            inbox: &mut Inbox,
+            view: &mut View,
+            events: Vec<Event>,
+        ) -> anyhow::Result<()> {
             let (sender, receiver) = mpsc::channel();
             for event in events {
                 sender.send(event).expect("sent");
@@ -1070,7 +1092,6 @@ mod tests {
                 &receiver,
                 &mut self.harness.host,
             )
-            .expect("runs");
         }
 
         fn steps(&self) -> Vec<Step> {
@@ -1137,10 +1158,61 @@ mod tests {
         };
         assert_eq!(shown.len(), 1, "the session's image: {steps:?}");
         assert_eq!(
-            view.take_kitty_images(),
+            view.kitty_book().drain().ids(),
             shown.iter().copied().collect::<Vec<_>>(),
             "the exit deletes name the image still shown"
         );
+    }
+
+    /// A frame that could not be flushed may still be on the screen, so
+    /// the images that went before it stay in the book, for the deletes
+    /// on quitting.
+    #[test]
+    fn a_frame_that_fails_to_flush_keeps_the_images_that_went_for_the_exit() {
+        let mut watched = Watched::new();
+        watched.put("only", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
+        watched.run(&mut app, &mut inbox, &mut view, vec![]);
+
+        watched.remove("only");
+        inbox.sync(&mut app).expect("synced");
+        watched.terminal.backend_mut().refuse_flush = true;
+        let ran = watched.try_run(&mut app, &mut inbox, &mut view, vec![]);
+
+        assert!(ran.is_err(), "the frame failed");
+        assert_eq!(
+            view.kitty_book().drain().ids(),
+            [1],
+            "{:?}",
+            watched.steps()
+        );
+    }
+
+    /// A delete that could not be written stays in the book: it is written
+    /// after the next frame, or on quitting.
+    #[test]
+    fn a_delete_that_could_not_be_written_is_written_after_the_next_frame() {
+        let mut watched = Watched::new();
+        watched.put("only", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::new("test", PaneLayout::Auto, Images::kitty());
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+        watched.run(app, inbox, view, vec![]);
+
+        watched.remove("only");
+        watched.harness.host.refuse_deletes = true;
+        watched.run(app, inbox, view, vec![Event::InboxChanged]);
+        watched.harness.host.refuse_deletes = false;
+        watched.run(app, inbox, view, vec![]);
+
+        let steps = watched.steps();
+        let deleted: Vec<&Step> = steps
+            .iter()
+            .filter(|step| matches!(step, Step::Deleted(_)))
+            .collect();
+        assert_eq!(deleted, [&Step::Deleted(vec![1])], "{steps:?}");
+        assert_eq!(view.kitty_book().drain().ids(), [0_u32; 0], "written once");
     }
 
     /// Reviewer O's invariant: a delete written after a frame never names

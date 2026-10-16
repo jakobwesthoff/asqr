@@ -119,3 +119,20 @@ the frame. This replaces the consequence that such an image is encoded
 again under the id asqr gave it, which Ghostty showed blank during the
 transfer. ratatui-image does not hand out the picture it keeps, so asqr
 keeps a second decoded copy of each image under the Kitty protocol.
+
+## Amendment (2026-10-16, the id book owns the deletes)
+
+The architecture review of 2026-10-16 found that the deletes of a frame
+left the id book before the frame was flushed, so a frame or a write
+that failed lost them, and the lead decided to let the book own the
+deletes.
+
+- One book per run holds the Kitty ids, the deletes not yet written,
+  the repeat after a focus gain and whether deletes go out wrapped for
+  tmux, taken from the graphics the transmissions use.
+- The deletes leave the book once the frame is flushed. A frame that
+  fails to flush ends the run, and its deletes are written on quitting.
+  A delete that could not be written goes back into the book and is
+  written after the next frame, or on quitting.
+- The book keeps the deletes since the last focus gain only where the
+  images are sent again on regaining the focus (ADR 45).

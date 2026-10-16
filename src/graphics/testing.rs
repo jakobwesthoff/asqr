@@ -70,7 +70,17 @@ impl Images {
 
     /// The Kitty ids of the images that exist.
     pub(crate) fn held(&self) -> Vec<u32> {
-        self.book.borrow().held()
+        self.book.live()
+    }
+
+    /// The Kitty ids the deletes after a frame would name now.
+    pub(crate) fn dropped(&self) -> Vec<u32> {
+        self.book.after_frame().ids().to_vec()
+    }
+
+    /// The Kitty ids the deletes on quitting would name now.
+    pub(crate) fn drained(&self) -> Vec<u32> {
+        self.book.drain().ids().to_vec()
     }
 }
 

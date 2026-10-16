@@ -305,10 +305,10 @@ mod tests {
         image.settle(failed);
 
         assert_eq!(images.held(), Vec::<u32>::new());
-        assert_eq!(images.take_all(), [1], "the one that went out");
+        assert_eq!(images.dropped(), [1], "the one that went out");
         let area = Rect::new(0, 0, 4, 8);
         assert_eq!(drawn(&mut image, area, true), Buffer::empty(area));
-        assert_eq!(images.take_all(), Vec::<u32>::new(), "no encoding again");
+        assert_eq!(images.dropped(), Vec::<u32>::new(), "no encoding again");
         image.settle(encode(&images, testing::red(), Size::new(2, 2)));
         assert_eq!(
             drawn(&mut image, area, true),
@@ -389,18 +389,18 @@ mod tests {
 
         let buf = drawn(&mut image, Rect::new(0, 0, 2, 2), true);
         assert_eq!(sent_id(&buf), 1);
-        assert_eq!(images.take_dropped(), Vec::<u32>::new());
+        assert_eq!(images.dropped(), Vec::<u32>::new());
 
         drawn(&mut image, Rect::new(0, 0, 3, 2), true);
-        assert_eq!(images.take_dropped(), Vec::<u32>::new(), "same image size");
+        assert_eq!(images.dropped(), Vec::<u32>::new(), "same image size");
 
         let buf = drawn(&mut image, Rect::new(0, 0, 4, 8), true);
         assert_eq!(sent_id(&buf), 2);
-        assert_eq!(images.take_dropped(), [1]);
+        assert_eq!(images.dropped(), [1]);
         assert_eq!(images.held(), [2]);
 
         drop(image);
-        assert_eq!(images.take_dropped(), [2]);
+        assert_eq!(images.dropped(), [2]);
     }
 
     /// An image takes its id when it is first laid out. Every id the book
@@ -418,10 +418,10 @@ mod tests {
         drop(laid_out());
         drop(images.image(testing::red()));
 
-        assert_eq!(images.take_all(), [2, 1, 3]);
+        assert_eq!(images.drained(), [2, 1, 3]);
         drop(kept);
-        assert_eq!(images.take_all(), Vec::<u32>::new(), "handed on once");
-        assert_eq!(images.take_dropped(), Vec::<u32>::new());
+        assert_eq!(images.drained(), Vec::<u32>::new(), "handed on once");
+        assert_eq!(images.dropped(), Vec::<u32>::new());
     }
 
     /// Every other protocol carries its picture in the cells or in the

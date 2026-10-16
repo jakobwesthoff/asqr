@@ -16,7 +16,7 @@ use super::source_file::{Unreadable, regular_file};
 use super::theme;
 use super::wrap::wrap;
 use crate::format::ContextEntry;
-use crate::graphics::{Graphics, Image, Images};
+use crate::graphics::{Graphics, Image, Images, KittyBook};
 use crate::tui::{EntryKey, Offset};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Rect, Size};
@@ -177,16 +177,16 @@ impl Viewers {
         self.viewers.retain(|key, _| waiting(&key.session));
     }
 
-    /// The Kitty ids of the images whose viewers went since the last call,
-    /// for the terminal to delete.
-    pub fn dropped_images(&mut self) -> Vec<u32> {
-        self.images.take_dropped()
+    /// The book of the Kitty ids the images of the viewers take.
+    pub fn kitty_book(&self) -> &KittyBook {
+        self.images.kitty_book()
     }
 
-    /// The Kitty ids of every image the viewers sent that the terminal may
-    /// still keep, for deleting them all as asqr quits.
-    pub fn take_all_images(&mut self) -> Vec<u32> {
-        self.images.take_all()
+    /// The Kitty ids of the images whose viewers went since the last call,
+    /// for the terminal to delete.
+    #[cfg(test)]
+    pub(super) fn dropped_images(&self) -> Vec<u32> {
+        self.images.dropped()
     }
 
     /// The Kitty ids of the images the viewers hold.

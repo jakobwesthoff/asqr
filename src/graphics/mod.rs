@@ -16,9 +16,6 @@ mod kitty;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use ::image::{DynamicImage, ImageError};
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 
@@ -29,8 +26,8 @@ pub use detect::{
     may_query_protocol, passthrough_all_for_images, settle_passthrough,
 };
 pub use image::Image;
-pub use kitty::kitty_deletes;
-use kitty::{KittyIds, random_ids};
+use kitty::{IdSource, random_ids};
+pub use kitty::{KittyBook, KittyDeletes};
 
 /// The graphics protocol images are sent in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,7 +145,7 @@ impl Graphics {
 #[derive(Clone)]
 pub struct Images {
     graphics: Graphics,
-    book: Rc<RefCell<KittyIds>>,
+    book: KittyBook,
 }
 
 impl Images {
@@ -157,10 +154,10 @@ impl Images {
         Self::with_source(graphics, random_ids())
     }
 
-    fn with_source(graphics: Graphics, source: Box<dyn FnMut() -> u32>) -> Self {
+    fn with_source(graphics: Graphics, source: IdSource) -> Self {
         Images {
             graphics,
-            book: Rc::new(RefCell::new(KittyIds::new(source))),
+            book: KittyBook::new(graphics, source),
         }
     }
 
@@ -184,20 +181,12 @@ impl Images {
         Image::new(self, picture)
     }
 
-    /// The Kitty ids of the images that went since the last call, for the
-    /// terminal to delete: a context image drops its id when its viewer
-    /// goes, on regaining the focus, when its session leaves or when its
-    /// entry is replaced (ADR 42).
-    pub fn take_dropped(&self) -> Vec<u32> {
-        self.book.borrow_mut().take_dropped()
-    }
-
-    /// The Kitty ids of every image the terminal may still keep, each
-    /// once: those that went since [`Images::take_dropped`] last took
-    /// them, then those that exist. asqr deletes them all before it leaves
-    /// the alternate screen, as the images stay there after it (ADR 42).
-    pub fn take_all(&self) -> Vec<u32> {
-        self.book.borrow_mut().take_all()
+    /// The book of the Kitty ids these images take. A context image hands
+    /// its id on for deleting when its viewer goes: on regaining the
+    /// focus, when its session leaves or when its entry is replaced, and
+    /// when it is laid out at another size (ADR 42).
+    pub fn kitty_book(&self) -> &KittyBook {
+        &self.book
     }
 }
 

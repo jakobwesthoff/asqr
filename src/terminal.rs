@@ -20,7 +20,7 @@ use std::time::Instant;
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
 use asqr::graphics::{
-    Graphics, Images, PanePassthrough, QUERY_WAIT, answers_may_follow_the_query, kitty_deletes,
+    Graphics, Images, KittyDeletes, PanePassthrough, QUERY_WAIT, answers_may_follow_the_query,
     may_query_protocol, passthrough_all_for_images, settle_passthrough,
 };
 #[cfg(unix)]
@@ -175,7 +175,6 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         title: watch.title(),
         title_pushed,
         env,
-        kitty_tmux: graphics.tmux_wrapped,
     };
     let mut view = View::new(&queue, watch.layout(), Images::new(graphics))
         .no_color(watch.no_color())
@@ -190,10 +189,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     );
     // The guard writes these while the alternate screen is still on, also
     // when the run ended in an error (ADR 42).
-    exit_deletes.replace(kitty_deletes(
-        &view.take_kitty_images(),
-        graphics.tmux_wrapped,
-    ));
+    exit_deletes.replace(view.kitty_book().drain().to_bytes());
     ran
 }
 
@@ -418,9 +414,6 @@ struct TerminalHost {
     title: bool,
     title_pushed: Rc<Cell<bool>>,
     env: TerminalEnv,
-    /// Whether every Kitty command goes out wrapped for tmux's
-    /// passthrough, the deletes as the transmissions.
-    kitty_tmux: bool,
 }
 
 impl Host for TerminalHost {
@@ -442,14 +435,10 @@ impl Host for TerminalHost {
         }
     }
 
-    fn delete_images(&mut self, ids: &[u32]) {
+    fn delete_images(&mut self, deletes: &KittyDeletes) -> io::Result<()> {
         let mut stdout = io::stdout().lock();
-        let deleted = stdout
-            .write_all(&kitty_deletes(ids, self.kitty_tmux))
-            .and_then(|()| stdout.flush());
-        if let Err(error) = deleted {
-            tracing::warn!(%error, "could not delete the images");
-        }
+        stdout.write_all(&deletes.to_bytes())?;
+        stdout.flush()
     }
 
     fn open_image(&mut self, path: &str) -> io::Result<()> {
@@ -503,11 +492,12 @@ mod tests {
         String::from_utf8(written).expect("escape sequences are ASCII")
     }
 
+    /// The command that deletes the Kitty image 7.
+    const DELETE_7: &[u8] = b"\x1b_Ga=d,d=I,i=7,q=2\x1b\\";
+
     #[test]
     fn the_guard_deletes_the_images_before_it_gives_the_terminal_back() {
-        let deletes = kitty_deletes(&[7], false);
-
-        let written = dropped_with(true, &deletes);
+        let written = dropped_with(true, DELETE_7);
 
         assert!(
             written.starts_with("\x1b_Ga=d,d=I,i=7,q=2\x1b\\\x1b]0;\x07\x1b[23;0t"),
@@ -603,7 +593,7 @@ mod tests {
             out: &mut full[..],
             restore: note_restore,
             title_pushed: Rc::new(Cell::new(true)),
-            exit_deletes: Rc::new(RefCell::new(kitty_deletes(&[7], false))),
+            exit_deletes: Rc::new(RefCell::new(DELETE_7.to_vec())),
         });
         assert!(RESTORED.get());
     }

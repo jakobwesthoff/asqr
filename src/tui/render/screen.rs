@@ -27,7 +27,7 @@ use super::tabs::tab_bar;
 use super::theme;
 use super::wrap::cut;
 use crate::format::ContextEntry;
-use crate::graphics::Images;
+use crate::graphics::{Images, KittyBook};
 use crate::tui::text_field::FieldShape;
 use crate::tui::{App, Extent, Overlay, Page, SessionState};
 
@@ -81,11 +81,6 @@ pub struct Drawn {
     /// Where the field or note that has the keys was drawn, for
     /// [`App::set_field_shape`].
     pub field_shape: Option<FieldShape>,
-    /// The Kitty ids of the images that went since the last draw, for the
-    /// terminal to delete once this frame is on the screen. This frame
-    /// wrote other cells where they showed, so the terminal no longer
-    /// needs them. Every frame says this, whatever it shows.
-    pub deleted_images: Vec<u32>,
 }
 
 /// What the screen shows besides the state, and what it keeps from one
@@ -148,22 +143,22 @@ impl<'a> View<'a> {
             && self.tab.viewers.graphics().cells_are_skipped()
     }
 
-    /// Whether images are read and sent again when asqr regains the focus
-    /// (ADR 24).
-    pub fn resends_on_focus(&self) -> bool {
-        self.tab.viewers.graphics().resends_on_focus()
+    /// asqr regained the focus. Where tmux dropped the Kitty transfers
+    /// while it was hidden, every image is read and sent again as it is
+    /// next shown, and the deletes since the last time are written again
+    /// (ADRs 24 and 42).
+    pub fn focus_gained(&mut self) {
+        if self.tab.viewers.graphics().resends_on_focus() {
+            self.tab.viewers.forget_images();
+            self.tab.viewers.kitty_book().focus_gained();
+        }
     }
 
-    /// The Kitty ids of every image of a context entry the terminal may
-    /// still keep, each once, for deleting them before asqr leaves the
-    /// alternate screen (ADR 42).
-    pub fn take_kitty_images(&mut self) -> Vec<u32> {
-        self.tab.viewers.take_all_images()
-    }
-
-    /// Reads and sends every image again as it is next shown (ADR 24).
-    pub fn forget_images(&mut self) {
-        self.tab.viewers.forget_images();
+    /// The book of the Kitty ids of the images of context entries. Every
+    /// image of a frame that went hands its id on there, for the terminal
+    /// to delete once the frame is on the screen (ADR 42).
+    pub fn kitty_book(&self) -> &KittyBook {
+        self.tab.viewers.kitty_book()
     }
 }
 
@@ -171,11 +166,10 @@ impl<'a> View<'a> {
 /// way [`draw_screen`] can end, the message of a too small terminal
 /// included.
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
-    let mut drawn = draw_screen(frame, app, view);
+    let drawn = draw_screen(frame, app, view);
     if view.no_color {
         theme::strip_colours(frame.buffer_mut());
     }
-    drawn.deleted_images = view.tab.viewers.dropped_images();
     drawn
 }
 
@@ -270,7 +264,6 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 intro_page: Some(intro_page),
                 pane_page: Some(pane_page),
                 field_shape,
-                deleted_images: Vec::new(),
             };
             (drawn, hints)
         }
@@ -353,7 +346,7 @@ mod tests {
     use super::super::test_support::{self, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
-    use crate::graphics::testing;
+    use crate::graphics::{Passthrough, testing};
     use crate::tui::{Focus, Notice, SessionState, Tone};
 
     const EXAMPLE: &str = include_str!("../../../examples/sessions/alt-rework-batch.json");
@@ -1698,11 +1691,16 @@ mod tests {
         View::new("q", PaneLayout::Auto, Images::kitty())
     }
 
+    /// The Kitty ids the deletes after the last frame of `view` name.
+    fn deleted(view: &View) -> Vec<u32> {
+        view.kitty_book().after_frame().ids().to_vec()
+    }
+
     /// The Kitty ids of the images `view` holds after drawing `app` with
     /// an image shown.
     fn shown_kitty_images(app: &App, view: &mut View) -> Vec<u32> {
-        let (_, drawn) = measured_in(app, view, 140, 24);
-        assert_eq!(drawn.deleted_images, Vec::<u32>::new(), "nothing went yet");
+        measured_in(app, view, 140, 24);
+        assert_eq!(deleted(view), Vec::<u32>::new(), "nothing went yet");
         view.tab.viewers.held_images()
     }
 
@@ -1717,11 +1715,11 @@ mod tests {
         assert_eq!(shown.len(), 1, "{shown:?}");
 
         app.remove("pictured");
-        let (_, drawn) = measured_in(&app, &mut view, 140, 24);
-        assert_eq!(drawn.deleted_images, shown);
+        measured_in(&app, &mut view, 140, 24);
+        assert_eq!(deleted(&view), shown);
 
-        let (_, drawn) = measured_in(&app, &mut view, 140, 24);
-        assert_eq!(drawn.deleted_images, Vec::<u32>::new(), "deleted once");
+        measured_in(&app, &mut view, 140, 24);
+        assert_eq!(deleted(&view), Vec::<u32>::new(), "deleted once");
     }
 
     #[test]
@@ -1732,24 +1730,29 @@ mod tests {
         let shown = shown_kitty_images(&app, &mut view);
 
         app.remove("pictured");
-        let (_, drawn) = measured_in(&app, &mut view, 40, 10);
+        measured_in(&app, &mut view, 40, 10);
 
-        assert_eq!(drawn.deleted_images, shown);
+        assert_eq!(deleted(&view), shown);
     }
 
-    /// Images forgotten on regaining the focus go with the next draw,
-    /// which sends them again.
+    /// Where tmux drops Kitty transfers from a hidden pane, the images
+    /// forgotten on regaining the focus go with the next draw, which sends
+    /// them again.
     #[test]
-    fn forgotten_images_are_deleted_after_the_next_frame() {
+    fn images_forgotten_on_regaining_the_focus_are_deleted_after_the_next_frame() {
         let file = png();
         let app = with_image(file.path().to_str().expect("UTF-8 path"));
-        let mut view = kitty_view();
+        let mut view = View::new(
+            "q",
+            PaneLayout::Auto,
+            Images::kitty_through(Passthrough::WhileVisible),
+        );
         let shown = shown_kitty_images(&app, &mut view);
 
-        view.forget_images();
-        let (_, drawn) = measured_in(&app, &mut view, 140, 24);
+        view.focus_gained();
+        measured_in(&app, &mut view, 140, 24);
 
-        assert_eq!(drawn.deleted_images, shown);
+        assert_eq!(deleted(&view), shown);
         assert_ne!(view.tab.viewers.held_images(), shown, "sent anew");
     }
 
