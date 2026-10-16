@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/emblem/talqi-terminal-rim-mint.svg">
-    <img src="assets/emblem/talqi-terminal.svg" width="256" height="256" alt="asqr's logo: Talqi, a teal chameleon with a lavender crest, peeking over a terminal panel with a prompt">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jakobwesthoff/asqr/main/assets/emblem/talqi-terminal-rim-mint.svg">
+    <img src="https://raw.githubusercontent.com/jakobwesthoff/asqr/main/assets/emblem/talqi-terminal.svg" width="256" height="256" alt="asqr's logo: Talqi, a teal chameleon with a lavender crest, peeking over a terminal panel with a prompt">
   </picture>
 </p>
 
