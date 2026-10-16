@@ -1157,7 +1157,8 @@ Context appears only when a question or one of its options has some.
   inside it `✗` and the reason in bold red, a blank row, the file name,
   and the folder on the rows after it, dim. The reason is worded as the
   system or the image decoder gives it, or as asqr's own checks say it:
-  "relative path", "not a regular file", "binary file". The folder shows
+  "relative path", "not a regular file", "binary file", "image file
+  larger than 64 MiB". The folder shows
   the home folder as `~` (section 8) and breaks after a `/`, a part
   longer than a row where the row ends; the path is never shortened.
   The card is as wide as its text, at most 60 columns, and centred in
@@ -1303,7 +1304,10 @@ Images:
   can pick options.
 - An image entry is read when it is loaded and kept while it is inside
   the window: asqr keeps the file as it read it, not its decoded pixels,
-  and decodes it again to show it at another size. asqr asks the
+  and decodes it again to show it at another size. An image file larger
+  than 64 MiB is not read; its card says "image file larger than
+  64 MiB". A file that grows past that while asqr reads it is refused
+  the same way. asqr asks the
   terminal for focus reports. Under the Kitty protocol behind a tmux
   pane with `allow-passthrough on`, which drops a transfer while the
   pane is hidden, asqr loads every image a frame showed again behind

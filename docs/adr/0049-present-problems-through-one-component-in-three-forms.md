@@ -48,8 +48,8 @@ error, `!` in yellow for a warning.
   `new side: ` before the reason. The heading lines such as `code not
   shown` are gone.
 - **Reasons keep their original wording**: the system's or the image
-  decoder's text, and asqr's own "relative path", "not a regular file"
-  and "binary file". The original message also goes to the log when the
+  decoder's text, and asqr's own "relative path", "not a regular file",
+  "binary file" and "image file larger than 64 MiB" (ADR 46). The original message also goes to the log when the
   viewer is built.
 - **Header mark.** The pane's header shows a red `✗` before the entry's
   name when its viewer shows a card. The one-line hint, the tab bar and
@@ -69,7 +69,7 @@ error, `!` in yellow for a warning.
 asqr keeps the kind of every failure to read or decode a file: not
 found, permission denied, a directory, not a regular file, a relative
 path, a binary file, an image format asqr cannot decode, a damaged
-image, or another failure. It comes from the system's error kind and
+image, an image file too large to read, or another failure. It comes from the system's error kind and
 the image decoder's error, so no part of asqr reads the words of a
 message to tell failures apart.
 

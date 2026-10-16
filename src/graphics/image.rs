@@ -262,34 +262,13 @@ mod tests {
     use super::*;
     use crate::terminal_env::TerminalEnv;
 
-    /// Why the file at `path` does not open or decode, or `None` when it
-    /// does.
+    /// Why the file at `path` does not decode, or `None` when it does.
     fn refused(path: &str) -> Option<String> {
-        fs::File::open(path)
-            .map_err(::image::ImageError::IoError)
-            .and_then(|file| Images::half_blocks().decode(file, path))
+        let bytes = fs::read(path).expect("the test file is readable");
+        Images::half_blocks()
+            .decode(bytes, path)
             .err()
             .map(|error| error.to_string())
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_regular_file_that_may_not_be_read_says_why() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let directory = tempfile::tempdir().expect("temporary directory is creatable");
-        let path = directory.path().join("secret.png");
-        fs::write(&path, b"").expect("file is writable");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o000))
-            .expect("permissions are settable");
-        let path = path.to_str().expect("a UTF-8 path");
-
-        let reason = refused(path).expect("refused");
-
-        assert!(
-            reason.to_lowercase().contains("permission denied"),
-            "{reason}"
-        );
     }
 
     #[test]
@@ -375,9 +354,9 @@ mod tests {
             .save(&path)
             .expect("image written");
         let path = path.to_str().expect("a UTF-8 path");
-        let file = fs::File::open(path).expect("readable");
+        let bytes = fs::read(path).expect("readable");
         let mut image = Images::half_blocks()
-            .decode(file, path)
+            .decode(bytes, path)
             .expect("a TGA decodes");
         drawn(&mut image, Rect::new(0, 0, 2, 2), true);
         assert!(!image.holds_picture());

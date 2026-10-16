@@ -20,7 +20,7 @@ use super::diff::DiffViewer;
 use super::loading::{self, Ahead, Finished, Job, Loaded, Tools, Wake};
 use super::markdown_viewer::MarkdownViewer;
 use super::problem::Card;
-use super::source_file::{Unreadable, open_regular};
+use super::source_file::{Unreadable, read_image};
 use super::theme;
 use super::wrap::wrap;
 use crate::format::{ContextEntry, ImageEntry};
@@ -712,12 +712,11 @@ impl ImageViewer {
     }
 }
 
-/// The image of `entry`, opened by the rule every viewer of a file follows
-/// and decoded.
+/// The image of `entry`, read by the rule for image files and decoded.
 fn load(entry: &ImageEntry, images: &Images) -> Result<Image, Unreadable> {
-    let file = open_regular(&entry.path)?;
+    let bytes = read_image(&entry.path)?;
     images
-        .decode(file, &entry.path)
+        .decode(bytes, &entry.path)
         .map_err(|error| Unreadable::image(&entry.path, &error))
 }
 
@@ -1989,6 +1988,25 @@ mod tests {
         load(&image, &Images::half_blocks())
             .err()
             .expect("the image cannot be shown")
+    }
+
+    #[test]
+    fn an_image_file_larger_than_64_mib_shows_a_card_unread() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("huge.png");
+        std::fs::File::create(&path)
+            .and_then(|huge| huge.set_len(64 * 1024 * 1024 + 1))
+            .expect("sparse file is creatable");
+
+        let refused = refused_image(&path);
+        assert_eq!(refused.failure, Failure::TooLarge);
+
+        let json = serde_json::json!({"type": "image", "path": path}).to_string();
+        let rows = drawn(&entry(&json), 50, 8, 0);
+        assert!(
+            rows[2].contains("│ ✗ image file larger than 64 MiB"),
+            "{rows:#?}"
+        );
     }
 
     #[test]

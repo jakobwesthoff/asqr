@@ -70,6 +70,11 @@ The lead decided under Jakob's delegation:
   decoded in, and holds the decoded picture only until its first
   encoding. Each later encoding, for another size, decodes the bytes
   again on the worker.
+- An image file larger than 64 MiB is not read, and its card says
+  "image file larger than 64 MiB". The size comes from the opened file,
+  and the read stops one byte past the limit, so a file that grows in
+  between is refused too. The review of 2026-10-16 found that asqr read
+  an image file whole, whatever its size, and kept it for the window.
 
 ## Consequences
 

@@ -6,7 +6,8 @@
 //! 7.7). Every viewer of text reads it the same way: a relative path is
 //! never resolved, only a regular file is read and only its first 8 MiB,
 //! a binary file is not shown, and bytes that are not UTF-8 show as `�`.
-//! The image viewer opens a path by the same rule.
+//! The image viewer opens a path by the same rule and refuses an image
+//! file larger than 64 MiB.
 
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -70,6 +71,8 @@ pub enum Failure {
     FormatUnsupported,
     /// An image whose data the decoder cannot read, such as a cut PNG.
     Damaged,
+    /// An image file larger than [`MAX_IMAGE_BYTES`].
+    TooLarge,
     Other,
 }
 
@@ -244,6 +247,54 @@ fn open_checked(path: &str) -> Result<File, Unreadable> {
         .map_err(|error| Unreadable::io(path, &error))?;
     refuse_irregular(path, &metadata)?;
     Ok(file)
+}
+
+/// How large an image file asqr reads. An image keeps its file's bytes
+/// while its entry is inside the window (ADR 46), so a file of gigabytes
+/// would stay in memory; a larger one is refused before it is read.
+pub const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Why an image file larger than [`MAX_IMAGE_BYTES`] does not show.
+const TOO_LARGE: &str = "image file larger than 64 MiB";
+
+/// The bytes of the image file at `path`, opened by the rule every viewer
+/// of a file follows, unless it is larger than [`MAX_IMAGE_BYTES`].
+pub fn read_image(path: &str) -> Result<Vec<u8>, Unreadable> {
+    let file = open_regular(path)?;
+    read_within(path, file, MAX_IMAGE_BYTES)
+}
+
+/// The bytes of `file`, opened from `path`, unless it holds more than
+/// `limit`. The size comes from the opened file, so a file that is too
+/// large is never read.
+fn read_within(path: &str, file: File, limit: u64) -> Result<Vec<u8>, Unreadable> {
+    let size = file
+        .metadata()
+        .map_err(|error| Unreadable::io(path, &error))?
+        .len();
+    refuse_size(path, size, limit)?;
+    bytes_within(path, file, limit)
+}
+
+/// Refuses an image file of `size` bytes past `limit`.
+fn refuse_size(path: &str, size: u64, limit: u64) -> Result<(), Unreadable> {
+    if size > limit {
+        return Err(Unreadable::refused(path, Failure::TooLarge, TOO_LARGE));
+    }
+    Ok(())
+}
+
+/// What `reader` holds, unless it is more than `limit`. A file may grow
+/// after its size was taken, so the read stops one byte past the limit,
+/// which tells a file that ends there from a longer one.
+fn bytes_within(path: &str, reader: impl Read, limit: u64) -> Result<Vec<u8>, Unreadable> {
+    let mut bytes = Vec::new();
+    reader
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| Unreadable::io(path, &error))?;
+    refuse_size(path, bytes.len() as u64, limit)?;
+    Ok(bytes)
 }
 
 /// The text of a source given as `content` or as the file at `path`.
@@ -545,6 +596,80 @@ mod tests {
     #[test]
     fn a_source_with_neither_path_nor_content_is_empty() {
         assert_eq!(read_source(None, None), whole(""));
+    }
+
+    // -----------------------------------------------------------------
+    // Image files
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn an_image_file_is_refused_past_the_limit_by_its_size() {
+        assert_eq!(refuse_size("/a.png", 10, 10), Ok(()), "at the limit");
+
+        let refused = refuse_size("/a.png", 11, 10).expect_err("past the limit");
+
+        assert_eq!(refused.failure, Failure::TooLarge);
+        assert_eq!(refused.reason, "image file larger than 64 MiB");
+    }
+
+    /// A file can grow between the look at its size and the read; the
+    /// read stops one byte past the limit and refuses it then.
+    #[test]
+    fn an_image_file_that_grew_past_its_size_is_refused() {
+        assert_eq!(bytes_within("/a.png", &[7_u8; 10][..], 10), Ok(vec![7; 10]));
+
+        let refused = bytes_within("/a.png", &[7_u8; 11][..], 10).expect_err("grew");
+
+        assert_eq!(refused.failure, Failure::TooLarge);
+    }
+
+    #[test]
+    fn an_image_file_at_the_limit_is_read_whole() {
+        let (_directory, path) = file(&[1; 10]);
+        let opened = open_regular(&path).expect("opens");
+        assert_eq!(read_within(&path, opened, 10), Ok(vec![1; 10]));
+
+        let (_directory, longer) = file(&[1; 11]);
+        let opened = open_regular(&longer).expect("opens");
+        let refused = read_within(&longer, opened, 10).expect_err("past the limit");
+        assert_eq!(refused.failure, Failure::TooLarge);
+    }
+
+    /// A sparse file takes no room on disk, so the test can afford one
+    /// past the real limit. The bound is a guard: a read of the whole
+    /// file would take longer on a slow disk.
+    #[test]
+    fn an_image_file_larger_than_64_mib_is_refused() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("huge.png");
+        File::create(&path)
+            .and_then(|huge| huge.set_len(MAX_IMAGE_BYTES + 1))
+            .expect("sparse file is creatable");
+        let path = path.to_str().expect("a UTF-8 path");
+
+        let start = std::time::Instant::now();
+        // A failure names the length read, not 64 MiB of bytes.
+        let refused = read_image(path)
+            .map(|bytes| bytes.len())
+            .expect_err("too large");
+
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(refused.failure, Failure::TooLarge);
+        assert_eq!(refused.reason, "image file larger than 64 MiB");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_image_file_that_may_not_be_read_says_why() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_directory, path) = file(b"secret");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000))
+            .expect("permissions are settable");
+
+        let unreadable = read_image(&path).expect_err("not readable");
+
+        assert_eq!(unreadable.failure, Failure::PermissionDenied);
     }
 
     // -----------------------------------------------------------------

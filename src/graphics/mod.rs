@@ -17,8 +17,7 @@ mod placeholders;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use std::fs::File;
-use std::io::{Cursor, Read as _};
+use std::io::Cursor;
 use std::path::Path;
 
 use ::image::error::{ImageFormatHint, UnsupportedError, UnsupportedErrorKind};
@@ -174,17 +173,15 @@ impl Images {
         self.graphics
     }
 
-    /// Reads and decodes the image in `file`, opened from `path`. The
-    /// caller opens it, by the rule that decides which paths may be
-    /// opened at all.
+    /// Decodes `bytes`, the image file at `path`. The caller reads them,
+    /// by the rule that decides which paths may be opened at all and how
+    /// large an image file may be.
     ///
     /// The format comes from the file's first bytes, else from the
     /// extension of `path`, as `ImageReader::open` finds it: TGA, for
     /// one, has no signature to recognise. An extension no format knows
     /// fails with the error that names it.
-    pub fn decode(&self, mut file: File, path: &str) -> Result<Image, ImageError> {
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
+    pub fn decode(&self, bytes: Vec<u8>, path: &str) -> Result<Image, ImageError> {
         let mut reader = ::image::ImageReader::new(Cursor::new(&bytes)).with_guessed_format()?;
         if reader.format().is_none()
             && let Some(extension) = Path::new(path).extension().filter(|ext| !ext.is_empty())
