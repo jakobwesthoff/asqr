@@ -49,10 +49,11 @@ fn content_of(
     match source {
         Err(unreadable) => Content::Problem(unreadable.card(home)),
         Ok(Source { text, cut }) => {
-            let lines: Vec<SourceLine> = patine::highlight(&text, language(entry).as_deref())
-                .iter()
-                .map(source_line)
-                .collect();
+            let lines: Vec<SourceLine> =
+                patine::highlight(&text, language_for(entry, &text).as_deref())
+                    .iter()
+                    .map(source_line)
+                    .collect();
             if lines.is_empty() {
                 Content::Note(Placeholder::note("empty"))
             } else {
@@ -74,6 +75,20 @@ impl Viewer for CodeViewer {
     fn failed(&self) -> bool {
         self.content.failed()
     }
+}
+
+/// How long a text may be and still be highlighted. A code entry shows
+/// only once it is highlighted, and the log grammar takes about 0.19 ms
+/// a line: 23 s for the 8 MiB asqr reads of a log (measured on
+/// 2026-10-16). Up to 1 MiB that stays at a few seconds.
+const HIGHLIGHT_LIMIT: usize = 1024 * 1024;
+
+/// The language to highlight `text`, the text of `entry`, in: none for a
+/// text longer than [`HIGHLIGHT_LIMIT`], else the entry's [`language`].
+fn language_for(entry: &CodeEntry, text: &str) -> Option<String> {
+    (text.len() <= HIGHLIGHT_LIMIT)
+        .then(|| language(entry))
+        .flatten()
 }
 
 /// The language to highlight `entry` in: its `language`, else what the
@@ -317,6 +332,31 @@ mod tests {
             "a name without an extension counts whole"
         );
         assert_eq!(language(r#"{"type": "code", "content": ""}"#), None);
+    }
+
+    #[test]
+    fn the_language_is_dropped_above_one_mib() {
+        let rust = entry(r#"{"type": "code", "language": "rust", "content": ""}"#);
+
+        assert_eq!(
+            language_for(&rust, &"x".repeat(HIGHLIGHT_LIMIT)),
+            Some("rust".into()),
+            "up to the limit"
+        );
+        assert_eq!(language_for(&rust, &"x".repeat(HIGHLIGHT_LIMIT + 1)), None);
+    }
+
+    #[test]
+    fn a_code_entry_above_one_mib_shows_plain() {
+        let lines = HIGHLIGHT_LIMIT / "fn main() {}\n".len() + 1;
+        let text = "fn main() {}\n".repeat(lines);
+        let json = serde_json::json!({"type": "code", "language": "rust", "content": text});
+        let mut viewer = built(&json.to_string());
+
+        let buf = drawn(&mut viewer, 30, 1, Offset::default());
+
+        assert!(row(&buf, 0).ends_with("fn main() {}"), "{:?}", row(&buf, 0));
+        assert_eq!(style_at(&buf, "fn").fg, Some(Color::Reset));
     }
 
     #[test]

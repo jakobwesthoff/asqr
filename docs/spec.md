@@ -1220,7 +1220,8 @@ Code and Markdown (ADR 34):
   its theme decides the shades. Without a language, or with one asqr
   does not know, the text is plain. A file name without an extension,
   such as `Makefile`, counts as a whole, and a `.md` file shows its
-  source.
+  source. A code entry longer than 1 MiB shows plain, without
+  highlighting.
 - A dim gutter holds each line's number. Lines do not wrap: a line wider
   than the pane ends in a dim `›`, and the pane scrolls sideways while
   the gutter stays in place. The `‹` of a scrolled line, tabs and
