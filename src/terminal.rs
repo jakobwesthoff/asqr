@@ -195,6 +195,12 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
             // The run loop is gone only as asqr quits.
             let _ = loaded.send(Event::Loaded);
         });
+    // A debug build panics while loading the image the PTY tests name,
+    // so they see what asqr gives back on a panic while loading an entry.
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("ASQR_TEST_PANIC_ON_LOAD") {
+        view = view.panicking_on_load(path);
+    }
     run(
         &mut terminal,
         &mut app,

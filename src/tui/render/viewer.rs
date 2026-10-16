@@ -693,8 +693,9 @@ impl Viewers {
         self.waits.len()
     }
 
-    /// These viewers, building through `build`.
-    #[cfg(test)]
+    /// These viewers, building through `build`: a test's own viewers, or
+    /// in a debug build one that panics on purpose (see [`panicking_on`]).
+    #[cfg(any(test, debug_assertions))]
     pub(super) fn building(&mut self, build: loading::Build) {
         self.tools.build = build;
     }
@@ -797,20 +798,25 @@ fn viewer_for(
     quote: QuoteStyle,
     home: Option<&Path>,
 ) -> Box<dyn Viewer> {
-    // A debug build panics here when the PTY tests ask it to, so they see
-    // what asqr gives back on a panic while loading an entry.
-    #[cfg(debug_assertions)]
-    if let Some(path) = std::env::var_os("ASQR_TEST_PANIC_ON_LOAD")
-        && entry.image_path().is_some_and(|image| path == image)
-    {
-        panic!("ASQR_TEST_PANIC_ON_LOAD names {}", path.to_string_lossy());
-    }
     match entry {
         ContextEntry::Image(image) => Box::new(ImageViewer::new(image, images, home)),
         ContextEntry::Code(code) => Box::new(CodeViewer::new(code, home)),
         ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown, quote, home)),
         ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff, home)),
     }
+}
+
+/// Builds as [`viewer_for`] does, but panics on the image entry whose path
+/// is `path`, so the PTY tests see what asqr gives back on a panic while
+/// loading an entry. Only a debug build has it.
+#[cfg(debug_assertions)]
+pub(super) fn panicking_on(path: std::ffi::OsString) -> loading::Build {
+    Arc::new(move |entry, images, quote, home| {
+        if entry.image_path().is_some_and(|image| path == image) {
+            panic!("ASQR_TEST_PANIC_ON_LOAD names {}", path.to_string_lossy());
+        }
+        viewer_for(entry, images, quote, home)
+    })
 }
 
 // ---------------------------------------------------------------------
@@ -1139,6 +1145,29 @@ mod tests {
             })
         }));
         (viewers, shared)
+    }
+
+    /// The PTY tests make a debug build panic while it loads the image
+    /// they name; every other entry builds as always.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn the_panicking_build_panics_only_on_its_image() {
+        let build = panicking_on("/pictures/doomed.png".into());
+        let built = |json: &str| {
+            let entry = entry(json);
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                drop(build(&entry, &Images::half_blocks(), COLOURED, None));
+            }))
+        };
+
+        let panicked = built(r#"{"type": "image", "path": "/pictures/doomed.png"}"#)
+            .expect_err("the named image panics");
+        assert_eq!(
+            panicked.downcast_ref::<String>().map(String::as_str),
+            Some("ASQR_TEST_PANIC_ON_LOAD names /pictures/doomed.png")
+        );
+        assert!(built(r#"{"type": "image", "path": "/pictures/cat.png"}"#).is_ok());
+        assert!(built(r#"{"type": "code", "content": "x"}"#).is_ok());
     }
 
     /// The viewers asqr runs with wait 100 ms, skip that wait while input

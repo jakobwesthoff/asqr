@@ -189,6 +189,16 @@ impl<'a> View<'a> {
         self.tab.viewers.set_input_pending(pending);
     }
 
+    /// This view, panicking while it loads the image entry whose path is
+    /// `path`, for the PTY tests of a panic while loading. Only a debug
+    /// build has it.
+    #[cfg(debug_assertions)]
+    #[must_use]
+    pub fn panicking_on_load(mut self, path: std::ffi::OsString) -> Self {
+        self.tab.viewers.building(super::viewer::panicking_on(path));
+        self
+    }
+
     /// This view, with Talqi drawn in `glyphs` instead of quadrants.
     #[must_use]
     pub fn glyphs(self, glyphs: Glyphs) -> Self {
