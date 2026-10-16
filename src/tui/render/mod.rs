@@ -11,6 +11,7 @@ mod diff;
 mod empty;
 mod header;
 mod keys;
+mod loading;
 mod markdown_viewer;
 mod mascot;
 mod overlay;
@@ -29,6 +30,7 @@ pub(crate) mod theme;
 mod viewer;
 mod wrap;
 
+pub use loading::loader_panicked;
 pub use mascot::Glyphs;
 pub use panes::PaneLayout;
 pub use screen::{Drawn, MIN_HEIGHT, MIN_WIDTH, View, draw};

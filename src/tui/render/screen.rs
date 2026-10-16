@@ -136,6 +136,23 @@ impl<'a> View<'a> {
         self
     }
 
+    /// This view, calling `wake` whenever a context entry finished loading
+    /// apart from drawing, so the run loop draws it (ADR 46).
+    #[must_use]
+    pub fn wake_on_load(mut self, wake: impl Fn() + Send + Sync + 'static) -> Self {
+        self.tab.viewers.wake_with(std::sync::Arc::new(wake));
+        self
+    }
+
+    /// This view, waiting `wait` for an entry that loads before it shows
+    /// the placeholder.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn waiting(mut self, wait: std::time::Duration) -> Self {
+        self.tab.viewers.waiting(wait);
+        self
+    }
+
     /// This view, with Talqi drawn in `glyphs` instead of quadrants.
     #[must_use]
     pub fn glyphs(self, glyphs: Glyphs) -> Self {
@@ -198,6 +215,9 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // shows no tab: the images of the last session to leave are deleted
     // once the frame without them is on the screen.
     view.tab.retain(app.sessions());
+    // Every frame takes in what finished loading, also one that shows no
+    // pane, so a panic of a load ends asqr on the frame it woke.
+    view.tab.viewers.collect();
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
         let text = format!(
@@ -416,7 +436,7 @@ mod tests {
 
     use super::super::empty::emblem_screen_areas;
     use super::super::panes::READING_WIDTH;
-    use super::super::test_support::{self, find, find_from, look_at, row, style_at};
+    use super::super::test_support::{self, Gate, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
     use crate::graphics::{Graphics, Passthrough, testing};
@@ -2151,6 +2171,38 @@ mod tests {
         let (_, rows) = image_cells(&screen(&app, 140, 20));
 
         assert_eq!(rows, 4..=17, "the pane's body, no more");
+    }
+
+    /// A load that panics ends asqr on the next frame, also one that draws
+    /// no pane, as the review does: the run loop draws again once the load
+    /// woke it, whatever it shows.
+    #[test]
+    #[should_panic(expected = "loading a context entry panicked: boom")]
+    fn a_panic_while_loading_surfaces_on_a_frame_without_a_pane() {
+        let file = png();
+        let mut app = with_image(file.path().to_str().expect("UTF-8 path"));
+        let woken = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let theirs = std::sync::Arc::clone(&woken);
+        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks())
+            .waiting(std::time::Duration::ZERO)
+            .wake_on_load(move || {
+                theirs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            });
+        let gate = Gate::default();
+        let held = gate.clone();
+        view.tab
+            .viewers
+            .building(std::sync::Arc::new(move |_, _, _, _| {
+                held.wait();
+                panic!("boom")
+            }));
+        measured_in(&app, &mut view, 140, 24);
+
+        keys(&mut app, "l");
+        assert!(app.active().expect("a session").on_review());
+        gate.open();
+        test_support::wait_until(&woken, 1);
+        measured_in(&app, &mut view, 140, 24);
     }
 
     /// A view whose terminal speaks the Kitty protocol.

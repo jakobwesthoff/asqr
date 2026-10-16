@@ -741,17 +741,24 @@ fn colours_under(no_color: &str) -> Colours {
         .success();
     tui.wait_for("Pick a fruit");
 
+    // The image loads apart from drawing and may show a moment later.
     let red = vt100::Color::Rgb(RED[0], RED[1], RED[2]);
+    let shows_red = |tui: &Tui| {
+        tui.cells()
+            .iter()
+            .any(|cell| cell.fgcolor() == red || cell.bgcolor() == red)
+    };
+    let start = Instant::now();
+    while !shows_red(&tui) && start.elapsed() < PATIENCE {
+        std::thread::sleep(Duration::from_millis(20));
+    }
     Colours {
         title: tui.cell_of("asqr"),
         notice,
         dialog,
         intro_code: tui.cell_of("stalk"),
         hint: tui.cell_of("pick one"),
-        red_image: tui
-            .cells()
-            .iter()
-            .any(|cell| cell.fgcolor() == red || cell.bgcolor() == red),
+        red_image: shows_red(&tui),
     }
 }
 
@@ -910,6 +917,17 @@ fn showing_a_kitty_image_with(
     tmux_state: &str,
     environment: &[(&str, &str)],
 ) -> Tui {
+    showing_a_kitty_image_before(sandbox, tmux_state, environment, None)
+}
+
+/// Like [`showing_a_kitty_image_with`], with `next`, a question in JSON,
+/// after the question that shows the image.
+fn showing_a_kitty_image_before(
+    sandbox: &Sandbox,
+    tmux_state: &str,
+    environment: &[(&str, &str)],
+    next: Option<&str>,
+) -> Tui {
     let dir = sandbox.queue_dir();
     // asqr inherits the variables of the terminal the tests run in. A
     // `TERM_PROGRAM` of tmux makes ratatui-image wrap every command for
@@ -942,6 +960,11 @@ fn showing_a_kitty_image_with(
             picture.to_str().expect("UTF-8")
         ),
     );
+    // The session ends with the `]}` that closes its questions.
+    let session = match next {
+        Some(next) => format!("{}, {next}]}}", &session[..session.len() - 2]),
+        None => session,
+    };
     let file = sandbox.file("session.json", &session);
     sandbox
         .asqr_in_queue(&["ask"])
@@ -976,9 +999,11 @@ fn a_kitty_image_is_placed_with_its_size_in_cells() {
 }
 
 /// Under the Kitty protocol, an image sent again on regaining the focus
-/// has its old copy deleted after the frame that shows the new one, and
+/// has its old copy deleted after a frame that no longer shows it, and
 /// the one shown when asqr quits is deleted before the title is given
-/// back and asqr leaves the alternate screen (ADR 42).
+/// back and asqr leaves the alternate screen (ADR 42). The new copy loads
+/// behind the placeholder (ADR 46), so the old one may go before the new
+/// one is sent.
 #[test]
 fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
     let sandbox = Sandbox::new();
@@ -1006,7 +1031,7 @@ fn kitty_images_are_deleted_after_the_frame_and_before_quitting() {
     let pop = last(&output, POP_TITLE);
     let main_screen = last(&output, "\x1b[?1049l");
     assert!(
-        sent_again < old_deleted
+        sent_again < again_deleted
             && old_deleted < again_deleted
             && again_deleted < pop
             && pop < main_screen,
@@ -1082,6 +1107,96 @@ fn a_panic_deletes_the_kitty_images_and_gives_the_title_back_on_the_alternate_sc
         1,
         "deleted once: {output:?}"
     );
+}
+
+/// A panic while an entry loads, apart from drawing, gives the terminal
+/// back as a panic in the run loop does, and once: the drawing thread
+/// panics with the load's message (ADR 46). Only a debug build of asqr
+/// panics on loading the entry the variable names.
+#[cfg(debug_assertions)]
+#[test]
+fn a_panic_while_loading_gives_the_terminal_back_once() {
+    let sandbox = Sandbox::new();
+    let doomed = sandbox.home().join("doomed.png");
+    let doomed = doomed.to_str().expect("UTF-8");
+    let next = format!(
+        r#"{{"id": "next", "text": "And this one", "kind": "text",
+            "context": [{{"type": "image", "path": {doomed:?}}}]}}"#
+    );
+    let mut tui = showing_a_kitty_image_before(
+        &sandbox,
+        "on\t1\t\t1\t1\t0\t3.4",
+        &[
+            ("TERM", "tmux-256color"),
+            ("ASQR_TEST_PANIC_ON_LOAD", doomed),
+        ],
+        Some(&next),
+    );
+    let shown = sent_kitty_image(&tui, 0);
+    tui.press("l");
+
+    assert_eq!(tui.wait_for_exit(), 101, "a panic");
+    let output = tui.output();
+    let deleted = first(&output, &wrapped(&kitty_delete(shown)));
+    let pop = first(&output, POP_TITLE);
+    let main_screen = first(&output, "\x1b[?1049l");
+    let put_back = last(&output, &tmux_set("-p allow-passthrough on"));
+    assert!(
+        deleted < pop && pop < main_screen && main_screen < put_back,
+        "{output:?}"
+    );
+    assert_eq!(output.matches(POP_TITLE).count(), 1, "{output:?}");
+    assert_eq!(
+        output.matches("ASQR_TEST_PANIC_ON_LOAD names").count(),
+        1,
+        "the message once: {output:?}"
+    );
+}
+
+/// An entry that takes longer than the pane waits shows `loading…`, and
+/// then itself once loaded, with no key pressed: the load wakes asqr.
+#[test]
+fn a_slow_entry_shows_loading_then_itself() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &[
+            "--dir",
+            dir.to_str().expect("UTF-8"),
+            "--no-notify",
+            "--no-title",
+        ],
+        "off\t1\t",
+        &[],
+    );
+    tui.wait_for("Nothing to answer");
+
+    // Highlighting a thousand lines of a log takes a debug build well
+    // over the pane's 100 ms.
+    let log = sandbox.home().join("service.log");
+    let lines: String = (1..=1000)
+        .map(|n| format!("2026-10-16T10:00:00+02:00 INFO request {n:06} served\n"))
+        .collect();
+    std::fs::write(&log, lines).expect("log is written");
+    let session = SESSION.replace(
+        r#""kind": "single","#,
+        &format!(
+            r#""kind": "single", "context": [{{"type": "code", "path": {:?}}}],"#,
+            log.to_str().expect("UTF-8")
+        ),
+    );
+    let file = sandbox.file("session.json", &session);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+
+    tui.wait_for("loading…");
+    tui.wait_for("request 000001 served");
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
 }
 
 /// Inside tmux 3.4 or later, asqr sets `allow-passthrough all` for its

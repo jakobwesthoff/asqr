@@ -192,7 +192,8 @@ mod tests {
     use ratatui::style::{Style, Stylize};
 
     use super::super::patine_adapter::quote_style;
-    use super::super::test_support::{find, row};
+    use super::super::test_support::{Gate, find, row};
+    use super::super::viewer::Placeholder;
     use super::*;
 
     fn entry(json: &str) -> ContextEntry {
@@ -379,6 +380,38 @@ mod tests {
 
         assert!(row(&buf, 0).starts_with("✗ cat.png"), "{:?}", row(&buf, 0));
         assert_eq!(buf[(0, 0)].fg, ratatui::style::Color::Red);
+    }
+
+    #[test]
+    fn a_pane_whose_entry_loads_shows_loading_under_its_header() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "code", "title": "Log", "content": "x"}]}]}"#;
+        let state = SessionState::new("batch", serde_json::from_str(json).expect("parses"), None);
+        let area = Rect::new(0, 0, 40, 11);
+        let mut buf = Buffer::empty(area);
+        let gate = Gate::default();
+        let mut viewers = Viewers::new(Images::half_blocks());
+        let theirs = gate.clone();
+        viewers.building(std::sync::Arc::new(move |_, _, _, _| {
+            theirs.wait();
+            Box::new(Placeholder::note("empty"))
+        }));
+        viewers.waiting(std::time::Duration::ZERO);
+
+        draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
+        gate.open();
+
+        assert_eq!(row(&buf, 0), "Log", "no mark, no position");
+        assert_eq!(
+            row(&buf, 6),
+            format!("{}loading…", " ".repeat(16)),
+            "the middle of the body's 10 rows"
+        );
+        assert_eq!(
+            (1..11).filter(|&y| !row(&buf, y).is_empty()).count(),
+            1,
+            "nothing else in the body"
+        );
     }
 
     #[test]

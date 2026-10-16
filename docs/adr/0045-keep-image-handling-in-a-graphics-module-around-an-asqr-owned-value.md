@@ -16,7 +16,9 @@ Amends [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-
 
 Amends [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-images-through-tmux-from-a-hidden-pane.md)
 
-Amended by [46. Build context viewers loaded](0046-build-context-viewers-loaded.md)
+Amended by [46. Build and lay out context viewers on worker threads](0046-build-and-lay-out-context-viewers-on-worker-threads.md):
+an image is decoded and encoded apart from drawing, and keeps its file
+as read instead of its decoded picture
 
 Amended by [48. Mend Kitty images an overlay is drawn over](0048-mend-kitty-images-an-overlay-is-drawn-over.md):
 the screen mends a Kitty image once the overlays are drawn

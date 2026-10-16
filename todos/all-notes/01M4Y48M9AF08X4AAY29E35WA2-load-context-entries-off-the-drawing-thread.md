@@ -54,6 +54,17 @@ preparation round; measurements and scripts in Jakob's logbook,
   once it is highlighted; there is no plain first pass that colours in
   later.
 - ADR 46 is rewritten to the new design (no new ADR that amends it).
+- Later the same day (through the lead, after the plan's review):
+  asqr keeps viewers only inside a window of three questions, the
+  previous, the current and the next one, each with all of its entries
+  (the question's context and every option's). Loading ahead fills that
+  window: the shown entry first, then the other options of the current
+  question, then the next question, then the previous one. Everything
+  outside the window is dropped, also entries that were shown; coming
+  back loads them again behind the placeholder. This replaces "a load
+  is kept" above for what lies outside the window.
+- The 1 MiB rule covers code entries only; Markdown keeps its
+  highlighting, on the worker.
 
 ## Decided by the lead (delegated)
 
@@ -73,3 +84,9 @@ preparation round; measurements and scripts in Jakob's logbook,
 - `forget_images` on regaining the focus (`viewer.rs:164`) re-reads and
   re-decodes every image; with the worker this becomes a reload behind
   the placeholder.
+- Asked by Jakob why a decoded image is kept at all: an image keeps its
+  file's bytes as read and decodes them again on the worker when it must
+  encode for a new size; it holds the decoded picture only until its
+  first encoding. Done in commit 514565c.
+- The plan and its adversarial review (32 findings, all agreed) are in
+  the lead's session scratchpad; the design's details are in ADR 46.

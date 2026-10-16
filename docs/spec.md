@@ -1160,6 +1160,19 @@ Context appears only when a question or one of its options has some.
   The pane's header shows a red `✗` before the entry's name; the
   one-line hint shows no mark.
 
+Loading (ADR 46):
+
+- asqr reads, highlights, renders, decodes and scales an entry apart
+  from drawing the screen, so keys keep working while it loads. An entry
+  is loaded when it is first shown. The pane waits up to 100 ms for it;
+  an entry that takes longer shows a dim `loading…` in the middle of the
+  pane, below the header that names it, until it is ready. A new size of
+  the pane, also the `z` view, lays the entry out again the same way.
+- A load that is no longer shown runs to its end, and what it loaded is
+  kept while the session waits.
+- A file that turns into a FIFO between asqr's check of its path and its
+  opening shows the card of a path that is not a regular file.
+
 Diffs (ADR 33):
 
 - asqr computes the diff from the old and the new text, line by line,
@@ -1198,7 +1211,7 @@ Diffs (ADR 33):
   that shows lines of source.
 - Diffs have no syntax highlighting, and the pane shows the hunks only,
   never the whole file.
-- Both sides are read when the entry is first shown. A relative path, a
+- Both sides are read when the entry is loaded. A relative path, a
   missing or unreadable file, a path that is not a regular file, such as
   a directory or a FIFO, or a binary file (one with a NUL byte) shows a
   card in place of the diff for the first side that fails, its reason
@@ -1245,7 +1258,7 @@ Code and Markdown (ADR 34):
   code such as `1. x` in a code block stays code. A wide character that
   would cross the end of a row starts the next one. This holds wherever asqr renders Markdown with
   patine. Tabs in code blocks expand to stops of 4 columns.
-- Both are read when the entry is first shown. A relative path, a
+- Both are read when the entry is loaded. A relative path, a
   missing or unreadable file, a path that is not a regular file or a
   binary file shows a card in place of the text. Bytes that are not
   UTF-8 show as `�`, and an entry without any text shows a dim "empty". A file
@@ -1273,12 +1286,13 @@ Images:
   byte and for at most 1 second. Keys typed in that time are lost. An
   answer that begins later reaches asqr as typed keys, where its digits
   can pick options.
-- An image entry is read when it is first shown and kept while its
-  session waits: asqr keeps the file as it read it, not its decoded
-  pixels, and decodes it again to show it at another size. asqr asks the terminal for focus reports. Under the
-  Kitty protocol behind a tmux pane with `allow-passthrough on`, which
-  drops a transfer while the pane is hidden, asqr reads and sends every
-  image again as it is next shown once its terminal regains the focus.
+- An image entry is read when it is loaded and kept while its session
+  waits: asqr keeps the file as it read it, not its decoded pixels, and
+  decodes it again to show it at another size. asqr asks the terminal
+  for focus reports. Under the Kitty protocol behind a tmux pane with
+  `allow-passthrough on`, which drops a transfer while the pane is
+  hidden, asqr loads every image again behind `loading…` and sends it as
+  it is next shown once its terminal regains the focus.
   A tmux asqr cannot ask, as after ssh from a tmux pane, counts as `on`.
   Elsewhere the terminal keeps what it got, and regaining the focus
   changes nothing. Code, Markdown and diff entries keep what asqr

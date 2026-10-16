@@ -12,7 +12,7 @@ Amends [34. Show code and Markdown entries through patine](0034-show-code-and-ma
 
 Amends [38. Give notices kinds and confirm a finished session](0038-give-notices-kinds-and-confirm-a-finished-session.md)
 
-Amends [46. Build context viewers loaded](0046-build-context-viewers-loaded.md)
+Amends [46. Build and lay out context viewers on worker threads](0046-build-and-lay-out-context-viewers-on-worker-threads.md)
 
 ## Context
 

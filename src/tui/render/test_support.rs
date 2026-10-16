@@ -8,6 +8,10 @@
 //! directly. Tests of lines not yet drawn read their text here too. Also
 //! the paths that every loader of a file must refuse.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -16,6 +20,47 @@ use ratatui::text::Line;
 use super::source_line::columns;
 use super::viewer::Viewer;
 use crate::tui::Offset;
+
+// ---------------------------------------------------------------------
+// Holding a load back
+// ---------------------------------------------------------------------
+
+/// A gate a test opens to let a load it holds back go on. Its clones
+/// share it. A load waits at most 5 s, so a test that never opens it
+/// fails instead of hanging.
+#[derive(Clone, Default)]
+pub(super) struct Gate(Arc<(Mutex<bool>, Condvar)>);
+
+impl Gate {
+    pub(super) fn open(&self) {
+        let (open, opened) = &*self.0;
+        *open.lock().expect("no test thread panicked") = true;
+        opened.notify_all();
+    }
+
+    /// Waits until the gate is open, or 5 s.
+    pub(super) fn wait(&self) {
+        let (open, opened) = &*self.0;
+        let guard = open.lock().expect("no test thread panicked");
+        let _ = opened
+            .wait_timeout_while(guard, Duration::from_secs(5), |open| !*open)
+            .expect("no test thread panicked");
+    }
+}
+
+/// Waits until `count` reaches `at_least`, as a load's wake-up raises it,
+/// for at most 5 s.
+pub(super) fn wait_until(count: &AtomicUsize, at_least: usize) {
+    let start = Instant::now();
+    while count.load(Ordering::SeqCst) < at_least {
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "the load never ended: {} of {at_least} wake-ups",
+            count.load(Ordering::SeqCst)
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
 
 // ---------------------------------------------------------------------
 // Drawing a viewer

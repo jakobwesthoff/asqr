@@ -27,7 +27,7 @@ use asqr::graphics::{
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
-use asqr::tui::render::{Glyphs, View};
+use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{Alerts, Event, Host, alert, run, start, watch_inbox};
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -156,6 +156,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         tracing::warn!(%error, "could not ask for bracketed paste");
     }
 
+    let loaded = sender.clone();
     // The thread blocks in `read` for the life of the process; it ends
     // with it.
     std::thread::spawn(move || {
@@ -189,7 +190,11 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     let mut view = View::new(&queue, watch.layout(), images)
         .no_color(watch.no_color())
         .home(watch.home().map(Path::to_path_buf))
-        .glyphs(glyphs);
+        .glyphs(glyphs)
+        .wake_on_load(move || {
+            // The run loop is gone only as asqr quits.
+            let _ = loaded.send(Event::Loaded);
+        });
     run(
         &mut terminal,
         &mut app,
@@ -316,6 +321,12 @@ impl<W: Write> Drop for TerminalGuard<W> {
 fn hook_in_before_ratatui_on_panic(book: KittyBook, title_pushed: Arc<AtomicBool>) {
     let ratatui_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // A panic while loading a context entry is handed to the drawing
+        // thread, which panics with it; the terminal is given back there,
+        // once nothing draws any more.
+        if loader_panicked(info) {
+            return;
+        }
         give_back_on_panic(&mut io::stdout(), &book, &title_pushed);
         ratatui_hook(info);
     }));

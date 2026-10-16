@@ -5,13 +5,19 @@
 //! Viewers show the content of one context entry in the body of the
 //! context pane (spec section 7.7), and [`Viewers`] keeps one per entry
 //! shown, so work that depends only on the entry, or on the entry and the
-//! body's size, is done once.
+//! body's size, is done once. Viewers are built and laid out apart from
+//! drawing (ADR 46); the pane shows a dim `loading…` until its viewer is
+//! ready.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver};
+use std::time::{Duration, Instant};
 
 use super::code::CodeViewer;
 use super::diff::DiffViewer;
+use super::loading::{self, Finished, Job, Loaded, Tools, Wake};
 use super::markdown_viewer::MarkdownViewer;
 use super::problem::Card;
 use super::source_file::{Unreadable, open_regular};
@@ -22,7 +28,7 @@ use crate::graphics::{Graphics, Image, Images, KittyBook, PlacedImage};
 use crate::tui::{EntryKey, Offset};
 use patine::QuoteStyle;
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Rect, Size};
+use ratatui::layout::{Alignment, Rect, Size};
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -45,8 +51,10 @@ pub struct ContentSize {
 /// diff. A failure is not returned; the viewer keeps it and shows it as
 /// its content. The pane then calls `lay_out` before the first `draw` and
 /// again whenever the body's size changes, and calls `draw` on every frame
-/// with an area of the size last passed to `lay_out`.
-pub trait Viewer {
+/// with an area of the size last passed to `lay_out`. Building and laying
+/// out run on a thread of their own, drawing on the drawing thread, so a
+/// viewer moves between them.
+pub trait Viewer: Send {
     /// Lays the content out for a body of `width`×`height` cells and returns
     /// its size: the number of lines and the width of the widest line. The
     /// pane scrolls vertically when `lines` exceeds `height` and sideways
@@ -72,9 +80,9 @@ pub trait Viewer {
 
 /// Which entry of which session a viewer belongs to.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct ViewerKey {
-    session: String,
-    entry: EntryKey,
+pub(super) struct ViewerKey {
+    pub(super) session: String,
+    pub(super) entry: EntryKey,
 }
 
 /// A viewer with the entry and the quote style it was built from, and the
@@ -84,45 +92,93 @@ struct Kept {
     entry: ContextEntry,
     quote: QuoteStyle,
     viewer: Box<dyn Viewer>,
-    laid_out: Option<((u16, u16), ContentSize)>,
+    laid_out: ((u16, u16), ContentSize),
+    /// Whether a frame showed the viewer.
+    shown: bool,
 }
 
-/// Builds the viewer for an entry, given what makes its images, how
-/// Markdown quotes look and the home folder, which paths show as `~`.
-type Build = Box<dyn Fn(&ContextEntry, &Images, QuoteStyle, Option<&Path>) -> Box<dyn Viewer>>;
+/// A job asked for and not yet taken back: which one, and what for.
+struct Request {
+    ticket: u64,
+    entry: ContextEntry,
+    quote: QuoteStyle,
+    /// The job lays out a viewer a frame showed, rather than building one.
+    lays_out: bool,
+}
+
+/// How long a draw waits for the entry it shows before it shows the
+/// placeholder instead, so an entry that loads quickly never flashes it.
+const LOAD_WAIT: Duration = Duration::from_millis(100);
+
+/// How long a draw waits in tests: long enough that every test that does
+/// not ask for the placeholder draws what loaded, short enough that a
+/// load that never ends fails the test.
+const TEST_WAIT: Duration = Duration::from_secs(60);
 
 /// One viewer per entry shown, built when the entry is first shown and
 /// kept while the entry stays the same and its session waits. A
 /// viewer is laid out again only when the body's size changes, as its
 /// content does not.
 pub struct Viewers {
-    images: Images,
-    /// The home folder, which the paths of entries that cannot be shown
-    /// show as `~`.
-    home: Option<PathBuf>,
-    build: Build,
+    tools: Tools,
+    finished: Receiver<Finished>,
     viewers: HashMap<ViewerKey, Kept>,
-    /// How many viewers were built, so tests see that one is reused.
+    /// The keys with a job in flight, at most one each.
+    loading: HashMap<ViewerKey, Request>,
+    next_ticket: u64,
+    /// The job the pane waits for, and until when.
+    waiting: Option<(ViewerKey, u64, Instant)>,
+    wait: Duration,
+    placeholder: LoadingNote,
+    /// How many build jobs were started, so tests see that a viewer is
+    /// reused.
     #[cfg(test)]
     built: usize,
+    /// How long each wait for a job was to take, so tests see when a draw
+    /// waits.
+    #[cfg(test)]
+    waits: Vec<Duration>,
+    /// How many results were taken in, so tests see that one arrived.
+    #[cfg(test)]
+    collected: usize,
 }
 
 impl Viewers {
     /// Viewers whose images `images` makes.
     pub fn new(images: Images) -> Self {
+        let (results, finished) = mpsc::channel();
         Viewers {
-            images,
-            home: None,
-            build: Box::new(viewer_for),
+            tools: Tools {
+                build: Arc::new(viewer_for),
+                images,
+                home: None,
+                results,
+                wake: Arc::new(|| {}),
+            },
+            finished,
             viewers: HashMap::new(),
+            loading: HashMap::new(),
+            next_ticket: 0,
+            waiting: None,
+            wait: if cfg!(test) { TEST_WAIT } else { LOAD_WAIT },
+            placeholder: LoadingNote,
             #[cfg(test)]
             built: 0,
+            #[cfg(test)]
+            waits: Vec::new(),
+            #[cfg(test)]
+            collected: 0,
         }
     }
 
     /// Takes the home folder, for the viewers built from now on.
     pub fn set_home(&mut self, home: Option<PathBuf>) {
-        self.home = home;
+        self.tools.home = home;
+    }
+
+    /// Takes what wakes the run loop once a load finished.
+    pub fn wake_with(&mut self, wake: Wake) {
+        self.tools.wake = wake;
     }
 
     /// The viewer of `entry`, which session `session` shows as `key`, with
@@ -131,6 +187,11 @@ impl Viewers {
     /// its key shows an entry for the first time, another entry than
     /// before, as a replaced session file can, or the entry with quotes in
     /// another style.
+    ///
+    /// Building and laying out run on a thread of their own. The call
+    /// waits for that job up to [`LOAD_WAIT`], once per job; a job that
+    /// takes longer leaves the placeholder in the viewer's place until a
+    /// later draw finds it done.
     pub fn laid_out(
         &mut self,
         session: &str,
@@ -144,76 +205,274 @@ impl Viewers {
             session: session.to_owned(),
             entry: key,
         };
+        let size = (width, height);
+        self.collect();
+        if !self.ready(&key, entry, quote, size) {
+            self.request(&key, entry, quote, size);
+            self.wait_for(&key, entry, quote, size);
+        }
+        if self.ready(&key, entry, quote, size) {
+            self.waiting = None;
+            let kept = self.viewers.get_mut(&key).expect("a ready viewer is kept");
+            kept.shown = true;
+            return (kept.viewer.as_mut(), kept.laid_out.1);
+        }
+        let content = self.placeholder.lay_out(width, height);
+        (&mut self.placeholder, content)
+    }
+
+    /// Whether the viewer kept for `key` shows `entry` with quotes in
+    /// `quote`, laid out for `size`.
+    fn ready(
+        &self,
+        key: &ViewerKey,
+        entry: &ContextEntry,
+        quote: QuoteStyle,
+        size: (u16, u16),
+    ) -> bool {
+        self.viewers.get(key).is_some_and(|kept| {
+            kept.entry == *entry && kept.quote == quote && kept.laid_out.0 == size
+        })
+    }
+
+    /// Starts the job that makes the viewer of `key` ready, unless the
+    /// right one is in flight. A viewer kept for another entry or quote
+    /// goes, as no frame shows it again, and a new one is built; a job in
+    /// flight for that other entry is outrun, and its result is not taken.
+    /// A viewer kept for another size is laid out again; while that job
+    /// holds it, the pane waits for it.
+    fn request(
+        &mut self,
+        key: &ViewerKey,
+        entry: &ContextEntry,
+        quote: QuoteStyle,
+        size: (u16, u16),
+    ) {
         let current = self
             .viewers
-            .get(&key)
+            .get(key)
             .is_some_and(|kept| kept.entry == *entry && kept.quote == quote);
-        if !current {
-            #[cfg(test)]
-            {
-                self.built += 1;
-            }
-            let kept = Kept {
+        let in_flight = self
+            .loading
+            .get(key)
+            .is_some_and(|request| request.entry == *entry && request.quote == quote);
+        if in_flight {
+            return;
+        }
+        if current {
+            let kept = self.viewers.remove(key).expect("a current viewer is kept");
+            self.start(key, entry, quote, size, Some(kept));
+        } else {
+            self.viewers.remove(key);
+            self.start(key, entry, quote, size, None);
+        }
+    }
+
+    /// Starts a job for `key` under a new ticket: one that lays `kept` out
+    /// again, or without it one that builds the viewer.
+    fn start(
+        &mut self,
+        key: &ViewerKey,
+        entry: &ContextEntry,
+        quote: QuoteStyle,
+        size: (u16, u16),
+        kept: Option<Kept>,
+    ) {
+        self.next_ticket += 1;
+        let ticket = self.next_ticket;
+        #[cfg(test)]
+        if kept.is_none() {
+            self.built += 1;
+        }
+        self.loading.insert(
+            key.clone(),
+            Request {
+                ticket,
                 entry: entry.clone(),
                 quote,
-                viewer: (self.build)(entry, &self.images, quote, self.home.as_deref()),
-                laid_out: None,
-            };
-            self.viewers.insert(key.clone(), kept);
-        }
-        let kept = self
-            .viewers
-            .get_mut(&key)
-            .expect("the viewer was just built when it was missing");
-        let size = match kept.laid_out {
-            Some((laid_out_for, size)) if laid_out_for == (width, height) => size,
+                lays_out: kept.is_some(),
+            },
+        );
+        let (viewer, shown) = match kept {
+            Some(kept) => (Some(kept.viewer), kept.shown),
+            None => (None, false),
+        };
+        let job = Job {
+            key: key.clone(),
+            ticket,
+            entry: entry.clone(),
+            quote,
+            size,
+            viewer,
+            shown,
+            dispatch: tracing::dispatcher::get_default(Clone::clone),
+        };
+        loading::start(job, &self.tools);
+    }
+
+    /// Waits for the job in flight for `key` until it makes the viewer
+    /// ready or the wait for it ends. The wait belongs to the job: a later
+    /// draw of the same job does not wait again, a new job does. A result
+    /// that is not what the pane needs, such as one laid out for a size
+    /// the body no longer has, starts the next job within the same wait.
+    fn wait_for(
+        &mut self,
+        key: &ViewerKey,
+        entry: &ContextEntry,
+        quote: QuoteStyle,
+        size: (u16, u16),
+    ) {
+        let ticket = self
+            .loading
+            .get(key)
+            .map(|request| request.ticket)
+            .expect("`request` leaves a job in flight for a key not ready");
+        let deadline = match &self.waiting {
+            Some((waited, waited_for, deadline)) if waited == key && *waited_for == ticket => {
+                *deadline
+            }
             _ => {
-                let size = kept.viewer.lay_out(width, height);
-                kept.laid_out = Some(((width, height), size));
-                size
+                #[cfg(test)]
+                self.waits.push(self.wait);
+                Instant::now() + self.wait
             }
         };
-        (kept.viewer.as_mut(), size)
+        loop {
+            if let Some(request) = self.loading.get(key) {
+                self.waiting = Some((key.clone(), request.ticket, deadline));
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return;
+            }
+            let Ok(finished) = self.finished.recv_timeout(deadline - now) else {
+                return;
+            };
+            self.take(finished);
+            if self.ready(key, entry, quote, size) {
+                return;
+            }
+            self.request(key, entry, quote, size);
+        }
+    }
+
+    /// Takes in every result that arrived. A panic of a job becomes a
+    /// panic here, on the drawing thread, so asqr ends as on a panic while
+    /// drawing; the screen calls this on every frame, whatever it shows.
+    pub(super) fn collect(&mut self) {
+        while let Ok(finished) = self.finished.try_recv() {
+            self.take(finished);
+        }
+    }
+
+    /// Keeps what a job made, if it answers the latest request of its key.
+    /// Any other result belongs to a session that left, an entry replaced
+    /// since, or an image forgotten, and goes.
+    fn take(&mut self, finished: Finished) {
+        #[cfg(test)]
+        {
+            self.collected += 1;
+        }
+        let loaded = match finished {
+            Finished::Loaded(loaded) => loaded,
+            Finished::Panicked(message) => {
+                panic!("loading a context entry panicked: {message}")
+            }
+        };
+        let Loaded {
+            key,
+            ticket,
+            entry,
+            quote,
+            size,
+            viewer,
+            content,
+            shown,
+        } = *loaded;
+        if self
+            .loading
+            .get(&key)
+            .is_none_or(|request| request.ticket != ticket)
+        {
+            return;
+        }
+        self.loading.remove(&key);
+        self.viewers.insert(
+            key,
+            Kept {
+                entry,
+                quote,
+                viewer,
+                laid_out: (size, content),
+                shown,
+            },
+        );
     }
 
     /// The graphics the images are made for.
     pub fn graphics(&self) -> Graphics {
-        self.images.graphics()
+        self.tools.images.graphics()
     }
 
     /// Drops every image viewer, so each image is read and sent to the
-    /// terminal again when it is next shown. The Kitty protocol sends an
-    /// image's data once, on its first draw, and afterwards only refers to
-    /// it; tmux with `allow-passthrough on` drops that transfer while the
-    /// pane is not visible, and the image would never appear (ADR 24).
-    /// Other viewers keep what they derived, as nothing of theirs went to
-    /// the terminal.
+    /// terminal again when it is next shown, behind the placeholder. The
+    /// Kitty protocol sends an image's data once, on its first draw, and
+    /// afterwards only refers to it; tmux with `allow-passthrough on`
+    /// drops that transfer while the pane is not visible, and the image
+    /// would never appear (ADR 24). A job that lays out an image a frame
+    /// showed is not taken back either, as it may keep the encoding sent
+    /// before; a job that builds one has sent nothing. Other viewers keep
+    /// what they derived, as nothing of theirs went to the terminal.
     pub fn forget_images(&mut self) {
-        self.viewers
-            .retain(|_, kept| !matches!(kept.entry, ContextEntry::Image(_)));
+        let image = |entry: &ContextEntry| matches!(entry, ContextEntry::Image(_));
+        self.viewers.retain(|_, kept| !image(&kept.entry));
+        self.loading
+            .retain(|_, request| !(request.lays_out && image(&request.entry)));
     }
 
-    /// Drops the viewers of every session `waiting` says no longer waits.
+    /// Drops the viewers of every session `waiting` says no longer waits,
+    /// and forgets the jobs in flight for them.
     pub fn retain_sessions(&mut self, waiting: impl Fn(&str) -> bool) {
         self.viewers.retain(|key, _| waiting(&key.session));
+        self.loading.retain(|key, _| waiting(&key.session));
+        if self
+            .waiting
+            .as_ref()
+            .is_some_and(|(key, ..)| !waiting(&key.session))
+        {
+            self.waiting = None;
+        }
     }
 
     /// The book of the Kitty ids the images of the viewers take.
     pub fn kitty_book(&self) -> &KittyBook {
-        self.images.kitty_book()
+        self.tools.images.kitty_book()
     }
 
     /// The Kitty ids of the images whose viewers went since the last call,
     /// for the terminal to delete.
     #[cfg(test)]
     pub(super) fn dropped_images(&self) -> Vec<u32> {
-        self.images.dropped()
+        self.tools.images.dropped()
     }
 
     /// The Kitty ids of the images the viewers hold.
     #[cfg(test)]
     pub(super) fn held_images(&self) -> Vec<u32> {
-        self.images.held()
+        self.tools.images.held()
+    }
+
+    /// These viewers, waiting `wait` for a job before they show the
+    /// placeholder.
+    #[cfg(test)]
+    pub(super) fn waiting(&mut self, wait: Duration) {
+        self.wait = wait;
+    }
+
+    /// These viewers, building through `build`.
+    #[cfg(test)]
+    pub(super) fn building(&mut self, build: loading::Build) {
+        self.tools.build = build;
     }
 }
 
@@ -223,6 +482,14 @@ fn viewer_for(
     quote: QuoteStyle,
     home: Option<&Path>,
 ) -> Box<dyn Viewer> {
+    // A debug build panics here when the PTY tests ask it to, so they see
+    // what asqr gives back on a panic while loading an entry.
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("ASQR_TEST_PANIC_ON_LOAD")
+        && entry.image_path().is_some_and(|image| path == image)
+    {
+        panic!("ASQR_TEST_PANIC_ON_LOAD names {}", path.to_string_lossy());
+    }
     match entry {
         ContextEntry::Image(image) => Box::new(ImageViewer::new(image, images, home)),
         ContextEntry::Code(code) => Box::new(CodeViewer::new(code, home)),
@@ -384,16 +651,47 @@ impl Viewer for Placeholder {
     }
 }
 
+/// What the pane shows while its entry loads.
+const LOADING: &str = "loading…";
+
+/// A dim `loading…` in the middle of the body, where the viewer goes once
+/// it is ready. It takes one line, so the pane neither scrolls nor names
+/// a position or `tab` in its header meanwhile.
+pub(super) struct LoadingNote;
+
+impl Viewer for LoadingNote {
+    fn lay_out(&mut self, width: u16, _height: u16) -> ContentSize {
+        ContentSize {
+            lines: 1,
+            columns: Line::from(LOADING).width().min(usize::from(width)),
+        }
+    }
+
+    /// Ignores the offset: the note stays in the middle.
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, _offset: Offset) -> Option<PlacedImage> {
+        let middle = Rect {
+            y: area.y + area.height / 2,
+            height: area.height.min(1),
+            ..area
+        };
+        Paragraph::new(Line::styled(LOADING, theme::secondary()))
+            .alignment(Alignment::Center)
+            .render(middle, buf);
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Mutex, MutexGuard};
+    use std::thread::{self, ThreadId};
 
     use patine::AnsiColor;
 
     use super::super::patine_adapter::quote_style;
     use super::super::source_file::{Failure, regular_file};
-    use super::super::test_support::{self, row};
+    use super::super::test_support::{self, Gate, row};
     use super::*;
     use crate::graphics::Protocol;
 
@@ -459,19 +757,37 @@ mod tests {
     // The life of a viewer
     // -----------------------------------------------------------------
 
-    /// What `Viewers` asked of the viewers a test built.
+    /// What `Viewers` asked of the viewers a test built, and on which
+    /// threads.
     #[derive(Debug, Default, PartialEq, Eq)]
     struct Calls {
         builds: usize,
         lay_outs: Vec<(u16, u16)>,
+        threads: Vec<ThreadId>,
     }
 
-    /// A viewer that only records the calls it gets.
-    struct Recording(Rc<RefCell<Calls>>);
+    type Shared = Arc<Mutex<Calls>>;
+
+    fn calls(shared: &Shared) -> MutexGuard<'_, Calls> {
+        shared.lock().expect("no test thread panicked")
+    }
+
+    /// A viewer that only records the calls it gets. Its lay-outs after
+    /// the first wait for `gate`, where there is one.
+    struct Recording {
+        calls: Shared,
+        gate: Option<Gate>,
+    }
 
     impl Viewer for Recording {
         fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
-            self.0.borrow_mut().lay_outs.push((width, height));
+            let again = !calls(&self.calls).lay_outs.is_empty();
+            if again && let Some(gate) = &self.gate {
+                gate.wait();
+            }
+            let mut calls = calls(&self.calls);
+            calls.lay_outs.push((width, height));
+            calls.threads.push(thread::current().id());
             ContentSize {
                 lines: 3,
                 columns: usize::from(width),
@@ -485,22 +801,33 @@ mod tests {
 
     /// Viewers whose every viewer records into the returned calls, its
     /// building included.
-    fn recording() -> (Viewers, Rc<RefCell<Calls>>) {
-        let calls = Rc::new(RefCell::new(Calls::default()));
+    fn recording() -> (Viewers, Shared) {
+        recording_behind(None)
+    }
+
+    /// Like [`recording`], with every lay-out after a viewer's first
+    /// waiting for `gate`.
+    fn recording_behind(gate: Option<Gate>) -> (Viewers, Shared) {
+        let shared = Shared::default();
         let mut viewers = viewers();
-        let shared = Rc::clone(&calls);
-        viewers.build = Box::new(move |_, _, _, _| {
-            shared.borrow_mut().builds += 1;
-            Box::new(Recording(Rc::clone(&shared)))
-        });
-        (viewers, calls)
+        let theirs = Arc::clone(&shared);
+        viewers.building(Arc::new(move |_, _, _, _| {
+            let mut recorded = calls(&theirs);
+            recorded.builds += 1;
+            recorded.threads.push(thread::current().id());
+            Box::new(Recording {
+                calls: Arc::clone(&theirs),
+                gate: gate.clone(),
+            })
+        }));
+        (viewers, shared)
     }
 
     #[test]
     fn a_viewer_is_built_when_its_entry_first_shows_and_laid_out_only_when_the_size_changes() {
-        let (mut viewers, calls) = recording();
+        let (mut viewers, shared) = recording();
         let text = entry(r#"{"type": "code", "content": "notes"}"#);
-        assert_eq!(calls.borrow().builds, 0, "nothing shows yet");
+        assert_eq!(calls(&shared).builds, 0, "nothing shows yet");
 
         for _ in 0..3 {
             let (_, size) = viewers.laid_out("s", QUESTION, &text, 40, 10, COLOURED);
@@ -517,13 +844,401 @@ mod tests {
         viewers.laid_out("s", QUESTION, &text, 30, 10, COLOURED);
         viewers.laid_out("s", QUESTION, &text, 30, 12, COLOURED);
 
-        assert_eq!(
-            *calls.borrow(),
-            Calls {
-                builds: 1,
-                lay_outs: vec![(40, 10), (30, 10), (30, 12)]
+        let recorded = calls(&shared);
+        assert_eq!(recorded.builds, 1);
+        assert_eq!(recorded.lay_outs, [(40, 10), (30, 10), (30, 12)]);
+    }
+
+    // -----------------------------------------------------------------
+    // Loading apart from drawing
+    // -----------------------------------------------------------------
+
+    /// Counts the wake-ups of `viewers`, one per finished load.
+    fn counted(viewers: &mut Viewers) -> Arc<AtomicUsize> {
+        let woken = Arc::new(AtomicUsize::new(0));
+        let theirs = Arc::clone(&woken);
+        viewers.wake_with(Arc::new(move || {
+            theirs.fetch_add(1, Ordering::SeqCst);
+        }));
+        woken
+    }
+
+    /// Viewers that build what `viewer_for` builds once `gate` is open
+    /// for entries `held` says so of, wait `wait` for a load, and count
+    /// their wake-ups.
+    fn held_back(
+        gate: &Gate,
+        held: fn(&ContextEntry) -> bool,
+        wait: Duration,
+    ) -> (Viewers, Arc<AtomicUsize>) {
+        let mut viewers = viewers();
+        let theirs = gate.clone();
+        viewers.building(Arc::new(move |entry, images, quote, home| {
+            if held(entry) {
+                theirs.wait();
             }
+            viewer_for(entry, images, quote, home)
+        }));
+        viewers.waiting(wait);
+        let woken = counted(&mut viewers);
+        (viewers, woken)
+    }
+
+    /// Viewers whose every build waits for `gate`.
+    fn gated(gate: &Gate, wait: Duration) -> (Viewers, Arc<AtomicUsize>) {
+        held_back(gate, |_| true, wait)
+    }
+
+    const FETCH: &str = r#"{"type": "code", "content": "fn main() {}\n"}"#;
+
+    /// The bug the loading fixes: a slow entry held up the draw, and with
+    /// it every key, until it was built.
+    #[test]
+    fn the_pane_shows_loading_while_its_entry_builds() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = gated(&gate, Duration::ZERO);
+        let code = entry(FETCH);
+
+        let buf = drawn_by(&mut viewers, &code, 30, 9, 0);
+
+        assert_eq!(
+            woken.load(Ordering::SeqCst),
+            0,
+            "the draw returned while the entry still builds"
         );
+        let rows: Vec<String> = (0..9).map(|y| row(&buf, y)).collect();
+        let mut expected = vec![String::new(); 9];
+        expected[4] = format!("{}loading…", " ".repeat(11));
+        assert_eq!(rows, expected, "in the middle");
+        assert!(
+            buf[(11, 4)]
+                .modifier
+                .contains(ratatui::style::Modifier::DIM)
+        );
+
+        gate.open();
+        test_support::wait_until(&woken, 1);
+        let buf = drawn_by(&mut viewers, &code, 30, 9, 0);
+        assert_eq!(row(&buf, 0), "1 fn main() {}");
+    }
+
+    #[test]
+    fn an_entry_that_loads_within_the_wait_never_shows_loading() {
+        let mut viewers = viewers();
+        viewers.waiting(Duration::from_secs(10));
+
+        let buf = drawn_by(&mut viewers, &entry(FETCH), 30, 9, 0);
+
+        assert_eq!(row(&buf, 0), "1 fn main() {}");
+    }
+
+    #[test]
+    fn the_wait_is_spent_once_per_job() {
+        let gate = Gate::default();
+        let wait = Duration::from_millis(50);
+        let (mut viewers, _) = gated(&gate, wait);
+        let code = entry(FETCH);
+
+        let start = Instant::now();
+        built(&mut viewers, "s", QUESTION, &code);
+        assert!(start.elapsed() >= wait, "{:?}", start.elapsed());
+        assert_eq!(viewers.waits, [wait]);
+
+        built(&mut viewers, "s", QUESTION, &code);
+        assert_eq!(
+            viewers.waits,
+            [wait],
+            "the same job is not waited for again"
+        );
+
+        built(&mut viewers, "s", OPTION, &code);
+        assert_eq!(viewers.waits, [wait, wait], "another entry's job is");
+        gate.open();
+    }
+
+    /// The deadline belongs to a job: an entry that once loaded slowly
+    /// waits again for its next lay-out, so a quick one does not flash
+    /// the placeholder.
+    #[test]
+    fn a_later_lay_out_waits_again() {
+        let gate = Gate::default();
+        let wait = Duration::from_millis(50);
+        let (mut viewers, woken) = gated(&gate, wait);
+        let code = entry(FETCH);
+        built(&mut viewers, "s", QUESTION, &code);
+        gate.open();
+        test_support::wait_until(&woken, 1);
+        assert_eq!(
+            row(&drawn_by(&mut viewers, &code, 40, 10, 0), 0),
+            "1 fn main() {}"
+        );
+
+        let buf = drawn_by(&mut viewers, &code, 30, 8, 0);
+
+        assert_eq!(row(&buf, 0), "1 fn main() {}", "laid out within the wait");
+        assert_eq!(viewers.waits, [wait, wait]);
+    }
+
+    #[test]
+    fn a_finished_load_wakes_the_loop_and_shows_without_building_again() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = gated(&gate, Duration::ZERO);
+        let code = entry(FETCH);
+        built(&mut viewers, "s", QUESTION, &code);
+        assert_eq!(woken.load(Ordering::SeqCst), 0);
+
+        gate.open();
+        test_support::wait_until(&woken, 1);
+
+        assert_eq!(
+            row(&drawn_by(&mut viewers, &code, 40, 10, 0), 0),
+            "1 fn main() {}"
+        );
+        assert_eq!(viewers.built, 1);
+    }
+
+    #[test]
+    fn a_load_no_longer_shown_is_kept() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = gated(&gate, Duration::ZERO);
+        let code = entry(FETCH);
+        let notes = entry(r#"{"type": "markdown", "content": "notes"}"#);
+        built(&mut viewers, "s", QUESTION, &code);
+        built(&mut viewers, "s", OPTION, &notes);
+
+        gate.open();
+        test_support::wait_until(&woken, 2);
+        let buf = drawn_by(&mut viewers, &code, 40, 10, 0);
+
+        assert_eq!(row(&buf, 0), "1 fn main() {}");
+        assert_eq!(viewers.built, 2, "one build each");
+    }
+
+    #[test]
+    fn building_and_laying_out_run_off_the_drawing_thread() {
+        let (mut viewers, shared) = recording();
+        let text = entry(r#"{"type": "code", "content": "notes"}"#);
+
+        viewers.laid_out("s", QUESTION, &text, 40, 10, COLOURED);
+        viewers.laid_out("s", QUESTION, &text, 30, 10, COLOURED);
+
+        let recorded = calls(&shared);
+        assert_eq!(recorded.threads.len(), 3, "a build and two lay-outs");
+        assert!(
+            recorded
+                .threads
+                .iter()
+                .all(|thread| *thread != thread::current().id())
+        );
+    }
+
+    #[test]
+    fn every_kind_of_entry_builds_on_a_worker() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let threads = Arc::new(Mutex::new(Vec::new()));
+        let mut viewers = viewers();
+        let theirs = Arc::clone(&threads);
+        viewers.building(Arc::new(move |entry, images, quote, home| {
+            theirs
+                .lock()
+                .expect("no test thread panicked")
+                .push(thread::current().id());
+            viewer_for(entry, images, quote, home)
+        }));
+
+        for (key, kind) in [
+            entry(FETCH),
+            entry(r#"{"type": "markdown", "content": "*notes*"}"#),
+            entry(r#"{"type": "diff", "new": {"content": "x"}}"#),
+            picture(&directory, "a.png"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let key = EntryKey {
+                question: key,
+                option: None,
+            };
+            viewers.laid_out("s", key, kind, 40, 10, COLOURED);
+        }
+
+        let threads = threads.lock().expect("no test thread panicked");
+        assert_eq!(threads.len(), 4);
+        assert!(
+            threads
+                .iter()
+                .all(|thread| *thread != thread::current().id())
+        );
+    }
+
+    /// A panic while loading reaches the drawing thread, which panics with
+    /// its message, so asqr ends as it would on a panic while drawing.
+    #[test]
+    #[should_panic(expected = "boom")]
+    fn a_panic_while_loading_ends_on_the_drawing_thread() {
+        let mut viewers = viewers();
+        viewers.building(Arc::new(|_, _, _, _| panic!("boom")));
+
+        built(&mut viewers, "s", QUESTION, &entry(FETCH));
+    }
+
+    #[test]
+    fn the_results_of_a_session_that_left_are_dropped() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = gated(&gate, Duration::ZERO);
+        built(&mut viewers, "gone", QUESTION, &entry(FETCH));
+
+        viewers.retain_sessions(|session| session != "gone");
+        gate.open();
+        test_support::wait_until(&woken, 1);
+        viewers.collect();
+
+        assert_eq!(viewers.collected, 1, "the result arrived");
+        assert!(viewers.viewers.is_empty(), "and went");
+    }
+
+    /// A session can leave and come back under its id, as its next round:
+    /// only the result of the latest job for an entry is taken.
+    #[test]
+    fn a_session_back_under_its_id_takes_only_its_own_results() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = held_back(
+            &gate,
+            |entry| matches!(entry, ContextEntry::Code(code) if code.content.as_deref() == Some("one")),
+            Duration::ZERO,
+        );
+        let one = entry(r#"{"type": "code", "content": "one"}"#);
+        let two = entry(r#"{"type": "code", "content": "two"}"#);
+        built(&mut viewers, "s", QUESTION, &one);
+        viewers.retain_sessions(|_| false);
+        built(&mut viewers, "s", QUESTION, &two);
+
+        gate.open();
+        test_support::wait_until(&woken, 2);
+        viewers.collect();
+
+        assert_eq!(viewers.collected, 2);
+        assert_eq!(viewers.viewers.len(), 1);
+        assert!(viewers.loading.is_empty());
+        let buf = drawn_by(&mut viewers, &two, 40, 10, 0);
+        assert_eq!(row(&buf, 0), "1 two");
+    }
+
+    /// A lay-out job holds the viewer, so the pane waits for it before it
+    /// lays the viewer out for the size the body has by then.
+    #[test]
+    fn a_resize_while_laying_out_waits_for_that_job() {
+        let gate = Gate::default();
+        let (mut viewers, shared) = recording_behind(Some(gate.clone()));
+        viewers.waiting(Duration::ZERO);
+        let woken = counted(&mut viewers);
+        let text = entry(r#"{"type": "code", "content": "notes"}"#);
+        viewers.laid_out("s", QUESTION, &text, 40, 10, COLOURED);
+        test_support::wait_until(&woken, 1);
+
+        viewers.laid_out("s", QUESTION, &text, 30, 10, COLOURED);
+        viewers.laid_out("s", QUESTION, &text, 20, 10, COLOURED);
+        gate.open();
+        test_support::wait_until(&woken, 2);
+        viewers.laid_out("s", QUESTION, &text, 20, 10, COLOURED);
+        test_support::wait_until(&woken, 3);
+        let (_, size) = viewers.laid_out("s", QUESTION, &text, 20, 10, COLOURED);
+
+        assert_eq!(size.columns, 20);
+        assert_eq!(calls(&shared).lay_outs, [(40, 10), (30, 10), (20, 10)]);
+    }
+
+    /// The result of another entry's job that arrives while the pane waits
+    /// is kept, and the wait goes on for the entry shown. The gates open a
+    /// moment after the wait begins; should a result arrive before, the
+    /// draw takes it in first and the outcome is the same.
+    #[test]
+    fn the_wait_takes_in_other_results_and_goes_on() {
+        let other = Gate::default();
+        let shown = Gate::default();
+        let mut viewers = viewers();
+        let (held_other, held_shown) = (other.clone(), shown.clone());
+        viewers.building(Arc::new(move |entry, images, quote, home| {
+            match entry {
+                ContextEntry::Markdown(_) => held_other.wait(),
+                _ => held_shown.wait(),
+            }
+            viewer_for(entry, images, quote, home)
+        }));
+        let notes = entry(r#"{"type": "markdown", "content": "notes"}"#);
+        let code = entry(FETCH);
+        viewers.waiting(Duration::ZERO);
+        built(&mut viewers, "s", OPTION, &notes);
+
+        viewers.waiting(Duration::from_secs(60));
+        let opening = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            other.open();
+            thread::sleep(Duration::from_millis(50));
+            shown.open();
+        });
+        let buf = drawn_by(&mut viewers, &code, 40, 10, 0);
+        opening.join().expect("the gates open");
+
+        assert_eq!(row(&buf, 0), "1 fn main() {}");
+        viewers.collect();
+        assert_eq!(viewers.viewers.len(), 2, "the other entry's viewer is kept");
+    }
+
+    /// A viewer that lays its viewer out after the first time only once
+    /// `gate` is open.
+    struct HeldLayOut {
+        inner: Box<dyn Viewer>,
+        gate: Gate,
+        laid_out: bool,
+    }
+
+    impl Viewer for HeldLayOut {
+        fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
+            if std::mem::replace(&mut self.laid_out, true) {
+                self.gate.wait();
+            }
+            self.inner.lay_out(width, height)
+        }
+
+        fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
+            self.inner.draw(area, buf, offset)
+        }
+    }
+
+    /// An image a frame showed and a resize handed to a job may come back
+    /// with the encoding sent before; on regaining the focus that job's
+    /// result goes, and the image is built and sent again.
+    #[test]
+    fn regaining_the_focus_drops_an_image_being_laid_out_again() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let gate = Gate::default();
+        let mut viewers = kitty_viewers();
+        let theirs = gate.clone();
+        viewers.building(Arc::new(move |entry, images, quote, home| {
+            Box::new(HeldLayOut {
+                inner: viewer_for(entry, images, quote, home),
+                gate: theirs.clone(),
+                laid_out: false,
+            })
+        }));
+        let woken = counted(&mut viewers);
+        let dot = picture(&directory, "a.png");
+        built(&mut viewers, "s", QUESTION, &dot);
+        assert_eq!(viewers.held_images(), [1]);
+        viewers.waiting(Duration::ZERO);
+        viewers.laid_out("s", QUESTION, &dot, 30, 8, COLOURED);
+
+        viewers.forget_images();
+        gate.open();
+        test_support::wait_until(&woken, 2);
+        viewers.collect();
+        assert!(viewers.viewers.is_empty(), "the result went");
+
+        viewers.waiting(Duration::from_secs(60));
+        viewers.laid_out("s", QUESTION, &dot, 30, 8, COLOURED);
+        assert_eq!(viewers.built, 2, "built again");
+        assert_eq!(viewers.held_images(), [3], "sent under a new id");
     }
 
     #[test]
@@ -545,7 +1260,7 @@ mod tests {
 
     #[test]
     fn a_replaced_entry_gets_a_new_viewer_built_and_laid_out() {
-        let (mut viewers, calls) = recording();
+        let (mut viewers, shared) = recording();
         built(
             &mut viewers,
             "s",
@@ -562,8 +1277,8 @@ mod tests {
 
         assert_eq!(viewers.built, 2);
         assert_eq!(viewers.viewers.len(), 1, "the old one is gone");
-        assert_eq!(calls.borrow().builds, 2);
-        assert_eq!(calls.borrow().lay_outs.len(), 2, "at the same size");
+        assert_eq!(calls(&shared).builds, 2);
+        assert_eq!(calls(&shared).lay_outs.len(), 2, "at the same size");
     }
 
     #[test]

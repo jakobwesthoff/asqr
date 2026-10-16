@@ -34,6 +34,9 @@ pub enum Event {
     InboxChanged,
     /// The terminal has the focus again.
     FocusGained,
+    /// A context entry finished loading apart from drawing; the next draw
+    /// shows it (ADR 46).
+    Loaded,
     /// SIGTERM, SIGINT or SIGHUP asked asqr to quit (spec section 7).
     Quit,
 }
@@ -135,7 +138,7 @@ where
             Event::Key(key) if key.kind != KeyEventKind::Press => continue,
             Event::Key(key) => app.handle(key),
             Event::Paste(text) => app.paste(&text),
-            Event::Resize => continue,
+            Event::Resize | Event::Loaded => continue,
             // The caller gives the terminal back, as after `q`.
             Event::Quit => return Ok(()),
             // Coming back into view is when a transfer lost in the
@@ -402,6 +405,50 @@ mod tests {
         assert_eq!(
             harness.host.titles,
             ["asqr · 0 waiting", "asqr · 1 waiting", "asqr · 0 waiting"]
+        );
+    }
+
+    /// A load that finishes after the draw that asked for it wakes the
+    /// loop, which draws the entry then.
+    #[test]
+    fn a_finished_load_draws_the_entry() {
+        let mut harness = Harness::new();
+        let session = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
+            "context": [{"type": "code", "content": "fn main() {}"}],
+            "options": [{"id": "a", "label": "Apples"}]}]}"#;
+        fs::write(harness.location.inbox().join("coded.json"), session).expect("written");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (sender, receiver) = mpsc::channel();
+        let woken = sender.clone();
+        let mut view = View::new("test", PaneLayout::Auto, Images::half_blocks())
+            .waiting(std::time::Duration::ZERO)
+            .wake_on_load(move || {
+                let _ = woken.send(Event::Loaded);
+                let _ = woken.send(Event::Quit);
+            });
+        // A run that is never woken ends here, and fails on its frame
+        // instead of hanging.
+        let watchdog = sender.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let _ = watchdog.send(Event::Quit);
+        });
+        drop(sender);
+
+        run(
+            &mut harness.terminal,
+            &mut app,
+            &mut inbox,
+            &mut view,
+            &receiver,
+            &mut harness.host,
+        )
+        .expect("runs");
+
+        assert!(
+            harness.screen().contains("1 fn main() {}"),
+            "{}",
+            harness.screen()
         );
     }
 

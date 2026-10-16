@@ -24,9 +24,9 @@ Amended by [45. Keep image handling in a graphics module around an asqr-owned va
 the screen is cleared after an overlay closes over an image entry only
 under Sixel and iTerm2
 
-Amended by [46. Build context viewers loaded](0046-build-context-viewers-loaded.md):
-building a viewer prepares its content, and the separate `load` step
-of the lifecycle is gone
+Amended by [46. Build and lay out context viewers on worker threads](0046-build-and-lay-out-context-viewers-on-worker-threads.md):
+building a viewer prepares its content, on a thread apart from
+drawing, and the separate `load` step of the lifecycle is gone
 
 Amended by [48. Mend Kitty images an overlay is drawn over](0048-mend-kitty-images-an-overlay-is-drawn-over.md):
 a viewer's `draw` returns the Kitty image it drew
