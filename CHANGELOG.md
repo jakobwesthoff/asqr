@@ -50,9 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Context entries load apart from drawing the screen, so keys keep
   working while a large file is read and highlighted or an image is
   decoded and scaled. An entry that is not ready after 100 ms shows a
-  dim `loading…` in the middle of the pane until it is. Before, the
-  screen froze until the entry was ready: 23 seconds for the first
-  8 MiB of a log.
+  dim `loading…` in the middle of the pane until it is, and while keys
+  wait to be handled it shows at once, so holding `j` does not stop on
+  each slow entry. Before, the screen froze until the entry was ready:
+  23 seconds for the first 8 MiB of a log.
 - While a question shows, asqr loads the entries of its other options,
   of the next question and of the one before ahead, and keeps what it
   loaded for those three questions only. Coming back to an entry

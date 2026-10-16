@@ -1173,7 +1173,10 @@ Loading (ADR 46):
   waits up to 100 ms for the entry it shows; one that takes longer shows
   a dim `loading…` in the middle of the pane, below the header that
   names it, until it is ready. A new size of the pane, also the `z` view,
-  lays the entry out again the same way.
+  lays the entry out again the same way. While a key, a paste, a resize
+  or a quit waits to be handled, the pane does not wait and shows
+  `loading…` at once, so holding a key moves over slow entries without
+  stopping on each.
 - asqr keeps what it loaded for three questions: the previous, the
   current and the next one, with the question's entry and every
   option's. While a question shows with its pane, asqr loads the

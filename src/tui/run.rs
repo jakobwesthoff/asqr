@@ -8,6 +8,7 @@
 //! of the app goes through [`Host`], so tests run the loop against a test
 //! backend.
 
+use std::collections::VecDeque;
 use std::io;
 use std::sync::mpsc::Receiver;
 
@@ -39,6 +40,20 @@ pub enum Event {
     Loaded,
     /// SIGTERM, SIGINT or SIGHUP asked asqr to quit (spec section 7).
     Quit,
+}
+
+impl Event {
+    /// Whether the event is what the person does: a key pressed, a paste,
+    /// a resize or a quit. A draw with one of them waiting is replaced by
+    /// the next at once, so it does not wait for its context entry. A key
+    /// released or repeated counts as nothing, as the loop drops it.
+    pub fn is_input(&self) -> bool {
+        match self {
+            Event::Key(key) => key.kind == KeyEventKind::Press,
+            Event::Paste(_) | Event::Resize | Event::Quit => true,
+            Event::InboxChanged | Event::FocusGained | Event::Loaded => false,
+        }
+    }
 }
 
 /// What the app asks of the world around it.
@@ -85,12 +100,27 @@ where
     // Every key draws again, but the title goes to the terminal only when
     // its text changes. No title is empty, so the first pass sends one.
     let mut sent_title = String::new();
+    // The events taken from the channel before they are handled, one a
+    // pass with a draw between, as each key may depend on what the draw
+    // before it measured.
+    let mut ahead: VecDeque<Event> = VecDeque::new();
     loop {
         let title = terminal_title(app);
         if title != sent_title {
             host.title(&title);
             sent_title = title;
         }
+        // A draw with input waiting behind it does not wait for its entry
+        // (ADR 46). All that arrived is looked at, as the load threads
+        // send their wake-ups into the same channel as the keys and one
+        // in front would hide a key behind it. A wake-up only asks for
+        // the draw that comes anyway, so it goes.
+        while let Ok(event) = events.try_recv() {
+            if event != Event::Loaded {
+                ahead.push_back(event);
+            }
+        }
+        view.set_input_pending(ahead.iter().any(Event::is_input));
         // An overlay closed over an image leaves its text on the image
         // unless the whole screen is drawn afresh (ADR 31).
         if view.must_clear(app) {
@@ -130,8 +160,12 @@ where
         if app.set_field_shape(drawn.field_shape) {
             continue;
         }
-        let Ok(event) = events.recv() else {
-            return Ok(());
+        let event = match ahead.pop_front() {
+            Some(event) => event,
+            None => match events.recv() {
+                Ok(event) => event,
+                Err(_) => return Ok(()),
+            },
         };
         let effect = match event {
             // Terminals that report releases and repeats (the kitty
@@ -451,6 +485,70 @@ mod tests {
             "{}",
             harness.screen()
         );
+    }
+
+    /// Starts the harness's app on a session whose question shows a code
+    /// entry, and runs it over `events` with a view that skips the wait
+    /// for an entry while input waits, as outside tests. Says how many
+    /// times the draws waited.
+    fn waits_over(events: Vec<Event>) -> usize {
+        let mut harness = Harness::new();
+        let session = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
+            "context": [{"type": "code", "content": "fn main() {}"}],
+            "options": [{"id": "a", "label": "Apples"}]}]}"#;
+        fs::write(harness.location.inbox().join("coded.json"), session).expect("written");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let mut view =
+            View::new("test", PaneLayout::Auto, Images::half_blocks()).skipping_waits_for_input();
+        harness
+            .run_with_view(&mut app, &mut inbox, &mut view, events)
+            .expect("runs");
+        view.waits()
+    }
+
+    /// Holding a key over slow entries would wait for each; a draw that
+    /// input follows at once shows `loading…` instead.
+    #[test]
+    fn queued_input_draws_without_waiting() {
+        assert_eq!(
+            waits_over(vec![Event::Resize, Event::Resize, Event::Quit]),
+            0
+        );
+    }
+
+    /// A finished load wakes the loop through the channel the keys come
+    /// in, so a wake-up in front of a key must not hide it.
+    #[test]
+    fn a_key_behind_a_wake_up_still_skips_the_wait() {
+        let x = key(KeyCode::Char('x'));
+        assert_eq!(waits_over(vec![Event::Loaded, x.clone(), Event::Quit]), 0);
+        assert_eq!(waits_over(vec![Event::InboxChanged, x, Event::Quit]), 0);
+    }
+
+    #[test]
+    fn a_frame_with_nothing_pending_waits_for_its_entry() {
+        assert_eq!(waits_over(vec![]), 1);
+    }
+
+    #[test]
+    fn only_what_the_person_does_counts_as_input() {
+        let release = KeyEvent {
+            kind: KeyEventKind::Release,
+            ..KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)
+        };
+        let cases = [
+            (key(KeyCode::Char('x')), true),
+            (Event::Paste("pasted".to_owned()), true),
+            (Event::Resize, true),
+            (Event::Quit, true),
+            (Event::Key(release), false),
+            (Event::InboxChanged, false),
+            (Event::FocusGained, false),
+            (Event::Loaded, false),
+        ];
+        for (event, input) in cases {
+            assert_eq!(event.is_input(), input, "{event:?}");
+        }
     }
 
     #[test]

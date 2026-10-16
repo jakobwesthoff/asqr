@@ -157,6 +157,28 @@ impl<'a> View<'a> {
         self
     }
 
+    /// This view, showing `loading…` at once while input waits, as
+    /// outside tests.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn skipping_waits_for_input(mut self) -> Self {
+        self.tab.viewers.skipping_waits_for_input();
+        self
+    }
+
+    /// How many times the draws waited for a context entry.
+    #[cfg(test)]
+    pub(crate) fn waits(&self) -> usize {
+        self.tab.viewers.wait_count()
+    }
+
+    /// Takes whether a key, a paste, a resize or a quit waits to be
+    /// handled after the next draw. That draw does not wait for the entry
+    /// it shows, as the next one replaces it at once.
+    pub fn set_input_pending(&mut self, pending: bool) {
+        self.tab.viewers.set_input_pending(pending);
+    }
+
     /// This view, with Talqi drawn in `glyphs` instead of quadrants.
     #[must_use]
     pub fn glyphs(self, glyphs: Glyphs) -> Self {

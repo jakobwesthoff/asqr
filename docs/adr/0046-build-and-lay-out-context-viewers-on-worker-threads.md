@@ -99,6 +99,11 @@ The lead decided under Jakob's delegation:
   to an entry never starts a second job for it. Its result is dropped
   if it arrives while its entry is outside the window and is not the
   entry shown.
+- A draw with a key, a paste, a resize or a quit waiting behind it does
+  not wait for its entry, as the next draw follows at once; the next
+  draw without one waits for the job, once. The run loop takes every
+  event that arrived before it draws, as the wake-ups of finished loads
+  come through the same channel as the keys.
 - Moving fast over many slow entries runs at most that many jobs on
   threads of their own plus the one of the thread that loads ahead; the
   latest entry shown is next in line. Past that many, the entry shown

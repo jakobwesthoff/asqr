@@ -146,6 +146,15 @@ pub struct Viewers {
     /// any number, so what they see does not depend on the machine's
     /// cores, unless they ask for a cap.
     cap: usize,
+    /// Whether a key, a paste, a resize or a quit waits to be handled
+    /// after this draw, which the next draw replaces at once.
+    input_pending: bool,
+    /// Whether a draw with input pending shows the placeholder at once
+    /// rather than wait for the entry. Tests feed every event before the
+    /// run loop starts, so every frame but the last would have input
+    /// pending; they skip the wait only where they ask to, so the frames
+    /// they look at show what loaded.
+    skips_wait_for_input: bool,
     /// Whether the entries of the window load before they are shown. Tests
     /// load ahead only where they ask to, so the Kitty ids and the builds
     /// they count stay their own.
@@ -191,6 +200,8 @@ impl Viewers {
             } else {
                 loading::own_thread_cap()
             },
+            input_pending: false,
+            skips_wait_for_input: !cfg!(test),
             loads_ahead: !cfg!(test),
             #[cfg(test)]
             built: 0,
@@ -204,6 +215,11 @@ impl Viewers {
     /// Takes the home folder, for the viewers built from now on.
     pub fn set_home(&mut self, home: Option<PathBuf>) {
         self.tools.home = home;
+    }
+
+    /// Takes whether input waits to be handled after the next draw.
+    pub fn set_input_pending(&mut self, pending: bool) {
+        self.input_pending = pending;
     }
 
     /// Takes what wakes the run loop once a load finished.
@@ -466,6 +482,10 @@ impl Viewers {
     /// draw of the same job does not wait again, a new job does. A result
     /// that is not what the pane needs, such as one laid out for a size
     /// the body no longer has, starts the next job within the same wait.
+    ///
+    /// With input waiting behind the draw, there is no wait: the next
+    /// draw replaces this one at once. The job keeps its wait for the
+    /// first draw without input.
     fn wait_for(
         &mut self,
         key: &ViewerKey,
@@ -473,6 +493,9 @@ impl Viewers {
         quote: QuoteStyle,
         size: (u16, u16),
     ) {
+        if self.input_pending && self.skips_wait_for_input {
+            return;
+        }
         let ticket = self
             .loading
             .get(key)
@@ -643,6 +666,18 @@ impl Viewers {
     #[cfg(test)]
     pub(super) fn waiting(&mut self, wait: Duration) {
         self.wait = wait;
+    }
+
+    /// These viewers, showing the placeholder at once while input waits.
+    #[cfg(test)]
+    pub(super) fn skipping_waits_for_input(&mut self) {
+        self.skips_wait_for_input = true;
+    }
+
+    /// How many waits for a job the draws took.
+    #[cfg(test)]
+    pub(super) fn wait_count(&self) -> usize {
+        self.waits.len()
     }
 
     /// These viewers, building through `build`.
@@ -1225,6 +1260,42 @@ mod tests {
 
         built(&mut viewers, "s", OPTION, &code);
         assert_eq!(viewers.waits, [wait, wait], "another entry's job is");
+        gate.open();
+    }
+
+    /// Input waiting behind a draw replaces it at once, so the draw shows
+    /// the placeholder without waiting for the entry.
+    #[test]
+    fn a_draw_with_input_pending_shows_loading_at_once() {
+        let gate = Gate::default();
+        let (mut viewers, woken) = gated(&gate, Duration::from_secs(2));
+        viewers.skipping_waits_for_input();
+        viewers.set_input_pending(true);
+        let code = entry(FETCH);
+
+        let buf = drawn_by(&mut viewers, &code, 30, 9, 0);
+
+        assert_eq!(row(&buf, 4).trim_start(), "loading…");
+        assert!(viewers.waits.is_empty());
+        gate.open();
+        test_support::wait_until(&woken, 1);
+        assert_eq!(
+            row(&drawn_by(&mut viewers, &code, 30, 9, 0), 0),
+            "1 fn main() {}"
+        );
+    }
+
+    #[test]
+    fn a_draw_without_input_pending_still_waits() {
+        let gate = Gate::default();
+        let wait = Duration::from_millis(50);
+        let (mut viewers, _) = gated(&gate, wait);
+        viewers.skipping_waits_for_input();
+        viewers.set_input_pending(false);
+
+        built(&mut viewers, "s", QUESTION, &entry(FETCH));
+
+        assert_eq!(viewers.waits, [wait]);
         gate.open();
     }
 
