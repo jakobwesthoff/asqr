@@ -171,13 +171,11 @@ pub(super) struct Card {
     reason: String,
     name: String,
     folder: String,
-    /// The rows inside the frame, laid out for the last body.
-    rows: Vec<Line<'static>>,
-    /// Where the card sits in the content.
-    at: Rect,
-    /// The lines of the content: the body's, or the card's where it is
-    /// taller.
-    lines: usize,
+    /// The content as the last lay-out drew it: the card, framed, in the
+    /// body's width and the body's lines, or the card's where it is
+    /// taller. A frame cannot be drawn from a line in its middle, so the
+    /// whole content is drawn once and each frame copies from it.
+    drawn: Buffer,
 }
 
 impl Card {
@@ -189,9 +187,7 @@ impl Card {
             reason: reason.into(),
             name,
             folder,
-            rows: Vec::new(),
-            at: Rect::default(),
-            lines: 0,
+            drawn: Buffer::empty(Rect::default()),
         }
     }
 
@@ -225,15 +221,15 @@ impl Viewer for Card {
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
         let most = width.min(CARD_WIDTH);
         let inner = usize::from(most.saturating_sub(FRAME_COLUMNS)).max(1);
-        self.rows = self.rows_for(inner);
-        let widest = self.rows.iter().map(shown_columns).max().unwrap_or(0);
+        let rows = self.rows_for(inner);
+        let widest = rows.iter().map(shown_columns).max().unwrap_or(0);
         let card_width = u16::try_from(widest)
             .unwrap_or(u16::MAX)
             .saturating_add(FRAME_COLUMNS)
             .min(most);
-        let card_height = u16::try_from(self.rows.len() + 2).unwrap_or(u16::MAX);
+        let card_height = u16::try_from(rows.len() + 2).unwrap_or(u16::MAX);
         let body = Rect::new(0, 0, width, height);
-        self.at = if card_height <= height {
+        let at = if card_height <= height {
             body.centered(
                 Constraint::Length(card_width),
                 Constraint::Length(card_height),
@@ -247,32 +243,31 @@ impl Viewer for Card {
                 ..body.centered_horizontally(Constraint::Length(card_width))
             }
         };
-        self.lines = usize::from(card_height.max(height));
-        ContentSize {
-            lines: self.lines,
-            columns: usize::from(width),
-        }
-    }
-
-    /// Draws the whole content into a buffer of its own and copies the
-    /// lines from `offset.top` on, as a frame cannot be drawn from a line
-    /// in its middle.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
-        let tall = u16::try_from(self.lines).unwrap_or(u16::MAX);
-        let mut whole = Buffer::empty(Rect::new(0, 0, area.width, tall));
+        let tall = card_height.max(height);
+        self.drawn = Buffer::empty(Rect::new(0, 0, width, tall));
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
             .border_style(Severity::Error.style())
             .padding(Padding::horizontal(1));
-        let at = self.at.intersection(whole.area);
+        let at = at.intersection(self.drawn.area);
         let inside = block.inner(at);
-        block.render(at, &mut whole);
-        Paragraph::new(self.rows.clone()).render(inside, &mut whole);
+        block.render(at, &mut self.drawn);
+        Paragraph::new(rows).render(inside, &mut self.drawn);
+        ContentSize {
+            lines: usize::from(tall),
+            columns: usize::from(width),
+        }
+    }
 
+    /// Copies the lines from `offset.top` on of what the last lay-out
+    /// drew. An area wider than that lay-out, which the pane never gives,
+    /// stays blank past it rather than reach past the drawn content.
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
+        let drawn = self.drawn.area;
         let top = u16::try_from(offset.top).unwrap_or(u16::MAX);
-        for (y, from) in (0..area.height).zip(top..tall) {
-            for x in 0..area.width {
-                buf[(area.x + x, area.y + y)] = whole[(x, from)].clone();
+        for (y, from) in (0..area.height).zip(top..drawn.height) {
+            for x in 0..area.width.min(drawn.width) {
+                buf[(area.x + x, area.y + y)] = self.drawn[(x, from)].clone();
             }
         }
         None
@@ -407,6 +402,27 @@ mod tests {
     // -----------------------------------------------------------------
     // The card
     // -----------------------------------------------------------------
+
+    /// A card taller than the body scrolls: drawn again from a later
+    /// line, it shows the rows of the first draw from that line on, also
+    /// into an area wider than its lay-out, which stays blank past it.
+    #[test]
+    fn a_card_draws_what_its_lay_out_made_from_any_line() {
+        let mut card = card(&"word ".repeat(30), "/srv/app/src/fetch.rs");
+        card.lay_out(30, 6);
+        let mut at = |top: usize, width: u16| {
+            let area = Rect::new(0, 0, width, 6);
+            let mut buf = Buffer::empty(area);
+            card.draw(area, &mut buf, Offset { top, left: 0 });
+            (0..6).map(|y| row(&buf, y)).collect::<Vec<String>>()
+        };
+
+        let from_the_top = at(0, 30);
+        let from_line_two = at(2, 30);
+
+        assert_eq!(from_line_two[..4], from_the_top[2..]);
+        assert_eq!(at(2, 40), from_line_two, "nothing past the lay-out");
+    }
 
     #[test]
     fn the_card_shows_the_reason_then_the_file_and_its_folder() {
