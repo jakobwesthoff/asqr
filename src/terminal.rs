@@ -598,7 +598,13 @@ mod tests {
             protocol: Protocol::Kitty,
             ..Graphics::HALF_BLOCKS
         });
-        let mut image = images.image(image::DynamicImage::new_rgba8(20, 40));
+        // The image as a file holds it: the binary's tests see only what
+        // the library offers outside its own tests.
+        let mut png = Vec::new();
+        image::DynamicImage::new_rgba8(20, 40)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("PNG takes 8-bit RGBA, written into memory");
+        let mut image = images.decode(png, "red.png").expect("a PNG decodes");
         image.lay_out(Size::new(2, 2), true);
         (images.kitty_book().clone(), image)
     }

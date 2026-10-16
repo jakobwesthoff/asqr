@@ -21,7 +21,7 @@ use std::io::Cursor;
 use std::path::Path;
 
 use ::image::error::{ImageFormatHint, UnsupportedError, UnsupportedErrorKind};
-use ::image::{DynamicImage, ImageError, ImageFormat};
+use ::image::{ImageError, ImageFormat};
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 
 #[cfg(unix)]
@@ -211,12 +211,13 @@ impl Images {
         Ok(Image::new(self, read, picture))
     }
 
-    /// Makes an image of `picture`, which is decoded already. It is
-    /// encoded when it is laid out, and kept as PNG in 8-bit RGBA for
-    /// the encodings after the first.
-    pub fn image(&self, picture: DynamicImage) -> Image {
+    /// Makes an image of `picture`, which a test drew, as if it were read
+    /// from a file. It is encoded when it is laid out, and kept as PNG in
+    /// 8-bit RGBA for the encodings after the first.
+    #[cfg(test)]
+    pub(crate) fn image(&self, picture: ::image::DynamicImage) -> Image {
         let mut bytes = Vec::new();
-        DynamicImage::ImageRgba8(picture.to_rgba8())
+        ::image::DynamicImage::ImageRgba8(picture.to_rgba8())
             .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
             .expect("PNG takes 8-bit RGBA, written into memory");
         let read = Read {
