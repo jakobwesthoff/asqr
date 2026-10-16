@@ -28,7 +28,3 @@ the prototype are in
 ## Revisit when
 
 No trigger known; reconsider at the next sweep.
-
-## Relations
-
-- Relates to: [Show diffs line by line without marked words](01M51XE4M8NFT45JA0EFCQEBEZ-show-diffs-line-by-line-without-marked-words.md)

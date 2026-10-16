@@ -13,7 +13,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
-use similar::{Algorithm, ChangeTag, InlineChange, InlineChangeOptions, TextDiff};
+use similar::{Algorithm, Change, ChangeTag, TextDiff};
 
 use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
@@ -34,8 +34,7 @@ const DIFF_TIME: Duration = Duration::from_secs(1);
 const SEPARATOR: &str = "┈";
 
 /// A diff entry as a unified diff: hunks with three lines of context, both
-/// line numbers in a dim gutter, removed lines red and added ones green,
-/// with the changed words of a changed line reversed on top.
+/// line numbers in a dim gutter, removed lines red and added ones green.
 pub struct DiffViewer {
     /// The diff's rows, or why it cannot show.
     content: Content<Rows>,
@@ -163,16 +162,13 @@ impl Rows {
             rows.push(Row::Note(ENDINGS_DIFFER));
         }
 
-        let deadline = Instant::now() + DIFF_TIME;
         // Histogram, git's algorithm of that name, anchors the diff on
         // lines that occur rarely, such as a function's signature, rather
         // than on blank lines and lone braces.
         let diff = TextDiff::configure()
             .algorithm(Algorithm::Histogram)
-            .deadline(deadline)
+            .deadline(Instant::now() + DIFF_TIME)
             .diff_lines(old, new);
-        let mut words = InlineChangeOptions::new();
-        words.semantic_cleanup(true);
         // A last line without a newline differs from the same line with
         // one. Only where the two sides differ in that does a note say so,
         // or `- two` and `+ two` would look the same.
@@ -183,9 +179,7 @@ impl Rows {
                 rows.push(Row::Separator);
             }
             for op in hunk {
-                for change in
-                    diff.iter_inline_changes_with_options_deadline(op, words, Some(deadline))
-                {
+                for change in diff.iter_changes(op) {
                     rows.push(line_row(&change));
                     if newline_differs && change.missing_newline() {
                         rows.push(Row::Note(Note("no newline at end of file")));
@@ -270,30 +264,15 @@ impl Viewer for Rows {
 }
 
 /// The row of one line of the diff, numbered from 1 on each side it is on.
-fn line_row(change: &InlineChange<'_, str>) -> Row {
-    let style = line_style(change.tag());
-    // Reversed video on top of the line's role rather than a role of its
-    // own, so changed words stay visible without colours (ADR 33).
-    let emphasis = style.reversed();
-    let values = change.values();
-    let last = values.len().saturating_sub(1);
-    let pieces = values
-        .iter()
-        .enumerate()
-        .map(|(index, (emphasised, value))| {
-            // The line break belongs to the last piece.
-            let value = if index == last {
-                value.strip_suffix('\n').unwrap_or(value)
-            } else {
-                value
-            };
-            (value, if *emphasised { emphasis } else { style })
-        });
+/// The whole line takes its colour, with nothing marked inside it (ADR 33).
+fn line_row(change: &Change<&str>) -> Row {
+    let value = change.value();
+    let text = value.strip_suffix('\n').unwrap_or(value);
     Row::Line {
         tag: change.tag(),
         old: change.old_index().map(|index| index + 1),
         new: change.new_index().map(|index| index + 1),
-        text: SourceLine::new(pieces),
+        text: SourceLine::new([(text, line_style(change.tag()))]),
     }
 }
 
@@ -516,43 +495,35 @@ impl Fetcher {
     }
 
     // -----------------------------------------------------------------
-    // Changed words
+    // Changed lines
     // -----------------------------------------------------------------
 
     #[test]
-    fn the_changed_words_of_a_changed_line_stand_out() {
+    fn a_changed_line_shows_whole_in_its_colour_without_marked_words() {
         let mut viewer = inline(
-            Some("let delay = 100;\nlet tries = 3;\n"),
-            Some("let delay = 250;\nlet tries = 3;\n"),
+            Some("let delay = 100;\nget(url)\n"),
+            Some("let delay = 250;\nget(uri)\n"),
         );
 
-        insta::assert_snapshot!("changed_word", shown(&mut viewer, 30, 0));
-        let buf = drawn(&mut viewer, 30, 3, Offset::default());
-        assert_eq!(with_modifier(&buf, 0, Modifier::REVERSED), "100");
-        assert_eq!(with_modifier(&buf, 1, Modifier::REVERSED), "250");
-        assert_eq!(buf[(14, 0)].fg, Color::Red, "emphasis on top of the colour");
-        assert_eq!(buf[(14, 1)].fg, Color::Green);
-        assert_eq!(with_modifier(&buf, 2, Modifier::REVERSED), "", "context");
-    }
-
-    #[test]
-    fn words_split_at_punctuation_so_code_shows_the_changed_name() {
-        let mut viewer = inline(Some("get(url)\n"), Some("get(uri)\n"));
-
-        let buf = drawn(&mut viewer, 30, 2, Offset::default());
-
-        assert_eq!(with_modifier(&buf, 0, Modifier::REVERSED), "url");
-        assert_eq!(with_modifier(&buf, 1, Modifier::REVERSED), "uri");
-    }
-
-    #[test]
-    fn a_line_rewritten_entirely_has_no_emphasis() {
-        let mut viewer = inline(Some("alpha beta\n"), Some("gamma delta epsilon\n"));
-
-        let buf = drawn(&mut viewer, 30, 2, Offset::default());
-
-        assert_eq!(with_modifier(&buf, 0, Modifier::REVERSED), "");
-        assert_eq!(with_modifier(&buf, 1, Modifier::REVERSED), "");
+        insta::assert_snapshot!("changed_line", shown(&mut viewer, 30, 0));
+        let buf = drawn(&mut viewer, 30, 4, Offset::default());
+        for y in 0..4 {
+            assert_eq!(with_modifier(&buf, y, Modifier::REVERSED), "", "row {y}");
+        }
+        let colour = |y: u16| -> Vec<Color> {
+            let text = row(&buf, y);
+            (6..u16::try_from(text.chars().count()).expect("a short row"))
+                .map(|x| buf[(x, y)].fg)
+                .collect()
+        };
+        for (y, line) in [
+            (0, Color::Red),
+            (1, Color::Red),
+            (2, Color::Green),
+            (3, Color::Green),
+        ] {
+            assert!(colour(y).iter().all(|&fg| fg == line), "row {y}");
+        }
     }
 
     // -----------------------------------------------------------------

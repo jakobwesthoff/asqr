@@ -146,9 +146,9 @@ Once asked, asqr fits best when:
   - asqr shows a diff unified: only the changed lines with 3 unchanged
     lines around each change, a separator between such hunks, the old
     and the new line number of every line, removed lines red and added
-    lines green, and the changed words inside a changed line marked. A
-    long line does not wrap; the person scrolls sideways. There is no
-    syntax highlighting in a diff. Identical versions show "no changes".
+    lines green. A long line does not wrap; the person scrolls
+    sideways. There is no syntax highlighting in a diff. Identical
+    versions show "no changes".
   - asqr shows a code entry highlighted, with line numbers in a gutter.
     Long lines do not wrap; the person scrolls sideways. A Markdown entry
     is rendered and wrapped to the pane: headings, emphasis, lists,

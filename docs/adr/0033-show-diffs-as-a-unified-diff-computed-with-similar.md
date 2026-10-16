@@ -29,7 +29,8 @@ Taken with the user (plan, *Viewers*, and the step's todo):
   Side by side follows in its own todo.
 - **Colours:** removed lines red, added lines green, from the terminal's
   palette, so the theme decides the shades. Inside a changed line, the
-  changed words are emphasised on top of the colour.
+  changed words are emphasised on top of the colour. The amendment of
+  2026-10-16 drops the emphasis.
 - **New and deleted files:** a missing `old` shows as a new file, a
   missing `new` as a deleted one. `name` goes into the pane's header.
 - **Long lines** do not wrap; the viewer reports their full width, so
@@ -39,7 +40,7 @@ Taken with the user (plan, *Viewers*, and the step's todo):
   in this phase.
 - **The crate:** `similar` 3.x, by the author of `insta`, which asqr
   already uses for snapshots. Its `inline` feature finds the changed
-  words.
+  words. The amendment of 2026-10-16 drops the `inline` feature.
 
 Agent's choices within that design:
 
@@ -48,9 +49,11 @@ Agent's choices within that design:
   `url` and `uri` and not the whole call. Without it, words are runs
   between blanks. The feature pulls in `unicode-segmentation`, which
   ratatui already depends on. `similar`'s semantic cleanup is on, which
-  shifts the marked ranges so they read better.
+  shifts the marked ranges so they read better. Dropped by the
+  amendment of 2026-10-16.
 - **Emphasis is reversed video:** a changed word shows in its line's
   colour, reversed. It stays visible on a terminal without colours.
+  Dropped by the amendment of 2026-10-16.
 - **The sign stays:** each line keeps its `-`, `+` or blank after the
   gutter, so the diff reads without colours too, and in text snapshots.
 - **The gutter and the sign stay in place** while the text scrolls
@@ -79,7 +82,8 @@ Agent's choices within that design:
 - **A time limit:** `load` runs while the person waits for the screen,
   so computing a diff, words included, may take one second. Past that,
   `similar` returns a diff that is still correct but may mark more lines
-  as changed than needed.
+  as changed than needed. Since the amendment of 2026-10-16 there are
+  no words to compute.
 - **Reading files:** a relative path is never resolved, as for images.
   A file with a NUL byte counts as binary, as git decides, and is not
   shown. Bytes that are not UTF-8 show as `�`, so one stray byte from
@@ -138,3 +142,24 @@ grapheme through ratatui's cell width, and every width the screen lays
 out goes through them, so what the layout counts is what ratatui draws.
 A halfwidth sound mark such as `ﾞ` therefore takes a column of its own,
 as ratatui and terminals draw it.
+
+## Amendment (2026-10-16, a line diff without marked words)
+
+The user tested the diff of a Rust file before and after a change on
+2026-10-16 and compared the marking as built with three other ways of
+marking words. The marked words did not show what changed, and none of
+the ways convinced the user, who decided that asqr shows diffs line by
+line without marked words.
+
+- A changed line shows whole in its colour: the old version red, the
+  new one green. Nothing inside a line is reversed. This replaces the
+  decision that the changed words are emphasised on top of the colour,
+  and the agent's choices *Words end at punctuation* and *Emphasis is
+  reversed video*.
+- `similar` comes without its `inline` and `unicode` features.
+  `unicode-segmentation` stays a direct dependency, for measuring
+  columns.
+- The time limit of one second bounds the line diff alone.
+
+How GitHub and other tools pair lines and mark words is left to the
+todo `01M520ZWWR3RJAGXT9VDZ36DZK-find-out-how-github-marks-the-changed-words-of-a-diff.md`.

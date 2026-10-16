@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A diff marks no words inside a changed line: the old version shows
+  whole in red and the new one whole in green. Before, the changed
+  words of a changed line showed reversed.
 - The TUI takes its colours from the roles of the design guide instead
   of reversing nearly everything. The row under the cursor, a field's
   head under it, the current entry of the session list and the focused

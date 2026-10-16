@@ -1117,11 +1117,9 @@ Diffs (ADR 33):
   holds the old and the new line number, followed by the sign: `-` for
   a removed line, `+` for an added one, a blank for an unchanged one.
 - Removed lines are red and added lines green, in the terminal's
-  palette, so its theme decides the shades. Inside a changed line the
-  changed words show reversed on top of the colour. Words end at blanks
-  and punctuation, so `get(url)` changed to `get(uri)` marks only `url`
-  and `uri`. A line that changed too much to pair with its old version
-  shows without marked words.
+  palette, so its theme decides the shades. A changed line shows as its
+  old version removed and its new version added, each whole in its
+  colour, with nothing marked inside the line.
 - A diff without `old` starts with a dim "new file", one without `new`
   with "deleted file"; when that file is empty, "empty file" follows.
   Two sides with the same text show "no changes".
@@ -1448,7 +1446,7 @@ MPL-2.0.
 | Timestamps | `jiff` (RFC 3339 with the offset) |
 | Logging | `tracing` and `tracing-subscriber`, into a file in the platform cache directory |
 | Markdown and highlighting | `patine` without default features, for the text fields and for code and Markdown entries (ADR 34, ADR 35) |
-| Diffs | `similar` with its `inline` and `unicode` features |
+| Diffs | `similar` |
 | Columns of text on screen | `unicode-segmentation` for graphemes, each as wide as ratatui's cell width |
 | Session ids | `ulid` |
 | Tests | `insta` for snapshots of rendered screens, `assert_cmd` for the CLI, `portable-pty` and `vt100` for the TUI in a pseudo-terminal |
