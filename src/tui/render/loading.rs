@@ -15,6 +15,7 @@ use std::collections::VecDeque;
 use std::io;
 use std::panic::{AssertUnwindSafe, PanicHookInfo, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -114,29 +115,58 @@ impl Job {
     }
 }
 
-/// Runs `job` on a thread of its own and hands its result back. Should
-/// the system refuse a thread, the job runs on the calling thread, which
-/// waits for it.
-pub(super) fn start(job: Job, tools: &Tools) {
+/// Runs `job` on a thread of its own and hands its result back, counted
+/// in `running` while it runs there. Should the system refuse a thread,
+/// the job runs on the calling thread, which waits for it, and is not
+/// counted.
+pub(super) fn start(job: Job, tools: &Tools, running: &Arc<AtomicUsize>) {
     // `spawn` drops its closure when it fails, so the job waits outside
-    // it, where it can be taken back.
+    // it, where it can be taken back; the count goes with the closure.
     let slot = Arc::new(Mutex::new(Some(job)));
     let theirs = Arc::clone(&slot);
     let their_tools = tools.clone();
+    let counted = Running::new(running);
     let spawned = thread::Builder::new()
         .name("asqr-load".to_owned())
         .stack_size(STACK)
         .spawn(move || {
             if let Some(job) = take(&theirs) {
-                finish(job, &their_tools);
+                finish(job, &their_tools, Some(counted));
             }
         });
     if let Err(error) = spawned {
         tracing::warn!(%error, "could not start a thread to load a context entry");
         if let Some(job) = take(&slot) {
-            finish(job, tools);
+            finish(job, tools, None);
         }
     }
+}
+
+/// One job counted as running on a thread of its own, until it drops.
+pub(super) struct Running(Arc<AtomicUsize>);
+
+impl Running {
+    fn new(running: &Arc<AtomicUsize>) -> Self {
+        running.fetch_add(1, Ordering::SeqCst);
+        Running(Arc::clone(running))
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// How many jobs may run on threads of their own at once: one fewer
+/// than the cores, so the thread that loads ahead and the drawing thread
+/// keep one, and at least one. Without a count of the cores, one.
+pub(super) fn own_thread_cap() -> usize {
+    cap_for(thread::available_parallelism().ok().map(usize::from))
+}
+
+fn cap_for(cores: Option<usize>) -> usize {
+    cores.map_or(1, |cores| cores.saturating_sub(1).max(1))
 }
 
 fn take(slot: &Mutex<Option<Job>>) -> Option<Job> {
@@ -144,8 +174,9 @@ fn take(slot: &Mutex<Option<Job>>) -> Option<Job> {
 }
 
 /// Runs `job` and hands its result on, a panic included, then wakes the
-/// run loop.
-pub(super) fn finish(job: Job, tools: &Tools) {
+/// run loop. The job's count of `running`, where it has one, ends before
+/// the result goes, so the draw the wake starts sees its thread free.
+pub(super) fn finish(job: Job, tools: &Tools, running: Option<Running>) {
     let dispatch = job.dispatch.clone();
     LOADING.set(true);
     let finished = tracing::dispatcher::with_default(&dispatch, || {
@@ -155,6 +186,7 @@ pub(super) fn finish(job: Job, tools: &Tools) {
         }
     });
     LOADING.set(false);
+    drop(running);
     // The viewers went away with the view as asqr quits; nobody waits for
     // the result then.
     let _ = tools.results.send(finished);
@@ -223,6 +255,12 @@ impl Ahead {
             .collect()
     }
 
+    /// This queue, whose thread the system refuses.
+    #[cfg(test)]
+    pub(super) fn refusing_threads(&mut self) {
+        self.spawn = |_| Err(io::Error::other("no thread for the test"));
+    }
+
     /// The key, ticket and size of each job not started yet, in their
     /// order.
     #[cfg(test)]
@@ -273,6 +311,40 @@ impl Ahead {
                     self.warned = true;
                 }
             }
+        }
+    }
+
+    /// Puts `job` first in the queue, in place of a queued job of its key,
+    /// so it runs next on the thread that loads ahead. Where that thread
+    /// cannot start, the job comes back, to run elsewhere rather than
+    /// wait for ever.
+    pub(super) fn push_first(&mut self, job: Job, tools: Tools) -> Option<Job> {
+        {
+            let mut queue = self.lock();
+            queue.jobs.retain(|(queued, _)| queued.key != job.key);
+            queue.jobs.push_front((job, tools));
+        }
+        self.queue.1.notify_all();
+        self.ensure_worker();
+        if self.started {
+            return None;
+        }
+        let mut queue = self.lock();
+        let (job, _) = queue
+            .jobs
+            .pop_front()
+            .expect("no thread runs to take the job just put first");
+        Some(job)
+    }
+
+    /// Moves the queued job of `key` to the front, if it is queued.
+    pub(super) fn to_front(&self, key: &ViewerKey) {
+        let mut queue = self.lock();
+        if let Some(at) = queue.jobs.iter().position(|(job, _)| job.key == *key)
+            && at > 0
+        {
+            let job = queue.jobs.remove(at).expect("the position is in the queue");
+            queue.jobs.push_front(job);
         }
     }
 
@@ -331,7 +403,7 @@ fn work(queue: &(Mutex<Queue>, Condvar)) {
             }
         };
         let (job, tools) = next;
-        finish(job, &tools);
+        finish(job, &tools, None);
     }
 }
 
@@ -417,7 +489,7 @@ mod tests {
     fn a_job_that_panics_hands_its_message_on() {
         let (tools, finished) = panicking();
 
-        finish(job(), &tools);
+        finish(job(), &tools, None);
 
         let Ok(Finished::Panicked(message)) = finished.try_recv() else {
             panic!("the panic is handed on");
@@ -473,6 +545,66 @@ mod tests {
                 .is_ok(),
             "the thread runs the job"
         );
+    }
+
+    #[test]
+    fn the_cap_leaves_a_core_and_runs_at_least_one() {
+        let cases = [
+            (None, 1),
+            (Some(1), 1),
+            (Some(2), 1),
+            (Some(3), 2),
+            (Some(8), 7),
+        ];
+        for (cores, cap) in cases {
+            assert_eq!(cap_for(cores), cap, "{cores:?}");
+        }
+        assert!(own_thread_cap() >= 1);
+    }
+
+    /// A job put first replaces a queued job of its key, so the queue
+    /// keeps one job per key.
+    #[test]
+    fn a_job_put_first_replaces_the_queued_one_of_its_key() {
+        let (tools, _finished) = noting();
+        let mut ahead = Ahead::new();
+        let other = || Job {
+            key: ViewerKey {
+                session: "s".to_owned(),
+                entry: EntryKey {
+                    question: 1,
+                    option: None,
+                },
+            },
+            ..job()
+        };
+        // Counted as started without a thread, so the jobs stay queued.
+        ahead.started = true;
+        ahead.requeue(|queue| {
+            queue.push_back((other(), tools.clone()));
+            queue.push_back((job(), tools.clone()));
+        });
+
+        let mut first = job();
+        first.ticket = 2;
+        assert!(ahead.push_first(first, tools).is_none());
+
+        let queued: Vec<(usize, u64)> = ahead
+            .queued_jobs()
+            .into_iter()
+            .map(|(key, ticket, _)| (key.entry.question, ticket))
+            .collect();
+        assert_eq!(queued, [(0, 2), (1, 1)]);
+
+        // The entry shown, queued behind another, moves to the front.
+        let shown = other().key;
+        ahead.to_front(&shown);
+        let keys: Vec<usize> = ahead
+            .queued()
+            .into_iter()
+            .map(|key| key.entry.question)
+            .collect();
+        assert_eq!(keys, [1, 0]);
     }
 
     /// The viewers going close the queue, and its thread ends after its

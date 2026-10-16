@@ -60,9 +60,12 @@ Jakob decided on 2026-10-16:
 
 The lead decided under Jakob's delegation:
 
-- The entry shown gets a thread of its own at once. Loading ahead runs
-  on one background thread in the window's order; the entry shown takes
-  its job out of that queue when it has not started.
+- The entry shown gets a thread of its own at once while fewer such
+  jobs run than one fewer than the cores, at least one (one on one or
+  two cores); past that its job goes first in the queue of the thread
+  that loads ahead. Loading ahead runs on one background thread in the
+  window's order; the entry shown takes its job out of that queue when
+  it has not started.
 - Results come back on a channel the viewers own; a payload-free event
   wakes the run loop, which draws again.
 - The entry shown counts as inside the window when its result arrives,
@@ -96,6 +99,12 @@ The lead decided under Jakob's delegation:
   to an entry never starts a second job for it. Its result is dropped
   if it arrives while its entry is outside the window and is not the
   entry shown.
+- Moving fast over many slow entries runs at most that many jobs on
+  threads of their own plus the one of the thread that loads ahead; the
+  latest entry shown is next in line. Past that many, the entry shown
+  waits until one of the running jobs ends, its own-thread ones or the
+  one the thread that loads ahead runs, which can take as long as the
+  slowest entry of the window.
 - A panic on a worker ends asqr as a panic while drawing does: the panic
   hook passes over the worker, the drawing thread panics with the
   worker's message on the frame the load woke, and the hook gives the

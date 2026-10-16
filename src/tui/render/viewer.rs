@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
@@ -139,6 +140,12 @@ pub struct Viewers {
     wait: Duration,
     placeholder: LoadingNote,
     ahead: Ahead,
+    /// How many jobs run on threads of their own.
+    running: Arc<AtomicUsize>,
+    /// How many jobs may run on threads of their own at once. Tests run
+    /// any number, so what they see does not depend on the machine's
+    /// cores, unless they ask for a cap.
+    cap: usize,
     /// Whether the entries of the window load before they are shown. Tests
     /// load ahead only where they ask to, so the Kitty ids and the builds
     /// they count stay their own.
@@ -178,6 +185,12 @@ impl Viewers {
             wait: if cfg!(test) { TEST_WAIT } else { LOAD_WAIT },
             placeholder: LoadingNote,
             ahead: Ahead::new(),
+            running: Arc::default(),
+            cap: if cfg!(test) {
+                usize::MAX
+            } else {
+                loading::own_thread_cap()
+            },
             loads_ahead: !cfg!(test),
             #[cfg(test)]
             built: 0,
@@ -260,7 +273,9 @@ impl Viewers {
     /// A viewer kept for another size is laid out again; while that job
     /// holds it, the pane waits for it. A job queued to load ahead leaves
     /// the queue and starts at once at the size the pane asks for, as the
-    /// entry shown goes first.
+    /// entry shown goes first, or goes first in the queue while the cap's
+    /// jobs run on threads of their own. This runs on every draw while
+    /// the entry is not ready, so a job freed of the cap starts then.
     fn request(
         &mut self,
         key: &ViewerKey,
@@ -277,13 +292,15 @@ impl Viewers {
             .get(key)
             .is_some_and(|request| request.entry == *entry && request.quote == quote);
         if in_flight {
-            if let Some(mut queued) = self.ahead.take(key) {
+            if !self.below_cap() {
+                self.ahead.to_front(key);
+            } else if let Some(mut queued) = self.ahead.take(key) {
                 queued.size = size;
                 #[cfg(test)]
                 {
                     self.built += 1;
                 }
-                loading::start(queued, &self.tools);
+                loading::start(queued, &self.tools, &self.running);
             }
             return;
         }
@@ -315,7 +332,26 @@ impl Viewers {
         }
         drop(self.ahead.take(key));
         let job = self.job(key, entry, quote, size, kept);
-        loading::start(job, &self.tools);
+        self.run_first(job);
+    }
+
+    /// Whether a job may start on a thread of its own.
+    fn below_cap(&self) -> bool {
+        self.running.load(Ordering::SeqCst) < self.cap
+    }
+
+    /// Runs `job` on a thread of its own, or past the cap first on the
+    /// thread that loads ahead, so moving fast over many slow entries
+    /// does not start a thread for each. Where that thread cannot start,
+    /// the job runs on one of its own all the same.
+    fn run_first(&mut self, job: Job) {
+        if self.below_cap() {
+            loading::start(job, &self.tools, &self.running);
+            return;
+        }
+        if let Some(job) = self.ahead.push_first(job, self.tools.clone()) {
+            loading::start(job, &self.tools, &self.running);
+        }
     }
 
     /// The job for `key` under a new ticket, noted as in flight.
@@ -619,6 +655,18 @@ impl Viewers {
     #[cfg(test)]
     pub(super) fn loading_ahead(&mut self) {
         self.loads_ahead = true;
+    }
+
+    /// These viewers, running at most `cap` jobs on threads of their own.
+    #[cfg(test)]
+    pub(super) fn capping(&mut self, cap: usize) {
+        self.cap = cap;
+    }
+
+    /// These viewers, whose thread to load ahead the system refuses.
+    #[cfg(test)]
+    pub(super) fn refusing_the_ahead_thread(&mut self) {
+        self.ahead.refusing_threads();
     }
 
     /// The entries queued to load ahead and not started yet.
@@ -1942,6 +1990,111 @@ mod tests {
         gate.open();
         test_support::wait_until(&entries.woken, 2);
         assert_eq!((entries.of("k1").0, entries.of("k2").0), (0, 1));
+    }
+
+    // -----------------------------------------------------------------
+    // The cap on threads of their own
+    // -----------------------------------------------------------------
+
+    /// Moving fast over slow entries runs the cap's jobs on threads of
+    /// their own and one on the thread that loads ahead; the others wait
+    /// in its queue, the latest entry shown first.
+    #[test]
+    fn entries_shown_past_the_cap_wait_first_in_line() {
+        let gate = Gate::default();
+        let mut entries = per_entry(&gate, |_| true);
+        entries.viewers.capping(2);
+        entries.viewers.waiting(Duration::ZERO);
+        let texts = ["1", "2", "3", "4", "5"].map(code);
+        let key = |index: usize| at(0, Some(index));
+        let show = |entries: &mut PerEntry, index: usize| {
+            entries
+                .viewers
+                .laid_out("s", key(index), &texts[index], 40, 10, COLOURED);
+        };
+
+        show(&mut entries, 0);
+        show(&mut entries, 1);
+        show(&mut entries, 2);
+        test_support::wait_until(&entries.began, 3);
+        show(&mut entries, 3);
+        show(&mut entries, 4);
+        thread::sleep(Duration::from_millis(50));
+
+        assert_eq!(entries.viewers.queued(), [key(4), key(3)]);
+        assert_eq!(entries.began.load(Ordering::SeqCst), 3, "the cap and one");
+        show(&mut entries, 4);
+        assert_eq!(entries.viewers.queued(), [key(4), key(3)], "first already");
+        assert_eq!(entries.viewers.built, 5, "one build each");
+        gate.open();
+        test_support::wait_until(&entries.woken, 5);
+    }
+
+    /// A job that ends frees its thread before it wakes the run loop, so
+    /// the draw it wakes starts the entry shown on a thread of its own
+    /// instead of leaving it behind the queue's job.
+    #[test]
+    fn a_freed_thread_takes_the_queued_entry_shown() {
+        let (one, busy) = (Gate::default(), Gate::default());
+        let began = Arc::new(AtomicUsize::new(0));
+        let mut viewers = viewers();
+        let (their_one, their_busy, their_count) = (one.clone(), busy.clone(), Arc::clone(&began));
+        viewers.building(Arc::new(move |entry, images, quote, home| {
+            if let ContextEntry::Code(code) = entry {
+                their_count.fetch_add(1, Ordering::SeqCst);
+                match code.content.as_deref() {
+                    Some("one") => their_one.wait(),
+                    Some("busy") => their_busy.wait(),
+                    _ => {}
+                }
+            }
+            viewer_for(entry, images, quote, home)
+        }));
+        let woken = counted(&mut viewers);
+        viewers.capping(1);
+        viewers.waiting(Duration::ZERO);
+        let (first, ahead, shown) = (code("one"), code("busy"), code("two"));
+        viewers.laid_out("s", at(0, Some(0)), &first, 40, 10, COLOURED);
+        viewers.laid_out("s", at(0, Some(1)), &ahead, 40, 10, COLOURED);
+        test_support::wait_until(&began, 2);
+        viewers.laid_out("s", at(0, Some(2)), &shown, 40, 10, COLOURED);
+        assert_eq!(viewers.queued(), [at(0, Some(2))]);
+
+        one.open();
+        test_support::wait_until(&woken, 1);
+        // The draw the wake starts; its job's wait was spent above.
+        viewers.laid_out("s", at(0, Some(2)), &shown, 40, 10, COLOURED);
+        test_support::wait_until(&woken, 2);
+        let (viewer, _) = viewers.laid_out("s", at(0, Some(2)), &shown, 40, 10, COLOURED);
+        let buf = test_support::drawn(viewer, 40, 10, Offset::default());
+
+        assert_eq!(row(&buf, 0), "1 two", "while busy still waits");
+        busy.open();
+        test_support::wait_until(&woken, 3);
+    }
+
+    /// Where the system refuses the thread that loads ahead, a job past
+    /// the cap runs on a thread of its own rather than wait for ever.
+    #[test]
+    fn a_job_past_the_cap_runs_on_its_own_thread_without_the_ahead_thread() {
+        let gate = Gate::default();
+        let mut entries = per_entry(&gate, |_| true);
+        entries.viewers.capping(1);
+        entries.viewers.refusing_the_ahead_thread();
+        entries.viewers.waiting(Duration::ZERO);
+        let (first, second) = (code("1"), code("2"));
+
+        entries
+            .viewers
+            .laid_out("s", at(0, Some(0)), &first, 40, 10, COLOURED);
+        entries
+            .viewers
+            .laid_out("s", at(0, Some(1)), &second, 40, 10, COLOURED);
+
+        test_support::wait_until(&entries.began, 2);
+        assert_eq!(entries.viewers.queued(), []);
+        gate.open();
+        test_support::wait_until(&entries.woken, 2);
     }
 
     /// Only an image a frame showed can have had its transfer dropped by
