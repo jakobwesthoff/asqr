@@ -3,7 +3,7 @@ title: "Check image handling and the emblem in real terminals"
 kind: chore
 component: tui
 origin: implementation
-tags: [ux]
+tags: [ux, field-test]
 ---
 # Check image handling and the emblem in real terminals
 
@@ -14,6 +14,20 @@ the graphics module, the emblem in text cells). The tests drive asqr
 through byte-exact checks, pipe tests and a PTY with stand-in answers,
 but no real terminal. The user postponed the check in real terminals
 and asked to assume for now that it works.
+
+## Checked so far
+
+Ghostty under tmux, release build of `9b22439`, 2026-10-16, by Jakob
+through a test set of seven asqr sessions: no key or digit arrived at
+start; seven of ten image formats showed right, and PNG, JPEG and PPM
+looked wrong only through faults in the test files (holes cut into the
+PNG, no alpha channel in JPEG and PPM); scaling, `enlarge: false`,
+extreme aspect ratios and a 6000×6000 image showed right; `z`, `o`, resizing, a
+font-size change, switching tmux windows and zooming another pane
+worked; no image stayed behind. Overlays over a Kitty image are broken
+(a todo of its own). Still open in Ghostty: detach and attach, a second
+client, quitting and restarting, the pane's `allow-passthrough` after
+quitting, an image arriving in a background window, and the emblem.
 
 ## What to check
 

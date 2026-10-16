@@ -89,6 +89,8 @@ those citations change with it (`rg -i <ulid>` finds them).
 ## Tags
 
 - `ux`: what a person sees and does: hints, editing, rendering
+- `field-test`: found while testing asqr by hand in real terminals,
+  starting with the run of 2026-10-16
 
 ## Milestones
 
