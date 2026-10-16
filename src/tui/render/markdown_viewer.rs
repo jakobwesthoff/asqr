@@ -305,6 +305,29 @@ mod tests {
         );
     }
 
+    /// A table cell shows as running text does: bold stays bold, and a
+    /// link shows its URL dimmed after it.
+    #[test]
+    fn a_table_cell_keeps_its_inline_styles() {
+        let mut viewer = inline(
+            "| name | doc |\n|--|--|\n| **retry** | see [docs](https://example.com/retry/policy) |\n",
+        );
+
+        let buf = drawn(&mut viewer, 80, 5, Offset::default());
+
+        assert_eq!(
+            row(&buf, 3),
+            "│ retry │ see docs (https://example.com/retry/policy) │"
+        );
+        let at = |text: &str| {
+            let x = row(&buf, 3).find(text).expect("the text shows");
+            let column = row(&buf, 3)[..x].chars().count();
+            buf[(u16::try_from(column).expect("a narrow row"), 3)].modifier
+        };
+        assert!(at("retry").contains(Modifier::BOLD), "{buf:?}");
+        assert!(at("https").contains(Modifier::DIM), "{buf:?}");
+    }
+
     #[test]
     fn tabs_in_code_blocks_line_up_at_stops_of_four() {
         let mut viewer = inline("```\n\tx = 1;\u{1b}\n```\n");

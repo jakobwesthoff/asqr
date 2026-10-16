@@ -1090,8 +1090,9 @@ style, as a Markdown entry does (section 7.7, ADR 35): headings bold
 inline code in yellow, lists with bullets, task lists with `☐` for an
 open task and `☑` for a done one, which is dim apart from the items
 nested under it, quotes in the style of the text around them behind a
-blue bar, links underlined with their URL dimmed, tables whose columns
-follow the alignment of the delimiter row, a column without one with
+blue bar, links underlined with their URL dimmed, tables whose cells
+keep the styles of running text, a link with its URL dimmed, and whose
+columns follow the alignment of the delimiter row, a column without one with
 its header centred and its data left-aligned, rules, and code blocks
 highlighted when the fence names a language.
 
@@ -1266,7 +1267,8 @@ Code and Markdown (ADR 34):
   underlined), emphasis, inline code in yellow, lists with bullets, task
   lists with `☐` for an open task and `☑` for a done one, which is dim
   apart from the items nested under it, quotes in the style of the text
-  around them behind a blue bar, tables whose columns follow the
+  around them behind a blue bar, tables whose cells keep the styles of
+  running text, a link with its URL dimmed, and whose columns follow the
   alignment of the delimiter row, a column without one with its header
   centred and its data left-aligned, and code blocks highlighted when
   the fence names a language.

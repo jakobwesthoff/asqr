@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loaded for those three questions only. Coming back to an entry
   outside them loads it again.
 - A code entry longer than 1 MiB shows without syntax highlighting.
-  Highlighting the first 8 MiB of a log took 23 seconds.
+  In 0.11.0, highlighting the first 8 MiB of a log took 23 seconds.
 - An image entry holds its file as asqr read it instead of its decoded
   pixels, and decodes it again only for another size of the image in
   cells. A shown 6000×6000 PNG
@@ -155,9 +155,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under `NO_COLOR`. Before, quoted text was dim and italic behind a dim
   bar.
 - The agent skill names task lists among the Markdown asqr renders.
+- A code entry of a log is highlighted in about a fifth of the time
+  (patine 1.7.1).
 
 ### Fixed
 
+- Markdown table cells keep their inline styles: bold, italic,
+  strikethrough, inline code and links show as in running text, and a
+  header cell adds bold on top. A link shows its dimmed `(url)`, so a
+  column of links is wider, and an image shows `[image: alt]` with its
+  path, where its cell was empty. Cell text wraps like running text,
+  and a run of spaces or inline HTML that is not drawn no longer
+  widens a column. Before, table cells showed as plain text (patine
+  1.7.1).
+- In a Markdown list item, a list after the text of a quote gets the
+  blank line, with the quote's bar, that it gets in any other quote,
+  and a paragraph in an item that starts with an empty code block, or
+  in a Markdown entry with an HTML block, follows the bullet on the
+  next line without a blank line (patine 1.7.1).
 - A code block or a nested list inside a Markdown quote sits inside the
   quote's bar, as `│   code`, where it showed as `  │ code` (patine
   1.7.0).
