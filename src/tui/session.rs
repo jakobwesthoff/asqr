@@ -1591,7 +1591,7 @@ mod tests {
         // Drawn after a head of 2 columns in 22: `ddddd` wraps onto a row
         // of its own.
         state.set_field_shape(FieldShape {
-            head: ratatui::text::Span::from("> "),
+            head: vec![ratatui::text::Span::from("> ")],
             width: 22,
         });
 
@@ -1658,7 +1658,7 @@ mod tests {
         );
 
         let shape = FieldShape {
-            head: ratatui::text::Span::from("> "),
+            head: vec![ratatui::text::Span::from("> ")],
             width: 22,
         };
         assert!(state.set_field_shape(shape.clone()));

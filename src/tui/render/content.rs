@@ -510,11 +510,11 @@ fn question_content(
                 // line breaks alone are no text, as in the result.
                 let chosen = has_text(answer)
                     && (question.kind == Kind::Multi || answer.selected.is_empty());
-                let head = Span::from(format!(
+                let head = vec![Span::from(format!(
                     "{}{} ✎ {label}: ",
                     pointer(current),
                     mark(question.kind, chosen)
-                ));
+                ))];
                 let text = answer.custom.as_deref().unwrap_or_default();
                 if live {
                     let row = FieldRow {
@@ -532,7 +532,7 @@ fn question_content(
                 }
             }
             Row::Answer => {
-                let head = Span::from(format!("{}✎ ", pointer(current)));
+                let head = vec![Span::from(format!("{}✎ ", pointer(current)))];
                 let text = answer.custom.as_deref().unwrap_or_default();
                 if live {
                     let row = FieldRow {
@@ -561,7 +561,7 @@ fn question_content(
         // A note has no length to count against, and its head is never
         // filled.
         let row = FieldRow {
-            head: Span::styled("Notes: ", theme::strong()),
+            head: vec![Span::styled("Notes: ", theme::strong())],
             text: answer.note.as_deref().unwrap_or_default(),
             editing,
             fill: false,
@@ -634,7 +634,7 @@ fn option_lines(
 /// session note or the reject reason.
 struct FieldRow<'a> {
     /// What comes before the text: the pointer, marks and a label.
-    head: Span<'static>,
+    head: Vec<Span<'static>>,
     /// The text as kept, shown while the field does not have the keys.
     text: &'a str,
     /// Whether the field has the keys, so the session's field is drawn
@@ -671,10 +671,10 @@ fn live_field(
             *shape = Some(drawn);
             (lines, Some(cursor))
         }
-        None if row.fill => (
-            resting_lines(theme::focus_span(row.head), true, row.text, width),
-            None,
-        ),
+        None if row.fill => {
+            let head = row.head.into_iter().map(theme::focus_span).collect();
+            (resting_lines(head, true, row.text, width), None)
+        }
         None => (resting_lines(row.head, false, row.text, width), None),
     }
 }
@@ -718,7 +718,7 @@ fn review_content(state: &SessionState, width: usize) -> Content {
         let filled = current && !state.pane_focused();
         // The session note and the reject reason are fields.
         let field_row = |head: String, text| FieldRow {
-            head: Span::from(head),
+            head: vec![Span::from(head)],
             text,
             editing: current && state.focus() == Focus::Field,
             fill: filled,
@@ -917,7 +917,7 @@ mod tests {
     fn a_note_shows_its_head_bold_and_never_reversed() {
         let (content, buf) = tab_of(&after("n"));
         let shape = content.shape.expect("the note has the keys");
-        assert_eq!(shape.head, Span::from("Notes: ").bold());
+        assert_eq!(shape.head, [Span::from("Notes: ").bold()]);
         assert_eq!(shape.width, 40);
         let notes = test_support::find(&buf, "Notes: ").1;
         assert_eq!(content.cursor, (usize::from(notes), usize::from(notes)));
@@ -944,7 +944,7 @@ mod tests {
         // The text question takes the keys on arrival.
         let (content, buf) = tab_of(&after("labcd"));
         let shape = content.shape.expect("the field has the keys");
-        assert_eq!(shape.head, Span::from("❯ ✎ "));
+        assert_eq!(shape.head, [Span::from("❯ ✎ ")]);
         assert_eq!(test_support::row(&buf, 3), "❯ ✎ abcd");
         assert!(
             test_support::row(&buf, 4).contains("4/3"),

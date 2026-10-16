@@ -63,10 +63,11 @@ pub enum Leave {
 }
 
 /// Where a field is drawn: the head its text follows and the width its
-/// rows wrap at.
+/// rows wrap at. Each span of the head keeps its own style, so a mark in
+/// it can take a colour apart from the rest.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldShape {
-    pub head: Span<'static>,
+    pub head: Vec<Span<'static>>,
     pub width: usize,
 }
 
@@ -175,7 +176,7 @@ impl TextField {
     /// whose rows are the text's lines.
     fn shape_or_lines(&self) -> FieldShape {
         self.shape.clone().unwrap_or(FieldShape {
-            head: Span::default(),
+            head: Vec::new(),
             width: usize::MAX,
         })
     }
@@ -421,7 +422,7 @@ fn cleaned_from(text: &str, column: usize) -> String {
 /// after `head`, or a dim `—` when it is empty. A `filled` head shows its
 /// blanks as part of the fill, so they wrap like text.
 pub fn resting_lines(
-    head: Span<'static>,
+    head: Vec<Span<'static>>,
     filled: bool,
     text: &str,
     width: usize,
@@ -437,7 +438,7 @@ pub fn resting_lines(
 /// left out. A field whose head can take the focus fill is counted
 /// `filled`, as the fill's blanks wrap like text.
 pub fn counted_lines(
-    head: Span<'static>,
+    head: Vec<Span<'static>>,
     filled: bool,
     text: &str,
     width: usize,
@@ -574,14 +575,14 @@ impl VisualRow<'_> {
 /// `NARROW_INDENT` columns in when the head leaves the text less than
 /// `MIN_TEXT_WIDTH` (ADR 27), and so does every row a line wraps onto.
 fn layout<'a>(
-    head: &'a Span<'a>,
+    head: &'a [Span<'a>],
     filled: bool,
     lines: &[&'a str],
     cursor: Option<(usize, usize)>,
     placeholder: bool,
     width: usize,
 ) -> Vec<VisualRow<'a>> {
-    let head_width = columns(&head.content);
+    let head_width: usize = head.iter().map(|span| columns(&span.content)).sum();
     let indent = if width.saturating_sub(head_width) >= MIN_TEXT_WIDTH {
         head_width
     } else {
@@ -595,14 +596,15 @@ fn layout<'a>(
         // wider than the row would leave them alone on a row above it.
         let (lead, first): (Vec<Glyph>, usize) = if index == 0 {
             let head = head
-                .content
-                .graphemes(true)
-                .map(|grapheme| {
-                    if filled {
-                        Glyph::shown(grapheme, head.style)
-                    } else {
-                        Glyph::new(grapheme, head.style)
-                    }
+                .iter()
+                .flat_map(|span| {
+                    span.content.graphemes(true).map(|grapheme| {
+                        if filled {
+                            Glyph::shown(grapheme, span.style)
+                        } else {
+                            Glyph::new(grapheme, span.style)
+                        }
+                    })
                 })
                 .collect();
             (head, 0)
@@ -874,7 +876,7 @@ mod tests {
     fn shaped(text: &str, width: usize, cursor: (usize, usize)) -> TextField {
         let mut field = TextField::new(text);
         field.set_shape(FieldShape {
-            head: Span::from("> "),
+            head: vec![Span::from("> ")],
             width,
         });
         field.jump(cursor);
@@ -1056,7 +1058,7 @@ mod tests {
             "the cursor on the word's first letter"
         );
         assert_eq!(
-            counted_lines(Span::from("> "), false, &text, 22, false).len(),
+            counted_lines(vec![Span::from("> ")], false, &text, 22, false).len(),
             3,
             "counting agrees"
         );
@@ -1338,7 +1340,7 @@ mod tests {
     /// A field drawn after `> ` in `width` columns.
     fn shape_of(width: usize) -> FieldShape {
         FieldShape {
-            head: Span::from("> "),
+            head: vec![Span::from("> ")],
             width,
         }
     }
@@ -1381,14 +1383,14 @@ mod tests {
 
     #[test]
     fn every_line_of_the_text_starts_under_its_start() {
-        let lines = resting_lines(Span::from("Notes: "), false, "first\nsecond", 40);
+        let lines = resting_lines(vec![Span::from("Notes: ")], false, "first\nsecond", 40);
 
         assert_eq!(texts(&lines), ["Notes: first", "       second"]);
     }
 
     #[test]
     fn a_long_line_wraps_under_the_start_of_the_text() {
-        let lines = resting_lines(Span::from("H: "), false, "alpha beta gamma delta", 24);
+        let lines = resting_lines(vec![Span::from("H: ")], false, "alpha beta gamma delta", 24);
 
         assert_eq!(texts(&lines), ["H: alpha beta gamma ", "   delta"]);
     }
@@ -1396,7 +1398,7 @@ mod tests {
     #[test]
     fn a_head_leaving_less_than_20_columns_wraps_the_text_4_columns_in() {
         let lines = resting_lines(
-            Span::from("Head: "),
+            vec![Span::from("Head: ")],
             false,
             "alpha beta gamma delta\nepsilon",
             25,
@@ -1411,7 +1413,7 @@ mod tests {
     #[test]
     fn an_empty_field_without_the_keys_shows_a_dim_dash_after_its_head() {
         let head = Span::from("Head: ").reversed();
-        let lines = resting_lines(head.clone(), true, "", 40);
+        let lines = resting_lines(vec![head.clone()], true, "", 40);
 
         assert_eq!(lines.len(), 1);
         assert_eq!(texts(&lines), ["Head: —"]);
@@ -1419,6 +1421,51 @@ mod tests {
         assert_eq!(spans[1].content, "Head: ");
         assert_eq!(spans[1].style, head.style, "the head keeps its style");
         assert_eq!(spans[2].style, Style::new().dim());
+    }
+
+    /// A head of three spans, its mark bold cyan.
+    fn marked_head() -> Vec<Span<'static>> {
+        vec![
+            Span::from("> "),
+            Span::styled("[x]", Style::new().fg(Color::Cyan).bold()),
+            Span::from(" A: "),
+        ]
+    }
+
+    #[test]
+    fn a_head_of_several_spans_keeps_each_ones_style() {
+        let lines = resting_lines(marked_head(), false, "ab", 40);
+
+        // Neighbouring glyphs of one style draw as one span, so the
+        // plain end of the head and the text run together.
+        let runs: Vec<(&str, Style)> = lines[0]
+            .spans
+            .iter()
+            .filter(|span| !span.content.is_empty())
+            .map(|span| (span.content.as_ref(), span.style))
+            .collect();
+        assert_eq!(
+            runs,
+            [
+                ("> ", Style::new()),
+                ("[x]", Style::new().fg(Color::Cyan).bold()),
+                (" A: ab", Style::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn every_span_of_a_filled_head_shows_its_blanks() {
+        // The head takes 9 columns, its last span's closing blank the 9th,
+        // one past the end of 8. Filled, that blank starts the next row.
+        assert_eq!(
+            texts(&resting_lines(marked_head(), true, "ab", 8)),
+            ["> [x] A:", "     ab"]
+        );
+        assert_eq!(
+            texts(&resting_lines(marked_head(), false, "ab", 8)),
+            ["> [x] A: ", "    ab"]
+        );
     }
 
     #[test]
@@ -1461,7 +1508,7 @@ mod tests {
         // `Answer:` ends at the edge of 7 columns. Its blank hangs past the
         // edge unfilled; filled, it starts the next row, and `abc` no longer
         // fits after it.
-        let head = || Span::from("Answer: ");
+        let head = || vec![Span::from("Answer: ")];
 
         assert_eq!(counted_lines(head(), false, "abc", 7, false).len(), 2);
         assert_eq!(counted_lines(head(), true, "abc", 7, false).len(), 3);
@@ -1469,7 +1516,7 @@ mod tests {
 
     #[test]
     fn counting_keeps_a_row_for_the_counter_of_a_field_with_limits() {
-        let head = || Span::from("> ");
+        let head = || vec![Span::from("> ")];
 
         assert_eq!(counted_lines(head(), false, "a\nb", 40, false).len(), 2);
         assert_eq!(counted_lines(head(), false, "a\nb", 40, true).len(), 3);
