@@ -36,8 +36,8 @@ terminal's theme decides how they look:
 
 | Role | Colour | Where |
 |---|---|---|
-| Primary | cyan | `asqr` in the title line, the current tab and the rule under it, chosen marks of options, the keys in the key bar and the help, overlay borders, the submit button |
-| Focus | yellow, as a fill | the row under the cursor, a field's head under the cursor, the current entry of the session list, the focused context pane's header |
+| Primary | cyan | `asqr` in the title line, the current tab and the rule under it, chosen marks of options (and of the own answer, by the amendment on the own answer's mark), the keys in the key bar and the help, overlay borders, the submit button |
+| Focus | yellow, as a fill | the row under the cursor, a field's head under the cursor (while the field does not have the keys, by the amendment on the own answer's mark), the current entry of the session list, the focused context pane's header |
 | Warning | yellow | a notice, a length counter above its target |
 | Success | green | a length counter within its target, an added diff line |
 | Error | red | a length counter above `warn`, a removed diff line |
@@ -98,10 +98,9 @@ terminal's theme decides how they look:
   makes greys (`#93a1a1`, `#657b83`).
 - Focus and warning share yellow. Whether that reads clearly where a
   refused key's notice shows next to a focused row was left open.
-- The own answer's mark stays in the text colour when it is chosen: it is
-  part of the field's head, which has one style. The todo
-  `01M50JSEM9KMM2QYWBQNZ61DX2-colour-the-chosen-mark-of-the-own-answer-like-the-option-marks.md`
-  holds what colouring it would take.
+- The own answer's mark stayed in the text colour when it was chosen, as
+  part of the field's head, which had one style. The amendment on the
+  own answer's mark colours it.
 - The rule under the tab bar and the rounded overlay corners change the
   text of the screen, not only its colours.
 
@@ -122,3 +121,20 @@ too, so the queue and the count are secondary in every title bar. This
 replaces "the count in the text colour" in the bullet "Title line and
 key bar have no fills" and "on the empty queue the count keeps the text
 colour" in the amendment above.
+
+## Amendment (2026-10-16, the own answer's mark)
+
+Jakob decided on 2026-10-16 that the own answer's chosen mark is bold in
+the primary colour when it counts, like an option's. That is off the
+fill and while the field has the keys; under the focus fill the mark
+takes the fill's colour like the rest of its row and keeps its bold, as
+an option's chosen mark does. This extends "chosen marks of options" in
+the Decision table's Primary row. A field's head is a list of spans, so
+the mark takes a style of its own.
+
+Jakob also decided on 2026-10-16 that a field's head carries no focus
+fill while the field has the keys, as the TUI drew it since before this
+ADR; the text cursor shows where typing goes. A field's head under the
+cursor is filled only while the field does not have the keys. This
+narrows "a field's head under the cursor" in the Decision table's Focus
+row.

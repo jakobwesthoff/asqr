@@ -683,8 +683,9 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   themselves; where that leaves less than 30 columns, they go below the
   label.
 - The own-answer row is the last row of a question with `custom`; its
-  mark shows whether the typed text counts. A `text` question consists
-  of its answer field only.
+  mark shows whether the typed text counts, and when it counts it is
+  bold in the primary colour like a chosen option's mark (ADR 37). A
+  `text` question consists of its answer field only.
 - The notes line sits under the options (section 7.3).
 - The line above the key bar shows notices (about the queue) and
   messages (about the last key) until the next key or paste, a notice
@@ -700,14 +701,14 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   decides how they look: cyan as the primary colour, yellow for the
   focus, green and red for the length counter and diff lines, yellow,
   red and green for notices and messages by their kind, dim for
-  secondary text. The row under the cursor, a field's
-  head under it, the current entry of the session list and the focused
-  context pane's header show the focus fill: yellow reversed, the whole
-  row in one colour. One focus fill shows at a time. The submit button
-  is the only other fill (section 7.4). The help, the whole intro and
-  the session list show in a frame with rounded corners in the primary
-  colour, a bold title, a dim footer and a blank column inside each
-  side; the help's keys are bold in the primary colour. Code and
+  secondary text. The row under the cursor, a field's head under it
+  while the field does not have the keys, the current entry of the
+  session list and the focused context pane's header show the focus
+  fill: yellow reversed, the whole row in one colour. One focus fill
+  shows at a time. The submit button is the only other fill (section
+  7.4). The help, the whole intro and the session list show in a frame
+  with rounded corners in the primary colour, a bold title, a dim footer
+  and a blank column inside each side; the help's keys are bold in the primary colour. Code and
   Markdown keep their highlighting colours. Marks, pointers, text and
   the fills carry every meaning, so nothing depends on colour alone.
 - **Reading width:** the question and the review take at most 100

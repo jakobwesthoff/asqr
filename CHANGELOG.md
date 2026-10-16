@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The own answer's mark, `(•)` or `[x]`, is bold in the primary colour
+  when the typed text counts, like a chosen option's mark, and bold
+  under the cursor's fill too. Before, it kept the text colour.
+
 ### Fixed
 
 - The logo at the top of the README shows on crates.io in a dark color

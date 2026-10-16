@@ -45,7 +45,7 @@ pub(crate) fn current_tab() -> Style {
     primary().bold().not_dim()
 }
 
-/// The mark of a chosen option.
+/// A chosen mark: of a chosen option, and of an own answer that counts.
 pub(crate) fn chosen() -> Style {
     primary().bold()
 }

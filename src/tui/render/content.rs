@@ -394,13 +394,20 @@ fn mark_cut(area: Rect, buf: &mut Buffer, row: usize, marker: &str, cursor: Opti
     Line::styled(text, theme::secondary()).render(marked, buf);
 }
 
-/// The mark in front of an option or the own answer.
-fn mark(kind: Kind, chosen: bool) -> &'static str {
-    match (kind, chosen) {
+/// The mark in front of an option or the own answer, bold in the primary
+/// colour when chosen, so a chosen option and an own answer that counts
+/// look alike.
+fn mark(kind: Kind, chosen: bool) -> Span<'static> {
+    let mark = match (kind, chosen) {
         (Kind::Single, true) => "(•)",
         (Kind::Single, false) => "( )",
         (_, true) => "[x]",
         (_, false) => "[ ]",
+    };
+    if chosen {
+        Span::styled(mark, theme::chosen())
+    } else {
+        Span::from(mark)
     }
 }
 
@@ -477,14 +484,9 @@ fn question_content(
                     .as_ref()
                     .expect("option rows come from options")[option_index];
                 let chosen = answer.selected.contains(&option.id);
-                let mark = Span::from(mark(question.kind, chosen));
                 let head = vec![
                     pointer(current),
-                    if chosen {
-                        mark.patch_style(theme::chosen())
-                    } else {
-                        mark
-                    },
+                    mark(question.kind, chosen),
                     Span::styled(format!(" {}. ", option_index + 1), theme::secondary()),
                     Span::styled(option.label.clone(), theme::strong()),
                 ];
@@ -510,11 +512,11 @@ fn question_content(
                 // line breaks alone are no text, as in the result.
                 let chosen = has_text(answer)
                     && (question.kind == Kind::Multi || answer.selected.is_empty());
-                let head = vec![Span::from(format!(
-                    "{}{} ✎ {label}: ",
+                let head = vec![
                     pointer(current),
-                    mark(question.kind, chosen)
-                ))];
+                    mark(question.kind, chosen),
+                    Span::from(format!(" ✎ {label}: ")),
+                ];
                 let text = answer.custom.as_deref().unwrap_or_default();
                 if live {
                     let row = FieldRow {
@@ -1049,6 +1051,109 @@ mod tests {
                 "column {x}"
             );
         }
+    }
+
+    /// The text colour and the modifiers of a cell.
+    type Look = (Color, Modifier);
+
+    /// The look of each of the first `width` cells where `text` starts.
+    fn looks_from(buf: &Buffer, text: &str, width: u16) -> Vec<Look> {
+        let (x, y) = test_support::find(buf, text);
+        (x..x + width)
+            .map(|x| (buf[(x, y)].fg, buf[(x, y)].modifier))
+            .collect()
+    }
+
+    /// The look of the own answer's three-cell mark in `buf`, then of the
+    /// blank and the `✎` after it, starting where `mark` shows before `✎`.
+    fn own_mark_looks(buf: &Buffer, mark: &str) -> (Vec<Look>, Vec<Look>) {
+        let looks = looks_from(buf, &format!("{mark} ✎"), 5);
+        (looks[..3].to_vec(), looks[3..].to_vec())
+    }
+
+    #[test]
+    fn a_counting_own_answer_shows_its_mark_bold_primary_off_the_fill() {
+        let cases = [
+            (after("jabEk"), "the cursor on another row"),
+            (after("jab"), "the field has the keys"),
+            (with_pane_focused("jabE"), "the pane has the focus"),
+            (
+                with_pane_focused("jab"),
+                "the pane has the focus while the field keeps the keys",
+            ),
+        ];
+
+        // Compared all at once, so a failure shows every case.
+        let looks: Vec<_> = cases
+            .iter()
+            .map(|(state, case)| (*case, own_mark_looks(&tab_of(state).1, "(•)")))
+            .collect();
+        let bold_primary = (Color::Cyan, Modifier::BOLD);
+        let plain = (Color::Reset, Modifier::empty());
+        let expected: Vec<_> = cases
+            .iter()
+            .map(|(_, case)| (*case, (vec![bold_primary; 3], vec![plain; 2])))
+            .collect();
+        assert_eq!(looks, expected, "the mark and then the blank and `✎`");
+    }
+
+    #[test]
+    fn an_own_answer_that_does_not_count_keeps_its_mark_plain() {
+        let plain = (Color::Reset, Modifier::empty());
+        for (keys, case) in [
+            ("", "empty"),
+            ("j  Ek", "blanks only"),
+            // Enter picks A and moves on to the text question, which takes
+            // the keys; `esc` and `h` come back.
+            ("jabEk\nEh", "an option chosen besides the text"),
+        ] {
+            let (_, buf) = tab_of(&after(keys));
+            let (mark, _) = own_mark_looks(&buf, "( )");
+            assert_eq!(mark, [plain; 3], "{case}: {:?}", test_support::rows(&buf));
+        }
+    }
+
+    #[test]
+    fn a_filled_own_answer_is_one_colour_with_its_chosen_mark() {
+        let (_, buf) = tab_of(&after("jabE"));
+        let looks = looks_from(&buf, "❯ (•) ✎ Own answer: ", 20);
+        for (x, (colour, modifier)) in looks.iter().enumerate() {
+            assert_eq!((*colour, *modifier & !Modifier::BOLD), FILLED, "column {x}");
+        }
+        let (mark, _) = own_mark_looks(&buf, "(•)");
+        assert!(
+            mark.iter()
+                .all(|(_, modifier)| modifier.contains(Modifier::BOLD)),
+            "the mark keeps its bold under the fill: {mark:?}"
+        );
+    }
+
+    #[test]
+    fn a_multi_own_answer_with_text_shows_its_mark_bold_primary() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        // On a multi question the own answer counts with an option ticked
+        // too. The cursor ends on B, so neither A nor the own answer is
+        // under the fill.
+        let json = r#"{"asqr": 2, "questions": [{"id": "m", "text": "?", "kind": "multi",
+            "custom": true, "note": false,
+            "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
+        let mut state =
+            SessionState::new("multi", serde_json::from_str(json).expect("parses"), None);
+        for key in " jjabEk".chars() {
+            let code = if key == 'E' {
+                KeyCode::Esc
+            } else {
+                KeyCode::Char(key)
+            };
+            state.handle(KeyEvent::new(code, KeyModifiers::NONE));
+        }
+        let (_, buf) = tab_of(&state);
+
+        let bold_primary = (Color::Cyan, Modifier::BOLD);
+        assert_eq!(looks_from(&buf, "[x] 1. A", 3), [bold_primary; 3], "A");
+        let (mark, _) = own_mark_looks(&buf, "[x]");
+        assert_eq!(mark, [bold_primary; 3], "the own answer");
     }
 
     #[test]
