@@ -242,10 +242,10 @@ mod tests {
             "context": [{"type": "code", "content": "x"}], "options": [{"id": "a", "label": "A"}]}]}"#;
         let mut state =
             SessionState::new("keys", serde_json::from_str(session).expect("parses"), None);
-        state.set_pane_page(Some(Page {
+        state.set_pane_page(Some(crate::tui::PanePage::shown(Page {
             rows: Extent { shown: 5, total: 5 },
             columns: Extent::default(),
-        }));
+        })));
         assert_eq!(question_key(&state, "i"), "i");
         let mut press = |code: KeyCode| {
             state.handle(KeyEvent::new(code, KeyModifiers::NONE));

@@ -77,6 +77,13 @@ pub trait Viewer: Send {
     fn failed(&self) -> bool {
         false
     }
+
+    /// Whether the viewer stands in for an entry still loading, which
+    /// shows nothing of the entry and so says nothing of how far it
+    /// scrolls.
+    fn loading(&self) -> bool {
+        false
+    }
 }
 
 /// Which entry of which session a viewer belongs to.
@@ -985,6 +992,10 @@ impl Viewer for LoadingNote {
             .alignment(Alignment::Center)
             .render(middle, buf);
         None
+    }
+
+    fn loading(&self) -> bool {
+        true
     }
 }
 

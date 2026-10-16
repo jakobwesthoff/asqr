@@ -140,6 +140,25 @@ struct Working {
     touched: bool,
 }
 
+/// What the context pane showed in a draw: how far its entry scrolls,
+/// and whether the entry was still loading, with `loading…` in its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanePage {
+    pub page: Page,
+    pub loading: bool,
+}
+
+#[cfg(test)]
+impl PanePage {
+    /// The pane as it shows an entry that loaded, `page` of it.
+    pub(crate) fn shown(page: Page) -> Self {
+        PanePage {
+            page,
+            loading: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SessionState {
     id: String,
@@ -164,7 +183,7 @@ pub struct SessionState {
     pane_focus: bool,
     /// What the context pane showed in the last draw; `None` when there was
     /// no pane, as on a terminal that only had room for a hint.
-    pane_page: Option<Page>,
+    pane_page: Option<PanePage>,
     /// Where the person left each entry they scrolled. Offsets of different
     /// entries have nothing to do with each other, so each entry keeps its
     /// own, and one shown for the first time starts at its top.
@@ -428,7 +447,7 @@ impl SessionState {
     /// Takes what the last draw of the context pane showed, which depends
     /// on the size of the terminal. Without a pane there is nothing to
     /// focus or show full screen, so the question gets the keys back.
-    pub fn set_pane_page(&mut self, page: Option<Page>) {
+    pub fn set_pane_page(&mut self, page: Option<PanePage>) {
         self.pane_page = page;
         if page.is_none() {
             self.pane_focus = false;
@@ -805,13 +824,18 @@ impl SessionState {
     }
 
     /// Scrolls the entry shown when `key` scrolls the pane, and says
-    /// whether it did.
+    /// whether it did. While the pane shows `loading…`, its page is the
+    /// placeholder's one line, not the entry's: the key is taken and the
+    /// entry keeps where the person left it.
     fn scroll_pane(&mut self, key: KeyEvent, focused: bool) -> bool {
-        let (Some(page), Some((entry, _))) = (self.pane_page, self.shown_entry()) else {
+        let (Some(PanePage { page, loading }), Some((entry, _))) =
+            (self.pane_page, self.shown_entry())
+        else {
             return false;
         };
         let offset = self.offsets.get(&entry).copied().unwrap_or_default();
         match scroll(key, offset, page, focused) {
+            Some(_) if loading => true,
             Some(scrolled) => {
                 self.offsets.insert(entry, scrolled);
                 true
@@ -2466,7 +2490,7 @@ mod tests {
             serde_json::from_str(WITH_CONTEXT).expect("test session parses"),
             None,
         );
-        state.set_pane_page(Some(PANE));
+        state.set_pane_page(Some(PanePage::shown(PANE)));
         state
     }
 
@@ -2485,6 +2509,33 @@ mod tests {
             assert!(!state.pane_focused(), "{back:?}");
             assert_eq!((state.tab(), state.row()), (0, 0), "the cursor stays");
         }
+    }
+
+    /// While the pane shows `loading…`, its one line says nothing of how
+    /// far the entry scrolls: a scroll key is taken and moves nothing, so
+    /// the entry shows where the person left it once it loaded.
+    #[test]
+    fn a_scroll_key_while_the_entry_loads_moves_nothing() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::PageDown));
+        state.handle(code(KeyCode::PageDown));
+        assert_eq!(top(&state), 20);
+        let loading = Page {
+            rows: Extent {
+                shown: 10,
+                total: 1,
+            },
+            columns: Extent::default(),
+        };
+        state.set_pane_page(Some(PanePage {
+            page: loading,
+            loading: true,
+        }));
+
+        assert_eq!(state.handle(code(KeyCode::PageDown)), Effect::None);
+        assert_eq!(state.handle(ctrl('u')), Effect::None);
+
+        assert_eq!(top(&state), 20);
     }
 
     #[test]
@@ -2710,7 +2761,7 @@ mod tests {
     fn o_opens_the_image_from_the_focused_pane() {
         let mut state = with_pane();
         state.handle(code(KeyCode::Right));
-        state.set_pane_page(Some(PANE));
+        state.set_pane_page(Some(PanePage::shown(PANE)));
         state.handle(code(KeyCode::Tab));
 
         assert_eq!(

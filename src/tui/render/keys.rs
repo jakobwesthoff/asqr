@@ -334,7 +334,7 @@ mod tests {
                 total: columns,
             },
         };
-        state.set_pane_page(Some(page(20)));
+        state.set_pane_page(Some(crate::tui::PanePage::shown(page(20))));
         state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         let keys_of = |hints: Vec<Hint>| hints.iter().map(|hint| hint.key).collect::<Vec<_>>();
 
@@ -379,7 +379,7 @@ mod tests {
             "context": [{"type": "code", "content": "x"}], "options": [{"id": "a", "label": "A"}]}]}"#;
         let mut state =
             SessionState::new("text", serde_json::from_str(text).expect("parses"), None);
-        state.set_pane_page(Some(page(20)));
+        state.set_pane_page(Some(crate::tui::PanePage::shown(page(20))));
         state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(
             keys_of(key_hints(&state, false, Some(page(20)))),

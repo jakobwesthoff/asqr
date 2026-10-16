@@ -24,10 +24,12 @@ use crate::format::ContextEntry;
 use crate::graphics::PlacedImage;
 use crate::tui::{Extent, Offset, Page, SessionState};
 
-/// What the pane showed: how far it scrolls, and the Kitty image it drew,
-/// which the screen mends once the overlays are drawn (ADR 48).
+/// What the pane showed: how far it scrolls, whether its entry was still
+/// loading, and the Kitty image it drew, which the screen mends once the
+/// overlays are drawn (ADR 48).
 pub struct DrawnPane {
     pub page: Page,
+    pub loading: bool,
     pub image: Option<PlacedImage>,
 }
 
@@ -78,7 +80,11 @@ pub fn draw_pane(
         line
     };
     line.render(header, buf);
-    Some(DrawnPane { page, image })
+    Some(DrawnPane {
+        page,
+        loading: viewer.loading(),
+        image,
+    })
 }
 
 /// The pane's header line, and below it the body its viewer fills.
@@ -409,9 +415,10 @@ mod tests {
         }));
         viewers.waiting(std::time::Duration::ZERO);
 
-        draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
+        let drawn = draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
         gate.open();
 
+        assert!(drawn.expect("a pane").loading, "it says the entry loads");
         assert_eq!(row(&buf, 0), "Log", "no mark, no position");
         assert_eq!(
             row(&buf, 6),
@@ -552,13 +559,13 @@ mod tests {
         let mut state =
             SessionState::new("batch", serde_json::from_str(&json).expect("parses"), None);
         // A terminal 5 lines tall let the person scroll down to line 26.
-        state.set_pane_page(Some(Page {
+        state.set_pane_page(Some(crate::tui::PanePage::shown(Page {
             rows: Extent {
                 shown: 5,
                 total: 30,
             },
             columns: Extent::default(),
-        }));
+        })));
         for code in [KeyCode::Tab, KeyCode::End] {
             state.handle(KeyEvent::new(code, KeyModifiers::NONE));
         }
@@ -567,8 +574,9 @@ mod tests {
         let area = Rect::new(0, 0, 40, 11);
         let mut buf = Buffer::empty(area);
         let mut viewers = Viewers::new(Images::half_blocks());
-        draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
+        let drawn = draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
 
+        assert!(!drawn.expect("a pane").loading, "the entry loaded");
         assert!(row(&buf, 0).ends_with("21–30 of 30"), "{:?}", row(&buf, 0));
         assert_eq!(find(&buf, "line 21").1, 1);
     }

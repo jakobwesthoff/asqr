@@ -13,7 +13,7 @@ use std::ops::Range;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
-use super::{Effect, Extent, FieldShape, Offset, Page, SessionState};
+use super::{Effect, Extent, FieldShape, Offset, Page, PanePage, SessionState};
 use crate::format::{Answer, SessionResult, same_session_id};
 
 /// How a finished session ends.
@@ -272,7 +272,7 @@ impl App {
 
     /// Hands the active session what its context pane showed in the last
     /// draw, which is how far the pane's keys can scroll it.
-    pub fn set_pane_page(&mut self, page: Option<Page>) {
+    pub fn set_pane_page(&mut self, page: Option<PanePage>) {
         if let Some(state) = self.sessions.get_mut(self.active) {
             state.set_pane_page(page);
         }
@@ -809,7 +809,7 @@ mod tests {
             columns: Extent::default(),
         };
 
-        app.set_pane_page(Some(page));
+        app.set_pane_page(Some(PanePage::shown(page)));
         app.handle(code(KeyCode::PageDown));
 
         let state = app.active().expect("active");

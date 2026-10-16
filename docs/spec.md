@@ -1176,7 +1176,8 @@ Loading (ADR 46):
   lays the entry out again the same way. While a key, a paste, a resize
   or a quit waits to be handled, the pane does not wait and shows
   `loading…` at once, so holding a key moves over slow entries without
-  stopping on each.
+  stopping on each. While the pane shows `loading…`, its scroll keys
+  move nothing, and the entry keeps where the person left it.
 - asqr keeps what it loaded for three questions: the previous, the
   current and the next one, with the question's entry and every
   option's. While a question shows with its pane, asqr loads the

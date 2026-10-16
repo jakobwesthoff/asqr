@@ -32,7 +32,7 @@ use super::theme;
 use crate::format::ContextEntry;
 use crate::graphics::{Images, KittyBook};
 use crate::tui::text_field::FieldShape;
-use crate::tui::{App, Extent, Invalid, Notice, Overlay, Page, SessionState, Tone};
+use crate::tui::{App, Extent, Invalid, Notice, Overlay, PanePage, SessionState, Tone};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -85,7 +85,7 @@ pub struct Drawn {
     pub intro_page: Option<Extent>,
     /// What the context pane showed, for [`App::set_pane_page`]:
     /// `Some(None)` for a tab without a pane.
-    pub pane_page: Option<Option<Page>>,
+    pub pane_page: Option<Option<PanePage>>,
     /// Where the field or note that has the keys was drawn, for
     /// [`App::set_field_shape`].
     pub field_shape: Option<FieldShape>,
@@ -323,7 +323,11 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 draw_tab(main, frame.buffer_mut(), state, &mut view.tab, quote)
             };
             let (pane_page, image) = match pane {
-                Some(DrawnPane { page, image }) => (Some(page), image),
+                Some(DrawnPane {
+                    page,
+                    loading,
+                    image,
+                }) => (Some(PanePage { page, loading }), image),
                 None => (None, None),
             };
             view.image_shown = pane_page.is_some()
@@ -341,12 +345,14 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                     let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll, quote);
                     (page, intro_hints(page))
                 }
-                Some(Overlay::SessionList(_)) => {
-                    (Extent::default(), key_hints(state, true, pane_page))
-                }
-                Some(Overlay::Help) | None => {
-                    (Extent::default(), key_hints(state, false, pane_page))
-                }
+                Some(Overlay::SessionList(_)) => (
+                    Extent::default(),
+                    key_hints(state, true, pane_page.map(|shown| shown.page)),
+                ),
+                Some(Overlay::Help) | None => (
+                    Extent::default(),
+                    key_hints(state, false, pane_page.map(|shown| shown.page)),
+                ),
             };
             let drawn = Drawn {
                 intro_page: Some(intro_page),
@@ -1883,6 +1889,32 @@ mod tests {
         let mut waiting = app(&[("release", RELEASE)]);
         waiting.report_invalid(invalid("broken", &ERRORS));
         insta::assert_snapshot!("invalid_dialog_60x15", screen(&waiting, 60, 15));
+    }
+
+    /// The frame hands on whether the pane's entry still loaded, so the
+    /// scroll keys leave the place the person scrolled it to.
+    #[test]
+    fn the_frame_says_whether_the_pane_s_entry_still_loads() {
+        let app = app(&[("batch", EXAMPLE)]);
+        let gate = Gate::default();
+        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks())
+            .waiting(std::time::Duration::ZERO);
+        let theirs = gate.clone();
+        view.tab
+            .viewers
+            .building(std::sync::Arc::new(move |_, _, _, _| {
+                theirs.wait();
+                Box::new(super::super::viewer::Placeholder::note("empty"))
+            }));
+
+        let (_, loading) = measured_in(&app, &mut view, 120, 40);
+        gate.open();
+        let pane = loading.pane_page.flatten().expect("a pane shows");
+        assert!(pane.loading);
+
+        let mut loaded = View::new("default", PaneLayout::Auto, Images::half_blocks());
+        let (_, shown) = measured_in(&app, &mut loaded, 120, 40);
+        assert!(!shown.pane_page.flatten().expect("a pane shows").loading);
     }
 
     /// The app lets a key close the dialog only after a frame showed it,

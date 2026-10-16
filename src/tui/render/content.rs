@@ -1153,10 +1153,10 @@ mod tests {
             serde_json::from_str(&session).expect("parses"),
             None,
         );
-        state.set_pane_page(Some(Page {
+        state.set_pane_page(Some(crate::tui::PanePage::shown(Page {
             rows: Extent { shown: 5, total: 5 },
             columns: Extent::default(),
-        }));
+        })));
         for key in keys.chars() {
             let code = if key == 'E' {
                 KeyCode::Esc
