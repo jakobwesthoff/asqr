@@ -11,10 +11,11 @@
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, PanicHookInfo, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
 use patine::QuoteStyle;
@@ -160,6 +161,134 @@ pub(super) fn finish(job: Job, tools: &Tools) {
 }
 
 // ---------------------------------------------------------------------
+// Loading ahead
+// ---------------------------------------------------------------------
+
+/// The jobs that load entries ahead of the cursor, run one after another
+/// on one thread in the order they were queued (ADR 46). A job still in
+/// the queue has not started: the entry shown takes its job out to run
+/// it on a thread of its own, and a new window replaces what did not
+/// start.
+pub(super) struct Ahead {
+    queue: Arc<(Mutex<Queue>, Condvar)>,
+    /// Whether the thread runs; it starts with the first job.
+    started: bool,
+}
+
+#[derive(Default)]
+struct Queue {
+    jobs: VecDeque<(Job, Tools)>,
+    /// The viewers went; the thread ends after the job it runs.
+    closed: bool,
+}
+
+impl Ahead {
+    pub(super) fn new() -> Self {
+        Ahead {
+            queue: Arc::default(),
+            started: false,
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Queue> {
+        lock_queue(&self.queue.0)
+    }
+
+    /// The keys of the jobs not started yet, in their order.
+    #[cfg(test)]
+    pub(super) fn queued(&self) -> Vec<ViewerKey> {
+        self.lock()
+            .jobs
+            .iter()
+            .map(|(job, _)| job.key.clone())
+            .collect()
+    }
+
+    /// Replaces the jobs not started yet by those `choose` returns, given
+    /// the keys of those jobs; `None` leaves them. The queue stays locked
+    /// meanwhile, so no job starts between the keys `choose` sees and the
+    /// new queue.
+    pub(super) fn requeue(
+        &mut self,
+        choose: impl FnOnce(&[ViewerKey]) -> Option<Vec<(Job, Tools)>>,
+    ) {
+        {
+            let mut queue = self.lock();
+            let queued: Vec<ViewerKey> =
+                queue.jobs.iter().map(|(job, _)| job.key.clone()).collect();
+            let Some(jobs) = choose(&queued) else {
+                return;
+            };
+            queue.jobs.clear();
+            queue.jobs.extend(jobs);
+        }
+        self.queue.1.notify_all();
+        if !self.started && !self.lock().jobs.is_empty() {
+            self.started = true;
+            let queue = Arc::clone(&self.queue);
+            let spawned = thread::Builder::new()
+                .name("asqr-ahead".to_owned())
+                .stack_size(STACK)
+                .spawn(move || work(&queue));
+            // Without the thread the jobs wait in the queue, where the
+            // entry shown still takes its own out to run it.
+            if let Err(error) = spawned {
+                tracing::warn!(%error, "could not start the thread that loads ahead");
+            }
+        }
+    }
+
+    /// Takes the job of `key` out, if it has not started.
+    pub(super) fn take(&self, key: &ViewerKey) -> Option<Job> {
+        let mut queue = self.lock();
+        let position = queue.jobs.iter().position(|(job, _)| job.key == *key)?;
+        queue.jobs.remove(position).map(|(job, _)| job)
+    }
+
+    /// Drops the jobs not started yet whose key `keep` refuses.
+    pub(super) fn retain(&self, keep: impl Fn(&ViewerKey) -> bool) {
+        self.lock().jobs.retain(|(job, _)| keep(&job.key));
+    }
+}
+
+impl Drop for Ahead {
+    fn drop(&mut self) {
+        let mut queue = self.lock();
+        queue.closed = true;
+        queue.jobs.clear();
+        drop(queue);
+        self.queue.1.notify_all();
+    }
+}
+
+fn lock_queue(queue: &Mutex<Queue>) -> MutexGuard<'_, Queue> {
+    queue.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Runs the queued jobs one after another until the queue closes.
+fn work(queue: &(Mutex<Queue>, Condvar)) {
+    loop {
+        let next = {
+            let mut waiting = lock_queue(&queue.0);
+            loop {
+                if waiting.closed {
+                    return;
+                }
+                if let Some(next) = waiting.jobs.pop_front() {
+                    break next;
+                }
+                waiting = queue
+                    .1
+                    .wait(waiting)
+                    .unwrap_or_else(PoisonError::into_inner);
+            }
+        };
+        let (job, tools) = next;
+        finish(job, &tools);
+    }
+}
+
+// ---------------------------------------------------------------------
 // Panics
 // ---------------------------------------------------------------------
 
@@ -248,6 +377,40 @@ mod tests {
         };
         assert_eq!(message, "boom");
         assert!(!LOADING.get(), "the thread runs no job any more");
+    }
+
+    /// The viewers going close the queue, and its thread ends after its
+    /// job.
+    #[test]
+    fn closing_the_queue_ends_its_thread() {
+        let (results, finished) = mpsc::channel();
+        let tools = Tools {
+            build: Arc::new(|_, _, _, _| Box::new(super::super::viewer::LoadingNote)),
+            images: Images::half_blocks(),
+            home: None,
+            results,
+            wake: Arc::new(|| {}),
+        };
+        let mut ahead = Ahead::new();
+        ahead.requeue(|_| Some(vec![(job(), tools)]));
+        assert!(
+            finished
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .is_ok(),
+            "the job ran"
+        );
+        let queue = Arc::downgrade(&ahead.queue);
+
+        drop(ahead);
+
+        let start = std::time::Instant::now();
+        while queue.upgrade().is_some() {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(5),
+                "the thread never ended"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
 
     #[test]

@@ -6,6 +6,8 @@ Date: 2026-10-16
 
 Accepted
 
+Amends [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md)
+
 Amends [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
 
 Amends [45. Keep image handling in a graphics module around an asqr-owned value](0045-keep-image-handling-in-a-graphics-module-around-an-asqr-owned-value.md)
@@ -44,14 +46,23 @@ Jakob decided on 2026-10-16:
 - While an entry loads, the pane shows a dim `loading…`, centred in the
   pane. asqr waits up to 100 ms for the result before it shows it.
 - A load whose entry is no longer shown runs to its end, and what it
-  loaded is kept.
+  loaded is kept while it is inside the window.
+- asqr keeps viewers only inside a window of three questions: the
+  previous, the current and the next one, each with all of its entries,
+  the question's context and every option's. Loading ahead fills that
+  window: the shown entry first, then the other options of the current
+  question, then the next question, then the previous one. Everything
+  outside the window is dropped, also entries that were shown; coming
+  back loads them again behind the placeholder.
 - A code entry longer than 1 MiB stays plain. Below that, an entry shows
   once it is highlighted, with no plain first pass. Markdown keeps its
   highlighted code blocks at any size.
 
 The lead decided under Jakob's delegation:
 
-- The entry shown gets a thread of its own at once.
+- The entry shown gets a thread of its own at once. Loading ahead runs
+  on one background thread in the window's order; the entry shown takes
+  its job out of that queue when it has not started.
 - Results come back on a channel the viewers own; a payload-free event
   wakes the run loop, which draws again.
 - Files are opened without waiting on a FIFO.
@@ -76,7 +87,16 @@ The lead decided under Jakob's delegation:
   terminal back once, there.
 - Regaining the focus loads an image a frame showed again behind the
   placeholder, so its old copy may be deleted before the new one is
-  sent; tmux had dropped it anyway.
+  sent; tmux had dropped it anyway. An image loaded ahead and never
+  shown has sent nothing and stays.
+- Entries load ahead for the body of a pane that shows: not for the `z`
+  view, a one-line hint or a question without context. An entry loaded
+  ahead before a resize lays out again when it is shown, and may show
+  the placeholder then.
+- Memory holds the viewers of at most three questions. Images keep
+  their Kitty ids from their encoding on, also those loaded ahead and
+  never sent; their deletes, when they go, reach a terminal that never
+  had them.
 - A shown image holds its file's bytes and its encoding, not its
   decoded picture; another size costs a decoding again. An image file
   changed on disk keeps showing what asqr read first.

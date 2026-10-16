@@ -56,7 +56,3 @@ test can settle the open question above.
 Jakob agreed to the proposal (asqr session 01M51Z9860935MZKGH148W7PSB)
 and asked to build it last, after the other field-test todos, in a
 separate step he tries out right after; the lead reminds him then.
-
-## Relations
-
-- Relates to: [Load context entries off the drawing thread](01M4Y48M9AF08X4AAY29E35WA2-load-context-entries-off-the-drawing-thread.md)

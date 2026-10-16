@@ -1119,8 +1119,14 @@ fn a_panic_while_loading_gives_the_terminal_back_once() {
     let sandbox = Sandbox::new();
     let doomed = sandbox.home().join("doomed.png");
     let doomed = doomed.to_str().expect("UTF-8");
+    // The doomed entry is two questions on, outside the window of the
+    // first, so the image shows before anything loads it. The question
+    // between has no pane to load ahead for; the one after it loads the
+    // entry as it shows it.
     let next = format!(
-        r#"{{"id": "next", "text": "And this one", "kind": "text",
+        r#"{{"id": "next", "text": "And this one", "kind": "single",
+            "options": [{{"id": "x", "label": "X"}}]}},
+           {{"id": "last", "text": "And the last", "kind": "text",
             "context": [{{"type": "image", "path": {doomed:?}}}]}}"#
     );
     let mut tui = showing_a_kitty_image_before(
@@ -1133,6 +1139,8 @@ fn a_panic_while_loading_gives_the_terminal_back_once() {
         Some(&next),
     );
     let shown = sent_kitty_image(&tui, 0);
+    tui.press("l");
+    tui.wait_for("And this one");
     tui.press("l");
 
     assert_eq!(tui.wait_for_exit(), 101, "a panic");

@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dim `loading…` in the middle of the pane until it is. Before, the
   screen froze until the entry was ready: 23 seconds for the first
   8 MiB of a log.
+- While a question shows, asqr loads the entries of its other options,
+  of the next question and of the one before ahead, and keeps what it
+  loaded for those three questions only. Coming back to an entry
+  outside them loads it again.
 - A code entry longer than 1 MiB shows without syntax highlighting.
   Highlighting the first 8 MiB of a log took 23 seconds.
 - An image entry holds its file as asqr read it instead of its decoded

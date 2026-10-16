@@ -44,7 +44,7 @@ pub fn draw_pane(
     quote: QuoteStyle,
 ) -> Option<DrawnPane> {
     let (key, entry) = state.shown_entry()?;
-    let [header, body] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+    let [header, body] = header_and_body(area);
 
     let (viewer, size) = viewers.laid_out(state.id(), key, entry, body.width, body.height, quote);
     // Content reports lines wider than the body only where it cuts them, so
@@ -79,6 +79,17 @@ pub fn draw_pane(
     };
     line.render(header, buf);
     Some(DrawnPane { page, image })
+}
+
+/// The pane's header line, and below it the body its viewer fills.
+fn header_and_body(area: Rect) -> [Rect; 2] {
+    Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area)
+}
+
+/// The body of a pane in `area`: what the viewers of its entries are laid
+/// out for.
+pub fn pane_body(area: Rect) -> Rect {
+    header_and_body(area)[1]
 }
 
 /// The pane's header: the entry's name in bold, and on the right, where

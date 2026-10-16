@@ -455,22 +455,60 @@ impl SessionState {
     /// browse the options before picking; every other row shows the
     /// question's (spec section 7.7).
     pub fn shown_entry(&self) -> Option<(EntryKey, &ContextEntry)> {
-        let question = self.question()?;
-        let option_entry = match self.current_row() {
-            Some(Row::Option(index)) => question
+        self.question()?;
+        self.entry_at(self.tab, self.current_row()?)
+    }
+
+    /// The context entry row `row` of question `index` shows: the option's
+    /// own, or else the question's.
+    fn entry_at(&self, index: usize, row: Row) -> Option<(EntryKey, &ContextEntry)> {
+        let question = &self.session.questions[index];
+        let option_entry = match row {
+            Row::Option(option) => question
                 .options
                 .as_ref()
-                .and_then(|options| options[index].context.first())
-                .map(|entry| (Some(index), entry)),
+                .and_then(|options| options[option].context.first())
+                .map(|entry| (Some(option), entry)),
             _ => None,
         };
         let (option, entry) =
             option_entry.or_else(|| question.context.first().map(|entry| (None, entry)))?;
         let key = EntryKey {
-            question: self.tab,
+            question: index,
             option,
         };
         Some((key, entry))
+    }
+
+    /// The context entries asqr keeps loaded while the current question
+    /// shows, in the order they load (ADR 46): the one shown, then those
+    /// the question's other rows show, from the row below the cursor on
+    /// and round to the one above it, then those of the next question and
+    /// of the one before, each from its first row. Each entry is listed
+    /// once. The review keeps none.
+    pub fn window(&self) -> Vec<(EntryKey, &ContextEntry)> {
+        if self.question().is_none() {
+            return Vec::new();
+        }
+        let rows = self.rows();
+        let below_the_cursor =
+            (1..=rows.len()).map(|step| (self.tab, rows[(self.row + step) % rows.len()]));
+        let of_question =
+            |index: usize| self.rows_of(index).into_iter().map(move |row| (index, row));
+        let next = (self.tab + 1 < self.session.questions.len()).then(|| of_question(self.tab + 1));
+        let before = self.tab.checked_sub(1).map(of_question);
+        let mut window: Vec<(EntryKey, &ContextEntry)> = self.shown_entry().into_iter().collect();
+        for (index, row) in below_the_cursor
+            .chain(next.into_iter().flatten())
+            .chain(before.into_iter().flatten())
+        {
+            if let Some((key, entry)) = self.entry_at(index, row)
+                && !window.iter().any(|(listed, _)| *listed == key)
+            {
+                window.push((key, entry));
+            }
+        }
+        window
     }
 
     /// The context entry shown on the current tab; `z` shows it full
@@ -2258,6 +2296,87 @@ mod tests {
         );
         go_to_tab(&mut state, 1);
         assert_eq!(key(&state), None, "the review shows no context");
+    }
+
+    /// The keys of the entries `state` keeps loaded, in their order.
+    fn window(state: &SessionState) -> Vec<EntryKey> {
+        state.window().into_iter().map(|(key, _)| key).collect()
+    }
+
+    fn key(question: usize, option: Option<usize>) -> EntryKey {
+        EntryKey { question, option }
+    }
+
+    #[test]
+    fn the_window_goes_from_the_shown_entry_down_then_to_the_next_question_and_the_one_before() {
+        let session = r#"{"asqr": 2, "questions": [
+            {"id": "first", "text": "?", "kind": "single", "custom": true,
+             "context": [{"type": "code", "content": "Q"}],
+             "options": [
+               {"id": "a", "label": "A", "context": [{"type": "code", "content": "A"}]},
+               {"id": "b", "label": "B"},
+               {"id": "c", "label": "C", "context": [{"type": "code", "content": "C"}]},
+               {"id": "d", "label": "D", "context": [{"type": "code", "content": "D"}]}]},
+            {"id": "second", "text": "?", "kind": "single",
+             "context": [{"type": "code", "content": "R"}],
+             "options": [
+               {"id": "x", "label": "X", "context": [{"type": "code", "content": "X"}]},
+               {"id": "y", "label": "Y"}]}
+        ]}"#;
+        let mut state = SessionState::new(
+            "batch",
+            serde_json::from_str(session).expect("test session parses"),
+            None,
+        );
+        press(&mut state, "jj");
+
+        assert_eq!(
+            window(&state),
+            [
+                key(0, Some(2)),
+                key(0, Some(3)),
+                key(0, None),
+                key(0, Some(0)),
+                key(1, Some(0)),
+                key(1, None)
+            ],
+            "the shown C, then D, the own answer's Q, A, and the next question"
+        );
+
+        go_to_tab(&mut state, 1);
+        assert_eq!(
+            window(&state),
+            [
+                key(1, Some(0)),
+                key(1, None),
+                key(0, Some(0)),
+                key(0, None),
+                key(0, Some(2)),
+                key(0, Some(3))
+            ],
+            "then the question before"
+        );
+
+        go_to_tab(&mut state, 2);
+        assert_eq!(window(&state), [], "the review keeps none");
+    }
+
+    #[test]
+    fn a_row_without_context_keeps_the_others_in_the_window() {
+        let session = r#"{"asqr": 2, "questions": [
+            {"id": "q", "text": "?", "kind": "single",
+             "options": [
+               {"id": "a", "label": "A"},
+               {"id": "b", "label": "B", "context": [{"type": "code", "content": "B"}]},
+               {"id": "c", "label": "C", "context": [{"type": "code", "content": "C"}]}]}
+        ]}"#;
+        let state = SessionState::new(
+            "batch",
+            serde_json::from_str(session).expect("test session parses"),
+            None,
+        );
+
+        assert_eq!(window(&state), [key(0, Some(1)), key(0, Some(2))]);
     }
 
     #[test]

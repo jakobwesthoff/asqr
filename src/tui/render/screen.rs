@@ -2205,6 +2205,27 @@ mod tests {
         measured_in(&app, &mut view, 140, 24);
     }
 
+    /// The `z` view shows one entry at another size than the pane; nothing
+    /// loads ahead for it.
+    #[test]
+    fn the_full_screen_view_loads_nothing_ahead() {
+        let mut app = app(&[(
+            "pictured",
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "Which one?", "kind": "single",
+                "context": [{"type": "code", "content": "question"}],
+                "options": [{"id": "a", "label": "A"},
+                  {"id": "b", "label": "B", "context": [{"type": "code", "content": "b"}]}]}]}"#,
+        )]);
+        let mut view = View::new("q", PaneLayout::Auto, Images::half_blocks());
+        view.tab.viewers.loading_ahead();
+
+        keys(&mut app, "z");
+        measured_in(&app, &mut view, 140, 24);
+
+        assert_eq!(view.tab.viewers.pending(), [], "the entry shown is loaded");
+        assert_eq!(view.tab.viewers.queued(), []);
+    }
+
     /// A view whose terminal speaks the Kitty protocol.
     fn kitty_view() -> View<'static> {
         View::new("q", PaneLayout::Auto, Images::kitty())

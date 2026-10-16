@@ -19,7 +19,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Widget};
 
-use super::context::{DrawnPane, context_hint, draw_pane};
+use super::context::{DrawnPane, context_hint, draw_pane, pane_body};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
 use super::source_line::{columns, fitting};
@@ -263,6 +263,19 @@ pub(super) fn draw_tab(
         Some(area) => draw_pane(area, buf, state, &mut tab.viewers, quote),
         None => None,
     };
+    // The viewers keep the window of the question shown, and load what it
+    // lacks ahead for the body of a pane that shows, whatever its row
+    // shows (ADR 46).
+    if state.question().is_some() {
+        let body = context_area
+            .filter(|_| arrangement != Some(Arrangement::Hint))
+            .map(|area| {
+                let body = pane_body(area);
+                (body.width, body.height)
+            });
+        tab.viewers
+            .load_window(state.id(), &state.window(), body, quote);
+    }
 
     // Scroll so the whole current row is visible. A row taller than the
     // area shows its start, unless it holds the text cursor: then the
@@ -1266,6 +1279,32 @@ mod tests {
                 .collect::<Vec<_>>(),
             drawn.iter().map(|line| line.trim_end()).collect::<Vec<_>>(),
             "the whole question shows above the pane: {shown:#?}"
+        );
+    }
+
+    /// A row without context shows an empty pane, and the other options'
+    /// entries still load ahead, for the pane's body.
+    #[test]
+    fn a_row_without_context_still_loads_the_others_ahead() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "options": [
+              {"id": "a", "label": "A"},
+              {"id": "b", "label": "B", "context": [{"type": "code", "content": "b"}]}]}]}"#;
+        let state = SessionState::new("batch", serde_json::from_str(json).expect("parses"), None);
+        let mut tab = TabState::new(PaneLayout::Beside, Images::half_blocks());
+        tab.viewers.loading_ahead();
+        let area = Rect::new(0, 0, 140, 30);
+        let mut buf = Buffer::empty(area);
+
+        draw_tab(area, &mut buf, &state, &mut tab, quote_style(false));
+
+        assert_eq!(
+            tab.viewers.pending(),
+            [crate::tui::EntryKey {
+                question: 0,
+                option: Some(1)
+            }],
+            "b loads ahead"
         );
     }
 

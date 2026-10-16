@@ -20,6 +20,10 @@ asqr sends the images again on regaining the focus only under the Kitty
 protocol behind tmux with `allow-passthrough on`, or behind a tmux it
 cannot ask
 
+Amended by [46. Build and lay out context viewers on worker threads](0046-build-and-lay-out-context-viewers-on-worker-threads.md):
+asqr forgets only the images a frame showed and loads them again behind
+the placeholder; an image loaded ahead and never shown is kept
+
 ## Context
 
 The user reported that the image of a session's first question never

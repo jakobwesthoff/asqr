@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use super::code::CodeViewer;
 use super::diff::DiffViewer;
-use super::loading::{self, Finished, Job, Loaded, Tools, Wake};
+use super::loading::{self, Ahead, Finished, Job, Loaded, Tools, Wake};
 use super::markdown_viewer::MarkdownViewer;
 use super::problem::Card;
 use super::source_file::{Unreadable, open_regular};
@@ -115,21 +115,27 @@ const LOAD_WAIT: Duration = Duration::from_millis(100);
 /// load that never ends fails the test.
 const TEST_WAIT: Duration = Duration::from_secs(60);
 
-/// One viewer per entry shown, built when the entry is first shown and
-/// kept while the entry stays the same and its session waits. A
-/// viewer is laid out again only when the body's size changes, as its
-/// content does not.
+/// One viewer per entry of the window of the question shown: the
+/// previous, the current and the next question (ADR 46). A viewer is
+/// built when its entry is first shown or loaded ahead, kept while the
+/// entry stays the same and inside the window, and laid out again only
+/// when the body's size changes, as its content does not.
 pub struct Viewers {
     tools: Tools,
     finished: Receiver<Finished>,
     viewers: HashMap<ViewerKey, Kept>,
-    /// The keys with a job in flight, at most one each.
+    /// The keys with a job in flight or queued, at most one each.
     loading: HashMap<ViewerKey, Request>,
     next_ticket: u64,
     /// The job the pane waits for, and until when.
     waiting: Option<(ViewerKey, u64, Instant)>,
     wait: Duration,
     placeholder: LoadingNote,
+    ahead: Ahead,
+    /// Whether the entries of the window load before they are shown. Tests
+    /// load ahead only where they ask to, so the Kitty ids and the builds
+    /// they count stay their own.
+    loads_ahead: bool,
     /// How many build jobs were started, so tests see that a viewer is
     /// reused.
     #[cfg(test)]
@@ -162,6 +168,8 @@ impl Viewers {
             waiting: None,
             wait: if cfg!(test) { TEST_WAIT } else { LOAD_WAIT },
             placeholder: LoadingNote,
+            ahead: Ahead::new(),
+            loads_ahead: !cfg!(test),
             #[cfg(test)]
             built: 0,
             #[cfg(test)]
@@ -240,7 +248,8 @@ impl Viewers {
     /// goes, as no frame shows it again, and a new one is built; a job in
     /// flight for that other entry is outrun, and its result is not taken.
     /// A viewer kept for another size is laid out again; while that job
-    /// holds it, the pane waits for it.
+    /// holds it, the pane waits for it. A job queued to load ahead leaves
+    /// the queue and starts at once, as the entry shown goes first.
     fn request(
         &mut self,
         key: &ViewerKey,
@@ -257,6 +266,13 @@ impl Viewers {
             .get(key)
             .is_some_and(|request| request.entry == *entry && request.quote == quote);
         if in_flight {
+            if let Some(queued) = self.ahead.take(key) {
+                #[cfg(test)]
+                {
+                    self.built += 1;
+                }
+                loading::start(queued, &self.tools);
+            }
             return;
         }
         if current {
@@ -278,36 +294,106 @@ impl Viewers {
         size: (u16, u16),
         kept: Option<Kept>,
     ) {
-        self.next_ticket += 1;
-        let ticket = self.next_ticket;
         #[cfg(test)]
         if kept.is_none() {
             self.built += 1;
         }
-        self.loading.insert(
-            key.clone(),
-            Request {
-                ticket,
-                entry: entry.clone(),
-                quote,
-                lays_out: kept.is_some(),
-            },
-        );
-        let (viewer, shown) = match kept {
-            Some(kept) => (Some(kept.viewer), kept.shown),
-            None => (None, false),
-        };
-        let job = Job {
-            key: key.clone(),
-            ticket,
-            entry: entry.clone(),
+        let job = self.job(key, entry, quote, size, kept);
+        loading::start(job, &self.tools);
+    }
+
+    /// The job for `key` under a new ticket, noted as in flight.
+    fn job(
+        &mut self,
+        key: &ViewerKey,
+        entry: &ContextEntry,
+        quote: QuoteStyle,
+        size: (u16, u16),
+        kept: Option<Kept>,
+    ) -> Job {
+        noted_job(
+            &mut self.loading,
+            &mut self.next_ticket,
+            key,
+            entry,
             quote,
             size,
-            viewer,
-            shown,
-            dispatch: tracing::dispatcher::get_default(Clone::clone),
+            kept,
+        )
+    }
+
+    /// Keeps the viewers of `window`, the entries the question shown in
+    /// session `session` keeps loaded, in the order they load (ADR 46),
+    /// and lets every other viewer go, also one a frame showed and those
+    /// of other sessions. Jobs for entries outside the window are not
+    /// taken back when they end. With the body's `size`, which a pane
+    /// shown as a one-line hint has none of, the entries of the window
+    /// that are not loaded yet are queued to load ahead in that order,
+    /// with quotes in `quote`.
+    ///
+    /// A viewer loaded for another size is left as it is: it is laid out
+    /// again when it is shown.
+    pub fn load_window(
+        &mut self,
+        session: &str,
+        window: &[(EntryKey, &ContextEntry)],
+        size: Option<(u16, u16)>,
+        quote: QuoteStyle,
+    ) {
+        let keys: Vec<ViewerKey> = window
+            .iter()
+            .map(|(entry, _)| ViewerKey {
+                session: session.to_owned(),
+                entry: *entry,
+            })
+            .collect();
+        self.viewers.retain(|key, _| keys.contains(key));
+        self.loading.retain(|key, _| keys.contains(key));
+        self.ahead.retain(|key| keys.contains(key));
+        let Some(size) = size.filter(|_| self.loads_ahead) else {
+            return;
         };
-        loading::start(job, &self.tools);
+
+        // The queue stays locked while the jobs are chosen, so its thread
+        // cannot take one between the look at what waits and the new
+        // queue: a job it took is in flight and is not queued again.
+        let Viewers {
+            ahead,
+            viewers,
+            loading,
+            next_ticket,
+            tools,
+            ..
+        } = self;
+        ahead.requeue(|queued| {
+            let wanted: Vec<(&ViewerKey, &ContextEntry)> = keys
+                .iter()
+                .zip(window)
+                .filter(|(key, (_, entry))| {
+                    let current = viewers
+                        .get(key)
+                        .is_some_and(|kept| kept.entry == **entry && kept.quote == quote);
+                    let started = loading.contains_key(key) && !queued.contains(key);
+                    !current && !started
+                })
+                .map(|(key, (_, entry))| (key, *entry))
+                .collect();
+            if wanted.iter().map(|(key, _)| *key).eq(queued.iter()) {
+                return None;
+            }
+            for key in queued {
+                loading.remove(key);
+            }
+            let jobs = wanted
+                .into_iter()
+                .map(|(key, entry)| {
+                    viewers.remove(key);
+                    let job = noted_job(loading, next_ticket, key, entry, quote, size, None);
+                    (job, tools.clone())
+                })
+                .collect();
+            Some(jobs)
+        });
     }
 
     /// Waits for the job in flight for `key` until it makes the viewer
@@ -414,27 +500,30 @@ impl Viewers {
         self.tools.images.graphics()
     }
 
-    /// Drops every image viewer, so each image is read and sent to the
-    /// terminal again when it is next shown, behind the placeholder. The
-    /// Kitty protocol sends an image's data once, on its first draw, and
-    /// afterwards only refers to it; tmux with `allow-passthrough on`
-    /// drops that transfer while the pane is not visible, and the image
-    /// would never appear (ADR 24). A job that lays out an image a frame
-    /// showed is not taken back either, as it may keep the encoding sent
-    /// before; a job that builds one has sent nothing. Other viewers keep
-    /// what they derived, as nothing of theirs went to the terminal.
+    /// Drops every image viewer a frame showed, so each of those images is
+    /// read and sent to the terminal again when it is next shown, behind
+    /// the placeholder. The Kitty protocol sends an image's data once, on
+    /// its first draw, and afterwards only refers to it; tmux with
+    /// `allow-passthrough on` drops that transfer while the pane is not
+    /// visible, and the image would never appear (ADR 24). A job that lays
+    /// out an image a frame showed is not taken back either, as it may keep
+    /// the encoding sent before. An image loaded ahead and never shown, or
+    /// a job that builds one, has sent nothing. Other viewers keep what
+    /// they derived, as nothing of theirs went to the terminal.
     pub fn forget_images(&mut self) {
         let image = |entry: &ContextEntry| matches!(entry, ContextEntry::Image(_));
-        self.viewers.retain(|_, kept| !image(&kept.entry));
+        self.viewers
+            .retain(|_, kept| !(kept.shown && image(&kept.entry)));
         self.loading
             .retain(|_, request| !(request.lays_out && image(&request.entry)));
     }
 
     /// Drops the viewers of every session `waiting` says no longer waits,
-    /// and forgets the jobs in flight for them.
+    /// and forgets the jobs in flight or queued for them.
     pub fn retain_sessions(&mut self, waiting: impl Fn(&str) -> bool) {
         self.viewers.retain(|key, _| waiting(&key.session));
         self.loading.retain(|key, _| waiting(&key.session));
+        self.ahead.retain(|key| waiting(&key.session));
         if self
             .waiting
             .as_ref()
@@ -473,6 +562,67 @@ impl Viewers {
     #[cfg(test)]
     pub(super) fn building(&mut self, build: loading::Build) {
         self.tools.build = build;
+    }
+
+    /// These viewers, loading the entries of the window ahead.
+    #[cfg(test)]
+    pub(super) fn loading_ahead(&mut self) {
+        self.loads_ahead = true;
+    }
+
+    /// The entries queued to load ahead and not started yet.
+    #[cfg(test)]
+    pub(super) fn queued(&self) -> Vec<EntryKey> {
+        self.ahead
+            .queued()
+            .into_iter()
+            .map(|key| key.entry)
+            .collect()
+    }
+
+    /// The entries whose job is in flight or queued.
+    #[cfg(test)]
+    pub(super) fn pending(&self) -> Vec<EntryKey> {
+        self.loading.keys().map(|key| key.entry).collect()
+    }
+}
+
+/// The job for `key` under the next ticket of `next_ticket`, noted in
+/// `loading` as in flight: one that lays `kept` out again, or without it
+/// one that builds the viewer of `entry`.
+fn noted_job(
+    loading: &mut HashMap<ViewerKey, Request>,
+    next_ticket: &mut u64,
+    key: &ViewerKey,
+    entry: &ContextEntry,
+    quote: QuoteStyle,
+    size: (u16, u16),
+    kept: Option<Kept>,
+) -> Job {
+    *next_ticket += 1;
+    let ticket = *next_ticket;
+    loading.insert(
+        key.clone(),
+        Request {
+            ticket,
+            entry: entry.clone(),
+            quote,
+            lays_out: kept.is_some(),
+        },
+    );
+    let (viewer, shown) = match kept {
+        Some(kept) => (Some(kept.viewer), kept.shown),
+        None => (None, false),
+    };
+    Job {
+        key: key.clone(),
+        ticket,
+        entry: entry.clone(),
+        quote,
+        size,
+        viewer,
+        shown,
+        dispatch: tracing::dispatcher::get_default(Clone::clone),
     }
 }
 
@@ -973,10 +1123,15 @@ mod tests {
             "1 fn main() {}"
         );
 
+        // A wait long enough for any machine shows that the lay-out is
+        // waited for at all: with the first job's deadline, past by now,
+        // the draw would return the placeholder at once.
+        let long = Duration::from_secs(60);
+        viewers.waiting(long);
         let buf = drawn_by(&mut viewers, &code, 30, 8, 0);
 
         assert_eq!(row(&buf, 0), "1 fn main() {}", "laid out within the wait");
-        assert_eq!(viewers.waits, [wait, wait]);
+        assert_eq!(viewers.waits, [wait, long]);
     }
 
     #[test]
@@ -1149,21 +1304,34 @@ mod tests {
     }
 
     /// The result of another entry's job that arrives while the pane waits
-    /// is kept, and the wait goes on for the entry shown. The gates open a
-    /// moment after the wait begins; should a result arrive before, the
-    /// draw takes it in first and the outcome is the same.
+    /// is kept, and the wait goes on for the entry shown. The order is
+    /// forced: the other entry's build waits until the shown one's begins,
+    /// which is after the draw took in what had arrived, and the shown one
+    /// waits until the other's result is sent, which its wake-up tells.
     #[test]
     fn the_wait_takes_in_other_results_and_goes_on() {
         let other = Gate::default();
         let shown = Gate::default();
         let mut viewers = viewers();
-        let (held_other, held_shown) = (other.clone(), shown.clone());
+        let (held_other, released_other, held_shown) =
+            (other.clone(), other.clone(), shown.clone());
         viewers.building(Arc::new(move |entry, images, quote, home| {
             match entry {
                 ContextEntry::Markdown(_) => held_other.wait(),
-                _ => held_shown.wait(),
+                _ => {
+                    released_other.open();
+                    held_shown.wait();
+                }
             }
             viewer_for(entry, images, quote, home)
+        }));
+        let woken = Arc::new(AtomicUsize::new(0));
+        let theirs = Arc::clone(&woken);
+        viewers.wake_with(Arc::new(move || {
+            // The first wake-up is the other entry's, sent with its result.
+            if theirs.fetch_add(1, Ordering::SeqCst) == 0 {
+                shown.open();
+            }
         }));
         let notes = entry(r#"{"type": "markdown", "content": "notes"}"#);
         let code = entry(FETCH);
@@ -1171,17 +1339,11 @@ mod tests {
         built(&mut viewers, "s", OPTION, &notes);
 
         viewers.waiting(Duration::from_secs(60));
-        let opening = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(50));
-            other.open();
-            thread::sleep(Duration::from_millis(50));
-            shown.open();
-        });
+        let collected = viewers.collected;
         let buf = drawn_by(&mut viewers, &code, 40, 10, 0);
-        opening.join().expect("the gates open");
 
         assert_eq!(row(&buf, 0), "1 fn main() {}");
-        viewers.collect();
+        assert_eq!(viewers.collected, collected + 2, "both taken in the wait");
         assert_eq!(viewers.viewers.len(), 2, "the other entry's viewer is kept");
     }
 
@@ -1239,6 +1401,266 @@ mod tests {
         viewers.laid_out("s", QUESTION, &dot, 30, 8, COLOURED);
         assert_eq!(viewers.built, 2, "built again");
         assert_eq!(viewers.held_images(), [3], "sent under a new id");
+    }
+
+    // -----------------------------------------------------------------
+    // The window and loading ahead
+    // -----------------------------------------------------------------
+
+    fn at(question: usize, option: Option<usize>) -> EntryKey {
+        EntryKey { question, option }
+    }
+
+    /// Code entries whose text names them.
+    fn code(text: &str) -> ContextEntry {
+        serde_json::from_value(serde_json::json!({"type": "code", "content": text}))
+            .expect("test entry parses")
+    }
+
+    /// Viewers that load ahead, and what their builds of code entries tell:
+    /// the text of each one built, with the thread it was built on, how
+    /// many builds began, and how many loads woke the run loop.
+    struct Noting {
+        viewers: Viewers,
+        built: Arc<Mutex<Vec<(String, ThreadId)>>>,
+        began: Arc<AtomicUsize>,
+        woken: Arc<AtomicUsize>,
+    }
+
+    impl Noting {
+        fn texts(&self) -> Vec<String> {
+            let built = self.built.lock().expect("no test thread panicked");
+            built.iter().map(|(text, _)| text.clone()).collect()
+        }
+    }
+
+    /// Viewers that load ahead and note every code entry they build, each
+    /// build waiting for `gate` while `held` says so of its text.
+    fn noting(gate: &Gate, held: fn(&str) -> bool) -> Noting {
+        let built = Arc::new(Mutex::new(Vec::new()));
+        let began = Arc::new(AtomicUsize::new(0));
+        let mut viewers = viewers();
+        viewers.loading_ahead();
+        let (theirs, their_count, held_back) =
+            (Arc::clone(&built), Arc::clone(&began), gate.clone());
+        viewers.building(Arc::new(move |entry, images, quote, home| {
+            if let ContextEntry::Code(code) = entry {
+                their_count.fetch_add(1, Ordering::SeqCst);
+                let text = code.content.clone().unwrap_or_default();
+                if held(&text) {
+                    held_back.wait();
+                }
+                theirs
+                    .lock()
+                    .expect("no test thread panicked")
+                    .push((text, thread::current().id()));
+            }
+            viewer_for(entry, images, quote, home)
+        }));
+        let woken = counted(&mut viewers);
+        Noting {
+            viewers,
+            built,
+            began,
+            woken,
+        }
+    }
+
+    #[test]
+    fn the_window_loads_ahead_one_after_another_on_one_thread() {
+        let mut noting = noting(&Gate::default(), |_| false);
+        let (a, b, c) = (code("a"), code("b"), code("c"));
+
+        noting.viewers.load_window(
+            "s",
+            &[
+                (at(0, Some(0)), &a),
+                (at(0, Some(1)), &b),
+                (at(1, None), &c),
+            ],
+            Some((40, 10)),
+            COLOURED,
+        );
+        test_support::wait_until(&noting.woken, 3);
+
+        assert_eq!(noting.texts(), ["a", "b", "c"]);
+        let built = noting.built.lock().expect("no test thread panicked");
+        assert!(
+            built.iter().all(|(_, thread)| *thread == built[0].1),
+            "one thread"
+        );
+        assert_ne!(built[0].1, thread::current().id());
+        drop(built);
+        noting.viewers.collect();
+        assert_eq!(noting.viewers.viewers.len(), 3, "kept");
+    }
+
+    /// The entry shown goes first: its job leaves the queue and runs on a
+    /// thread of its own, whatever the queue's thread is busy with.
+    #[test]
+    fn the_entry_shown_does_not_wait_behind_the_queue() {
+        let gate = Gate::default();
+        let mut noting = noting(&gate, |text| text == "a");
+        let (a, b, c) = (code("a"), code("b"), code("c"));
+        noting.viewers.load_window(
+            "s",
+            &[
+                (at(0, Some(0)), &a),
+                (at(0, Some(1)), &b),
+                (at(0, Some(2)), &c),
+            ],
+            Some((40, 1)),
+            COLOURED,
+        );
+        test_support::wait_until(&noting.began, 1);
+        assert_eq!(
+            noting.viewers.queued(),
+            [at(0, Some(1)), at(0, Some(2))],
+            "a runs and waits"
+        );
+        noting.viewers.waiting(Duration::from_secs(10));
+
+        let (viewer, _) = noting
+            .viewers
+            .laid_out("s", at(0, Some(2)), &c, 40, 1, COLOURED);
+        let buf = test_support::drawn(viewer, 40, 1, Offset::default());
+
+        assert_eq!(row(&buf, 0), "1 c");
+        assert_eq!(noting.texts(), ["c"], "while a still waits");
+        assert_eq!(noting.viewers.queued(), [at(0, Some(1))]);
+        gate.open();
+        test_support::wait_until(&noting.woken, 3);
+    }
+
+    /// A new window replaces the jobs that did not start: one that left the
+    /// window never runs, one still in the window runs once.
+    #[test]
+    fn a_new_window_replaces_the_jobs_not_yet_started() {
+        let gate = Gate::default();
+        let mut noting = noting(&gate, |text| text == "x");
+        let (x, a, b, c) = (code("x"), code("a"), code("b"), code("c"));
+        noting.viewers.load_window(
+            "s",
+            &[
+                (at(0, None), &x),
+                (at(0, Some(0)), &a),
+                (at(0, Some(1)), &b),
+            ],
+            Some((40, 10)),
+            COLOURED,
+        );
+        test_support::wait_until(&noting.began, 1);
+
+        noting.viewers.load_window(
+            "s",
+            &[
+                (at(0, None), &x),
+                (at(0, Some(0)), &a),
+                (at(0, Some(2)), &c),
+            ],
+            Some((40, 10)),
+            COLOURED,
+        );
+
+        assert_eq!(noting.viewers.queued(), [at(0, Some(0)), at(0, Some(2))]);
+        gate.open();
+        test_support::wait_until(&noting.woken, 3);
+        noting.viewers.collect();
+        assert_eq!(noting.texts(), ["x", "a", "c"], "b never, each once");
+    }
+
+    /// A job the queue's thread took runs to its end and is not queued
+    /// again by the next window.
+    #[test]
+    fn a_job_already_started_is_not_queued_again() {
+        let gate = Gate::default();
+        let mut noting = noting(&gate, |text| text == "a");
+        let (a, b, c) = (code("a"), code("b"), code("c"));
+        noting.viewers.load_window(
+            "s",
+            &[(at(0, Some(0)), &a), (at(0, Some(1)), &b)],
+            Some((40, 10)),
+            COLOURED,
+        );
+        test_support::wait_until(&noting.began, 1);
+
+        noting.viewers.load_window(
+            "s",
+            &[(at(0, Some(0)), &a), (at(0, Some(2)), &c)],
+            Some((40, 10)),
+            COLOURED,
+        );
+
+        assert_eq!(noting.viewers.queued(), [at(0, Some(2))]);
+        gate.open();
+        test_support::wait_until(&noting.woken, 2);
+        noting.viewers.collect();
+        assert_eq!(noting.texts(), ["a", "c"], "a once, b never");
+        assert_eq!(noting.viewers.viewers.len(), 2, "both kept");
+    }
+
+    /// Only an image a frame showed can have had its transfer dropped by
+    /// tmux; one loaded ahead has sent nothing and stays.
+    #[test]
+    fn regaining_the_focus_reloads_only_images_a_frame_showed() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewers = kitty_viewers();
+        viewers.loading_ahead();
+        let woken = counted(&mut viewers);
+        let (shown, ahead) = (picture(&directory, "a.png"), picture(&directory, "b.png"));
+        built(&mut viewers, "s", QUESTION, &shown);
+        viewers.load_window(
+            "s",
+            &[(QUESTION, &shown), (OPTION, &ahead)],
+            Some((40, 10)),
+            COLOURED,
+        );
+        test_support::wait_until(&woken, 2);
+        viewers.collect();
+        assert_eq!(viewers.held_images(), [1, 2]);
+        viewers.laid_out("s", QUESTION, &shown, 30, 8, COLOURED);
+        assert_eq!(
+            viewers.dropped_images(),
+            [1],
+            "laid out again under a new id"
+        );
+
+        viewers.forget_images();
+
+        assert_eq!(viewers.dropped_images(), [3], "the one shown");
+        assert_eq!(viewers.held_images(), [2], "the one loaded ahead");
+    }
+
+    /// The window is the previous, the current and the next question:
+    /// what lies outside goes, shown or not, of any session, and loads
+    /// again on coming back.
+    #[test]
+    fn the_viewers_outside_the_window_go() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewers = kitty_viewers();
+        let first = picture(&directory, "a.png");
+        let text = code("x");
+        built(&mut viewers, "s", at(0, None), &first);
+        built(&mut viewers, "other", at(0, None), &text);
+        let second = code("second");
+
+        viewers.load_window(
+            "s",
+            &[(at(1, None), &second), (at(0, None), &first)],
+            None,
+            COLOURED,
+        );
+        assert!(
+            viewers.held_images().contains(&1),
+            "the question before stays"
+        );
+
+        viewers.load_window("s", &[(at(3, None), &second)], None, COLOURED);
+        assert_eq!(viewers.dropped_images(), [1], "shown, and gone");
+        assert!(viewers.viewers.is_empty(), "also the other session's");
+
+        built(&mut viewers, "s", at(0, None), &first);
+        assert_eq!(viewers.built, 3, "built again");
     }
 
     #[test]

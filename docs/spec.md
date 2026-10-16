@@ -1163,13 +1163,23 @@ Context appears only when a question or one of its options has some.
 Loading (ADR 46):
 
 - asqr reads, highlights, renders, decodes and scales an entry apart
-  from drawing the screen, so keys keep working while it loads. An entry
-  is loaded when it is first shown. The pane waits up to 100 ms for it;
-  an entry that takes longer shows a dim `loading…` in the middle of the
-  pane, below the header that names it, until it is ready. A new size of
-  the pane, also the `z` view, lays the entry out again the same way.
+  from drawing the screen, so keys keep working while it loads. The pane
+  waits up to 100 ms for the entry it shows; one that takes longer shows
+  a dim `loading…` in the middle of the pane, below the header that
+  names it, until it is ready. A new size of the pane, also the `z` view,
+  lays the entry out again the same way.
+- asqr keeps what it loaded for three questions: the previous, the
+  current and the next one, with the question's entry and every
+  option's. While a question shows with its pane, asqr loads the
+  entries of that window ahead: the one shown first, then those of the
+  question's other rows, starting below the cursor, then those of the
+  next question and of the one before. Everything else goes, also an
+  entry that was shown, and coming back to it loads it again. Nothing
+  loads ahead for the `z` view, the one-line hint or a question without
+  context. An entry loaded ahead before the pane changed its size may
+  show `loading…` when it is shown.
 - A load that is no longer shown runs to its end, and what it loaded is
-  kept while the session waits.
+  kept while it is inside the window.
 - A file that turns into a FIFO between asqr's check of its path and its
   opening shows the card of a path that is not a regular file.
 
@@ -1286,13 +1296,14 @@ Images:
   byte and for at most 1 second. Keys typed in that time are lost. An
   answer that begins later reaches asqr as typed keys, where its digits
   can pick options.
-- An image entry is read when it is loaded and kept while its session
-  waits: asqr keeps the file as it read it, not its decoded pixels, and
-  decodes it again to show it at another size. asqr asks the terminal
-  for focus reports. Under the Kitty protocol behind a tmux pane with
-  `allow-passthrough on`, which drops a transfer while the pane is
-  hidden, asqr loads every image again behind `loading…` and sends it as
-  it is next shown once its terminal regains the focus.
+- An image entry is read when it is loaded and kept while it is inside
+  the window: asqr keeps the file as it read it, not its decoded pixels,
+  and decodes it again to show it at another size. asqr asks the
+  terminal for focus reports. Under the Kitty protocol behind a tmux
+  pane with `allow-passthrough on`, which drops a transfer while the
+  pane is hidden, asqr loads every image a frame showed again behind
+  `loading…` and sends it as it is next shown once its terminal regains
+  the focus; an image loaded ahead and not shown yet has sent nothing.
   A tmux asqr cannot ask, as after ssh from a tmux pane, counts as `on`.
   Elsewhere the terminal keeps what it got, and regaining the focus
   changes nothing. Code, Markdown and diff entries keep what asqr
