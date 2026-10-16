@@ -313,8 +313,8 @@ enough. `asqr paths --json` shows where the queue's files are.
   sitting, and drop several sessions; asqr shows them in the order they
   arrive.
 - **Follow-up rounds.** When answers lead to new questions, ask a new
-  session with `"follows": "<previous id>"`. The person sees which
-  session it continues.
+  session with `"follows": "<previous id>"`. The person sees the title
+  of the session it continues.
 - **Keep a record.** Save the answers you act on in your own notes or
   files. Results stay in the queue's outbox until the person prunes
   them.

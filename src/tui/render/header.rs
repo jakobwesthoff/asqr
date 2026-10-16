@@ -120,11 +120,16 @@ pub(super) fn header_lines(state: &SessionState, width: usize, spare: usize) -> 
 }
 
 /// `from` and `follows`, dim in one line under the title and cut with `…`
-/// to `text_width`, or `None` where the session has neither.
+/// to `text_width`, or `None` where the session has neither. `follows`
+/// shows the title of the session it names in quotes where the inbox found
+/// one, else the value as the asker wrote it.
 fn meta_line(state: &SessionState, text_width: usize) -> Option<Line<'static>> {
     let session = state.session();
     let from = session.from.as_deref().and_then(one_line);
-    let follows = session.follows.as_deref().and_then(one_line);
+    let follows = match state.follows_title().and_then(one_line) {
+        Some(title) => Some(format!("\"{title}\"")),
+        None => session.follows.as_deref().and_then(one_line),
+    };
     let parts: Vec<String> = [
         from.map(|from| format!("from {from}")),
         follows.map(|follows| format!("follows {follows}")),
@@ -229,6 +234,22 @@ mod tests {
             line_texts(&[title_bar(&state, "default", 1, 40)]),
             [format!(" asqr  Round two of it{}1 waiting ", " ".repeat(8))]
         );
+    }
+
+    #[test]
+    fn follows_shows_the_title_in_quotes_else_the_value_as_written() {
+        let mut state = session_with(r#""from": "agent", "follows": "round-1","#);
+        let meta = |state: &SessionState| line_texts(&header_lines(state, 80, 10))[0].clone();
+
+        assert_eq!(meta(&state), "       from agent · follows round-1");
+        state.set_follows_title(Some("Round one,\n  first try".to_owned()));
+        assert_eq!(
+            meta(&state),
+            r#"       from agent · follows "Round one, first try""#
+        );
+        // A title of nothing but blanks names nothing.
+        state.set_follows_title(Some("  ".to_owned()));
+        assert_eq!(meta(&state), "       from agent · follows round-1");
     }
 
     #[test]

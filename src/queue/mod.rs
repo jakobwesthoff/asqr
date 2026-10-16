@@ -5,6 +5,7 @@
 //! Queues (spec section 3): where sessions wait, where results go, and the
 //! file rules that keep askers and the TUI from stepping on each other.
 
+mod archive;
 mod atomic;
 mod drafts;
 mod drop;
@@ -15,6 +16,7 @@ mod lock;
 mod names;
 mod prune;
 
+pub use archive::*;
 pub use drafts::*;
 pub use drop::*;
 pub use finish::*;

@@ -171,6 +171,8 @@ pub struct SessionState {
     offsets: HashMap<EntryKey, Offset>,
     /// See [`Self::revision`].
     revision: u64,
+    /// See [`Self::follows_title`].
+    follows_title: Option<String>,
 }
 
 /// Whether `question` or any of its options has context.
@@ -244,6 +246,7 @@ impl SessionState {
             pane_page: None,
             offsets: HashMap::new(),
             revision: 0,
+            follows_title: None,
         };
         state.arrive();
         state
@@ -362,6 +365,17 @@ impl SessionState {
     /// What the screen calls the session: its title, else its id.
     pub fn name(&self) -> &str {
         self.session.title.as_deref().unwrap_or(&self.id)
+    }
+
+    /// The title of the session `follows` names, as the inbox found it
+    /// when it loaded this one (spec section 7.1); `None` where it found
+    /// none. A replaced file starts without it until the inbox looks again.
+    pub fn follows_title(&self) -> Option<&str> {
+        self.follows_title.as_deref()
+    }
+
+    pub fn set_follows_title(&mut self, title: Option<String>) {
+        self.follows_title = title;
     }
 
     /// The current tab: a question index, or the review after the last.

@@ -154,6 +154,13 @@ impl App {
         self.list = self.list.zip(last).map(|(cursor, last)| cursor.min(last));
     }
 
+    /// Gives session `id` the title of the session its `follows` names.
+    pub fn set_follows_title(&mut self, id: &str, title: Option<String>) {
+        if let Some(index) = self.position(id) {
+            self.sessions[index].set_follows_title(title);
+        }
+    }
+
     fn position(&self, id: &str) -> Option<usize> {
         self.sessions
             .iter()

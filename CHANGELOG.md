@@ -111,6 +111,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lines instead of three, with a blank line before the tabs. On a low
   terminal the header gives up that blank line, then intro lines, before
   the context pane shrinks to its one-line hint.
+- `follows` in the header shows the title of the session it continues,
+  as `follows "Review the retry change"`, taken from the waiting
+  sessions or the queue's archive. Where asqr finds no such session, or
+  it has no title, the header shows the id as before.
 
 ### Fixed
 

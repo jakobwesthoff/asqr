@@ -15,10 +15,12 @@ use std::io;
 use std::path::PathBuf;
 
 use super::{App, AppEffect, Notice, Outcome, SessionState, Tone};
-use crate::format::{SessionResult, now_rfc3339, parse_session, same_session_id, validate};
+use crate::format::{
+    SessionResult, is_valid_session_id, now_rfc3339, parse_session, same_session_id, validate,
+};
 use crate::queue::{
-    QueueLocation, Recovery, Rejected, Waiting, archive_invalid_stem, finish, load_draft, recover,
-    reject_invalid, save_draft, scan_inbox, session_sha256,
+    QueueLocation, Recovery, Rejected, Waiting, archive_invalid_stem, archived_title, finish,
+    load_draft, recover, reject_invalid, save_draft, scan_inbox, session_sha256,
 };
 
 /// A session the app shows, with the bytes it was read from.
@@ -130,30 +132,39 @@ impl Inbox {
         }
 
         let mut synced = Synced::default();
+        let mut loaded = Vec::new();
         for waiting in scan.sessions {
-            if let Err(error) = self.load(app, &waiting, &mut synced) {
-                app.notice(
+            match self.load(app, &waiting, &mut synced) {
+                Ok(true) => loaded.push(waiting.id),
+                Ok(false) => {}
+                Err(error) => app.notice(
                     Tone::Error,
                     format!("cannot read {}: {error}", waiting.path.display()),
-                );
+                ),
             }
+        }
+        // Only once every waiting file is loaded, so a follow-up that is
+        // older than the session it follows still finds it waiting.
+        for id in loaded {
+            let title = self.follows_title(app, &id);
+            app.set_follows_title(&id, title);
         }
         Ok(synced)
     }
 
     /// Loads one waiting file into the app, unless the app shows exactly
-    /// these bytes already.
-    fn load(&mut self, app: &mut App, waiting: &Waiting, synced: &mut Synced) -> io::Result<()> {
+    /// these bytes already. Says whether the app took a new state for it.
+    fn load(&mut self, app: &mut App, waiting: &Waiting, synced: &mut Synced) -> io::Result<bool> {
         let bytes = match std::fs::read(&waiting.path) {
             // Finished or taken back between the scan and now; the next
             // sync sees it gone.
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
             other => other?,
         };
         let sha256 = session_sha256(&bytes);
         let index = self.known(&waiting.id);
         if index.is_some_and(|index| self.known[index].sha256 == sha256) {
-            return Ok(());
+            return Ok(false);
         }
 
         let session = parse_session(&bytes)
@@ -171,7 +182,7 @@ impl Inbox {
             Err(message) => {
                 self.forget(app, &waiting.id);
                 self.reject(app, waiting, &bytes, &message);
-                return Ok(());
+                return Ok(false);
             }
         };
 
@@ -198,7 +209,38 @@ impl Inbox {
                 self.known.push(known);
             }
         }
-        Ok(())
+        Ok(true)
+    }
+
+    /// The title of the session that session `id`'s `follows` names (spec
+    /// section 7.1): a waiting session's, else the one archived last under
+    /// that id. A session that names its own id can only mean an earlier
+    /// round in the archive. A waiting session without a title names
+    /// nothing, as it is the one meant.
+    ///
+    /// A value that is no valid id never matches a file, so the archive is
+    /// not listed for it. An archive that cannot be listed costs only the
+    /// title.
+    fn follows_title(&self, app: &App, id: &str) -> Option<String> {
+        let follows = app
+            .sessions()
+            .iter()
+            .find(|state| same_session_id(state.id(), id))?
+            .session()
+            .follows
+            .as_deref()
+            .filter(|follows| is_valid_session_id(follows))?;
+        let waiting = app
+            .sessions()
+            .iter()
+            .find(|state| same_session_id(state.id(), follows) && !same_session_id(state.id(), id));
+        if let Some(state) = waiting {
+            return state.session().title.clone();
+        }
+        archived_title(&self.location, follows).unwrap_or_else(|error| {
+            tracing::warn!(%id, %follows, %error, "cannot read the archive for a follow-up's title");
+            None
+        })
     }
 
     fn reject(&mut self, app: &mut App, waiting: &Waiting, bytes: &[u8], message: &str) {
@@ -330,7 +372,7 @@ mod tests {
 
     use super::*;
     use crate::format::{Answer, Status};
-    use crate::queue::{drop_session, parse_archive_name};
+    use crate::queue::{Archived, archive_name, drop_session, parse_archive_name};
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
@@ -1046,5 +1088,182 @@ mod tests {
             outcome: Outcome::Rejected(None),
         };
         assert_eq!(inbox.apply(&mut app, unknown), Applied::Continue);
+    }
+
+    // -----------------------------------------------------------------
+    // The session a follow-up continues
+    // -----------------------------------------------------------------
+
+    /// A session with `fields` before its question, such as
+    /// `"title": "Round one",`.
+    fn with(fields: &str) -> String {
+        SESSION.replacen('{', &format!("{{{fields}"), 1)
+    }
+
+    /// Archives `text` as the finished session `id`, archived at `millis`.
+    fn archived(location: &QueueLocation, id: &str, millis: u64, text: &str) {
+        let name = archive_name(id, ulid::Ulid::from_parts(millis, 0), Archived::Session);
+        fs::write(location.archive().join(name), text).expect("written");
+    }
+
+    /// The `follows` title the app keeps for session `id`.
+    fn follows_title<'a>(app: &'a App, id: &str) -> Option<&'a str> {
+        app.sessions()
+            .iter()
+            .find(|state| state.id() == id)
+            .and_then(SessionState::follows_title)
+    }
+
+    #[test]
+    fn a_follow_up_names_the_waiting_session_it_follows() {
+        let (_scratch, location) = queue();
+        put(&location, "round-1.json", &with(r#""title": "Round one","#));
+        let follow_up = put(&location, "round-2.json", &with(r#""follows": "ROUND-1","#));
+        // Older than its predecessor, the follow-up loads first.
+        fs::File::options()
+            .write(true)
+            .open(&follow_up)
+            .expect("opened")
+            .set_modified(std::time::SystemTime::UNIX_EPOCH)
+            .expect("touched");
+        let (mut inbox, mut app) = (Inbox::new(location), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(ids(&app), ["round-2", "round-1"]);
+        assert_eq!(follows_title(&app, "round-2"), Some("Round one"));
+    }
+
+    #[test]
+    fn a_waiting_session_wins_over_its_archived_round() {
+        let (_scratch, location) = queue();
+        archived(
+            &location,
+            "round-1",
+            1_000,
+            &with(r#""title": "Round one, first try","#),
+        );
+        put(&location, "round-1.json", &with(r#""title": "Round one","#));
+        put(&location, "round-2.json", &with(r#""follows": "round-1","#));
+        let (mut inbox, mut app) = (Inbox::new(location), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(follows_title(&app, "round-2"), Some("Round one"));
+    }
+
+    #[test]
+    fn a_follow_up_names_an_archived_session() {
+        let (_scratch, location) = queue();
+        archived(
+            &location,
+            "round-1",
+            1_000,
+            &with(r#""title": "Round one","#),
+        );
+        put(&location, "round-2.json", &with(r#""follows": "round-1","#));
+        let (mut inbox, mut app) = (Inbox::new(location), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(follows_title(&app, "round-2"), Some("Round one"));
+    }
+
+    #[test]
+    fn a_follow_up_shows_the_id_where_no_title_is_found() {
+        let (_scratch, location) = queue();
+        // A waiting predecessor without a title is found, so its archived
+        // round does not count.
+        archived(
+            &location,
+            "untitled",
+            1_000,
+            &with(r#""title": "Archived","#),
+        );
+        put(&location, "untitled.json", SESSION);
+        put(&location, "a.json", &with(r#""follows": "untitled","#));
+        put(&location, "b.json", &with(r#""follows": "unknown","#));
+        put(
+            &location,
+            "c.json",
+            &with(r#""follows": "round 1 of the review","#),
+        );
+        let (mut inbox, mut app) = (Inbox::new(location), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        for id in ["a", "b", "c"] {
+            assert_eq!(follows_title(&app, id), None, "{id}");
+        }
+    }
+
+    #[test]
+    fn a_session_that_follows_its_own_id_names_the_archived_round() {
+        let (_scratch, location) = queue();
+        archived(
+            &location,
+            "review",
+            1_000,
+            &with(r#""title": "Review, round 1","#),
+        );
+        put(
+            &location,
+            "review.json",
+            &with(r#""title": "Review, round 2", "follows": "review","#),
+        );
+        let (mut inbox, mut app) = (Inbox::new(location), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(follows_title(&app, "review"), Some("Review, round 1"));
+    }
+
+    #[test]
+    fn a_reloaded_follow_up_looks_its_session_up_again() {
+        let (_scratch, location) = queue();
+        let follow_up = put(&location, "round-2.json", &with(r#""follows": "round-1","#));
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        assert_eq!(follows_title(&app, "round-2"), None);
+
+        archived(
+            &location,
+            "round-1",
+            1_000,
+            &with(r#""title": "Round one","#),
+        );
+        fs::write(
+            &follow_up,
+            with(r#""follows": "round-1", "title": "Round two","#),
+        )
+        .expect("written");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(follows_title(&app, "round-2"), Some("Round one"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_follow_up_shows_the_id_when_the_archive_cannot_be_read() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_scratch, location) = queue();
+        archived(
+            &location,
+            "round-1",
+            1_000,
+            &with(r#""title": "Round one","#),
+        );
+        put(&location, "round-2.json", &with(r#""follows": "round-1","#));
+        fs::set_permissions(location.archive(), fs::Permissions::from_mode(0o000)).expect("chmod");
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        let synced = inbox.sync(&mut app);
+
+        fs::set_permissions(location.archive(), fs::Permissions::from_mode(0o755))
+            .expect("chmod back, so the temp dir can go");
+        assert_eq!(synced.expect("synced").arrived, ["round-2"]);
+        assert_eq!(follows_title(&app, "round-2"), None);
+        assert!(app.current_notice().is_none(), "{:?}", app.current_notice());
     }
 }

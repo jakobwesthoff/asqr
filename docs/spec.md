@@ -188,7 +188,9 @@ takes an exclusive advisory lock on it (flock on Unix).
   lock. `ask` and `status` only test it for a moment to see whether an
   asqr is watching; the retries above keep such a test from refusing a
   starting TUI.
-- The TUI never reads the outbox or the archive after a submit.
+- Apart from the recovery of section 3.7, the TUI does not read the
+  outbox or the archive back after a submit. It reads the archive only
+  for the title that `follows` names (section 7.1).
 
 ### 3.7 Finishing a session
 
@@ -321,7 +323,7 @@ Session fields:
 - `title` (optional): shown in the title bar, which shows the id when
   there is none. `intro`, `from` (optional): shown in the session header.
 - `follows` (optional): the id of an earlier session this one continues.
-  The header shows `follows <id>` (section 7.1).
+  The header shows that session's title, or the id (section 7.1).
 - `questions` (required, at least one).
 
 Question fields:
@@ -642,6 +644,14 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   field, a note or the context pane has the keys, where `i` would be
   typed or taken by the pane, it ends in `… esc, i: more`. The tab bar
   keeps the full width.
+- `follows` shows the title of the session it names, in quotes, when
+  asqr finds that session with a title: a waiting session, else the
+  newest finished session of that id in the archive
+  (`archive/<id>.<ulid>.json`, not a result and not an `invalid.*`
+  entry), the id compared ignoring case. A session that names its own id
+  finds only the archive. A waiting session without a title, and
+  anything else, shows the value as written. asqr looks the title up
+  when it loads or reloads the session.
 - On a low terminal the header gives way while the tab's area would
   have fewer than 15 rows, the rows a context pane below the question
   needs: first the blank line, then intro lines down to one. The `from`
@@ -1419,8 +1429,10 @@ bridged with repeated `wait_result` calls.
 ## 10. Follow-up rounds
 
 asqr itself has no loop. A follow-up is a new session, and its optional
-`follows` field names the previous one. The header shows it. asqr does
-not count or match carried-over questions.
+`follows` field names the previous one. The header shows the title of
+the previous session, or its id where asqr cannot find that session or
+it has no title (section 7.1). asqr does not count or match
+carried-over questions.
 
 ## 11. Not in asqr yet
 
