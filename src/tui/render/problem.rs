@@ -80,32 +80,16 @@ pub(super) struct Problem {
 }
 
 impl Problem {
-    pub(super) fn error(headline: impl Into<String>) -> Self {
+    pub(super) fn warning(headline: impl Into<String>) -> Self {
         Problem {
-            severity: Severity::Error,
+            severity: Severity::Warning,
             headline: headline.into(),
             details: Vec::new(),
         }
     }
 
-    pub(super) fn warning(headline: impl Into<String>) -> Self {
-        Problem {
-            severity: Severity::Warning,
-            ..Problem::error(headline)
-        }
-    }
-
     pub(super) fn with_details(self, details: Vec<String>) -> Self {
         Problem { details, ..self }
-    }
-
-    /// The problem of one side of a diff, `old` or `new`, which the
-    /// headline names first, as a diff shows the first side that fails.
-    pub(super) fn on_side(self, side: &str) -> Self {
-        Problem {
-            headline: format!("{side} side: {}", self.headline),
-            ..self
-        }
     }
 }
 
@@ -181,10 +165,10 @@ const CARD_WIDTH: u16 = 60;
 const FRAME_COLUMNS: u16 = 4;
 
 /// A context entry that cannot be shown, in place of its content: a
-/// framed card with the problem's mark and headline, then the file's
-/// name and its folder (ADR 49).
+/// card framed in the error colour with the error's mark and the reason,
+/// then the file's name and its folder (ADR 49).
 pub(super) struct Card {
-    problem: Problem,
+    reason: String,
     name: String,
     folder: String,
     /// The rows inside the frame, laid out for the last body.
@@ -197,12 +181,12 @@ pub(super) struct Card {
 }
 
 impl Card {
-    /// The card of `problem` with the file at `path`, the home folder in
-    /// it shown as `~`.
-    pub(super) fn new(problem: Problem, path: &str, home: Option<&Path>) -> Self {
+    /// The card of the error `reason` with the file at `path`, the home
+    /// folder in it shown as `~`.
+    pub(super) fn error(reason: impl Into<String>, path: &str, home: Option<&Path>) -> Self {
         let (name, folder) = name_and_folder(&shown_path(path, home));
         Card {
-            problem,
+            reason: reason.into(),
             name,
             folder,
             rows: Vec::new(),
@@ -214,11 +198,10 @@ impl Card {
     /// The rows inside the frame for `width` columns: the headline under
     /// the mark, a blank row, the name, then the folder.
     fn rows_for(&self, width: usize) -> Vec<Line<'static>> {
-        let severity = self.problem.severity;
-        let strong = severity.style().bold();
+        let strong = Severity::Error.style().bold();
         let headline = Line::from(vec![
-            Span::styled(format!("{} ", severity.mark()), strong),
-            Span::styled(self.problem.headline.clone(), strong),
+            Span::styled(format!("{} ", Severity::Error.mark()), strong),
+            Span::styled(self.reason.clone(), strong),
         ]);
         let mut rows = wrap(headline, width, 0, 2);
         rows.push(Line::default());
@@ -279,7 +262,7 @@ impl Viewer for Card {
         let mut whole = Buffer::empty(Rect::new(0, 0, area.width, tall));
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(self.problem.severity.style())
+            .border_style(Severity::Error.style())
             .padding(Padding::horizontal(1));
         let at = self.at.intersection(whole.area);
         let inside = block.inner(at);
@@ -411,7 +394,7 @@ mod tests {
     const MISSING: &str = "No such file or directory (os error 2)";
 
     fn card(reason: &str, path: &str) -> Card {
-        Card::new(Problem::error(reason), path, None)
+        Card::error(reason, path, None)
     }
 
     /// The rows of `card` laid out and drawn into `width`×`height` cells

@@ -15,7 +15,7 @@ use std::path::Path;
 
 use image::ImageError;
 
-use super::problem::{Card, Problem};
+use super::problem::Card;
 use super::source_line::Note;
 
 /// How much of a file a viewer reads. The read happens while the person
@@ -113,26 +113,27 @@ impl Unreadable {
     /// What a viewer shows in place of its content: a card with the reason
     /// and the file, the home folder `home` in its path shown as `~`.
     pub fn card(&self, home: Option<&Path>) -> Card {
-        self.card_of(Problem::error(&self.reason), home)
+        self.card_of(&self.reason, home)
     }
 
     /// The card of one side of a diff, `old` or `new`, which names the
-    /// side.
+    /// side before the reason, as a diff shows the first side that fails.
     pub fn card_on_side(&self, side: &str, home: Option<&Path>) -> Card {
-        self.card_of(Problem::error(&self.reason).on_side(side), home)
+        self.card_of(&format!("{side} side: {}", self.reason), home)
     }
 
-    /// Every card is built here, once per build of its viewer, so the log
-    /// has the message once per load, also for an entry loaded ahead and
-    /// never shown.
-    fn card_of(&self, problem: Problem, home: Option<&Path>) -> Card {
+    /// The card of `headline`, the reason as the card puts it. Every card
+    /// is built here, once per build of its viewer, so the log has the
+    /// message once per load, also for an entry loaded ahead and never
+    /// shown.
+    fn card_of(&self, headline: &str, home: Option<&Path>) -> Card {
         tracing::warn!(
             path = %self.path,
             cause = %self.cause,
             reason = %self.reason,
             "a context entry cannot be shown"
         );
-        Card::new(problem, &self.path, home)
+        Card::error(headline, &self.path, home)
     }
 }
 
