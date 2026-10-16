@@ -6,8 +6,16 @@
 //! for the terminal's graphics protocol whenever it is laid out at another
 //! size, and drawn as encoded. A picture that cannot be decoded never
 //! becomes an [`Image`]; one that cannot be encoded draws nothing.
+//!
+//! Between encodings an image keeps its file as it was read, compressed
+//! in its own format, rather than the decoded picture, which takes four
+//! bytes a pixel: 144 MB for one of 6000×6000. A new size decodes it
+//! again. What shows stays what was read first, also when the file
+//! changes on disk.
 
-use ::image::DynamicImage;
+use std::io::Cursor;
+
+use ::image::{DynamicImage, ImageFormat, ImageReader, ImageResult};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Rect, Size};
 use ratatui::widgets::Widget;
@@ -23,7 +31,7 @@ use super::kitty::HeldId;
 use super::placeholders::PlacedImage;
 use super::{Images, Protocol};
 
-/// One image file, decoded, and encoded for the size it was last laid out
+/// One image file, as read, and encoded for the size it was last laid out
 /// at.
 pub struct Image {
     images: Images,
@@ -31,14 +39,31 @@ pub struct Image {
 }
 
 enum State {
-    /// The decoded picture, and its encoding once it was laid out.
+    /// The file as read; the decoded picture until its first encoding;
+    /// the encoding once it was laid out.
     Ready {
-        picture: DynamicImage,
+        read: Read,
+        picture: Option<DynamicImage>,
         encoding: Option<Encoding>,
     },
     /// An encoding failed. The image draws nothing from then on, where
     /// encoding again at every size would log the same error each time.
     Failed,
+}
+
+/// The bytes of an image file as asqr read them, and the format they were
+/// first decoded in. The format is kept, as a file without a signature,
+/// such as TGA, was told by the extension of a path the bytes no longer
+/// have.
+pub(super) struct Read {
+    pub(super) bytes: Vec<u8>,
+    pub(super) format: ImageFormat,
+}
+
+impl Read {
+    fn decode(&self) -> ImageResult<DynamicImage> {
+        ImageReader::with_format(Cursor::new(&self.bytes), self.format).decode()
+    }
 }
 
 /// The picture encoded for one size, and under the Kitty protocol the id
@@ -56,12 +81,14 @@ struct Encoding {
 const SCALING: FilterType = FilterType::Triangle;
 
 impl Image {
-    /// `picture`, to be encoded by `images` once it is laid out.
-    pub(super) fn new(images: &Images, picture: DynamicImage) -> Image {
+    /// The image `read`, decoded already into `picture`, to be encoded by
+    /// `images` once it is laid out.
+    pub(super) fn new(images: &Images, read: Read, picture: DynamicImage) -> Image {
         Image {
             images: images.clone(),
             state: State::Ready {
-                picture,
+                read,
+                picture: Some(picture),
                 encoding: None,
             },
         }
@@ -78,13 +105,30 @@ impl Image {
     /// begins, and shows it blank until that ends; under a new id the old
     /// copy stays untouched while the new one comes in, and the old id
     /// goes for deleting after the frame (ADR 42).
+    ///
+    /// The picture decoded when the image was made serves the first
+    /// encoding; every later one decodes the file as read again, as the
+    /// size an image takes depends on its pixel size.
     pub fn lay_out(&mut self, available: Size, enlarge: bool) {
-        let State::Ready { picture, encoding } = &mut self.state else {
+        let State::Ready {
+            read,
+            picture,
+            encoding,
+        } = &mut self.state
+        else {
             return;
         };
         if available.width == 0 || available.height == 0 {
             return;
         }
+        let picture = match picture.take().map_or_else(|| read.decode(), Ok) {
+            Ok(picture) => picture,
+            Err(error) => {
+                tracing::warn!(%error, "could not decode an image again; it stays empty");
+                self.state = State::Failed;
+                return;
+            }
+        };
         let resize = if enlarge {
             Resize::Scale(Some(SCALING))
         } else {
@@ -92,14 +136,15 @@ impl Image {
         };
         let graphics = self.images.graphics;
         let font = FontSize::new(graphics.cell.width, graphics.cell.height);
-        let size = resize.size_for(picture, font, available);
+        let size = resize.size_for(&picture, font, available);
         if encoding
             .as_ref()
             .is_some_and(|encoding| encoding.encoded.size() == size)
         {
             return;
         }
-        let resized = resize.resize(picture, font, size, None);
+        let resized = resize.resize(&picture, font, size, None);
+        drop(picture);
         let encoded = encode(&self.images, resized, size);
         self.settle(encoded);
     }
@@ -115,6 +160,18 @@ impl Image {
             }
             (Ok(_), State::Failed) => {}
         }
+    }
+
+    /// Whether the image holds a decoded picture.
+    #[cfg(test)]
+    pub(crate) fn holds_picture(&self) -> bool {
+        matches!(
+            self.state,
+            State::Ready {
+                picture: Some(_),
+                ..
+            }
+        )
     }
 
     /// Draws the image as it was last laid out into `area` of `buf`, which
@@ -285,6 +342,69 @@ mod tests {
             .filter(|colour| matches!(colour, ratatui::style::Color::Rgb(64..=192, _, _)))
             .collect();
         assert!(!greys.is_empty(), "{:?}", buf.content()[0]);
+    }
+
+    /// A decoded picture takes four bytes a pixel, 144 MB for one of
+    /// 6000×6000, so it goes once it is encoded.
+    #[test]
+    fn an_image_keeps_no_decoded_picture_once_encoded() {
+        let mut image = Images::half_blocks().image(testing::red());
+        assert!(image.holds_picture(), "decoded until its first encoding");
+
+        image.lay_out(Size::new(4, 4), true);
+
+        assert!(!image.holds_picture());
+    }
+
+    /// The colours `buf` shows, foreground and background.
+    fn colours(buf: &Buffer) -> BTreeSet<String> {
+        buf.content()
+            .iter()
+            .flat_map(|cell| [cell.fg, cell.bg])
+            .map(|colour| format!("{colour:?}"))
+            .collect()
+    }
+
+    /// Without the decoded picture, another size decodes the image again
+    /// from what was read.
+    #[test]
+    fn an_image_laid_out_at_another_size_encodes_again_from_what_was_read() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("dot.tga");
+        ::image::RgbImage::from_pixel(2, 2, ::image::Rgb([255, 0, 0]))
+            .save(&path)
+            .expect("image written");
+        let path = path.to_str().expect("a UTF-8 path");
+        let file = fs::File::open(path).expect("readable");
+        let mut image = Images::half_blocks()
+            .decode(file, path)
+            .expect("a TGA decodes");
+        drawn(&mut image, Rect::new(0, 0, 2, 2), true);
+        assert!(!image.holds_picture());
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 4, 8), true);
+
+        assert!(
+            colours(&buf).contains(&format!("{:?}", ratatui::style::Color::Rgb(255, 0, 0))),
+            "{buf:?}"
+        );
+    }
+
+    /// What was read decoded once, so decoding it again fails only where
+    /// memory runs out; the image then draws nothing, as after a failed
+    /// encoding.
+    #[test]
+    fn an_image_whose_bytes_no_longer_decode_draws_nothing() {
+        let mut image = Images::half_blocks().image(testing::red());
+        drawn(&mut image, Rect::new(0, 0, 2, 2), true);
+        let State::Ready { read, .. } = &mut image.state else {
+            panic!("encoded");
+        };
+        read.bytes.truncate(8);
+
+        let area = Rect::new(0, 0, 4, 8);
+        assert_eq!(drawn(&mut image, area, true), Buffer::empty(area));
+        assert!(matches!(image.state, State::Failed));
     }
 
     #[test]

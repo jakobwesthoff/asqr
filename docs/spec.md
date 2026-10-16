@@ -1274,7 +1274,8 @@ Images:
   answer that begins later reaches asqr as typed keys, where its digits
   can pick options.
 - An image entry is read when it is first shown and kept while its
-  session waits. asqr asks the terminal for focus reports. Under the
+  session waits: asqr keeps the file as it read it, not its decoded
+  pixels, and decodes it again to show it at another size. asqr asks the terminal for focus reports. Under the
   Kitty protocol behind a tmux pane with `allow-passthrough on`, which
   drops a transfer while the pane is hidden, asqr reads and sends every
   image again as it is next shown once its terminal regains the focus.

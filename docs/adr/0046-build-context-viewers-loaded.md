@@ -37,6 +37,11 @@ Amended by [49. Present problems through one component in three forms](0049-pres
   showed before.
 - The room for loading ahead of time that ADR 31 kept is given up. A
   load step can be brought back if such loading is ever needed.
+- Jakob asked on 2026-10-16 why a decoded image is kept in memory; the
+  lead decided under his delegation: an image keeps the bytes of its
+  file as read and the format they were decoded in, and holds the
+  decoded picture only until its first encoding. Each later encoding,
+  for another size, decodes the bytes again.
 
 ## Consequences
 
@@ -45,6 +50,10 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 - The image viewer holds its image or its placeholder and nothing for
   decoding. The image encodes for the body's size when it is laid out,
   as ADR 45 has it.
+- A shown image holds its file's bytes and its encoding, not its
+  decoded picture, which takes four bytes a pixel: 144 MB for one of
+  6000×6000. A new size costs a decoding again. An image file changed
+  on disk keeps showing what asqr read first.
 - What the person sees does not change: the same content, the same
   placeholders and the same moment of reading, the first time an entry
   shows.

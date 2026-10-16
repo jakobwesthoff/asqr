@@ -18,7 +18,7 @@ mod placeholders;
 pub(crate) mod testing;
 
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{Cursor, Read as _};
 use std::path::Path;
 
 use ::image::error::{ImageFormatHint, UnsupportedError, UnsupportedErrorKind};
@@ -32,6 +32,7 @@ pub use detect::{
     may_query_protocol, passthrough_all_for_images, settle_passthrough,
 };
 pub use image::Image;
+use image::Read;
 use kitty::{IdSource, random_ids};
 pub use kitty::{KittyBook, KittyDeletes, KittyExit};
 pub use placeholders::PlacedImage;
@@ -181,8 +182,10 @@ impl Images {
     /// extension of `path`, as `ImageReader::open` finds it: TGA, for
     /// one, has no signature to recognise. An extension no format knows
     /// fails with the error that names it.
-    pub fn decode(&self, file: File, path: &str) -> Result<Image, ImageError> {
-        let mut reader = ::image::ImageReader::new(BufReader::new(file)).with_guessed_format()?;
+    pub fn decode(&self, mut file: File, path: &str) -> Result<Image, ImageError> {
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        let mut reader = ::image::ImageReader::new(Cursor::new(&bytes)).with_guessed_format()?;
         if reader.format().is_none()
             && let Some(extension) = Path::new(path).extension().filter(|ext| !ext.is_empty())
         {
@@ -199,13 +202,26 @@ impl Images {
                 }
             }
         }
-        Ok(self.image(reader.decode()?))
+        // Decoding needs a format, so a picture that decodes had one.
+        let format = reader.format();
+        let picture = reader.decode()?;
+        let format = format.expect("a decoded picture had a format");
+        Ok(Image::new(self, Read { bytes, format }, picture))
     }
 
     /// Makes an image of `picture`, which is decoded already. It is
-    /// encoded when it is laid out.
+    /// encoded when it is laid out, and kept as PNG in 8-bit RGBA for
+    /// the encodings after the first.
     pub fn image(&self, picture: DynamicImage) -> Image {
-        Image::new(self, picture)
+        let mut bytes = Vec::new();
+        DynamicImage::ImageRgba8(picture.to_rgba8())
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .expect("PNG takes 8-bit RGBA, written into memory");
+        let read = Read {
+            bytes,
+            format: ImageFormat::Png,
+        };
+        Image::new(self, read, picture)
     }
 
     /// The book of the Kitty ids these images take. A context image hands
