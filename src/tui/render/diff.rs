@@ -113,8 +113,8 @@ impl Rows {
     /// cut file.
     fn of(old: Option<&str>, new: Option<&str>, cut: bool) -> Rows {
         let created_or_deleted = match (old, new) {
-            (None, Some(_)) => Some(Note("new file")),
-            (Some(_), None) => Some(Note("deleted file")),
+            (None, Some(_)) => Some(Note::new("new file")),
+            (Some(_), None) => Some(Note::new("deleted file")),
             _ => None,
         };
         let (change, digits) = Rows::change(old, new, created_or_deleted.is_some());
@@ -133,14 +133,15 @@ impl Rows {
         let mut rows = Vec::new();
         // Lines compare without their line ends, so a file saved on
         // Windows does not show every line as removed and added again with
-        // the same text. One note says the ends differ, as nothing else
-        // would show it.
-        let endings_differ = match (old, new) {
+        // the same text. One note says the ends differ and names those of
+        // each side, as nothing else would show them.
+        let endings = match (old, new) {
             (Some(old), Some(new)) => {
                 let (old, new) = (LineEnds::of(old), LineEnds::of(new));
-                old != new && old != LineEnds::NONE && new != LineEnds::NONE
+                (old != new && old != LineEnds::NONE && new != LineEnds::NONE)
+                    .then(|| endings_note(old, new))
             }
-            _ => false,
+            _ => None,
         };
         let (old, new) = (
             unix_line_ends(old.unwrap_or_default()),
@@ -148,19 +149,15 @@ impl Rows {
         );
         let (old, new) = (old.as_ref(), new.as_ref());
         if old == new {
-            rows.push(Row::Note(Note(if created_or_deleted {
+            rows.push(Row::Note(Note::new(if created_or_deleted {
                 "empty file"
             } else {
                 "no changes"
             })));
-            if endings_differ {
-                rows.push(Row::Note(ENDINGS_DIFFER));
-            }
+            rows.extend(endings.map(Row::Note));
             return (rows, 0);
         }
-        if endings_differ {
-            rows.push(Row::Note(ENDINGS_DIFFER));
-        }
+        rows.extend(endings.map(Row::Note));
 
         // Histogram, git's algorithm of that name, anchors the diff on
         // lines that occur rarely, such as a function's signature, rather
@@ -182,7 +179,7 @@ impl Rows {
                 for change in diff.iter_changes(op) {
                     rows.push(line_row(&change));
                     if newline_differs && change.missing_newline() {
-                        rows.push(Row::Note(Note("no newline at end of file")));
+                        rows.push(Row::Note(Note::new("no newline at end of file")));
                     }
                 }
             }
@@ -276,11 +273,18 @@ fn line_row(change: &Change<&str>) -> Row {
     }
 }
 
-/// The note shown when the two sides end their lines differently.
-const ENDINGS_DIFFER: Note = Note("line endings differ");
+/// The note shown when the two sides end their lines differently, which
+/// names the ends of each side (ADR 33).
+fn endings_note(old: LineEnds, new: LineEnds) -> Note {
+    Note::from(format!(
+        "line endings differ: old {}, new {}",
+        old.name(),
+        new.name()
+    ))
+}
 
 /// Which line ends a text uses: `\n` as on Unix, `\r\n` as on Windows, and
-/// a lone `\r` as on classic Mac OS.
+/// a lone `\r` as on classic Mac OS. Notes name them `LF`, `CRLF` and `CR`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LineEnds {
     unix: bool,
@@ -312,6 +316,23 @@ impl LineEnds {
             }
         }
         ends
+    }
+
+    /// How a note names these ends: `CRLF`, `LF` or `CR` for ends of one
+    /// kind, and `mixed` with each kind for several, as in
+    /// `mixed CRLF and LF`. [`LineEnds::NONE`] names no kind and comes out
+    /// empty.
+    fn name(self) -> String {
+        let kinds: Vec<&str> = [(self.windows, "CRLF"), (self.unix, "LF"), (self.mac, "CR")]
+            .into_iter()
+            .filter_map(|(found, name)| found.then_some(name))
+            .collect();
+        match kinds.as_slice() {
+            [rest @ .., last] if !rest.is_empty() => {
+                format!("mixed {} and {last}", rest.join(", "))
+            }
+            one_or_none => one_or_none.concat(),
+        }
     }
 }
 
@@ -635,14 +656,36 @@ impl Fetcher {
 
     #[test]
     fn sides_that_differ_only_in_their_line_ends_have_no_changes() {
-        for old in ["a\r\nb\r\n", "a\rb\r", "a\r\nb\n"] {
-            let mut viewer = inline(Some(old), Some("a\nb\n"));
+        for (old, new, note) in [
+            (
+                "a\r\nb\r\n",
+                "a\nb\n",
+                "line endings differ: old CRLF, new LF",
+            ),
+            (
+                "a\nb\n",
+                "a\r\nb\r\n",
+                "line endings differ: old LF, new CRLF",
+            ),
+            ("a\rb\r", "a\nb\n", "line endings differ: old CR, new LF"),
+            (
+                "a\r\nb\n",
+                "a\nb\n",
+                "line endings differ: old mixed CRLF and LF, new LF",
+            ),
+            (
+                "a\r\nb\nc\r",
+                "a\r\nb\r\nc\r\n",
+                "line endings differ: old mixed CRLF, LF and CR, new CRLF",
+            ),
+        ] {
+            let mut viewer = inline(Some(old), Some(new));
 
-            let buf = drawn(&mut viewer, 30, 2, Offset::default());
+            let buf = drawn(&mut viewer, 60, 2, Offset::default());
 
-            assert_eq!(row(&buf, 0), "no changes", "{old:?}");
-            assert_eq!(row(&buf, 1), "line endings differ", "{old:?}");
-            assert_eq!(with_modifier(&buf, 1, Modifier::DIM), "line endings differ");
+            assert_eq!(row(&buf, 0), "no changes", "{old:?} {new:?}");
+            assert_eq!(row(&buf, 1), note, "{old:?} {new:?}");
+            assert_eq!(with_modifier(&buf, 1, Modifier::DIM), note);
         }
     }
 
@@ -651,16 +694,26 @@ impl Fetcher {
         let mut viewer = inline(Some("a\r\nb\r\nc\r\n"), Some("a\nB\nc\n"));
 
         assert_eq!(
-            shown(&mut viewer, 22, 0),
+            shown(&mut viewer, 40, 0),
             [
-                "\"line endings differ   \"",
-                "\"1 1   a               \"",
-                "\"2   - b               \"",
-                "\"  2 + B               \"",
-                "\"3 3   c               \"",
+                "\"line endings differ: old CRLF, new LF   \"",
+                "\"1 1   a                                 \"",
+                "\"2   - b                                 \"",
+                "\"  2 + B                                 \"",
+                "\"3 3   c                                 \"",
             ]
             .join("\n")
         );
+    }
+
+    #[test]
+    fn a_narrow_pane_cuts_the_endings_note_at_its_edge() {
+        let mut viewer = inline(Some("a\r\nb\r\n"), Some("a\nc\n"));
+
+        assert_eq!(viewer.lay_out(60, 4).columns, 37, "the note's own width");
+        assert_eq!(viewer.lay_out(20, 4).columns, 20, "never scrolls sideways");
+        let buf = drawn(&mut viewer, 20, 1, Offset::default());
+        assert_eq!(row(&buf, 0), "line endings differ:");
     }
 
     #[test]

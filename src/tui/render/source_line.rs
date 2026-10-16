@@ -14,6 +14,8 @@
 //! something about the content that is no line of it, and [`rows_from`]
 //! walks the rows of a viewer from its offset.
 
+use std::borrow::Cow;
+
 use ratatui::buffer::{Buffer, CellWidth};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -277,24 +279,41 @@ impl Widget for GutterRow<'_> {
 /// A dim row about the content that is no line of it, such as "new file"
 /// or the note of a file cut at 8 MiB. It never scrolls sideways: a body
 /// narrower than the note cuts it at the edge, without a marker, so the
-/// note counts no wider than the body.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Note(pub &'static str);
+/// note counts no wider than the body. Most notes are fixed text; one built
+/// for the content, such as the line ends of a diff's two sides, owns its
+/// text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note(Cow<'static, str>);
 
 impl Note {
+    /// A note of fixed text, usable in a `const`.
+    pub const fn new(text: &'static str) -> Note {
+        Note(Cow::Borrowed(text))
+    }
+
+    pub fn text(&self) -> &str {
+        &self.0
+    }
+
     /// The columns the note takes in a body `width` columns wide.
-    pub fn columns(self, width: usize) -> usize {
-        columns(self.0).min(width)
+    pub fn columns(&self, width: usize) -> usize {
+        columns(self.text()).min(width)
     }
 }
 
-impl Widget for Note {
+impl From<String> for Note {
+    fn from(text: String) -> Note {
+        Note(Cow::Owned(text))
+    }
+}
+
+impl Widget for &Note {
     /// Draws into the first row of `area`.
     fn render(self, area: Rect, buf: &mut Buffer) {
         buf.set_stringn(
             area.x,
             area.y,
-            self.0,
+            self.text(),
             usize::from(area.width),
             theme::secondary(),
         );
@@ -696,7 +715,7 @@ mod tests {
 
     #[test]
     fn a_note_is_dim_and_cut_at_the_edge_without_a_marker() {
-        let note = Note("first 8 MiB shown");
+        let note = Note::new("first 8 MiB shown");
         let area = Rect::new(0, 0, 8, 1);
         let mut buf = Buffer::empty(area);
 

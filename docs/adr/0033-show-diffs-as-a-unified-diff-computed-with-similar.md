@@ -74,7 +74,8 @@ Agent's choices within that design:
   Unix copy, shows every line removed and added again with the same
   text, and nothing says why. A dim "line endings differ" says it
   instead, once: above the hunks, or below "no changes". A side of a
-  single line without a line end has no line ends to differ in.
+  single line without a line end has no line ends to differ in. The
+  amendment of 2026-10-16 (naming the line ends) names the ends.
 - **Histogram:** the diff uses `similar`'s Histogram algorithm, git's
   algorithm of that name, which anchors on lines that occur rarely,
   such as a function's signature, rather than on blank lines and lone
@@ -163,3 +164,19 @@ line without marked words.
 
 How GitHub and other tools pair lines and mark words is left to the
 todo `01M520ZWWR3RJAGXT9VDZ36DZK-find-out-how-github-marks-the-changed-words-of-a-diff.md`.
+
+## Amendment (2026-10-16, naming the line ends)
+
+The user, testing a diff of a CRLF file against an LF file on
+2026-10-16, asked that the note say which ends each side uses, and
+decided its wording:
+
+- The note names the ends of both sides: `line endings differ: old
+  CRLF, new LF`. `CRLF` is `\r\n`, `LF` is `\n` and `CR` a lone `\r`.
+- A side with ends of several kinds is `mixed` with each kind named,
+  as `old mixed CRLF and LF`. In a narrow pane the note is cut at the
+  edge, as notes are.
+
+Agent's choices: the kinds are named in the order CRLF, LF, CR, and a
+side with all three is `mixed CRLF, LF and CR`. A note owns its text
+where the text is built for the content, as this one is.

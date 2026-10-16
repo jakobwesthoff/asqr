@@ -22,11 +22,11 @@ pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 /// What a viewer shows above the text when it got only the first
 /// [`MAX_BYTES`] of a file.
-const CUT_NOTE: Note = Note("first 8 MiB shown");
+const CUT_NOTE: Note = Note::new("first 8 MiB shown");
 
 /// What follows the text of such a file, so its end does not look like
 /// the end of the file.
-const END_NOTE: Note = Note("… the rest is cut after 8 MiB");
+const END_NOTE: Note = Note::new("… the rest is cut after 8 MiB");
 
 /// The rows of `body`, the text of a source or what a viewer made of it,
 /// between the notes of a `cut` source: the first comes before the text,
@@ -197,7 +197,12 @@ mod tests {
 
     #[test]
     fn the_notes_of_a_cut_source_come_before_and_after_its_text() {
-        let rows = |cut| between_cut_notes(cut, ["one", "two"], |note| note.0).collect::<Vec<_>>();
+        let rows = |cut| {
+            between_cut_notes(cut, ["one", "two"].map(String::from), |note| {
+                note.text().to_owned()
+            })
+            .collect::<Vec<_>>()
+        };
 
         assert_eq!(
             rows(true),

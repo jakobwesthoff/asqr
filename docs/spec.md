@@ -1127,9 +1127,13 @@ Diffs (ADR 33):
   below it, but only when the other side ends with one: the removed and
   the added line would look the same otherwise.
 - Lines compare without their line ends: `\r\n` and a lone `\r` count
-  as `\n`. When the two sides use different line ends, a dim "line
-  endings differ" says so once, above the hunks or below "no changes". A
-  side of a single line without a line end differs from neither.
+  as `\n`. When the two sides use different line ends, a dim note says
+  so once and names the ends of both sides, as `line endings differ:
+  old CRLF, new LF`, above the hunks or below "no changes". `CRLF` is
+  `\r\n`, `LF` is `\n` and `CR` a lone `\r`. A side with ends of several
+  kinds is `mixed` with each kind, as `old mixed CRLF and LF`. Like
+  every note, it is cut at the pane's edge. A side of a single line
+  without a line end differs from neither.
 - Lines do not wrap. A line wider than the pane ends in a dim `›`, and
   the pane scrolls sideways (section 7.2) while the gutter and the sign
   stay in place. Scrolled sideways, a line whose hidden start holds
