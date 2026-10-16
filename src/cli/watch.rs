@@ -5,6 +5,8 @@
 //! `asqr` and `asqr watch` (spec section 7): everything the TUI needs
 //! before it gets the terminal.
 
+use std::path::{Path, PathBuf};
+
 use super::{Exit, WatchArgs};
 use crate::queue::{LockError, QueueLocation, QueueLock, lock_queue};
 use crate::tui::Alerts;
@@ -21,6 +23,8 @@ pub struct Watch {
     title: bool,
     /// Whether the TUI draws without colours (`NO_COLOR`).
     no_color: bool,
+    /// The home folder, which the TUI shows as `~` in paths.
+    home: Option<PathBuf>,
     _lock: QueueLock,
 }
 
@@ -44,12 +48,17 @@ impl Watch {
     pub fn no_color(&self) -> bool {
         self.no_color
     }
+
+    pub fn home(&self) -> Option<&Path> {
+        self.home.as_deref()
+    }
 }
 
 pub(super) fn run(
     location: QueueLocation,
     args: &WatchArgs,
     no_color: bool,
+    home: Option<PathBuf>,
     terminal_ui: impl FnOnce(Watch) -> Exit,
 ) -> Exit {
     // The watcher needs the inbox to exist before the first file does.
@@ -80,6 +89,7 @@ pub(super) fn run(
         layout: args.layout.unwrap_or_default(),
         title: !args.no_title,
         no_color,
+        home,
         _lock: lock,
     })
 }

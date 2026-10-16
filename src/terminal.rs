@@ -11,6 +11,7 @@
 //! sequences are tested against a byte buffer.
 
 use std::io::{self, IsTerminal, Write};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -187,6 +188,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     };
     let mut view = View::new(&queue, watch.layout(), images)
         .no_color(watch.no_color())
+        .home(watch.home().map(Path::to_path_buf))
         .glyphs(glyphs);
     run(
         &mut terminal,

@@ -8,10 +8,12 @@
 //! body's size, is done once.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use super::code::CodeViewer;
 use super::diff::DiffViewer;
 use super::markdown_viewer::MarkdownViewer;
+use super::problem::Card;
 use super::source_file::{Unreadable, regular_file};
 use super::theme;
 use super::wrap::wrap;
@@ -60,6 +62,12 @@ pub trait Viewer {
     /// Returns the Kitty image it drew, for the screen to mend once
     /// everything drawn over it is drawn too (ADR 48).
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage>;
+
+    /// Whether the viewer shows a problem in place of its content, such as
+    /// a file that cannot be read, which the pane's header marks.
+    fn failed(&self) -> bool {
+        false
+    }
 }
 
 /// Which entry of which session a viewer belongs to.
@@ -79,9 +87,9 @@ struct Kept {
     laid_out: Option<((u16, u16), ContentSize)>,
 }
 
-/// Builds the viewer for an entry, given what makes its images and how
-/// Markdown quotes look.
-type Build = Box<dyn Fn(&ContextEntry, &Images, QuoteStyle) -> Box<dyn Viewer>>;
+/// Builds the viewer for an entry, given what makes its images, how
+/// Markdown quotes look and the home folder, which paths show as `~`.
+type Build = Box<dyn Fn(&ContextEntry, &Images, QuoteStyle, Option<&Path>) -> Box<dyn Viewer>>;
 
 /// One viewer per entry shown, built when the entry is first shown and
 /// kept while the entry stays the same and its session waits. A
@@ -89,6 +97,9 @@ type Build = Box<dyn Fn(&ContextEntry, &Images, QuoteStyle) -> Box<dyn Viewer>>;
 /// content does not.
 pub struct Viewers {
     images: Images,
+    /// The home folder, which the paths of entries that cannot be shown
+    /// show as `~`.
+    home: Option<PathBuf>,
     build: Build,
     viewers: HashMap<ViewerKey, Kept>,
     /// How many viewers were built, so tests see that one is reused.
@@ -101,11 +112,17 @@ impl Viewers {
     pub fn new(images: Images) -> Self {
         Viewers {
             images,
+            home: None,
             build: Box::new(viewer_for),
             viewers: HashMap::new(),
             #[cfg(test)]
             built: 0,
         }
+    }
+
+    /// Takes the home folder, for the viewers built from now on.
+    pub fn set_home(&mut self, home: Option<PathBuf>) {
+        self.home = home;
     }
 
     /// The viewer of `entry`, which session `session` shows as `key`, with
@@ -139,7 +156,7 @@ impl Viewers {
             let kept = Kept {
                 entry: entry.clone(),
                 quote,
-                viewer: (self.build)(entry, &self.images, quote),
+                viewer: (self.build)(entry, &self.images, quote, self.home.as_deref()),
                 laid_out: None,
             };
             self.viewers.insert(key.clone(), kept);
@@ -200,12 +217,17 @@ impl Viewers {
     }
 }
 
-fn viewer_for(entry: &ContextEntry, images: &Images, quote: QuoteStyle) -> Box<dyn Viewer> {
+fn viewer_for(
+    entry: &ContextEntry,
+    images: &Images,
+    quote: QuoteStyle,
+    home: Option<&Path>,
+) -> Box<dyn Viewer> {
     match entry {
-        ContextEntry::Image(image) => Box::new(ImageViewer::new(image, images)),
-        ContextEntry::Code(code) => Box::new(CodeViewer::new(code)),
-        ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown, quote)),
-        ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff)),
+        ContextEntry::Image(image) => Box::new(ImageViewer::new(image, images, home)),
+        ContextEntry::Code(code) => Box::new(CodeViewer::new(code, home)),
+        ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown, quote, home)),
+        ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff, home)),
     }
 }
 
@@ -214,11 +236,13 @@ fn viewer_for(entry: &ContextEntry, images: &Images, quote: QuoteStyle) -> Box<d
 // ---------------------------------------------------------------------
 
 /// What a viewer made of its entry when it was built: the content it
-/// shows, or a placeholder in its place, such as for a file that cannot be
-/// read. The viewer keeps it and hands laying out and drawing on to it.
+/// shows, a dim note in its place where there is nothing to show, or the
+/// card of a problem, such as a file that cannot be read. The viewer
+/// keeps it and hands laying out and drawing on to it.
 pub(super) enum Content<T> {
     Body(T),
     Note(Placeholder),
+    Problem(Card),
 }
 
 impl<T: Viewer> Viewer for Content<T> {
@@ -226,6 +250,7 @@ impl<T: Viewer> Viewer for Content<T> {
         match self {
             Content::Body(body) => body.lay_out(width, height),
             Content::Note(placeholder) => placeholder.lay_out(width, height),
+            Content::Problem(card) => card.lay_out(width, height),
         }
     }
 
@@ -233,7 +258,12 @@ impl<T: Viewer> Viewer for Content<T> {
         match self {
             Content::Body(body) => body.draw(area, buf, offset),
             Content::Note(placeholder) => placeholder.draw(area, buf, offset),
+            Content::Problem(card) => card.draw(area, buf, offset),
         }
+    }
+
+    fn failed(&self) -> bool {
+        matches!(self, Content::Problem(_))
     }
 }
 
@@ -243,32 +273,35 @@ impl<T: Viewer> Viewer for Content<T> {
 
 /// An image file, scaled to fill the body as far as its proportions allow,
 /// or, without `enlarge`, at its natural size where that fits. A file that
-/// cannot be shown shows why instead, in the placeholder every viewer of a
-/// file shows, which scrolls when its lines do not fit.
+/// cannot be shown shows why instead, in the card every viewer of a file
+/// shows, which scrolls when it does not fit.
 struct ImageViewer {
     content: Content<Picture>,
 }
 
 impl ImageViewer {
-    /// Opens the path by the rule every viewer of a file follows, then
-    /// decodes the image. It is encoded when it is laid out, as that
-    /// depends on the body's size.
-    fn new(entry: &ImageEntry, images: &Images) -> Self {
-        let decoded = regular_file(&entry.path).and_then(|()| {
-            images.load(&entry.path).map_err(|error| Unreadable {
-                path: entry.path.clone(),
-                reason: error.to_string(),
-            })
-        });
-        let content = match decoded {
+    /// Decodes the image, which is encoded when it is laid out, as that
+    /// depends on the body's size. The home folder `home` shows as `~` in
+    /// the path of an image that cannot be shown.
+    fn new(entry: &ImageEntry, images: &Images, home: Option<&Path>) -> Self {
+        let content = match load(entry, images) {
             Ok(image) => Content::Body(Picture {
                 image,
                 enlarge: entry.enlarge,
             }),
-            Err(unreadable) => Content::Note(unreadable.placeholder("image not shown")),
+            Err(unreadable) => Content::Problem(unreadable.card(home)),
         };
         ImageViewer { content }
     }
+}
+
+/// The image of `entry`, opened by the rule every viewer of a file follows
+/// and decoded.
+fn load(entry: &ImageEntry, images: &Images) -> Result<Image, Unreadable> {
+    regular_file(&entry.path)?;
+    images
+        .load(&entry.path)
+        .map_err(|error| Unreadable::image(&entry.path, &error))
 }
 
 impl Viewer for ImageViewer {
@@ -278,6 +311,10 @@ impl Viewer for ImageViewer {
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         self.content.draw(area, buf, offset)
+    }
+
+    fn failed(&self) -> bool {
+        self.content.failed()
     }
 }
 
@@ -308,28 +345,13 @@ impl Viewer for Picture {
 // Placeholders
 // ---------------------------------------------------------------------
 
-/// Up to three lines that name a file a viewer cannot read and say why,
-/// or one dim note in place of content, wrapped to the body.
+/// One dim note in place of content, such as "empty", wrapped to the body.
 pub(super) struct Placeholder {
     lines: Vec<Line<'static>>,
     wrapped: Vec<Line<'static>>,
 }
 
 impl Placeholder {
-    pub(super) fn new(
-        heading: &'static str,
-        name: Option<&String>,
-        reason: impl Into<String>,
-    ) -> Self {
-        let mut lines = vec![Line::styled(heading, theme::secondary())];
-        lines.extend(name.map(|name| Line::from(name.clone())));
-        lines.push(Line::styled(reason.into(), theme::secondary()));
-        Placeholder {
-            lines,
-            wrapped: Vec::new(),
-        }
-    }
-
     /// A dim note, such as "empty", where there is no content to show.
     pub(super) fn note(note: &'static str) -> Self {
         Placeholder {
@@ -370,6 +392,7 @@ mod tests {
     use patine::AnsiColor;
 
     use super::super::patine_adapter::quote_style;
+    use super::super::source_file::Failure;
     use super::super::test_support::{self, row};
     use super::*;
     use crate::graphics::Protocol;
@@ -466,7 +489,7 @@ mod tests {
         let calls = Rc::new(RefCell::new(Calls::default()));
         let mut viewers = viewers();
         let shared = Rc::clone(&calls);
-        viewers.build = Box::new(move |_, _, _| {
+        viewers.build = Box::new(move |_, _, _, _| {
             shared.borrow_mut().builds += 1;
             Box::new(Recording(Rc::clone(&shared)))
         });
@@ -797,15 +820,71 @@ mod tests {
 
     #[test]
     fn an_image_that_cannot_be_read_shows_why_as_its_content() {
+        let reason = std::fs::metadata("/nowhere/cat.png")
+            .expect_err("the file is missing")
+            .to_string();
+
         let rows = drawn(
             &entry(r#"{"type": "image", "path": "/nowhere/cat.png"}"#),
-            40,
-            4,
+            50,
+            8,
             0,
         );
-        assert_eq!(rows[0], "image not shown");
-        assert_eq!(rows[1], "/nowhere/cat.png");
-        assert!(!rows[2].is_empty(), "the reason: {rows:?}");
+
+        assert!(rows[1].trim_start().starts_with('╭'), "{rows:#?}");
+        assert!(
+            rows[2].contains(&format!("│ ✗ {reason}")),
+            "the reason first: {rows:#?}"
+        );
+        assert!(rows[4].contains("│ cat.png "), "{rows:#?}");
+        assert!(rows[5].contains("│ /nowhere/ "), "{rows:#?}");
+        assert!(rows[6].trim_start().starts_with('╰'), "{rows:#?}");
+    }
+
+    /// Why the image entry at `path` cannot be shown.
+    fn refused_image(path: &std::path::Path) -> Unreadable {
+        let image: ContextEntry =
+            serde_json::from_value(serde_json::json!({"type": "image", "path": path}))
+                .expect("test entry parses");
+        let ContextEntry::Image(image) = image else {
+            unreachable!("the entry is an image")
+        };
+        load(&image, &Images::half_blocks())
+            .err()
+            .expect("the image cannot be shown")
+    }
+
+    #[test]
+    fn an_svg_is_a_format_asqr_cannot_decode() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("emblem.svg");
+        std::fs::write(&path, r#"<svg xmlns="http://www.w3.org/2000/svg"/>"#)
+            .expect("file is writable");
+
+        let refused = refused_image(&path);
+
+        assert_eq!(refused.failure, Failure::FormatUnsupported);
+        assert!(
+            refused
+                .reason
+                .contains("was not recognized as an image format"),
+            "{}",
+            refused.reason
+        );
+    }
+
+    #[test]
+    fn a_cut_png_is_damaged() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let whole = directory.path().join("whole.png");
+        image::RgbImage::from_pixel(64, 64, image::Rgb([255, 0, 0]))
+            .save(&whole)
+            .expect("image written");
+        let bytes = std::fs::read(&whole).expect("image read");
+        let cut = directory.path().join("cut.png");
+        std::fs::write(&cut, &bytes[..bytes.len() / 2]).expect("file is writable");
+
+        assert_eq!(refused_image(&cut).failure, Failure::Damaged);
     }
 
     #[test]
@@ -816,11 +895,11 @@ mod tests {
             let image = entry(&format!(r#"{{"type": "image", "path": {path:?}}}"#));
             let mut refused = regular_file(&path)
                 .expect_err("the rule refuses it")
-                .placeholder("image not shown");
+                .card(None);
 
             assert_eq!(
-                drawn(&image, 60, 3, 0),
-                drawn_viewer(&mut refused, 60, 3, 0),
+                drawn(&image, 60, 8, 0),
+                drawn_viewer(&mut refused, 60, 8, 0),
                 "{path}"
             );
         }
@@ -835,86 +914,129 @@ mod tests {
             serde_json::from_value(serde_json::json!({"type": "image", "path": path}))
                 .expect("test entry parses");
 
-        let rows = drawn(&image, 200, 3, 0);
+        let refused = refused_image(&path);
+        let rows = drawn(&image, 200, 6, 0);
 
-        assert_eq!(rows[0], "image not shown");
-        assert_eq!(rows[1], path.to_str().expect("a UTF-8 path"));
-        assert!(!rows[2].is_empty(), "the reason: {rows:?}");
+        assert_eq!(refused.failure, Failure::Damaged);
+        assert!(
+            rows[1].contains(&format!("✗ {}", refused.reason)),
+            "{rows:#?}"
+        );
+        assert!(rows[3].contains("notes.png"), "{rows:#?}");
     }
 
     #[test]
-    fn an_image_that_cannot_be_read_scrolls_like_any_placeholder() {
-        let path = "/nowhere/cat.png".to_owned();
-        let reason = std::fs::metadata(&path)
+    fn an_image_that_cannot_be_read_scrolls_like_any_card() {
+        let mut card = regular_file("/nowhere/cat.png")
             .expect_err("the file is missing")
-            .to_string();
-        let mut placeholder = Placeholder::new("image not shown", Some(&path), reason);
+            .card(None);
         let image = entry(r#"{"type": "image", "path": "/nowhere/cat.png"}"#);
 
         let (_, size) = viewers().laid_out("s", QUESTION, &image, 20, 2, COLOURED);
 
-        assert_eq!(size, placeholder.lay_out(20, 2));
+        assert_eq!(size, card.lay_out(20, 2));
         assert!(size.lines > 2, "taller than the body: {size:?}");
         assert_eq!(
             drawn(&image, 20, 2, 2),
-            drawn_viewer(&mut placeholder, 20, 2, 2),
+            drawn_viewer(&mut card, 20, 2, 2),
             "it starts at the offset"
         );
+    }
+
+    #[test]
+    fn a_viewer_that_cannot_show_its_entry_says_so() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let failed = |entry: &ContextEntry| {
+            let mut viewers = viewers();
+            let (viewer, _) = viewers.laid_out("s", QUESTION, entry, 40, 10, COLOURED);
+            viewer.failed()
+        };
+
+        for json in [
+            r#"{"type": "code", "path": "/nowhere/fetch.rs"}"#,
+            r#"{"type": "markdown", "path": "/nowhere/plan.md"}"#,
+            r#"{"type": "diff", "new": {"path": "/nowhere/fetch.rs"}}"#,
+            r#"{"type": "image", "path": "/nowhere/cat.png"}"#,
+        ] {
+            assert!(failed(&entry(json)), "{json}");
+        }
+        for json in [
+            r#"{"type": "code", "content": "fn main() {}"}"#,
+            r#"{"type": "code", "content": ""}"#,
+            r#"{"type": "markdown", "content": "*notes*"}"#,
+            r#"{"type": "diff", "new": {"content": "x"}}"#,
+        ] {
+            assert!(!failed(&entry(json)), "{json}");
+        }
+        assert!(!failed(&picture(&directory, "a.png")), "a decoded image");
+
+        let (mut recording, _) = recording();
+        let (viewer, _) = recording.laid_out(
+            "s",
+            QUESTION,
+            &entry(r#"{"type": "code", "content": "x"}"#),
+            40,
+            10,
+            COLOURED,
+        );
+        assert!(!viewer.failed(), "a viewer that shows no problem says so");
+    }
+
+    /// What `run` logged, as asqr's log file has it.
+    fn logged(run: impl FnOnce()) -> String {
+        #[derive(Clone, Default)]
+        struct Written(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+        impl std::io::Write for Written {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0
+                    .lock()
+                    .expect("no test thread panicked while writing")
+                    .extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let written = Written::default();
+        let log = written.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || log.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, run);
+        let bytes = written
+            .0
+            .lock()
+            .expect("no test thread panicked while writing")
+            .clone();
+        String::from_utf8(bytes).expect("the log is UTF-8")
+    }
+
+    #[test]
+    fn a_card_logs_the_original_message_once() {
+        let reason = std::fs::metadata("/nowhere/fetch.rs")
+            .expect_err("the file is missing")
+            .to_string();
+        let code = entry(r#"{"type": "code", "path": "/nowhere/fetch.rs"}"#);
+
+        let log = logged(|| {
+            let mut viewers = viewers();
+            for (width, height) in [(40, 10), (40, 10), (30, 8)] {
+                viewers.laid_out("s", QUESTION, &code, width, height, COLOURED);
+            }
+        });
+
+        assert_eq!(log.matches("/nowhere/fetch.rs").count(), 1, "{log}");
+        assert_eq!(log.matches(&reason).count(), 1, "{log}");
     }
 
     // -----------------------------------------------------------------
     // Placeholders
     // -----------------------------------------------------------------
-
-    #[test]
-    fn a_placeholder_wraps_to_the_body_and_counts_its_lines() {
-        let path = "/src/fetch.rs".to_owned();
-        let mut placeholder = Placeholder::new(
-            "code not shown",
-            Some(&path),
-            "this file moved after the session came",
-        );
-
-        assert_eq!(
-            placeholder.lay_out(40, 10),
-            ContentSize {
-                lines: 3,
-                columns: 38
-            },
-            "as wide as its widest line"
-        );
-        assert_eq!(
-            placeholder.lay_out(20, 10),
-            ContentSize {
-                lines: 5,
-                columns: 18
-            },
-            "the reason takes three lines at 20 columns"
-        );
-        assert_eq!(
-            placeholder.lay_out(9, 10).columns,
-            9,
-            "the blank after `file`, hanging past the edge, does not count"
-        );
-
-        assert_eq!(
-            drawn_viewer(&mut placeholder, 40, 3, 0),
-            [
-                "code not shown",
-                "/src/fetch.rs",
-                "this file moved after the session came"
-            ]
-        );
-        assert_eq!(
-            drawn_viewer(&mut placeholder, 40, 3, 1),
-            [
-                "/src/fetch.rs",
-                "this file moved after the session came",
-                ""
-            ],
-            "it starts at the offset"
-        );
-    }
 
     #[test]
     fn a_note_is_one_dim_line() {

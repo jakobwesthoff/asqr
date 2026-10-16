@@ -180,6 +180,9 @@ pub struct Environment {
     pub layout: Option<String>,
     /// `NO_COLOR` (<https://no-color.org>): the TUI draws without colours.
     pub no_color: bool,
+    /// `HOME`, which the TUI shows as `~` in the paths of context entries
+    /// it cannot show.
+    pub home: Option<PathBuf>,
 }
 
 /// Reads the [`Environment`] of this process.
@@ -206,6 +209,10 @@ fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
         // no-color.org asks only that the variable is present and not
         // empty, so any value counts, also one that is not UTF-8.
         no_color: lookup("NO_COLOR").is_some_and(|value| !value.is_empty()),
+        // A path is any bytes, so a home that is not UTF-8 counts too.
+        home: lookup("HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
     }
 }
 
@@ -269,7 +276,13 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
                 no_title: before.no_title || after.no_title,
                 layout: after.layout.or(before.layout).or(variable),
             };
-            watch::run(location, &args, environment.no_color, terminal_ui)
+            watch::run(
+                location,
+                &args,
+                environment.no_color,
+                environment.home,
+                terminal_ui,
+            )
         }
         Command::Paths { json } => paths::run(&location, json),
         Command::New => format::run_new(),
@@ -591,5 +604,49 @@ mod tests {
 
         assert_eq!(colourless(true), Some(true));
         assert_eq!(colourless(false), Some(false));
+    }
+
+    #[test]
+    fn home_is_read_from_the_environment() {
+        let home = |value: &str| environment_of(&[("HOME", OsStr::new(value))]).home;
+
+        assert_eq!(home("/home/me"), Some(PathBuf::from("/home/me")));
+        assert_eq!(home(""), None, "empty counts as unset");
+        assert_eq!(environment_of(&[]).home, None, "unset");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn home_is_read_with_a_value_that_is_no_utf_8() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let latin1 = OsStr::from_bytes(b"/home/j\xe4");
+        assert_eq!(
+            environment_of(&[("HOME", latin1)]).home,
+            Some(PathBuf::from(latin1))
+        );
+    }
+
+    #[test]
+    fn the_tui_starts_with_the_home_folder() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let cli = Cli::try_parse_from([
+            "asqr",
+            "--dir",
+            scratch.path().to_str().expect("UTF-8 temp path"),
+        ])
+        .expect("parses");
+        let environment = Environment {
+            home: Some(PathBuf::from("/home/me")),
+            ..Environment::default()
+        };
+        let mut started = None;
+
+        dispatch(cli, environment, |watch| {
+            started = Some(watch.home().map(Path::to_path_buf));
+            Exit::Success
+        });
+
+        assert_eq!(started, Some(Some(PathBuf::from("/home/me"))));
     }
 }

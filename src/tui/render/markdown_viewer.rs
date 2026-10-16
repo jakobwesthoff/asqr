@@ -7,6 +7,8 @@
 //! and without sideways scrolling. Lines that patine leaves wider, such as
 //! those of a code block, wrap behind a dim `↪`.
 
+use std::path::Path;
+
 use patine::{QuoteStyle, RenderOptions};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -26,21 +28,26 @@ pub struct MarkdownViewer {
 
 impl MarkdownViewer {
     /// Reads the text, whose quotes show in `quote`. Rendering depends on
-    /// the width, so it waits for `lay_out`.
-    pub fn new(entry: &MarkdownEntry, quote: QuoteStyle) -> Self {
+    /// the width, so it waits for `lay_out`. The home folder `home` shows
+    /// as `~` in the path of a file that cannot be read.
+    pub fn new(entry: &MarkdownEntry, quote: QuoteStyle, home: Option<&Path>) -> Self {
         let source = read_source(entry.path.as_deref(), entry.content.as_deref());
         MarkdownViewer {
-            content: content_of(source, quote),
+            content: content_of(source, quote, home),
         }
     }
 }
 
 /// What the viewer shows of `source`, as read for its entry: its
-/// Markdown with quotes in `quote`, or a note when the file cannot be read
-/// or there is no text at all.
-fn content_of(source: Result<Source, Unreadable>, quote: QuoteStyle) -> Content<Markdown> {
+/// Markdown with quotes in `quote`, a card when the file cannot be read,
+/// or a note when there is no text at all.
+fn content_of(
+    source: Result<Source, Unreadable>,
+    quote: QuoteStyle,
+    home: Option<&Path>,
+) -> Content<Markdown> {
     match source {
-        Err(unreadable) => Content::Note(unreadable.placeholder("markdown not shown")),
+        Err(unreadable) => Content::Problem(unreadable.card(home)),
         Ok(Source { text, .. }) if text.trim().is_empty() => {
             Content::Note(Placeholder::note("empty"))
         }
@@ -66,6 +73,10 @@ impl Viewer for MarkdownViewer {
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         self.content.draw(area, buf, offset)
+    }
+
+    fn failed(&self) -> bool {
+        self.content.failed()
     }
 }
 
@@ -154,7 +165,7 @@ mod tests {
     /// The viewer of the entry `json`, as drawn with colours.
     fn built(json: &str) -> MarkdownViewer {
         let entry: MarkdownEntry = serde_json::from_str(json).expect("test entry parses");
-        MarkdownViewer::new(&entry, quote_style(false))
+        MarkdownViewer::new(&entry, quote_style(false), None)
     }
 
     fn inline(markdown: &str) -> MarkdownViewer {
@@ -266,7 +277,7 @@ mod tests {
             serde_json::from_str(r#"{"type": "markdown", "content": "> quoted"}"#)
                 .expect("test entry parses");
         let bar_and_text = |no_color| {
-            let mut viewer = MarkdownViewer::new(&entry, quote_style(no_color));
+            let mut viewer = MarkdownViewer::new(&entry, quote_style(no_color), None);
             let buf = drawn(&mut viewer, 20, 1, Offset::default());
             assert_eq!(row(&buf, 0), "│ quoted");
             (buf[(0, 0)].clone(), buf[(2, 0)].clone())
@@ -343,6 +354,7 @@ mod tests {
                     cut: true,
                 }),
                 quote_style(false),
+                None,
             ),
         };
 
@@ -374,11 +386,12 @@ mod tests {
     fn a_file_that_cannot_be_read_shows_why_as_the_content() {
         let mut viewer = built(r#"{"type": "markdown", "path": "/nowhere/plan.md"}"#);
 
-        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+        let buf = drawn(&mut viewer, 50, 8, Offset::default());
 
-        assert_eq!(row(&buf, 0), "markdown not shown");
-        assert_eq!(row(&buf, 1), "/nowhere/plan.md");
-        assert!(!row(&buf, 2).is_empty(), "the reason");
+        assert!(row(&buf, 2).contains("│ ✗ No such file"), "{buf:?}");
+        assert!(row(&buf, 4).contains("│ plan.md "), "{buf:?}");
+        assert!(row(&buf, 5).contains("│ /nowhere/ "), "{buf:?}");
+        assert!(viewer.failed());
     }
 
     #[test]

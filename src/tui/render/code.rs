@@ -28,21 +28,26 @@ pub struct CodeViewer {
 
 impl CodeViewer {
     /// Reads and highlights the whole text once, as nothing of it depends
-    /// on the body's size.
-    pub fn new(entry: &CodeEntry) -> Self {
+    /// on the body's size. The home folder `home` shows as `~` in the path
+    /// of a file that cannot be read.
+    pub fn new(entry: &CodeEntry, home: Option<&Path>) -> Self {
         let source = read_source(entry.path.as_deref(), entry.content.as_deref());
         CodeViewer {
-            content: content_of(entry, source),
+            content: content_of(entry, source, home),
         }
     }
 }
 
 /// What the viewer of `entry` shows of `source`, as read for the entry:
-/// its lines, or a note when the file cannot be read or there is no text
-/// at all.
-fn content_of(entry: &CodeEntry, source: Result<Source, Unreadable>) -> Content<Lines> {
+/// its lines, a card when the file cannot be read, or a note when there is
+/// no text at all.
+fn content_of(
+    entry: &CodeEntry,
+    source: Result<Source, Unreadable>,
+    home: Option<&Path>,
+) -> Content<Lines> {
     match source {
-        Err(unreadable) => Content::Note(unreadable.placeholder("code not shown")),
+        Err(unreadable) => Content::Problem(unreadable.card(home)),
         Ok(Source { text, cut }) => {
             let lines: Vec<SourceLine> = patine::highlight(&text, language(entry).as_deref())
                 .iter()
@@ -64,6 +69,10 @@ impl Viewer for CodeViewer {
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         self.content.draw(area, buf, offset)
+    }
+
+    fn failed(&self) -> bool {
+        self.content.failed()
     }
 }
 
@@ -174,7 +183,7 @@ mod tests {
     }
 
     fn built(json: &str) -> CodeViewer {
-        CodeViewer::new(&entry(json))
+        CodeViewer::new(&entry(json), None)
     }
 
     const FETCH: &str = r#"{"type": "code", "title": "fetch.rs", "content": "use std::time::Duration;\n\n// Fetches a page.\npub fn fetch(url: &str) -> Result<Response> {\n    get(url)\n}\n"}"#;
@@ -374,6 +383,7 @@ mod tests {
             content: content_of(
                 &entry(r#"{"type": "code", "path": "/var/log/big.log"}"#),
                 source,
+                None,
             ),
         };
 
@@ -426,12 +436,12 @@ mod tests {
     fn a_file_that_cannot_be_read_shows_why_as_the_content() {
         let mut viewer = built(r#"{"type": "code", "path": "/nowhere/fetch.rs"}"#);
 
-        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+        let buf = drawn(&mut viewer, 50, 8, Offset::default());
 
-        assert_eq!(row(&buf, 0), "code not shown");
-        assert_eq!(row(&buf, 1), "/nowhere/fetch.rs");
-        assert!(!row(&buf, 2).is_empty(), "the reason");
-        assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
+        assert!(row(&buf, 2).contains("│ ✗ No such file"), "{buf:?}");
+        assert!(row(&buf, 4).contains("│ fetch.rs "), "{buf:?}");
+        assert!(row(&buf, 5).contains("│ /nowhere/ "), "{buf:?}");
+        assert!(viewer.failed());
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! the old to the new text as a unified diff, which asqr computes itself.
 
 use std::borrow::Cow;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
@@ -43,15 +44,17 @@ pub struct DiffViewer {
 
 impl DiffViewer {
     /// Reads both sides and computes the whole diff, so drawing only
-    /// copies cells.
-    pub fn new(entry: &DiffEntry) -> Self {
-        let sides = read(entry.old.as_ref()).and_then(|old| Ok((old, read(entry.new.as_ref())?)));
+    /// copies cells. The home folder `home` shows as `~` in the path of a
+    /// side that cannot be read.
+    pub fn new(entry: &DiffEntry, home: Option<&Path>) -> Self {
+        let sides = read("old", entry.old.as_ref())
+            .and_then(|old| Ok((old, read("new", entry.new.as_ref())?)));
         let content = match sides {
             Ok((old, new)) => {
                 let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
                 Content::Body(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
             }
-            Err(unreadable) => Content::Note(unreadable.placeholder("diff not shown")),
+            Err((side, unreadable)) => Content::Problem(unreadable.card_on_side(side, home)),
         };
         DiffViewer { content }
     }
@@ -65,16 +68,26 @@ impl Viewer for DiffViewer {
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
         self.content.draw(area, buf, offset)
     }
+
+    fn failed(&self) -> bool {
+        self.content.failed()
+    }
 }
 
 // ---------------------------------------------------------------------
 // Reading the sides
 // ---------------------------------------------------------------------
 
-/// The text of a side, or `None` for a side the entry leaves out.
-fn read(side: Option<&DiffSide>) -> Result<Option<Source>, Unreadable> {
+/// The text of a side, or `None` for a side the entry leaves out. A side
+/// that cannot be read comes with `name`, `old` or `new`, so the card says
+/// which one failed.
+fn read(
+    name: &'static str,
+    side: Option<&DiffSide>,
+) -> Result<Option<Source>, (&'static str, Unreadable)> {
     side.map(|side| read_source(side.path.as_deref(), side.content.as_deref()))
         .transpose()
+        .map_err(|unreadable| (name, unreadable))
 }
 
 fn text_of(side: Option<&Source>) -> Option<&str> {
@@ -376,13 +389,16 @@ mod tests {
                 content: Some(text.to_owned()),
             })
         };
-        DiffViewer::new(&DiffEntry {
-            title: None,
-            old: side(old),
-            new: side(new),
-            name: None,
-            ..DiffEntry::default()
-        })
+        DiffViewer::new(
+            &DiffEntry {
+                title: None,
+                old: side(old),
+                new: side(new),
+                name: None,
+                ..DiffEntry::default()
+            },
+            None,
+        )
     }
 
     /// The viewer of the rows of `old` and `new`, where `cut` says a side
@@ -401,13 +417,16 @@ mod tests {
     }
 
     fn from_files(old: Option<DiffSide>, new: Option<DiffSide>) -> DiffViewer {
-        DiffViewer::new(&DiffEntry {
-            title: None,
-            old,
-            new,
-            name: None,
-            ..DiffEntry::default()
-        })
+        DiffViewer::new(
+            &DiffEntry {
+                title: None,
+                old,
+                new,
+                name: None,
+                ..DiffEntry::default()
+            },
+            None,
+        )
     }
 
     /// The columns of row `y` whose cells carry `modifier`.
@@ -814,9 +833,17 @@ impl Fetcher {
         let mut viewer = from_files(file("/nowhere/old.rs"), file("/nowhere/new.rs"));
 
         insta::assert_snapshot!("unreadable", shown(&mut viewer, 30, 0));
-        let buf = drawn(&mut viewer, 30, 4, Offset::default());
-        assert_eq!(row(&buf, 0), "diff not shown");
-        assert_eq!(row(&buf, 1), "/nowhere/old.rs", "the first side that fails");
+        // The reason wraps over three rows inside the 26 columns of a card
+        // at 30, and the card is as wide as the widest of them shows.
+        let buf = drawn(&mut viewer, 30, 8, Offset::default());
+        assert_eq!(row(&buf, 0), format!(" ╭{}╮", "─".repeat(26)));
+        assert!(
+            row(&buf, 1).starts_with(" │ ✗ old side: No such file"),
+            "the first side that fails: {buf:?}"
+        );
+        assert!(row(&buf, 5).starts_with(" │ old.rs "), "{buf:?}");
+        assert!(row(&buf, 6).starts_with(" │ /nowhere/ "), "{buf:?}");
+        assert!(viewer.failed());
     }
 
     #[test]
@@ -871,19 +898,24 @@ impl Fetcher {
 
         let mut viewer = from_files(None, file(path));
 
-        let buf = drawn(&mut viewer, 60, 3, Offset::default());
-        assert_eq!(row(&buf, 0), "diff not shown");
-        assert_eq!(row(&buf, 2), "not a regular file");
+        let buf = drawn(&mut viewer, 60, 8, Offset::default());
+        assert!(
+            row(&buf, 2).contains("│ ✗ new side: not a regular file "),
+            "{buf:?}"
+        );
     }
 
     #[test]
     fn a_relative_path_is_never_read() {
         let mut viewer = from_files(None, file("Cargo.toml"));
 
-        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+        let buf = drawn(&mut viewer, 40, 7, Offset::default());
 
-        assert_eq!(row(&buf, 1), "Cargo.toml");
-        assert_eq!(row(&buf, 2), "relative path");
+        assert!(
+            row(&buf, 2).contains("│ ✗ new side: relative path │"),
+            "{buf:?}"
+        );
+        assert!(row(&buf, 4).contains("│ Cargo.toml "), "{buf:?}");
     }
 
     #[test]
@@ -920,8 +952,16 @@ impl Fetcher {
             file(path),
         );
 
-        let buf = drawn(&mut viewer, 80, 3, Offset::default());
-        assert_eq!(row(&buf, 1), path);
-        assert_eq!(row(&buf, 2), "binary file");
+        let buf = drawn(&mut viewer, 80, 8, Offset::default());
+        let rows: Vec<String> = (0..8).map(|y| row(&buf, y)).collect();
+        assert!(
+            rows.iter()
+                .any(|row| row.contains("│ ✗ new side: binary file ")),
+            "{rows:#?}"
+        );
+        assert!(
+            rows.iter().any(|row| row.contains("│ logo.png ")),
+            "{rows:#?}"
+        );
     }
 }

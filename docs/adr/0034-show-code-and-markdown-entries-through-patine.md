@@ -10,6 +10,8 @@ Amends [28. Session and result format version 2 with a context field](0028-sessi
 
 Amends [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
 
+Amended by [49. Present problems through one component in three forms](0049-present-problems-through-one-component-in-three-forms.md)
+
 ## Context
 
 The amendment of ADR 28 replaced the `text` entry by two types: `code`,

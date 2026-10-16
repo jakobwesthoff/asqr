@@ -2,7 +2,11 @@
 source: src/tui/render/diff.rs
 expression: "shown(&mut viewer, 30, 0)"
 ---
-"diff not shown                "
-"/nowhere/old.rs               "
-"No such file or directory (os "
-"error 2)                      "
+" ╭──────────────────────────╮ "
+" │ ✗ old side: No such file │ "
+" │   or directory (os error │ "
+" │   2)                     │ "
+" │                          │ "
+" │ old.rs                   │ "
+" │ /nowhere/                │ "
+" ╰──────────────────────────╯ "

@@ -10,6 +10,8 @@ Amends [31. Make the context area a pane with a header, focus and scrolling](003
 
 Amends [45. Keep image handling in a graphics module around an asqr-owned value](0045-keep-image-handling-in-a-graphics-module-around-an-asqr-owned-value.md)
 
+Amended by [49. Present problems through one component in three forms](0049-present-problems-through-one-component-in-three-forms.md)
+
 ## Context
 
 - ADR 31 split a viewer's start into two steps: the viewer was built

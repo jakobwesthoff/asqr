@@ -102,10 +102,10 @@ Once asked, asqr fits best when:
   - `{ "type": "image", "path": "..." }`: an image file. asqr shows PNG,
     JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM, QOI,
     DDS, OpenEXR, HDR and farbfeld. It cannot show SVG or AVIF, so
-    convert those to PNG first. The person only sees a placeholder for an
-    image asqr cannot show, and `validate` and `ask` warn about it. asqr
-    scales an image up to fill the pane, which suits most images: the
-    person sees them larger when the space is there. Add
+    convert those to PNG first. The person only sees an error card with
+    the reason for an image asqr cannot show, and `validate` and `ask`
+    warn about it. asqr scales an image up to fill the pane, which suits
+    most images: the person sees them larger when the space is there. Add
     `"enlarge": false` only when the exact pixel size matters, such as
     pixel art, a screenshot whose size is the point, or an icon at its
     real size; the image then keeps its natural size and only shrinks
@@ -154,7 +154,7 @@ Once asked, asqr fits best when:
     is rendered and wrapped to the pane: headings, emphasis, lists, task
     lists, quotes, tables and highlighted code blocks, whose long lines wrap
     behind a `↪` marker. Name the language of a code block's fence so it
-    is highlighted. A file asqr cannot read shows as a placeholder with
+    is highlighted. A file asqr cannot read shows as an error card with
     the reason.
   - Keep a code, Markdown or diff entry under 1 MiB (both sides of a diff
     together); `validate` and `ask` warn above that. Show an excerpt

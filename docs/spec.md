@@ -1133,6 +1133,18 @@ Context appears only when a question or one of its options has some.
   show the question's entry share its position. A replaced session file
   keeps the positions of the entries it leaves as they were and starts
   the others at their top (section 7.5).
+- An entry asqr cannot show, such as a missing file, draws a card in
+  place of its content (ADR 49): a frame with rounded corners in red,
+  inside it `✗` and the reason in bold red, a blank row, the file name,
+  and the folder on the rows after it, dim. The reason is worded as the
+  system or the image decoder gives it, or as asqr's own checks say it:
+  "relative path", "not a regular file", "binary file". The folder shows
+  the home folder as `~` (section 8) and breaks after a `/`, a part
+  longer than a row where the row ends; the path is never shortened.
+  The card is as wide as its text, at most 60 columns, and centred in
+  the pane; a card taller than the pane starts at its top and scrolls.
+  The pane's header shows a red `✗` before the entry's name; the
+  one-line hint shows no mark.
 
 Diffs (ADR 33):
 
@@ -1175,8 +1187,9 @@ Diffs (ADR 33):
 - Both sides are read when the entry is first shown. A relative path, a
   missing or unreadable file, a path that is not a regular file, such as
   a directory or a FIFO, or a binary file (one with a NUL byte) shows a
-  placeholder saying "diff not shown" with the path and the reason, for
-  the first side that fails. Bytes that are not UTF-8 show as `�`.
+  card in place of the diff for the first side that fails, its reason
+  after `old side: ` or `new side: `. Bytes that are not UTF-8 show as
+  `�`.
 - Of a file longer than 8 MiB, only the first 8 MiB are read. A dim
   "first 8 MiB shown" heads the content and a dim "… the rest is cut
   after 8 MiB" ends it, so the end of what shows does not pass for the
@@ -1219,9 +1232,8 @@ Code and Markdown (ADR 34):
   patine. Tabs in code blocks expand to stops of 4 columns.
 - Both are read when the entry is first shown. A relative path, a
   missing or unreadable file, a path that is not a regular file or a
-  binary file shows a placeholder saying "code not shown" or "markdown
-  not shown" with the path and the reason. Bytes that are not UTF-8 show
-  as `�`, and an entry without any text shows a dim "empty". A file
+  binary file shows a card in place of the text. Bytes that are not
+  UTF-8 show as `�`, and an entry without any text shows a dim "empty". A file
   longer than 8 MiB shows its first 8 MiB between a dim "first 8 MiB
   shown" and a dim "… the rest is cut after 8 MiB", as in a diff.
 
@@ -1275,11 +1287,9 @@ Images:
 - Talqi on the empty queue (section 7.1) is text, built into asqr. It
   uses no image protocol.
 - A relative path, a missing file, a path that is not a regular file or
-  a file that cannot be read or decoded shows a placeholder saying
-  "image not shown" with the path and the reason. A path is never resolved against the working directory,
-  and a broken image never becomes an error result. The placeholder
-  wraps to the pane like those of code, Markdown and diffs, and scrolls
-  like them when it is taller than the pane.
+  a file that cannot be read or decoded shows a card in place of the
+  image. A path is never resolved against the working directory, and a
+  broken image never becomes an error result.
 - An image is scaled to its cells with a filter that mixes the pixels
   each one covers. An image the protocol fails to encode stays empty,
   and the log says why, once.
@@ -1353,6 +1363,11 @@ the same as with colours. The bar of a Markdown quote is dim instead of
 blue. Images keep their colours. Talqi on the
 empty queue is the outline of asqr's emblem instead, without any colour
 (section 7.1). An empty `NO_COLOR` counts as unset.
+
+The TUI shows the home folder, `HOME`, as `~` at the start of the paths
+it shows of context entries it cannot show (section 7.7), a value that
+is not UTF-8 included. An empty `HOME`, or `/`, counts as unset, and
+paths then show whole.
 
 `ask`:
 

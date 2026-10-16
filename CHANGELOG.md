@@ -66,10 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and pastes and sessions set aside, such as an invalid session answered
   with an error, stay yellow. News, such as a session file reloaded
   after it changed, is in the text colour.
-- The placeholder of an image that cannot be shown wraps and scrolls
-  like the placeholders of code, Markdown and diffs. A long reason in a
-  short pane was cut off before; now the pane's header says which lines
-  show, and the pane scrolls to the rest.
+- A context entry asqr cannot show draws a card with a red rounded
+  frame in the context pane: `✗` and the reason in bold red, then the
+  file name and its folder, the home folder as `~`, wrapped after a `/`
+  and never shortened. A card taller than the pane scrolls. A diff's
+  card names the side that failed, and the pane's header shows a red `✗`
+  before the entry's name. Before, a dim heading such as "code not
+  shown" stood above the path and the reason.
 - Inside tmux 3.4 or later, in kitty and Ghostty, asqr sets
   `allow-passthrough all` for its own pane while it runs and puts the
   pane's setting back when it quits. An image that arrives while asqr's

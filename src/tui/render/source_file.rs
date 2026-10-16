@@ -9,11 +9,13 @@
 //! The image viewer opens a path by the same rule.
 
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::Path;
 
+use image::ImageError;
+
+use super::problem::{Card, Problem};
 use super::source_line::Note;
-use super::viewer::Placeholder;
 
 /// How much of a file a viewer reads. The read happens while the person
 /// waits for the screen, and a viewer keeps all of it, so a log that grew
@@ -50,40 +52,144 @@ pub struct Source {
     pub cut: bool,
 }
 
-/// A file that cannot be shown, and why.
+/// Why a file cannot be shown, sorted so that nothing in asqr has to read
+/// the words of a message to tell one failure from another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    /// The path is relative, which asqr never resolves.
+    RelativePath,
+    NotFound,
+    PermissionDenied,
+    Directory,
+    /// Something other than a regular file or a directory, such as a FIFO
+    /// or a device.
+    NotRegular,
+    /// Text with a NUL byte in it.
+    Binary,
+    /// An image in a format the decoder does not know, such as SVG.
+    FormatUnsupported,
+    /// An image whose data the decoder cannot read, such as a cut PNG.
+    Damaged,
+    Other,
+}
+
+impl Failure {
+    /// The failure an error of the system of `kind` stands for.
+    pub fn of_io(kind: io::ErrorKind) -> Failure {
+        match kind {
+            io::ErrorKind::NotFound => Failure::NotFound,
+            io::ErrorKind::PermissionDenied => Failure::PermissionDenied,
+            io::ErrorKind::IsADirectory => Failure::Directory,
+            _ => Failure::Other,
+        }
+    }
+
+    /// The failure an error of the image decoder stands for.
+    pub fn of_image(error: &ImageError) -> Failure {
+        match error {
+            // The PNG decoder reports data that stops early as the reader's
+            // error, an unexpected end of file, rather than as a decoding
+            // error.
+            ImageError::IoError(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
+                Failure::Damaged
+            }
+            ImageError::IoError(error) => Failure::of_io(error.kind()),
+            ImageError::Unsupported(_) => Failure::FormatUnsupported,
+            ImageError::Decoding(_) => Failure::Damaged,
+            ImageError::Parameter(_) | ImageError::Limits(_) | ImageError::Encoding(_) => {
+                Failure::Other
+            }
+        }
+    }
+}
+
+/// A file that cannot be shown: what failed, and the reason in the words
+/// of the system, the image decoder or asqr's own check, which the person
+/// sees as they are.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Unreadable {
     pub path: String,
+    pub failure: Failure,
     pub reason: String,
 }
 
 impl Unreadable {
-    /// What a viewer shows in place of its content: `heading`, such as
-    /// "diff not shown", the path and the reason.
-    pub fn placeholder(&self, heading: &'static str) -> Placeholder {
-        Placeholder::new(heading, Some(&self.path), self.reason.clone())
+    /// A file refused by one of asqr's own checks, in its words.
+    fn refused(path: &str, failure: Failure, reason: &str) -> Self {
+        Unreadable {
+            path: path.to_owned(),
+            failure,
+            reason: reason.to_owned(),
+        }
+    }
+
+    /// A file the system could not open or read.
+    pub fn io(path: &str, error: &io::Error) -> Self {
+        Unreadable {
+            path: path.to_owned(),
+            failure: Failure::of_io(error.kind()),
+            reason: error.to_string(),
+        }
+    }
+
+    /// An image the decoder could not read.
+    pub fn image(path: &str, error: &ImageError) -> Self {
+        Unreadable {
+            path: path.to_owned(),
+            failure: Failure::of_image(error),
+            reason: error.to_string(),
+        }
+    }
+
+    /// What a viewer shows in place of its content: a card with the reason
+    /// and the file, the home folder `home` in its path shown as `~`.
+    pub fn card(&self, home: Option<&Path>) -> Card {
+        self.card_of(Problem::error(&self.reason), home)
+    }
+
+    /// The card of one side of a diff, `old` or `new`, which names the
+    /// side.
+    pub fn card_on_side(&self, side: &str, home: Option<&Path>) -> Card {
+        self.card_of(Problem::error(&self.reason).on_side(side), home)
+    }
+
+    /// Every card is built here, once per viewer, so the log has the
+    /// message once for each time the person is shown it.
+    fn card_of(&self, problem: Problem, home: Option<&Path>) -> Card {
+        tracing::warn!(
+            path = %self.path,
+            failure = ?self.failure,
+            reason = %self.reason,
+            "a context entry cannot be shown"
+        );
+        Card::new(problem, &self.path, home)
     }
 }
 
 /// Whether the file at `path` may be opened at all, which every viewer
 /// that reads a file, images included, asks before it opens one.
 pub fn regular_file(path: &str) -> Result<(), Unreadable> {
-    let unreadable = |reason: String| Unreadable {
-        path: path.to_owned(),
-        reason,
-    };
     // A relative path depends on where asqr was started, so it is never
     // resolved (spec section 4).
     if Path::new(path).is_relative() {
-        return Err(unreadable("relative path".to_owned()));
+        return Err(Unreadable::refused(
+            path,
+            Failure::RelativePath,
+            "relative path",
+        ));
     }
     // Opening a FIFO waits for a writer, and a device such as /dev/zero
     // never ends, so only a regular file is opened at all. The type is
     // checked before the open, as the open is what would block; a file
     // swapped for a FIFO in between still could.
-    let metadata = fs::metadata(path).map_err(|error| unreadable(error.to_string()))?;
+    let metadata = fs::metadata(path).map_err(|error| Unreadable::io(path, &error))?;
     if !metadata.is_file() {
-        return Err(unreadable("not a regular file".to_owned()));
+        let failure = if metadata.is_dir() {
+            Failure::Directory
+        } else {
+            Failure::NotRegular
+        };
+        return Err(Unreadable::refused(path, failure, "not a regular file"));
     }
     Ok(())
 }
@@ -100,24 +206,20 @@ pub fn read_source(path: Option<&str>, content: Option<&str>) -> Result<Source, 
     let Some(path) = path else {
         return Ok(whole(String::new()));
     };
-    let unreadable = |reason: String| Unreadable {
-        path: path.to_owned(),
-        reason,
-    };
     regular_file(path)?;
     // One byte past the limit tells a file that ends there from a longer
     // one.
     let mut bytes = Vec::new();
     File::open(path)
         .and_then(|file| file.take(MAX_BYTES + 1).read_to_end(&mut bytes))
-        .map_err(|error| unreadable(error.to_string()))?;
+        .map_err(|error| Unreadable::io(path, &error))?;
     let limit = usize::try_from(MAX_BYTES).expect("8 MiB fit into memory");
     let cut = bytes.len() > limit;
     bytes.truncate(limit);
     // A NUL byte marks a binary file, as git decides; its lines would be
     // noise, however they were decoded.
     if bytes.contains(&0) {
-        return Err(unreadable("binary file".to_owned()));
+        return Err(Unreadable::refused(path, Failure::Binary, "binary file"));
     }
     // A stray byte from another encoding shows as `�` and leaves the rest
     // of the file readable. So does a character the limit cut in two.
@@ -226,6 +328,7 @@ mod tests {
             regular_file("Cargo.toml"),
             Err(Unreadable {
                 path: "Cargo.toml".into(),
+                failure: Failure::RelativePath,
                 reason: "relative path".into()
             })
         );
@@ -241,6 +344,7 @@ mod tests {
             regular_file("/nowhere/fetch.rs"),
             Err(Unreadable {
                 path: "/nowhere/fetch.rs".into(),
+                failure: Failure::NotFound,
                 reason
             })
         );
@@ -255,6 +359,7 @@ mod tests {
             regular_file(path),
             Err(Unreadable {
                 path: path.to_owned(),
+                failure: Failure::Directory,
                 reason: "not a regular file".into()
             })
         );
@@ -284,7 +389,9 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("checking a FIFO must not block");
 
-        assert_eq!(checked.expect_err("a FIFO").reason, "not a regular file");
+        let refused = checked.expect_err("a FIFO");
+        assert_eq!(refused.failure, Failure::NotRegular);
+        assert_eq!(refused.reason, "not a regular file");
     }
 
     #[test]
@@ -322,6 +429,7 @@ mod tests {
 
         let unreadable = read_source(Some(&path), None).expect_err("not readable");
 
+        assert_eq!(unreadable.failure, Failure::PermissionDenied);
         assert!(
             unreadable
                 .reason
@@ -336,14 +444,72 @@ mod tests {
     fn a_binary_file_says_why_it_does_not_show() {
         let (_directory, path) = file(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
 
-        assert_eq!(
-            read_source(Some(&path), None).expect_err("binary").reason,
-            "binary file"
-        );
+        let binary = read_source(Some(&path), None).expect_err("binary");
+
+        assert_eq!(binary.failure, Failure::Binary);
+        assert_eq!(binary.reason, "binary file");
     }
 
     #[test]
     fn a_source_with_neither_path_nor_content_is_empty() {
         assert_eq!(read_source(None, None), whole(""));
+    }
+
+    // -----------------------------------------------------------------
+    // The kind of a failure
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn io_errors_map_to_their_kind() {
+        use std::io::ErrorKind;
+
+        let cases = [
+            (ErrorKind::NotFound, Failure::NotFound),
+            (ErrorKind::PermissionDenied, Failure::PermissionDenied),
+            (ErrorKind::IsADirectory, Failure::Directory),
+            (ErrorKind::Interrupted, Failure::Other),
+        ];
+        for (kind, failure) in cases {
+            assert_eq!(Failure::of_io(kind), failure, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn image_errors_map_to_their_kind() {
+        use image::ImageError;
+        use image::error::{
+            DecodingError, ImageFormatHint, LimitError, LimitErrorKind, UnsupportedError,
+            UnsupportedErrorKind,
+        };
+        use std::io::{Error, ErrorKind};
+
+        let cases = [
+            (
+                ImageError::Unsupported(UnsupportedError::from_format_and_kind(
+                    ImageFormatHint::Unknown,
+                    UnsupportedErrorKind::Format(ImageFormatHint::Unknown),
+                )),
+                Failure::FormatUnsupported,
+            ),
+            (
+                ImageError::Decoding(DecodingError::new(ImageFormatHint::Unknown, "bad chunk")),
+                Failure::Damaged,
+            ),
+            (
+                ImageError::IoError(Error::from(ErrorKind::UnexpectedEof)),
+                Failure::Damaged,
+            ),
+            (
+                ImageError::IoError(Error::from(ErrorKind::NotFound)),
+                Failure::NotFound,
+            ),
+            (
+                ImageError::Limits(LimitError::from_kind(LimitErrorKind::InsufficientMemory)),
+                Failure::Other,
+            ),
+        ];
+        for (error, failure) in cases {
+            assert_eq!(Failure::of_image(&error), failure, "{error:?}");
+        }
     }
 }

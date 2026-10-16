@@ -7,6 +7,8 @@
 //! Each part is drawn by its own module; this one lays them out, picks the
 //! overlay and keeps what the screen remembers from one draw to the next.
 
+use std::path::PathBuf;
+
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -124,6 +126,14 @@ impl<'a> View<'a> {
     #[must_use]
     pub fn no_color(self, no_color: bool) -> Self {
         View { no_color, ..self }
+    }
+
+    /// This view, with the home folder `home` shown as `~` in the paths of
+    /// context entries that cannot be shown.
+    #[must_use]
+    pub fn home(mut self, home: Option<PathBuf>) -> Self {
+        self.tab.viewers.set_home(home);
+        self
     }
 
     /// This view, with Talqi drawn in `glyphs` instead of quadrants.
@@ -2245,7 +2255,7 @@ mod tests {
             .expect("temp file");
         std::fs::write(file.path(), "not a picture").expect("written");
         let text = screen(&with_image(file.path().to_str().expect("UTF-8")), 80, 24).to_string();
-        assert!(text.contains("image not shown"), "{text}");
+        assert!(text.contains("│ ✗ "), "{text}");
     }
 
     #[test]
@@ -2586,13 +2596,41 @@ mod tests {
         insta::assert_snapshot!(screen_handing_on_pane(&mut app, &mut view, 80, 16));
 
         // The session has no header text, so at 16 rows the header takes no
-        // row and the pane shows 10 of the 13 lines.
-        for _ in 0..4 {
-            special(&mut app, KeyCode::Down);
-        }
+        // row and the pane shows 10 lines of a body 78 columns wide. The
+        // card there is 60 wide: its folder, `/nonexistent/` and six
+        // `deeper/` on the first of its rows, then eight on each, takes 16
+        // rows, so with the reason, the blank row, the name and the frame
+        // the card has 21 lines.
         let text = screen_in(&app, &mut view, 80, 16).to_string();
-        assert!(text.contains("4–13 of 13"), "{text}");
-        assert!(text.contains("No such file"), "the reason: {text}");
+        assert!(text.contains("1–10 of 21"), "{text}");
+        assert!(
+            text.contains("│ ✗ No such file"),
+            "the reason first: {text}"
+        );
+
+        keys(&mut app, "G");
+        let backend = screen_handing_on_pane(&mut app, &mut view, 80, 16);
+        let buf = backend.buffer();
+        assert!(row(buf, 3).ends_with("12–21 of 21"), "{backend}");
+        assert!(row(buf, 13).trim_start().starts_with('╰'), "{backend}");
+        assert!(
+            row(buf, 12)
+                .trim_end_matches(['│', ' '])
+                .ends_with("deeper/"),
+            "{backend}"
+        );
+    }
+
+    #[test]
+    fn a_card_shows_the_home_folder_as_a_tilde() {
+        let app = with_image("/home/me/pictures/x.png");
+        let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks())
+            .home(Some("/home/me".into()));
+
+        let text = screen_in(&app, &mut view, 80, 24).to_string();
+
+        assert!(text.contains("│ ~/pictures/ "), "{text}");
+        assert!(!text.contains("/home/me"), "{text}");
     }
 
     #[test]

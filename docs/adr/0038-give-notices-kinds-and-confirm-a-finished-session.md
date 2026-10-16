@@ -8,6 +8,8 @@ Accepted
 
 Amends [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md)
 
+Amended by [49. Present problems through one component in three forms](0049-present-problems-through-one-component-in-three-forms.md)
+
 ## Context
 
 The line above the key bar shows a notice about the queue or a message

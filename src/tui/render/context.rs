@@ -15,6 +15,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
+use super::problem::Severity;
 use super::source_line::columns;
 use super::theme;
 use super::viewer::Viewers;
@@ -61,7 +62,14 @@ pub fn draw_pane(
     // A smaller terminal may have left the offset past the end.
     let offset = page.clamp(state.pane_offset());
     let image = viewer.draw(body, buf, offset);
-    let line = header_line(entry, page, offset, header.width, !state.pane_focused());
+    let line = header_line(
+        entry,
+        page,
+        offset,
+        header.width,
+        !state.pane_focused(),
+        viewer.failed(),
+    );
     // The focused pane's header takes the focus fill from the question's
     // current row, so the person sees where the keys go.
     let line = if state.pane_focused() {
@@ -74,7 +82,9 @@ pub fn draw_pane(
 }
 
 /// The pane's header: the entry's name in bold, and on the right, where
-/// the content is taller than the body, which of its lines show.
+/// the content is taller than the body, which of its lines show. Where
+/// the viewer shows a problem in place of the entry, `failed`, the name
+/// follows the problem's mark in its colour (ADR 49).
 ///
 /// Where the content is taller or wider than the body and `offer_tab`
 /// holds, as it does while the pane lacks the focus, the right end also
@@ -88,8 +98,13 @@ fn header_line(
     offset: Offset,
     width: u16,
     offer_tab: bool,
+    failed: bool,
 ) -> Line<'static> {
-    let width = usize::from(width);
+    let mark = failed.then(|| {
+        let severity = Severity::Error;
+        Span::styled(format!("{} ", severity.mark()), severity.style().bold())
+    });
+    let width = usize::from(width).saturating_sub(mark.as_ref().map_or(0, Span::width));
     let position = page.rows.position(offset.top);
     let taller = position.is_some();
     let wider = page.columns.total > page.columns.shown;
@@ -108,10 +123,11 @@ fn header_line(
     let right_width = right.as_deref().map_or(0, columns);
     let name = cut(&name, width.saturating_sub(right_width));
     let gap = width.saturating_sub(columns(&name) + right_width);
-    let mut spans = vec![
+    let mut spans: Vec<Span<'static>> = mark.into_iter().collect();
+    spans.extend([
         Span::styled(name, theme::title()),
         Span::from(" ".repeat(gap)),
-    ];
+    ]);
     spans.extend(right.map(|text| Span::styled(text, theme::secondary())));
     Line::from(spans)
 }
@@ -273,6 +289,7 @@ mod tests {
                 Offset::default(),
                 30,
                 true,
+                false,
             ))
         };
 
@@ -310,13 +327,58 @@ mod tests {
             columns: Extent::default(),
         };
         let log = entry(r#"{"type": "code", "title": "Log", "content": "x"}"#);
-        let line = header_line(&log, page, Offset::default(), 30, false);
+        let line = header_line(&log, page, Offset::default(), 30, false, false);
 
         assert_eq!(line.spans[0], Span::from("Log").bold());
         assert_eq!(
             line.spans.last(),
             Some(&Span::styled(" 1–10 of 31", Style::new().dim()))
         );
+    }
+
+    #[test]
+    fn the_header_of_an_entry_that_cannot_show_leads_with_a_red_mark() {
+        let page = |total: usize| Page {
+            rows: Extent { shown: 10, total },
+            columns: Extent::default(),
+        };
+        let titled = entry(
+            r#"{"type": "code", "title": "A very long title for a short line", "path": "/x.rs"}"#,
+        );
+
+        let line = header_line(&titled, page(3), Offset::default(), 30, false, true);
+        assert_eq!(line.spans[0], Span::styled("✗ ", Style::new().red().bold()));
+        assert_eq!(
+            line.spans[1],
+            Span::from("A very long title for a sho…").bold()
+        );
+        assert_eq!(text(&line), "✗ A very long title for a sho…");
+
+        let line = text(&header_line(
+            &titled,
+            page(120),
+            Offset::default(),
+            30,
+            false,
+            true,
+        ));
+        assert_eq!(line, "✗ A very long tit… 1–10 of 120");
+        assert_eq!(columns(&line), 30, "the mark's columns come off the name");
+    }
+
+    #[test]
+    fn a_pane_whose_entry_cannot_show_marks_its_header() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "image", "path": "/nowhere/cat.png"}]}]}"#;
+        let state = SessionState::new("batch", serde_json::from_str(json).expect("parses"), None);
+        let area = Rect::new(0, 0, 40, 11);
+        let mut buf = Buffer::empty(area);
+        let mut viewers = Viewers::new(Images::half_blocks());
+
+        draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
+
+        assert!(row(&buf, 0).starts_with("✗ cat.png"), "{:?}", row(&buf, 0));
+        assert_eq!(buf[(0, 0)].fg, ratatui::style::Color::Red);
     }
 
     #[test]
@@ -338,6 +400,7 @@ mod tests {
             Offset { top: 3, left: 0 },
             30,
             true,
+            false,
         ));
 
         assert_eq!(
@@ -360,7 +423,14 @@ mod tests {
         };
         let log = entry(r#"{"type": "code", "title": "Log", "content": "x"}"#);
         let header = |page: Page, offer_tab: bool| {
-            text(&header_line(&log, page, Offset::default(), 30, offer_tab))
+            text(&header_line(
+                &log,
+                page,
+                Offset::default(),
+                30,
+                offer_tab,
+                false,
+            ))
         };
 
         assert_eq!(header(page(31, 20), true), "Log           1–10 of 31 · tab");
@@ -391,7 +461,14 @@ mod tests {
             columns: Extent::default(),
         };
         let short = entry(r#"{"type": "code", "title": "日本語の🎉", "content": "x"}"#);
-        let line = text(&header_line(&short, fits, Offset::default(), 30, true));
+        let line = text(&header_line(
+            &short,
+            fits,
+            Offset::default(),
+            30,
+            true,
+            false,
+        ));
         assert_eq!(columns(&line), 30, "fills the line: {line:?}");
 
         let page = Page {
@@ -412,6 +489,7 @@ mod tests {
             Offset { top: 3, left: 0 },
             30,
             true,
+            false,
         ));
         assert_eq!(line, "日本語のとても長…  4–15 of 120");
         assert_eq!(columns(&line), 30);

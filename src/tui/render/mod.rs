@@ -17,6 +17,7 @@ mod overlay;
 mod panes;
 mod parts;
 mod patine_adapter;
+mod problem;
 mod screen;
 mod source_file;
 mod source_line;
