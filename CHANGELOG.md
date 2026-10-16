@@ -77,7 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context pane's header show a yellow fill, one at a time: while the
   context pane has the focus, the question's current row keeps only its
   pointer. The title line and the key bar lose their fills: `asqr` and
-  the keys are bold cyan, the queue and the key descriptions dim. The
+  the keys are bold cyan, the queue, the count of waiting sessions and
+  the key descriptions dim. The
   current tab is bold cyan over a heavy cyan line, unanswered `☐` marks
   are dim, chosen option marks bold cyan and option numbers dim.
   `[ Submit ]` is always filled in cyan, with a yellow pointer when the

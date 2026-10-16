@@ -638,7 +638,7 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
 
 - The title bar has no fill: `asqr` is bold in the primary colour. With
   nothing waiting it reads `asqr · queue: <queue> · N sessions waiting`,
-  the queue dim and the count in the text colour. A queue name too long
+  the queue and the count dim, as beside a session. A queue name too long
   for the line is cut from the left with `…`, at a `/` where possible,
   so the count stays visible.
 - With a session shown, the session's title (or its id) follows `asqr`

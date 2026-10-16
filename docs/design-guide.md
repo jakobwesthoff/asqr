@@ -156,7 +156,7 @@ without any colour.
 | Warning | yellow | a length counter near or past its limit, a key that was refused, the frame of the dialog of an invalid session |
 | Success | green | a length counter in range, a submitted session |
 | Error | red | a failure, such as an inbox that cannot be read; the frame, mark and reason of a context entry asqr cannot show, and the `✗` before its name in the pane's header |
-| Secondary | dim | hints, unanswered tabs, the descriptions in the key bar, the queue in the title line, the count beside a session's title, the `from` and `follows` line under it |
+| Secondary | dim | hints, unanswered tabs, the descriptions in the key bar, the queue and the count in the title line, the `from` and `follows` line under a session's title |
 
 - Only the focus and the submit button are filled areas. The button is
   always filled in the primary colour and keeps its brackets,

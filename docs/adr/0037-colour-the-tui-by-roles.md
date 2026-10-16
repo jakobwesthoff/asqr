@@ -114,3 +114,11 @@ over the text colour the bullet "Title line and key bar have no fills"
 gives it; on the empty queue the count keeps the text colour. The
 `from` and `follows` line under the title is secondary. The intro keeps
 the text colour.
+
+## Amendment (2026-10-16, the count on the empty queue)
+
+Jakob decided on 2026-10-16 that the count is dim on the empty queue
+too, so the queue and the count are secondary in every title bar. This
+replaces "the count in the text colour" in the bullet "Title line and
+key bar have no fills" and "on the empty queue the count keeps the text
+colour" in the amendment above.

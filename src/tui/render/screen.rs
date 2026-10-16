@@ -406,8 +406,8 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
 /// The title bar of the empty queue: the queue and how many sessions wait
 /// (the bar beside a session is the header's). A queue too long
 /// for the bar gives way to the count, shortened from its start. The bar
-/// has no fill: `asqr` stands out in the primary colour, the queue is
-/// secondary, and the count, which changes, keeps the text colour.
+/// has no fill: `asqr` stands out in the primary colour, and the queue
+/// and the count are secondary, as in the bar beside a session.
 fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
     let count = format!(
         " · {waiting} session{} waiting",
@@ -422,7 +422,7 @@ fn draw_title(area: Rect, buf: &mut Buffer, queue: &str, waiting: usize) {
             format!("{prefix}{}", shorten_from_left(queue, room)),
             theme::secondary(),
         ),
-        Span::from(count),
+        Span::styled(count, theme::secondary()),
     ])
     .render(area, buf);
 }
@@ -1640,10 +1640,7 @@ mod tests {
         let secondary = (Color::Reset, Modifier::DIM);
         assert_eq!(look_at(buf, " · queue"), secondary);
         assert_eq!(look_at(buf, "default"), secondary);
-        assert_eq!(
-            look_at(buf, " · 0 sessions"),
-            (Color::Reset, Modifier::empty())
-        );
+        assert_eq!(look_at(buf, " · 0 sessions"), secondary, "the count too");
         assert!(
             (0..80).all(|x| !buf[(x, 0)].modifier.contains(Modifier::REVERSED)),
             "{backend}"

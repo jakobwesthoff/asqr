@@ -83,3 +83,11 @@ on record should the title bar variant not satisfy in use.
 - A session's title takes one line where it took up to two.
 - A session without `from`, `follows` and intro has no header row on
   terminals of 20 rows or fewer, so its tab gains a row there.
+
+## Amendment (2026-10-16, the count on the empty queue)
+
+Jakob decided on 2026-10-16 that the count is dim on the empty queue
+too, so the queue and the count are dim in every title bar. This
+replaces "The empty queue keeps its title bar as it was." among the
+lead's settlements; the empty queue's bar keeps its words and its
+order.
