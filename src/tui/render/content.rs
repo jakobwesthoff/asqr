@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use patine::QuoteStyle;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -148,7 +149,11 @@ impl QuestionHeight {
     /// shrinks only on a draw where no field or note has the keys, so
     /// deleting a line while typing leaves the pane where it is. A resize,
     /// another session or a replaced file start afresh.
-    pub(super) fn need(&mut self, state: &SessionState, area: Rect) -> usize {
+    ///
+    /// The questions are counted with their quotes in `quote`. A quote's
+    /// bar takes the same columns in every style, so the rows kept from
+    /// another frame stay right.
+    pub(super) fn need(&mut self, state: &SessionState, area: Rect, quote: QuoteStyle) -> usize {
         let width = area.width.min(READING_WIDTH);
         let measured = (
             area.width,
@@ -176,7 +181,7 @@ impl QuestionHeight {
             }
             let key = (state.id().to_owned(), state.revision(), index, width);
             let count = |pass| {
-                question_content(state, index, usize::from(width), pass)
+                question_content(state, index, usize::from(width), pass, quote)
                     .lines
                     .len()
             };
@@ -220,13 +225,15 @@ impl QuestionHeight {
 
 /// Draws the current tab into `area`: the question, or the review, at no
 /// more than the reading width, and the context pane where
-/// [`panes::choose`] puts it. Says what the pane showed, if one did, and
-/// where the field or note that has the keys was drawn, if one was.
+/// [`panes::choose`] puts it, with Markdown quotes in `quote`. Says what
+/// the pane showed, if one did, and where the field or note that has the
+/// keys was drawn, if one was.
 pub(super) fn draw_tab(
     area: Rect,
     buf: &mut Buffer,
     state: &SessionState,
     tab: &mut TabState,
+    quote: QuoteStyle,
 ) -> (Option<DrawnPane>, Option<FieldShape>) {
     let arrangement = state.has_context_area().then(|| {
         let arrangement = panes::choose(area.width, area.height, tab.layout, tab.shown);
@@ -237,11 +244,11 @@ pub(super) fn draw_tab(
     });
 
     let content_at = |width: u16| match state.question() {
-        Some(_) => question_content(state, state.tab(), usize::from(width), Pass::Live),
+        Some(_) => question_content(state, state.tab(), usize::from(width), Pass::Live, quote),
         None => review_content(state, usize::from(width)),
     };
     let question_rows = match arrangement {
-        Some(Arrangement::Below) => tab.question_height.need(state, area),
+        Some(Arrangement::Below) => tab.question_height.need(state, area, quote),
         _ => 0,
     };
     let (text_area, context_area) = panes::areas(area, arrangement, question_rows);
@@ -253,7 +260,7 @@ pub(super) fn draw_tab(
             context_hint(state.shown_context(), &z, area.width).render(area, buf);
             None
         }
-        Some(area) => draw_pane(area, buf, state, &mut tab.viewers),
+        Some(area) => draw_pane(area, buf, state, &mut tab.viewers, quote),
         None => None,
     };
 
@@ -396,13 +403,20 @@ enum Pass {
     Counted,
 }
 
-/// The lines of question `index`, wrapped to `width`. Counting and drawing
-/// share this function, so the rows counted are the rows drawn.
-fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass) -> Content {
+/// The lines of question `index`, wrapped to `width`, with Markdown quotes
+/// in `quote`. Counting and drawing share this function, so the rows
+/// counted are the rows drawn.
+fn question_content(
+    state: &SessionState,
+    index: usize,
+    width: usize,
+    pass: Pass,
+    quote: QuoteStyle,
+) -> Content {
     let question = &state.session().questions[index];
     let live = pass == Pass::Live;
     let mut content = Content {
-        lines: field_lines(&question.text, width),
+        lines: field_lines(&question.text, width, quote),
         cursor: (0, 0),
         shape: None,
         text_cursor: None,
@@ -456,6 +470,7 @@ fn question_content(state: &SessionState, index: usize, width: usize, pass: Pass
                     option.description.as_deref(),
                     width,
                     filled,
+                    quote,
                 );
                 (lines, None)
             }
@@ -543,13 +558,15 @@ fn option_head_width(index: usize, label: &str) -> usize {
 /// `filled`, then the description from `label_column` on, rendered for the
 /// columns from there to the end and so wrapped under its own start. When
 /// that leaves too little room, the descriptions go on the lines below
-/// instead, from `DESCRIPTION_INDENT` on.
+/// instead, from `DESCRIPTION_INDENT` on. The description's quotes show in
+/// `quote`.
 fn option_lines(
     head: Vec<Span<'static>>,
     label_column: usize,
     description: Option<&str>,
     width: usize,
     filled: bool,
+    quote: QuoteStyle,
 ) -> Vec<Line<'static>> {
     let head_width: usize = head.iter().map(|span| columns(&span.content)).sum();
     let head = if filled {
@@ -564,7 +581,7 @@ fn option_lines(
         DESCRIPTION_INDENT
     };
     let mut rows = description
-        .map(|description| field_lines(description, width.saturating_sub(indent)))
+        .map(|description| field_lines(description, width.saturating_sub(indent), quote))
         .unwrap_or_default()
         .into_iter();
     let mut lines = Vec::new();
@@ -757,6 +774,7 @@ mod tests {
 
     use ratatui::style::{Color, Modifier, Stylize};
 
+    use super::super::patine_adapter::quote_style;
     use super::super::test_support;
     use super::*;
     use crate::tui::Page;
@@ -857,7 +875,7 @@ mod tests {
     /// The current tab of `state` drawn 40 columns wide.
     fn tab_of(state: &SessionState) -> (Content, Buffer) {
         let content = match state.question() {
-            Some(_) => question_content(state, state.tab(), 40, Pass::Live),
+            Some(_) => question_content(state, state.tab(), 40, Pass::Live, quote_style(false)),
             None => review_content(state, 40),
         };
         let height = u16::try_from(content.lines.len()).expect("a short tab");
@@ -1160,8 +1178,11 @@ mod tests {
         // 20th. While the pane has the focus the head is not filled, so its
         // blank hangs past the edge as in the count.
         let state = with_pane_focused("jE");
-        let lines =
-            |pass| test_support::line_texts(&question_content(&state, state.tab(), 19, pass).lines);
+        let lines = |pass| {
+            test_support::line_texts(
+                &question_content(&state, state.tab(), 19, pass, quote_style(false)).lines,
+            )
+        };
 
         let drawn = lines(Pass::Live);
         assert_eq!(drawn.len(), lines(Pass::Counted).len());
@@ -1178,7 +1199,7 @@ mod tests {
         // 20th, so in 19 that blank is one past the end of the first row.
         let own_rows = |state: &SessionState| {
             let lines = test_support::line_texts(
-                &question_content(state, state.tab(), 19, Pass::Live).lines,
+                &question_content(state, state.tab(), 19, Pass::Live, quote_style(false)).lines,
             );
             let head = lines
                 .iter()
@@ -1218,8 +1239,9 @@ mod tests {
             state.handle(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
         }
         state.handle(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        let drawn =
-            test_support::line_texts(&question_content(&state, state.tab(), 19, Pass::Live).lines);
+        let drawn = test_support::line_texts(
+            &question_content(&state, state.tab(), 19, Pass::Live, quote_style(false)).lines,
+        );
         assert!(
             drawn.ends_with(&[
                 "❯ (•) ✎ Own answer:".to_owned(),
@@ -1234,7 +1256,7 @@ mod tests {
         let area = Rect::new(0, 0, 19, 30);
         let mut buf = Buffer::empty(area);
         let mut tab = TabState::new(PaneLayout::Auto, Images::half_blocks());
-        draw_tab(area, &mut buf, &state, &mut tab);
+        draw_tab(area, &mut buf, &state, &mut tab, quote_style(false));
 
         let shown = test_support::rows(&buf);
         assert_eq!(

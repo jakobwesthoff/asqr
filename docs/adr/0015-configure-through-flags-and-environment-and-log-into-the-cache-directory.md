@@ -60,3 +60,9 @@ A screen without an image has no RGB colour, and a test pins that. A
 colour drawn in RGB outside an image would keep its colour under
 `NO_COLOR`. A `ratatui-image` release that names Kitty images any other
 way has to be checked against the pass.
+
+## Amendment (2026-10-16, ADR 35)
+
+A Markdown quote's bar is the one style chosen before drawing: under
+`NO_COLOR` the screen asks patine for a dim bar instead of a blue one,
+as the pass would leave a blue bar in the text colour.

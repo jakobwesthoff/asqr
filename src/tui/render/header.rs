@@ -7,6 +7,7 @@
 //! intro, which hang under the title. On a low terminal the header gives
 //! its rows to the tab's area, the blank line first, then intro lines.
 
+use patine::QuoteStyle;
 use ratatui::text::{Line, Span};
 
 use super::panes::READING_WIDTH;
@@ -87,8 +88,14 @@ pub(super) fn title_bar(
 /// lines down to one; the `from` and `follows` line stays.
 ///
 /// A cut intro ends in `… i: more`, as `i` shows all of it, or in
-/// `… esc, i: more` where `i` would be typed or taken by the pane.
-pub(super) fn header_lines(state: &SessionState, width: usize, spare: usize) -> Vec<Line<'static>> {
+/// `… esc, i: more` where `i` would be typed or taken by the pane. Its
+/// quotes show in `quote`.
+pub(super) fn header_lines(
+    state: &SessionState,
+    width: usize,
+    spare: usize,
+    quote: QuoteStyle,
+) -> Vec<Line<'static>> {
     let text_width = text_width(width);
     let meta = meta_line(state, text_width);
     // The intro keeps patine's styles in the text colour: it is the
@@ -97,7 +104,7 @@ pub(super) fn header_lines(state: &SessionState, width: usize, spare: usize) -> 
         .session()
         .intro
         .as_deref()
-        .map(|intro| field_lines(intro, text_width))
+        .map(|intro| field_lines(intro, text_width, quote))
         .unwrap_or_default()
         .into_iter()
         .map(|line| indented(line, INDENT))
@@ -197,6 +204,7 @@ fn ending_in(line: Line<'static>, marker: &str, width: usize) -> Line<'static> {
 mod tests {
     use ratatui::style::{Style, Stylize};
 
+    use super::super::patine_adapter::quote_style;
     use super::super::test_support::line_texts;
     use super::*;
 
@@ -239,7 +247,9 @@ mod tests {
     #[test]
     fn follows_shows_the_title_in_quotes_else_the_value_as_written() {
         let mut state = session_with(r#""from": "agent", "follows": "round-1","#);
-        let meta = |state: &SessionState| line_texts(&header_lines(state, 80, 10))[0].clone();
+        let meta = |state: &SessionState| {
+            line_texts(&header_lines(state, 80, 10, quote_style(false)))[0].clone()
+        };
 
         assert_eq!(meta(&state), "       from agent · follows round-1");
         state.set_follows_title(Some("Round one,\n  first try".to_owned()));
@@ -257,7 +267,7 @@ mod tests {
         // 20 columns leave the intro 12 after the indent and the column
         // before the edge.
         let state = session_with(r#""intro": "Round **two** of the new layout here","#);
-        let lines = header_lines(&state, 20, 10);
+        let lines = header_lines(&state, 20, 10, quote_style(false));
 
         assert_eq!(
             line_texts(&lines),

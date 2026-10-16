@@ -7,6 +7,7 @@
 //! and without sideways scrolling. Lines that patine leaves wider, such as
 //! those of a code block, wrap behind a dim `↪`.
 
+use patine::{QuoteStyle, RenderOptions};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
@@ -24,20 +25,20 @@ pub struct MarkdownViewer {
 }
 
 impl MarkdownViewer {
-    /// Reads the text. Rendering depends on the width, so it waits for
-    /// `lay_out`.
-    pub fn new(entry: &MarkdownEntry) -> Self {
+    /// Reads the text, whose quotes show in `quote`. Rendering depends on
+    /// the width, so it waits for `lay_out`.
+    pub fn new(entry: &MarkdownEntry, quote: QuoteStyle) -> Self {
         let source = read_source(entry.path.as_deref(), entry.content.as_deref());
         MarkdownViewer {
-            content: content_of(source),
+            content: content_of(source, quote),
         }
     }
 }
 
 /// What the viewer shows of `source`, as read for its entry: its
-/// Markdown, or a note when the file cannot be read or there is no text
-/// at all.
-fn content_of(source: Result<Source, Unreadable>) -> Content<Markdown> {
+/// Markdown with quotes in `quote`, or a note when the file cannot be read
+/// or there is no text at all.
+fn content_of(source: Result<Source, Unreadable>, quote: QuoteStyle) -> Content<Markdown> {
     match source {
         Err(unreadable) => Content::Note(unreadable.placeholder("markdown not shown")),
         Ok(Source { text, .. }) if text.trim().is_empty() => {
@@ -46,6 +47,10 @@ fn content_of(source: Result<Source, Unreadable>) -> Content<Markdown> {
         Ok(Source { text, cut }) => Content::Body(Markdown {
             source: text,
             cut,
+            // A document keeps patine's defaults, where a single newline
+            // joins the lines and raw HTML is left out (ADR 35). Only its
+            // quotes take the style the screen asks for.
+            options: RenderOptions::new().with_quote_style(quote),
             rows: Vec::new(),
             laid_out: None,
             #[cfg(test)]
@@ -69,6 +74,8 @@ struct Markdown {
     source: String,
     /// `source` is only the start of a longer file.
     cut: bool,
+    /// How patine renders `source`.
+    options: RenderOptions,
     rows: Vec<Row>,
     /// The width `rows` were rendered for and the size they take.
     laid_out: Option<(u16, ContentSize)>,
@@ -98,7 +105,10 @@ impl Viewer for Markdown {
             self.renders += 1;
         }
         let columns = usize::from(width);
-        let text = markdown_rows(&patine::render_lines(&self.source, columns), columns);
+        let text = markdown_rows(
+            &patine::render_lines_with(&self.source, columns, &self.options),
+            columns,
+        );
         self.rows =
             between_cut_notes(self.cut, text.into_iter().map(Row::Text), Row::Note).collect();
         // Only a character wider than the whole body is wider than a row,
@@ -137,12 +147,14 @@ mod tests {
 
     use ratatui::style::{Color, Modifier};
 
+    use super::super::patine_adapter::quote_style;
     use super::super::test_support::{drawn, row, shown};
     use super::*;
 
+    /// The viewer of the entry `json`, as drawn with colours.
     fn built(json: &str) -> MarkdownViewer {
         let entry: MarkdownEntry = serde_json::from_str(json).expect("test entry parses");
-        MarkdownViewer::new(&entry)
+        MarkdownViewer::new(&entry, quote_style(false))
     }
 
     fn inline(markdown: &str) -> MarkdownViewer {
@@ -249,6 +261,58 @@ mod tests {
     }
 
     #[test]
+    fn a_quote_bar_takes_the_style_it_is_built_with() {
+        let entry: MarkdownEntry =
+            serde_json::from_str(r#"{"type": "markdown", "content": "> quoted"}"#)
+                .expect("test entry parses");
+        let bar_and_text = |no_color| {
+            let mut viewer = MarkdownViewer::new(&entry, quote_style(no_color));
+            let buf = drawn(&mut viewer, 20, 1, Offset::default());
+            assert_eq!(row(&buf, 0), "│ quoted");
+            (buf[(0, 0)].clone(), buf[(2, 0)].clone())
+        };
+
+        let (bar, text) = bar_and_text(false);
+        assert_eq!(
+            (bar.fg, bar.modifier),
+            (Color::Indexed(4), Modifier::empty())
+        );
+        assert_eq!(text.modifier, Modifier::empty(), "upright, not dim");
+        let (bar, text) = bar_and_text(true);
+        assert_eq!((bar.fg, bar.modifier), (Color::Reset, Modifier::DIM));
+        assert_eq!(text.modifier, Modifier::empty());
+    }
+
+    #[test]
+    fn a_long_word_in_a_task_item_wraps_under_its_text() {
+        let mut viewer = inline("- [ ] https://example.com/a/very/long/path\n- [x] done\n");
+
+        let buf = drawn(&mut viewer, 24, 3, Offset::default());
+
+        assert_eq!(
+            [row(&buf, 0), row(&buf, 1), row(&buf, 2)],
+            ["☐ https://example.com/a/", "  ↪ very/long/path", "☑ done"]
+        );
+        assert!(buf[(0, 2)].modifier.contains(Modifier::DIM), "a done box");
+        assert!(buf[(2, 2)].modifier.contains(Modifier::DIM), "and its text");
+        assert!(!buf[(0, 0)].modifier.contains(Modifier::DIM), "an open box");
+    }
+
+    #[test]
+    fn table_columns_follow_the_delimiter_row() {
+        let mut viewer = inline("| left | right | mid |\n|:--|--:|:-:|\n| a | b | c |\n");
+
+        let buf = drawn(&mut viewer, 40, 5, Offset::default());
+
+        assert_eq!(row(&buf, 1), "│ left │ right │ mid │");
+        assert_eq!(
+            row(&buf, 3),
+            "│ a    │     b │  c  │",
+            "left, right and centred"
+        );
+    }
+
+    #[test]
     fn tabs_in_code_blocks_line_up_at_stops_of_four() {
         let mut viewer = inline("```\n\tx = 1;\u{1b}\n```\n");
 
@@ -273,10 +337,13 @@ mod tests {
     #[test]
     fn the_start_of_a_file_too_long_to_read_whole_says_so_first_and_last() {
         let mut viewer = MarkdownViewer {
-            content: content_of(Ok(Source {
-                text: "**Plan**\n".into(),
-                cut: true,
-            })),
+            content: content_of(
+                Ok(Source {
+                    text: "**Plan**\n".into(),
+                    cut: true,
+                }),
+                quote_style(false),
+            ),
         };
 
         let buf = drawn(&mut viewer, 40, 3, Offset::default());

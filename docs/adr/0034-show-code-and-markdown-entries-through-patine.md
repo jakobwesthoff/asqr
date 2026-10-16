@@ -128,3 +128,12 @@ Agent's choices within that design:
   keeps lines as written, Markdown fits the pane.
 - `SourceLine` can now also break a line into rows, which the adapter
   uses and the question texts' Markdown will use as well.
+
+## Amendment (2026-10-16, task boxes)
+
+patine 1.7.0 draws a task list item's box in place of its bullet, `☐`
+for an open task and `☑` for a done one, and the box of an ordered task
+after its number, as `1. ☐ `. The continuation rows of a line too wide
+for its space count these as a list item's marker too: `☐ ` and `☑ `
+after any blanks and bars, like `• `, and a box right after a number
+that counts, which widens the number's marker by two columns.

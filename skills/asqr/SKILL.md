@@ -151,8 +151,8 @@ Once asked, asqr fits best when:
     versions show "no changes".
   - asqr shows a code entry highlighted, with line numbers in a gutter.
     Long lines do not wrap; the person scrolls sideways. A Markdown entry
-    is rendered and wrapped to the pane: headings, emphasis, lists,
-    quotes, tables and highlighted code blocks, whose long lines wrap
+    is rendered and wrapped to the pane: headings, emphasis, lists, task
+    lists, quotes, tables and highlighted code blocks, whose long lines wrap
     behind a `↪` marker. Name the language of a code block's fence so it
     is highlighted. A file asqr cannot read shows as a placeholder with
     the reason.
@@ -165,8 +165,8 @@ Once asked, asqr fits best when:
   - Questions and options have no `image` field. A file that still uses
     one gets a warning, and the image does not show.
 - `intro`, question `text` and option `description` are Markdown and
-  show rendered: headings, emphasis, inline code, lists, quotes, links,
-  tables, rules and code blocks. Name the language of a code block's
+  show rendered: headings, emphasis, inline code, lists, task lists
+  (`- [ ]`, `- [x]`), quotes, links, tables, rules and code blocks. Name the language of a code block's
   fence so it is highlighted. A line wider than the space, such as a
   long line of code, wraps behind a `↪` marker. A single newline
   breaks the line, and a blank line starts a new paragraph. `<` shows as

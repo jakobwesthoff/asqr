@@ -8,7 +8,7 @@
 //! line wider than the space it gets wraps, and each further row starts
 //! with a dim `↪`, so nothing is cut off.
 
-use patine::{StyledLine, TextStyle, Underline};
+use patine::{AnsiColor, QuoteStyle, StyledLine, TextStyle, Underline};
 use ratatui::style::{Color, Modifier, Style};
 
 use super::source_line::{SourceLine, columns};
@@ -16,6 +16,23 @@ use super::theme;
 
 /// What starts a row that continues a line too wide for its space.
 const CONTINUATION: &str = "↪ ";
+
+/// How Markdown quotes look wherever asqr renders Markdown: a blue bar,
+/// apart from the cyan that marks what can be acted on, and a dim one
+/// under `NO_COLOR`. The colours come off the finished screen there and
+/// dim stays (spec section 8), so a blue bar would be left in the text
+/// colour, like the quoted text beside it.
+pub(crate) const fn quote_style(no_color: bool) -> QuoteStyle {
+    if no_color {
+        QuoteStyle::DimBar
+    } else {
+        QuoteStyle::Bar(AnsiColor::Blue)
+    }
+}
+
+/// What patine draws in place of a bullet for a task list item, open or
+/// done, and after the number of an ordered one.
+const TASK_BOXES: [&str; 2] = ["☐ ", "☑ "];
 
 /// The ratatui style of a patine style.
 ///
@@ -105,12 +122,13 @@ pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
 /// starts with, then the marker of a list item turned into blanks, so the
 /// rest of an item lines up under its text rather than under its marker.
 ///
-/// A bullet, `• `, counts after any blanks and bars, as patine indents a
-/// nested item with blanks. A number, such as `1. ` or `10. `, counts
-/// only where the line starts, quote bars aside: there patine starts an
-/// ordered item, while a line of a code block starts with blanks, and
-/// its `1. ` is code. A nested numbered item therefore continues under
-/// its number.
+/// A bullet, `• `, or the box of a task, `☐ ` or `☑ `, counts after any
+/// blanks and bars, as patine indents a nested item with blanks. A number,
+/// such as `1. ` or `10. `, counts only where the line starts, quote bars
+/// aside: there patine starts an ordered item, while a line of a code
+/// block starts with blanks, and its `1. ` is code. A nested numbered item
+/// therefore continues under its number. The box of an ordered task comes
+/// after its number, `1. ☐ `, and counts with it.
 fn indent(line: &SourceLine) -> (Vec<(String, Style)>, usize) {
     let mut indent = Vec::new();
     let mut lead = String::new();
@@ -132,12 +150,21 @@ fn indent(line: &SourceLine) -> (Vec<(String, Style)>, usize) {
     }
     let mut width = lead.chars().count();
 
+    // The width of the task box `text` starts with, if it starts with one.
+    let task_box = |text: &str| {
+        TASK_BOXES
+            .into_iter()
+            .find(|task_box| text.starts_with(task_box))
+            .map(columns)
+    };
     let marker = if rest.starts_with("• ") {
         columns("• ")
+    } else if let Some(width) = task_box(&rest) {
+        width
     } else if only_quote_bars(&lead) {
         let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
         if digits > 0 && rest[digits..].starts_with(". ") {
-            digits + 2
+            digits + 2 + task_box(&rest[digits + 2..]).unwrap_or(0)
         } else {
             0
         }
@@ -297,6 +324,65 @@ mod tests {
     }
 
     #[test]
+    fn a_continuation_of_a_task_item_lines_up_under_its_text() {
+        let word = "a".repeat(50);
+
+        assert_eq!(
+            rows_of(&["☐ ", &word], 40),
+            [
+                format!("☐ {}", "a".repeat(38)),
+                format!("  ↪ {}", "a".repeat(12))
+            ],
+            "an open task"
+        );
+        assert_eq!(
+            rows_of(&["☑ ", &word], 40),
+            [
+                format!("☑ {}", "a".repeat(38)),
+                format!("  ↪ {}", "a".repeat(12))
+            ],
+            "a done task"
+        );
+        assert_eq!(
+            rows_of(&["  ☐ ", &word], 40),
+            [
+                format!("  ☐ {}", "a".repeat(36)),
+                format!("    ↪ {}", "a".repeat(14))
+            ],
+            "a nested task"
+        );
+        assert_eq!(
+            rows_of(&["│ ", "☑ ", &word], 40),
+            [
+                format!("│ ☑ {}", "a".repeat(36)),
+                format!("│   ↪ {}", "a".repeat(14))
+            ],
+            "a task in a quote"
+        );
+        assert_eq!(
+            rows_of(&["1. ☐ ", &word], 40),
+            [
+                format!("1. ☐ {}", "a".repeat(35)),
+                format!("     ↪ {}", "a".repeat(15))
+            ],
+            "a numbered task, its box after the number"
+        );
+        assert_eq!(
+            rows_of(&["10. ☑ ", &word], 40),
+            [
+                format!("10. ☑ {}", "a".repeat(34)),
+                format!("      ↪ {}", "a".repeat(16))
+            ]
+        );
+    }
+
+    #[test]
+    fn quotes_have_a_blue_bar_and_a_dim_one_without_colours() {
+        assert_eq!(quote_style(false), QuoteStyle::Bar(AnsiColor::Blue));
+        assert_eq!(quote_style(true), QuoteStyle::DimBar);
+    }
+
+    #[test]
     fn a_continuation_of_a_numbered_item_lines_up_under_its_text() {
         let word = "a".repeat(50);
 
@@ -376,7 +462,7 @@ mod tests {
 
     #[test]
     fn a_continuation_repeats_blockquote_bars_in_their_style() {
-        let bar = text_style(|s| s.dim = true);
+        let bar = text_style(|s| s.foreground = Some(AnsiColor::Blue));
         let lines = [line(&[
             ("│ ", bar),
             ("https://example.com/long", TextStyle::default()),
@@ -387,7 +473,7 @@ mod tests {
         assert_eq!(texts(&rows), ["│ https://exampl", "│ ↪ e.com/long"]);
         assert_eq!(
             rows[1].pieces().next(),
-            Some(("│ ", Style::new().add_modifier(Modifier::DIM)))
+            Some(("│ ", Style::new().fg(Color::Indexed(4))))
         );
     }
 

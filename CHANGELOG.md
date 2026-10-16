@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   title. The line stays until the next key or paste, also over the next
   session and over the empty queue. A name too long for the line is cut
   and ends in `…`, so the counts and the closing quote show whole.
+- Markdown shows a task list item with `☐` for an open task and `☑` for
+  a done one, in place of the bullet. A done task is dim, apart from the
+  items nested under it. Table columns follow the alignment of their
+  delimiter row (`:--`, `:-:`, `--:`). Both come with patine 1.7.0.
+- A long word in a task item wraps under the item's text, as in any
+  other list item.
 
 ### Changed
 
@@ -115,9 +121,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as `follows "Review the retry change"`, taken from the waiting
   sessions or the queue's archive. Where asqr finds no such session, or
   it has no title, the header shows the id as before.
+- A quote in Markdown shows its text in the style of the text around
+  it, so emphasis shows inside the quote, behind a blue bar that is dim
+  under `NO_COLOR`. Before, quoted text was dim and italic behind a dim
+  bar.
+- The agent skill names task lists among the Markdown asqr renders.
 
 ### Fixed
 
+- A code block or a nested list inside a Markdown quote sits inside the
+  quote's bar, as `│   code`, where it showed as `  │ code` (patine
+  1.7.0).
 - On an 80×24 terminal, a session with `from`, `follows` and a long
   intro showed its context pane only as a one-line hint, as `follows`
   pushed the title onto a second line.

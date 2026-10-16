@@ -168,7 +168,8 @@ without any colour.
   has the focus, the question's current row keeps its pointer and bold
   text but loses its fill.
 - Code and Markdown keep the colours their highlighting gives them,
-  including yellow inline code.
+  including yellow inline code. A Markdown quote's bar is blue, apart
+  from the primary cyan; without colours it is dim.
 - An answered question is not a status: its tab mark keeps the text
   colour, and an unanswered one is dim.
 - The session's intro is the asker's content and keeps the text colour.

@@ -22,6 +22,7 @@ use super::keys::{draw_help, empty_queue_hints, intro_hints, key_hints, key_line
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{MIN_BELOW_HEIGHT, PaneLayout};
+use super::patine_adapter::quote_style;
 use super::source_line::columns;
 use super::tabs::tab_bar;
 use super::theme;
@@ -196,12 +197,17 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         return Drawn::default();
     }
 
+    // Every place that renders Markdown draws its quotes in this style, the
+    // one place the colours are decided before drawing rather than taken
+    // off the finished screen.
+    let quote = quote_style(view.no_color);
+
     // The header gives its rows to the tab's area until that has the rows
     // a context pane below the question needs.
     let spare = area.height.saturating_sub(FRAME_ROWS + MIN_BELOW_HEIGHT);
     let header_lines = app
         .active()
-        .map(|state| header_lines(state, usize::from(area.width), usize::from(spare)))
+        .map(|state| header_lines(state, usize::from(area.width), usize::from(spare), quote))
         .unwrap_or_default();
     // The empty queue keeps a header row, below which Talqi's place is
     // measured.
@@ -246,11 +252,17 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             let main = main.inner(ratatui::layout::Margin::new(1, 0));
             let (pane, field_shape) = if state.full_screen() && state.shown_context().is_some() {
                 (
-                    draw_pane(main, frame.buffer_mut(), state, &mut view.tab.viewers),
+                    draw_pane(
+                        main,
+                        frame.buffer_mut(),
+                        state,
+                        &mut view.tab.viewers,
+                        quote,
+                    ),
                     None,
                 )
             } else {
-                draw_tab(main, frame.buffer_mut(), state, &mut view.tab)
+                draw_tab(main, frame.buffer_mut(), state, &mut view.tab, quote)
             };
             let (pane_page, image) = match pane {
                 Some(DrawnPane { page, image }) => (Some(page), image),
@@ -268,7 +280,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
                     let intro = state.session().intro.as_deref();
                     let intro = intro.expect("the intro overlay is open only on an intro");
-                    let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll);
+                    let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll, quote);
                     (page, intro_hints(page))
                 }
                 Some(Overlay::SessionList(_)) => {
@@ -914,8 +926,16 @@ mod tests {
                 .contains(Modifier::DIM)
         );
         let (x, y) = find(backend.buffer(), "│ Quoted");
-        assert!(buffer[(x, y)].modifier.contains(Modifier::DIM), "the bar");
-        assert!(buffer[(x + 2, y)].modifier.contains(Modifier::ITALIC));
+        assert_eq!(
+            (buffer[(x, y)].fg, buffer[(x, y)].modifier),
+            (Color::Indexed(4), Modifier::empty()),
+            "the bar in blue"
+        );
+        assert_eq!(
+            buffer[(x + 2, y)].modifier,
+            Modifier::empty(),
+            "the quoted text upright and not dim"
+        );
         let (x, y) = find(backend.buffer(), "let x = 1;");
         assert_eq!(x, 3, "the block is indented by two after the margin");
         assert_eq!(
@@ -2840,7 +2860,7 @@ mod tests {
         let state = app.active().expect("a session is waiting");
         view.tab
             .question_height
-            .need(state, Rect::new(1, 5, width, 24))
+            .need(state, Rect::new(1, 5, width, 24), quote_style(false))
     }
 
     fn ctrl_j(app: &mut App) {
@@ -3708,6 +3728,60 @@ mod tests {
             .map(|x| colourless[(x, submit)].symbol())
             .collect();
         assert_eq!(button, "[ Submit ]");
+    }
+
+    /// A quote in each place that renders Markdown: the intro, the question
+    /// text, an option's description and a Markdown entry in the pane.
+    const QUOTED: &str = r#"{"asqr": 2, "title": "Quotes", "intro": "> intro q",
+        "questions": [{"id": "q", "text": "> text q", "kind": "single",
+            "options": [{"id": "a", "label": "Alpha", "description": "> described"},
+                        {"id": "b", "label": "Beta"}],
+            "context": [{"type": "markdown", "content": "> context q"}]}]}"#;
+
+    /// Checks the quote bar where `quoted` starts in `buf`, from row `from`
+    /// on: blue, or dim without colours, and the text after it upright and
+    /// not dim either way. Returns the row it is on.
+    fn assert_quote_bar(buf: &Buffer, from: u16, quoted: &str, no_color: bool) -> u16 {
+        let (x, y) = find_from(buf, from, quoted);
+        let bar = &buf[(x, y)];
+        let expected = if no_color {
+            (Color::Reset, Modifier::DIM)
+        } else {
+            (Color::Indexed(4), Modifier::empty())
+        };
+        assert_eq!(
+            (bar.fg, bar.modifier),
+            expected,
+            "{quoted} (no_color {no_color})"
+        );
+        assert_eq!(
+            buf[(x + 2, y)].modifier,
+            Modifier::empty(),
+            "{quoted} (no_color {no_color})"
+        );
+        y
+    }
+
+    #[test]
+    fn every_markdown_quote_has_a_blue_bar_and_a_dim_one_under_no_color() {
+        let mut app = app(&[("quotes", QUOTED)]);
+        let (coloured, colourless) = with_and_without_colours(&app, 120, 40);
+        for (buf, no_color) in [(&coloured, false), (&colourless, true)] {
+            for quoted in ["│ intro q", "│ text q", "│ described", "│ context q"] {
+                assert_quote_bar(buf, 0, quoted, no_color);
+            }
+        }
+
+        keys(&mut app, "i");
+        let (coloured, colourless) = with_and_without_colours(&app, 120, 40);
+        for (buf, no_color) in [(&coloured, false), (&colourless, true)] {
+            let header = find(buf, "│ intro q").1;
+            // The header keeps its copy of the intro above the frame, so
+            // the frame's copy is the first one under its title.
+            let title = find(buf, "Intro").1;
+            let framed = assert_quote_bar(buf, title, "│ intro q", no_color);
+            assert!(framed > header, "the frame's intro, not the header's");
+        }
     }
 
     /// One text question with inline code, a diff and a length.

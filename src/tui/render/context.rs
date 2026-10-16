@@ -9,6 +9,7 @@
 
 use std::path::Path;
 
+use patine::QuoteStyle;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -31,18 +32,20 @@ pub struct DrawnPane {
 
 /// Draws the pane for the entry `state` shows into `area`, scrolled as far
 /// as the person scrolled it, and says what it showed. The header takes the
-/// first line and the viewer the rest. A row without context leaves the
-/// pane empty, so it keeps its place while the cursor moves on.
+/// first line and the viewer the rest, with Markdown quotes in `quote`. A
+/// row without context leaves the pane empty, so it keeps its place while
+/// the cursor moves on.
 pub fn draw_pane(
     area: Rect,
     buf: &mut Buffer,
     state: &SessionState,
     viewers: &mut Viewers,
+    quote: QuoteStyle,
 ) -> Option<DrawnPane> {
     let (key, entry) = state.shown_entry()?;
     let [header, body] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
 
-    let (viewer, size) = viewers.laid_out(state.id(), key, entry, body.width, body.height);
+    let (viewer, size) = viewers.laid_out(state.id(), key, entry, body.width, body.height, quote);
     // Content reports lines wider than the body only where it cuts them, so
     // its size alone says whether the pane scrolls sideways.
     let page = Page {
@@ -172,6 +175,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::{Style, Stylize};
 
+    use super::super::patine_adapter::quote_style;
     use super::super::test_support::{find, row};
     use super::*;
 
@@ -441,7 +445,7 @@ mod tests {
         let area = Rect::new(0, 0, 40, 11);
         let mut buf = Buffer::empty(area);
         let mut viewers = Viewers::new(Images::half_blocks());
-        draw_pane(area, &mut buf, &state, &mut viewers);
+        draw_pane(area, &mut buf, &state, &mut viewers, quote_style(false));
 
         assert!(row(&buf, 0).ends_with("21–30 of 30"), "{:?}", row(&buf, 0));
         assert_eq!(find(&buf, "line 21").1, 1);

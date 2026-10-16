@@ -18,6 +18,7 @@ use super::wrap::wrap;
 use crate::format::{ContextEntry, ImageEntry};
 use crate::graphics::{Graphics, Image, Images, KittyBook, PlacedImage};
 use crate::tui::{EntryKey, Offset};
+use patine::QuoteStyle;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Rect, Size};
 use ratatui::text::Line;
@@ -68,16 +69,19 @@ struct ViewerKey {
     entry: EntryKey,
 }
 
-/// A viewer with the entry it was built from, and the body size it was
-/// last laid out for with the size its content took there.
+/// A viewer with the entry and the quote style it was built from, and the
+/// body size it was last laid out for with the size its content took
+/// there.
 struct Kept {
     entry: ContextEntry,
+    quote: QuoteStyle,
     viewer: Box<dyn Viewer>,
     laid_out: Option<((u16, u16), ContentSize)>,
 }
 
-/// Builds the viewer for an entry, given what makes its images.
-type Build = Box<dyn Fn(&ContextEntry, &Images) -> Box<dyn Viewer>>;
+/// Builds the viewer for an entry, given what makes its images and how
+/// Markdown quotes look.
+type Build = Box<dyn Fn(&ContextEntry, &Images, QuoteStyle) -> Box<dyn Viewer>>;
 
 /// One viewer per entry shown, built when the entry is first shown and
 /// kept while the entry stays the same and its session waits. A
@@ -104,11 +108,12 @@ impl Viewers {
         }
     }
 
-    /// The viewer of `entry`, which session `session` shows as `key`, laid
-    /// out for a body of `width`×`height` cells, and the size its content
-    /// takes there. A viewer is built when its key shows an entry for the
-    /// first time or another entry than before, as a replaced session file
-    /// can.
+    /// The viewer of `entry`, which session `session` shows as `key`, with
+    /// Markdown quotes in `quote`, laid out for a body of `width`×`height`
+    /// cells, and the size its content takes there. A viewer is built when
+    /// its key shows an entry for the first time, another entry than
+    /// before, as a replaced session file can, or the entry with quotes in
+    /// another style.
     pub fn laid_out(
         &mut self,
         session: &str,
@@ -116,6 +121,7 @@ impl Viewers {
         entry: &ContextEntry,
         width: u16,
         height: u16,
+        quote: QuoteStyle,
     ) -> (&mut dyn Viewer, ContentSize) {
         let key = ViewerKey {
             session: session.to_owned(),
@@ -124,7 +130,7 @@ impl Viewers {
         let current = self
             .viewers
             .get(&key)
-            .is_some_and(|kept| kept.entry == *entry);
+            .is_some_and(|kept| kept.entry == *entry && kept.quote == quote);
         if !current {
             #[cfg(test)]
             {
@@ -132,7 +138,8 @@ impl Viewers {
             }
             let kept = Kept {
                 entry: entry.clone(),
-                viewer: (self.build)(entry, &self.images),
+                quote,
+                viewer: (self.build)(entry, &self.images, quote),
                 laid_out: None,
             };
             self.viewers.insert(key.clone(), kept);
@@ -193,11 +200,11 @@ impl Viewers {
     }
 }
 
-fn viewer_for(entry: &ContextEntry, images: &Images) -> Box<dyn Viewer> {
+fn viewer_for(entry: &ContextEntry, images: &Images, quote: QuoteStyle) -> Box<dyn Viewer> {
     match entry {
         ContextEntry::Image(image) => Box::new(ImageViewer::new(image, images)),
         ContextEntry::Code(code) => Box::new(CodeViewer::new(code)),
-        ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown)),
+        ContextEntry::Markdown(markdown) => Box::new(MarkdownViewer::new(markdown, quote)),
         ContextEntry::Diff(diff) => Box::new(DiffViewer::new(diff)),
     }
 }
@@ -360,9 +367,15 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
+    use patine::AnsiColor;
+
+    use super::super::patine_adapter::quote_style;
     use super::super::test_support::{self, row};
     use super::*;
     use crate::graphics::Protocol;
+
+    /// Quotes as the screen draws them with colours.
+    const COLOURED: QuoteStyle = quote_style(false);
 
     fn entry(json: &str) -> ContextEntry {
         serde_json::from_str(json).expect("test entry parses")
@@ -383,7 +396,7 @@ mod tests {
     };
 
     fn built(viewers: &mut Viewers, session: &str, key: EntryKey, entry: &ContextEntry) {
-        viewers.laid_out(session, key, entry, 40, 10);
+        viewers.laid_out(session, key, entry, 40, 10, COLOURED);
     }
 
     /// The text the viewer for `entry` draws into `width`×`height` cells
@@ -406,7 +419,7 @@ mod tests {
     ) -> Buffer {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
-        let (viewer, _) = viewers.laid_out("s", QUESTION, entry, width, height);
+        let (viewer, _) = viewers.laid_out("s", QUESTION, entry, width, height, COLOURED);
         viewer.draw(area, &mut buf, Offset { top, left: 0 });
         buf
     }
@@ -453,7 +466,7 @@ mod tests {
         let calls = Rc::new(RefCell::new(Calls::default()));
         let mut viewers = viewers();
         let shared = Rc::clone(&calls);
-        viewers.build = Box::new(move |_, _| {
+        viewers.build = Box::new(move |_, _, _| {
             shared.borrow_mut().builds += 1;
             Box::new(Recording(Rc::clone(&shared)))
         });
@@ -467,7 +480,7 @@ mod tests {
         assert_eq!(calls.borrow().builds, 0, "nothing shows yet");
 
         for _ in 0..3 {
-            let (_, size) = viewers.laid_out("s", QUESTION, &text, 40, 10);
+            let (_, size) = viewers.laid_out("s", QUESTION, &text, 40, 10, COLOURED);
             assert_eq!(
                 size,
                 ContentSize {
@@ -476,10 +489,10 @@ mod tests {
                 }
             );
         }
-        let (_, size) = viewers.laid_out("s", QUESTION, &text, 30, 10);
+        let (_, size) = viewers.laid_out("s", QUESTION, &text, 30, 10, COLOURED);
         assert_eq!(size.columns, 30, "a resize lays it out again");
-        viewers.laid_out("s", QUESTION, &text, 30, 10);
-        viewers.laid_out("s", QUESTION, &text, 30, 12);
+        viewers.laid_out("s", QUESTION, &text, 30, 10, COLOURED);
+        viewers.laid_out("s", QUESTION, &text, 30, 12, COLOURED);
 
         assert_eq!(
             *calls.borrow(),
@@ -528,6 +541,25 @@ mod tests {
         assert_eq!(viewers.viewers.len(), 1, "the old one is gone");
         assert_eq!(calls.borrow().builds, 2);
         assert_eq!(calls.borrow().lay_outs.len(), 2, "at the same size");
+    }
+
+    #[test]
+    fn a_viewer_is_built_again_for_another_quote_style() {
+        let mut viewers = viewers();
+        let notes = entry(r#"{"type": "markdown", "content": "> quoted"}"#);
+
+        viewers.laid_out(
+            "s",
+            QUESTION,
+            &notes,
+            40,
+            10,
+            QuoteStyle::Bar(AnsiColor::Blue),
+        );
+        viewers.laid_out("s", QUESTION, &notes, 40, 10, QuoteStyle::DimBar);
+
+        assert_eq!(viewers.built, 2, "its quotes show in the new style");
+        assert_eq!(viewers.viewers.len(), 1, "the old one is gone");
     }
 
     #[test]
@@ -743,7 +775,7 @@ mod tests {
                 .expect("test entry parses");
         let mut viewers = viewers();
 
-        let (viewer, size) = viewers.laid_out("s", QUESTION, &image, 40, 12);
+        let (viewer, size) = viewers.laid_out("s", QUESTION, &image, 40, 12, COLOURED);
 
         assert_eq!(
             size,
@@ -819,7 +851,7 @@ mod tests {
         let mut placeholder = Placeholder::new("image not shown", Some(&path), reason);
         let image = entry(r#"{"type": "image", "path": "/nowhere/cat.png"}"#);
 
-        let (_, size) = viewers().laid_out("s", QUESTION, &image, 20, 2);
+        let (_, size) = viewers().laid_out("s", QUESTION, &image, 20, 2, COLOURED);
 
         assert_eq!(size, placeholder.lay_out(20, 2));
         assert!(size.lines > 2, "taller than the body: {size:?}");

@@ -96,7 +96,9 @@ plan:
   1.6.2), also when dropped raw HTML wraps the URL (1.6.3). A block
   that opens a list item follows its bullet without a blank line
   (1.6.3).
-- asqr depends on patine 1.6.3 and no longer on `pulldown-cmark`.
+- Quoted text keeps the style of the text around it, task items show
+  `☐` or `☑`, and table columns follow their delimiter row (1.7.0).
+- asqr depends on patine 1.7.0 and no longer on `pulldown-cmark`.
 
 ## Amendment (2026-10-14, no render cache)
 
@@ -120,3 +122,22 @@ the text colour, as the `i` frame does. A cut intro keeps at most two
 rendered rows instead of three. Instead of one row on terminals under 24
 rows, it gives way row by row while the tab's area would have fewer
 than 15 rows, down to one row.
+
+## Amendment (2026-10-16, quote bars)
+
+patine 1.7.0 draws a quote's text in the style of the text around it
+instead of dim and italic, and its bar in a colour, cyan by default,
+chosen through `RenderOptions::with_quote_style`. The user decided on a
+blue bar for asqr, and on a dim bar without a colour under `NO_COLOR`:
+asqr takes the colours off the finished screen and keeps dim (ADR 15),
+so a blue bar would be left in the text colour, like the quoted text
+beside it.
+
+- The text fields pass the quote style with their two options, which
+  are built with it on each call instead of held in a constant.
+- Markdown entries render through `render_lines_with` with the same
+  quote style. They keep patine's defaults otherwise: a single newline
+  joins the lines, and raw HTML is left out.
+- The screen picks the quote style for each frame from `NO_COLOR` and
+  hands it to every place that renders Markdown. A context viewer built
+  with another quote style is built again.

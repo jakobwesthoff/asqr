@@ -1068,8 +1068,12 @@ and shows its own notice instead.
 The intro, question texts and option descriptions render in patine's
 style, as a Markdown entry does (section 7.7, ADR 35): headings bold
 (level one also italic and underlined, level two underlined), emphasis,
-inline code in yellow, lists with bullets, quotes behind a dim bar,
-links underlined with their URL dimmed, tables, rules, and code blocks
+inline code in yellow, lists with bullets, task lists with `☐` for an
+open task and `☑` for a done one, which is dim apart from the items
+nested under it, quotes in the style of the text around them behind a
+blue bar, links underlined with their URL dimmed, tables whose columns
+follow the alignment of the delimiter row, a column without one with
+its header centred and its data left-aligned, rules, and code blocks
 highlighted when the fence names a language.
 
 - Each text renders at the width it gets: a question text at the
@@ -1197,17 +1201,21 @@ Code and Markdown (ADR 34):
 - A Markdown entry shows rendered in patine's style, wrapped at the
   pane's width, without a gutter and without sideways scrolling:
   headings bold (level one also italic and underlined, level two
-  underlined), emphasis, inline code in yellow, lists with bullets,
-  quotes behind a dim bar, tables, and code blocks highlighted when the
-  fence names a language.
+  underlined), emphasis, inline code in yellow, lists with bullets, task
+  lists with `☐` for an open task and `☑` for a done one, which is dim
+  apart from the items nested under it, quotes in the style of the text
+  around them behind a blue bar, tables whose columns follow the
+  alignment of the delimiter row, a column without one with its header
+  centred and its data left-aligned, and code blocks highlighted when
+  the fence names a language.
 - A line patine leaves wider than the pane, such as a line of a code
   block, a long URL or a table that cannot shrink, wraps: each further
   row repeats the blanks and quote bars the line starts with, then
-  blanks in place of a list item's `•` or number, then a dim `↪`, then
-  the rest. A number counts as an item's only at the start of the line,
-  after quote bars, so a line of code such as `1. x` in a code block
-  stays code. A wide character that would cross the end of a row
-  starts the next one. This holds wherever asqr renders Markdown with
+  blanks in place of a list item's `•`, `☐` or `☑`, or its number with
+  the box after it, then a dim `↪`, then the rest. A number counts as an
+  item's only at the start of the line, after quote bars, so a line of
+  code such as `1. x` in a code block stays code. A wide character that
+  would cross the end of a row starts the next one. This holds wherever asqr renders Markdown with
   patine. Tabs in code blocks expand to stops of 4 columns.
 - Both are read when the entry is first shown. A relative path, a
   missing or unreadable file, a path that is not a regular file or a
@@ -1341,7 +1349,8 @@ commands ignore the variable.
 `NO_COLOR` (<https://no-color.org>) set to any value but the empty one
 makes the TUI draw without colours, a value that is not UTF-8 included.
 Text, marks, pointers, bold, dim and reversed stay, so the screen says
-the same as with colours. Images keep their colours. Talqi on the
+the same as with colours. The bar of a Markdown quote is dim instead of
+blue. Images keep their colours. Talqi on the
 empty queue is the outline of asqr's emblem instead, without any colour
 (section 7.1). An empty `NO_COLOR` counts as unset.
 
