@@ -156,8 +156,9 @@ impl Unreadable {
         self.card_of(Problem::error(&self.reason).on_side(side), home)
     }
 
-    /// Every card is built here, once per viewer, so the log has the
-    /// message once for each time the person is shown it.
+    /// Every card is built here, once per build of its viewer, so the log
+    /// has the message once per load, also for an entry loaded ahead and
+    /// never shown.
     fn card_of(&self, problem: Problem, home: Option<&Path>) -> Card {
         tracing::warn!(
             path = %self.path,
