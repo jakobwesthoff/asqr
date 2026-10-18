@@ -23,9 +23,8 @@ images are sent again on regaining the focus
 
 ## Context
 
-The adversarial review of the redesign on 2026-10-15 found that copies
-of images pile up in the terminal under the Kitty graphics protocol, and
-the user asked for them to be deleted.
+Copies of images pile up in the terminal under the Kitty graphics
+protocol, and asqr deletes them.
 
 - ratatui-image 11.1.0 gives every image it encodes for the Kitty
   protocol a new random id, and has no command that deletes one.
@@ -43,7 +42,7 @@ the user asked for them to be deleted.
   leaving does nothing there, and erasing the display leaves images
   placed through placeholders, which ratatui-image uses.
 
-The points on Ghostty come from its source, as the review read it.
+The points on Ghostty come from its source.
 
 ## Decision
 
@@ -91,9 +90,8 @@ Deletes:
   the title back and leaves the alternate screen. The same holds when
   the run ends in an error.
 
-Talqi on the empty queue is left out. Its picture went through
-ratatui-image with its own ids. ADR 43 draws Talqi in text cells, which
-sends no image.
+Talqi on the empty queue is left out. ADR 43 draws Talqi in text cells,
+which sends no image.
 
 ## Consequences
 
@@ -108,9 +106,7 @@ sends no image.
 - A panic or SIGKILL ends asqr without the deletes on quitting; the
   copies stay until the terminal evicts them. On Unix, SIGTERM, SIGINT
   and SIGHUP end the run as `q` does, and the deletes are written.
-- Until ADR 43, Talqi's picture was sent again on every focus gain and
-  every new size under the Kitty protocol, and its copies were never
-  deleted. Talqi sends no image since.
+- Talqi sends no image (ADR 43), so it leaves no copies to delete.
 - The rule on ids and the order on quitting follow Ghostty. That kitty
   keeps images per screen as well is not checked.
 
@@ -126,9 +122,8 @@ keeps a second decoded copy of each image under the Kitty protocol.
 
 ## Amendment (2026-10-16, the id book owns the deletes)
 
-The architecture review of 2026-10-16 found that the deletes of a frame
-left the id book before the frame was flushed, so a frame or a write
-that failed lost them, and the lead decided to let the book own the
+The deletes of a frame left the id book before the frame was flushed,
+so a frame or a write that failed lost them. The book owns the
 deletes.
 
 - One book per run holds the Kitty ids, the deletes not yet written,

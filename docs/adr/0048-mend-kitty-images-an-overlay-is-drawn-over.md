@@ -22,17 +22,15 @@ Amends [45. Keep image handling in a graphics module around an asqr-owned value]
   to)".
 - The help, the intro and the session list are drawn over the context
   pane. Where one covers the first cells of image rows, the cells right
-  of it have no placeholder on their left. Jakob saw it on 2026-10-16
-  in Ghostty under tmux: the image was gone across its full width in
-  every row the overlay covered. No other terminal with the Kitty
-  protocol was tried.
+  of it have no placeholder on their left. In Ghostty under tmux
+  the image was gone across its full width in every row the overlay
+  covered. No other terminal with the Kitty protocol was tried.
 - ratatui-image puts the image's transmission in front of the first
   image cell, once per encoding. An encoding first drawn while an
   overlay covered that cell, as after a resize or on regaining the
   focus under tmux with `allow-passthrough on`, lost its transmission
   to the overlay, and the image stayed blank until its next encoding.
-- Jakob decided on 2026-10-16 to fix both in asqr and to send nothing
-  upstream.
+- Both are fixed in asqr, and nothing is sent upstream.
 
 ## Decision
 

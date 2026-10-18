@@ -18,7 +18,7 @@ Kitty images only, not for Sixel and iTerm2
 
 - tmux with `allow-passthrough on` passes escape sequences only from a
   pane a client shows; with `all` it passes them from hidden panes too
-  (ADR 24, reproduced with the user's configuration). Under `on`, a
+  (ADR 24). Under `on`, a
   Kitty transfer or delete written while asqr's pane is hidden is lost,
   and asqr depends on focus reports to send images and deletes again.
 - ratatui-image 12.0.0-rc.2 runs `tmux set -p allow-passthrough on` for
@@ -29,12 +29,11 @@ Kitty images only, not for Sixel and iTerm2
   it, and those are part of the pane's own content, which tmux draws
   only for a pane that shows. Sixel and iTerm2 images are written where
   the cursor is; tmux writes passthrough without positioning it, so from
-  a hidden pane they would paint over the window that shows (review of
-  2026-10-15).
+  a hidden pane they would paint over the window that shows.
 - A query tmux does not pass on gets no answer and costs its whole wait.
-- On 2026-10-15 the user decided that, under tmux 3.4 or later and the
-  Kitty protocol, asqr sets `allow-passthrough all` for its pane instead
-  of `on`, and restores the previous value on exit.
+- Under tmux 3.4 or later and the Kitty protocol, asqr sets
+  `allow-passthrough all` for its pane instead of `on`, and restores the
+  previous value on exit.
 
 ## Decision
 

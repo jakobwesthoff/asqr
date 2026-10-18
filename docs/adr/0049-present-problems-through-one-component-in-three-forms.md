@@ -25,10 +25,7 @@ validation errors joined with `; ` and cut at the line's edge, so the
 whole reason showed nowhere in asqr. Under `NO_COLOR` the kinds of
 notices looked alike (ADR 38).
 
-Jakob tested missing, unreadable and unsupported context files on
-2026-10-16 and asked that errors show in red with a mark, through one
-component of asqr's own. He decided the details in an asqr session the
-same day, from renders of a prototype.
+Errors show in red with a mark, through one component of asqr's own.
 
 ## Decision
 
@@ -45,18 +42,17 @@ error, `!` in yellow for a warning.
   line ends. The path is never shortened. The card is at most 60
   columns wide and centred in the pane; a card taller than the pane
   starts at its top and scrolls. A diff's card puts `old side: ` or
-  `new side: ` before the reason. The heading lines such as `code not
-  shown` are gone.
+  `new side: ` before the reason.
 - **Reasons keep their original wording**: the system's or the image
   decoder's text, and asqr's own "relative path", "not a regular file",
   "binary file" and "image file larger than 64 MiB" (ADR 46). The original message also goes to the log when the
   viewer is built.
 - **Header mark.** The pane's header shows a red `✗` before the entry's
   name when its viewer shows a card. The one-line hint, the tab bar and
-  option rows show no mark. Jakob asked why the pane would not be
-  enough, as it always shows the card. The one exception is the
-  one-line hint of a terminal too small for the pane (ADR 30), where no
-  viewer is built (ADR 46); it is left out until he asks for it.
+  option rows show no mark. The pane shows the card whenever there is
+  one, so no other place needs a mark. The one-line hint of a terminal
+  too small for the pane (ADR 30) shows none, as no viewer is built
+  there (ADR 46).
 - **Dialog.** An invalid session opens a dialog framed in yellow, the
   warning colour, that lists each of its errors on a line of its own.
   The next key closes it and does nothing else.
@@ -78,10 +74,10 @@ file, such as `Directory` or `NotRegular`, which read alike on the card.
 - Under `NO_COLOR` an error and a warning in the status line differ by
   their mark; `✗ rejected` and an error notice both start with `✗` and
   differ by their words.
-- The status line no longer carries an invalid session's errors; the
+- The status line does not carry an invalid session's errors; the
   dialog does.
 - A key closes the dialog only once a frame showed it. The message of a
   terminal too small for asqr leaves the dialog off the screen; a key
   there acts as it would without the dialog, and the dialog waits for
-  the next frame with room for it. The review of 2026-10-16 found that
-  such a key closed a dialog the person never saw.
+  the next frame with room for it. Otherwise such a key would close a
+  dialog the person never saw.

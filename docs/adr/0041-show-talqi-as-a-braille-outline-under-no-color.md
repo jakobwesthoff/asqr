@@ -18,14 +18,13 @@ ADR 39 shows Talqi on the empty queue through the terminal's image
 protocol, or in half blocks of the picture's RGB colours where the
 terminal has none. Under `NO_COLOR`, asqr resets every named and indexed
 colour of the drawn screen and keeps RGB colours (ADR 15, amendment of
-2026-10-15). The user had decided that Talqi's half blocks keep their
-RGB colours under `NO_COLOR`, as images do, and both ADRs record that.
+2026-10-15). Both ADRs record that Talqi's half blocks keep their RGB
+colours under `NO_COLOR`, as images do.
 
-On 2026-10-15 the user reversed that decision for Talqi: under
-`NO_COLOR` the empty queue shows Talqi as a fixed text without any
-escape sequence, neither through an image protocol nor as coloured half
-blocks. The images of context entries keep the image protocol under
-`NO_COLOR`, since without it the feature is gone.
+This ADR reverses that for Talqi: under `NO_COLOR` the empty queue
+shows Talqi as a fixed text, neither through an image protocol nor as
+coloured half blocks. The images of context entries keep the image
+protocol under `NO_COLOR`, since without it the feature is gone.
 
 ## Decision
 
@@ -57,21 +56,17 @@ Size and place:
 
 Braille, and what replaces it:
 
-- The user chose braille from a sheet of three candidates, each the
-  same outline at 44×22 on a dark and a light background: quadrant
-  blocks, half blocks and braille.
+- The outline is drawn in braille rather than in quadrant blocks or
+  half blocks.
 - If braille does not hold up in practice, whether it does not look
   right or causes technical problems such as a font without braille
-  glyphs, asqr switches to quadrant blocks (`▘▝▖▗▚▞▛▜▙▟`), as the user
-  asked. The quadrant outline of the same emblem is
-  `txt/ohw44-quad.txt` in the logbook named below.
-- In the renders made for the comparison, a font without braille
-  glyphs (Menlo) fell back to another font for them. This was not
-  checked in a real terminal.
+  glyphs, asqr switches to quadrant blocks (`▘▝▖▗▚▞▛▜▙▟`).
+- In renders, a font without braille glyphs (Menlo) fell back to
+  another font for them. This was not checked in a real terminal.
 
 How the outline was made:
 
-- It was generated on 2026-10-15 from a copy of
+- It was generated from a copy of
   `talqi-terminal.svg` whose terminal bar is an outlined box with the
   prompt inside instead of a dark slab.
 - The copy was rendered at 800 pixels. The outline mask is every pixel
@@ -80,10 +75,6 @@ How the outline was made:
   fitted in cell units, a cell being about 1:2.
 - The mask was pooled to each cell's 2×4 braille dots at a coverage of
   0.30.
-- The scripts (`outline.py`, `gen.py`, `mksleep.py`) and every variant
-  compared are in the logbook
-  `~/playground/2026_10_15_asqr-maskottchen/ascii/`. The built-in text
-  is byte for byte its `txt/ohw44-braille.txt`.
 
 ## Consequences
 
@@ -94,9 +85,7 @@ How the outline was made:
 - The outline does not shrink: below its size there is no Talqi under
   `NO_COLOR`.
 - While the outline shows, asqr writes no colour sequence (SGR 38 or
-  48). A test in a pseudo-terminal checks that. "Without any escape
-  sequence" in the context above is too strong: the outline's cells
+  48). A test in a pseudo-terminal checks that. The outline's cells
   have no style, and no SGR with a colour other than the terminal's
   defaults reaches the terminal (ADR 43).
-- asqr does not generate the outline. The text file is its source, and
-  the logbook holds the scripts that made it.
+- asqr does not generate the outline. The text file is its source.

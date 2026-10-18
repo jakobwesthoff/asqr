@@ -17,16 +17,15 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 ## Context
 
 - ADR 31 split a viewer's start into building it when its entry was
-  first shown and a `load` step. The architecture review of 2026-10-16
-  found that the only caller loaded each viewer right after building it,
-  and that laying out or drawing a viewer not loaded panicked. The first
-  version of this ADR made building the viewer its loading and dropped
-  `load`.
+  first shown and a `load` step. The only caller loaded each viewer right
+  after building it, and laying out or drawing a viewer not loaded
+  panicked. Building the viewer is its loading;
+  there is no separate `load` step.
 - All of it ran on the thread that draws the screen: reading, patine's
   highlighting, the diff and decoding an image while the viewer was
   built; rendering Markdown and scaling and encoding an image while it
   was laid out, again at every new size of the pane.
-- Measured with release builds on 2026-10-16: building the viewer of the
+- Measured with release builds: building the viewer of the
   first 8 MiB of a log took 31.7 s, 23.0 s of it highlighting with the
   log grammar, at about 0.19 ms a line. In a terminal, the key that moved
   to that entry's question was followed by the next frame 23.4 s later.
@@ -37,8 +36,6 @@ Amended by [49. Present problems through one component in three forms](0049-pres
   pixel, 144 MB for one of 6000×6000.
 
 ## Decision
-
-Jakob decided on 2026-10-16:
 
 - A worker builds the viewer and lays it out, in one form for every
   kind of entry. A new size of the pane lays the viewer out again on a
@@ -57,9 +54,6 @@ Jakob decided on 2026-10-16:
 - A code entry longer than 1 MiB stays plain. Below that, an entry shows
   once it is highlighted, with no plain first pass. Markdown keeps its
   highlighted code blocks at any size.
-
-The lead decided under Jakob's delegation:
-
 - The entry shown gets a thread of its own at once while fewer such
   jobs run than one fewer than the cores, at least one (one on one or
   two cores); past that its job goes first in the queue of the thread
@@ -82,8 +76,8 @@ The lead decided under Jakob's delegation:
 - An image file larger than 64 MiB is not read, and its card says
   "image file larger than 64 MiB". The size comes from the opened file,
   and the read stops one byte past the limit, so a file that grows in
-  between is refused too. The review of 2026-10-16 found that asqr read
-  an image file whole, whatever its size, and kept it for the window.
+  between is refused too. The limit keeps an image file of any size
+  from being read whole and kept for the window.
 
 ## Consequences
 

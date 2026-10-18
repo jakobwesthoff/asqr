@@ -18,11 +18,10 @@ awake before the first session and asleep after. ADR 41 shows a braille
 outline of the terminal emblem (`assets/emblem/talqi-terminal.svg`)
 under `NO_COLOR`.
 
-On 2026-10-15 the user compared text-art renders of the emblem and
-decided to draw Talqi as the emblem in text cells, with colours and
-without, in place of the picture and the braille outline.
+Talqi is drawn as the emblem in text cells, with colours and without,
+in place of the picture and the braille outline.
 
-What the choice of glyphs rests on, as established on 2026-10-15:
+What the choice of glyphs rests on:
 
 - Sextants (U+1FB00..1FB3B) are drawn by these terminals themselves,
   without a font: kitty from 0.19.0, Ghostty from 1.0.0, WezTerm from
@@ -53,10 +52,10 @@ What the choice of glyphs rests on, as established on 2026-10-15:
 
 ## Decision
 
-What the empty queue shows (the user, 2026-10-15):
+What the empty queue shows:
 
 - The standard terminal emblem, the same for the whole run. There is no
-  awake and asleep any more.
+  awake and asleep.
 - A fixed block of 44 columns by 22 rows. With colours, each cell is a
   glyph with a 24-bit foreground and background. Under `NO_COLOR`, it is
   the emblem's outline without any colour.
@@ -77,8 +76,7 @@ The templates:
   needs `rsvg-convert` and chafa 1.18.2, and refuses another chafa
   version.
 - The colour templates come from `assets/emblem/talqi-terminal.svg`
-  without the emblem's outer ink rim (the user, 2026-10-16, after
-  comparing renders with and without it on dark and light themes). The
+  without the emblem's outer ink rim. The
   SVG's first path is an ink silhouette under all others, and its edge
   is that rim. The script renders the emblem at 800×800 pixels with
   `rsvg-convert` twice, with and without that path. Where the render
@@ -98,8 +96,7 @@ The templates:
 
   `--polite=on` leaves out the sequences that hide and show the cursor.
   chafa's glyphs at the figure's edge still change with `--bg`; the
-  templates the user approved were made with the ink colour,
-  `#09171a`.
+  templates are made with the ink colour, `#09171a`.
 - A few cells keep a speck of ink where the figure's edge meets an
   inner line: where the line between crest and head reaches the edge,
   and where the left paw's own outline reaches the edge beside the
@@ -121,8 +118,6 @@ The templates:
 - The script checks that every template has 22 lines and that the
   outlines hold no escape character. A second run of the script wrote
   the same four files.
-- The outline templates are byte for byte the renders the user chose
-  from, and so are the colour templates without the rim.
 
 Reading and drawing:
 
@@ -146,7 +141,7 @@ Size and place:
   blank row and the 3 rows kept for the sentence, 26 rows, and for its
   44 columns, with colours and under `NO_COLOR`. Otherwise the sentence
   stands alone. The main area has 6 rows less than the terminal, so
-  Talqi needs a terminal of at least 32 rows (the user, 2026-10-15).
+  Talqi needs a terminal of at least 32 rows.
 - Emblem, blank row and sentence form one group, centred down the main
   area, with the emblem centred across.
 
@@ -181,10 +176,10 @@ Choosing the glyphs, once at start:
 
 - Talqi does not show on terminals of fewer than 32 rows, 80×24
   included, with colours or without.
-- Talqi sends no image. The pictures `talqi-awake.webp` and
-  `talqi-asleep.webp`, the braille outline and the code that scaled,
-  encoded and drew the picture are gone, and with them every use of
-  ratatui-image for Talqi.
+- Talqi sends no image. asqr holds no pictures `talqi-awake.webp` and
+  `talqi-asleep.webp`, no braille outline and no code that scales,
+  encodes or draws a picture, and uses ratatui-image for nothing of
+  Talqi.
 - Under `NO_COLOR`, no SGR with a colour other than the terminal's
   defaults reaches the terminal while the empty queue shows. A test in a
   pseudo-terminal checks the output for 38, 48 and the palette codes.

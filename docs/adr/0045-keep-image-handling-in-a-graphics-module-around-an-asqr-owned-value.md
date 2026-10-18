@@ -41,9 +41,8 @@ the screen mends a Kitty image once the overlays are drawn
   every protocol, although ADR 31 names Sixel and iTerm2 as the reason,
   and the images were read and sent again on every focus gain, although
   ADR 24 names Kitty transfers that tmux with `on` drops.
-- The architecture review of 2026-10-16 proposed a module of its own
-  around an asqr-owned value, and keying both policies on the protocol
-  and the passthrough; the lead decided to do it after the move to
+- A module of its own around an asqr-owned value lets both policies key
+  on the protocol and the passthrough. It comes after the move to
   12.0.0-rc.2.
 
 ## Decision
@@ -62,7 +61,7 @@ the screen mends a Kitty image once the overlays are drawn
   pane: `all` where asqr set it or found it, `on` where tmux reports
   `on`, none outside tmux. A terminal that names tmux outside a tmux
   pane, as after ssh from one, counts as `on`, since that tmux cannot be
-  asked (the lead's decision of 2026-10-16).
+  asked.
 - Two policies key on these facts: the screen is cleared after an
   overlay over an image only where the protocol leaves skipped cells
   (Sixel, iTerm2; ADR 31), and images are sent again on regaining the
@@ -82,7 +81,7 @@ the screen mends a Kitty image once the overlays are drawn
   ratatui-image's picker.
 - A test run runs no `tmux` command, also in a terminal that names
   tmux, and the `just test` and `just coverage` recipes set no `TERM` of
-  their own. Checked on 2026-10-16 with a stand-in `tmux` that notes its
+  their own. Checked with a stand-in `tmux` that notes its
   calls first on the path and `TERM=tmux-256color`: the whole test run
   called it 0 times, where the library's tests before this change
   called `tmux set -p allow-passthrough on` 272 times. The comparison
@@ -91,8 +90,8 @@ the screen mends a Kitty image once the overlays are drawn
   the body's size when the viewer is laid out, once per size, with
   ratatui-image's fixed-size protocols. A failed encoding drops the decoded picture.
 - Under half blocks and the Kitty protocol, closing an overlay over an
-  image no longer redraws the whole screen. Outside tmux with `on`,
-  regaining the focus no longer reads the images again or writes the
+  image does not redraw the whole screen. Outside tmux with `on`,
+  regaining the focus does not read the images again or write the
   deletes since the last focus gain again (ADR 42). An image file
   changed on disk keeps showing what asqr read first, as it does
   between focus changes.
