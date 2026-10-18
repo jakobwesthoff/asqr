@@ -35,7 +35,7 @@ results.
 ULIDs sort by creation time, so file listings show the queue in order.
 Askers that pick their own ids have to keep them unique themselves.
 
-## Amendment (2026-09-27, adversarial review F3, F10)
+## Amendment (2026-09-27)
 
 - The file stem is the session id. An `id` field that differs from the
   stem is a validation error.

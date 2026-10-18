@@ -10,7 +10,7 @@ Amended by [35. Render the text fields as full Markdown through patine](0035-ren
 
 ## Context
 
-The user asked for clap, anyhow and/or thiserror, and other
+The tool uses clap, anyhow and/or thiserror, and other
 best-practice crates where they are needed.
 
 ## Decision
@@ -37,7 +37,7 @@ Crates are added with `cargo add` when the first test needs them.
 
 The tracing output goes to a file, because the TUI owns the terminal.
 
-## Amendment (2026-09-27, phase 4)
+## Amendment (2026-09-27)
 
 `ratatui-textarea` replaces `tui-textarea` for the text fields.
 `tui-textarea` 0.7 supports ratatui up to 0.29, and `ratatui-image` 11
@@ -51,7 +51,7 @@ crossterm.
 The text fields render full Markdown through patine (ADR 34, ADR 35),
 and `pulldown-cmark` goes.
 
-## Amendment (2026-10-14, adversarial review)
+## Amendment (2026-10-14)
 
 `serde_path_to_error` wraps the typed parse of a session, so a shape
 error names the path of its field, as in `questions[1].context: invalid
@@ -76,19 +76,17 @@ timeout without leaving a thread blocked in a read.
 
 ## Amendment (2026-10-16, graphics module)
 
-The passthrough probe is gone, by the lead's decision of 2026-10-16: it
-was built for the blocked reader of
+The passthrough probe is gone. It was built for the blocked reader of
 ratatui-image 11.1.0, and with 12.0.0-rc.2 the graphics query itself
 tells whether a tmux asqr cannot ask passes sequences on. `rustix`'s
 `poll` stays for discarding late answers to the query.
 
 ## Amendment (2026-10-16, ratatui-image 12.0.0-rc.2)
 
-`ratatui-image` is pinned to the release candidate `=12.0.0-rc.2`, by
-the user's decision of 2026-10-15. It writes the size of a Kitty
-placement in cells, which asqr had added to the command itself, and
-reads the terminal's answer to its query with `poll` on the calling
-thread, so no reader stays blocked on stdin. Cargo selects a
+`ratatui-image` is pinned to the release candidate `=12.0.0-rc.2`. It
+writes the size of a Kitty placement in cells, so asqr does not add it
+to the command itself, and reads the terminal's answer to its query
+with `poll` on the calling thread, so no reader stays blocked on stdin. Cargo selects a
 pre-release only when it is named exactly. The crate's default features
 stay off: in this version they include `chafa-dyn`, which needs
 pkg-config and a system libchafa.

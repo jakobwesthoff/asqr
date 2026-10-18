@@ -50,7 +50,7 @@ in `docs/spec.md` sections 4 and 5.
 Adding kinds or fields later needs format version 2 or optional fields
 that version 1 readers ignore.
 
-## Amendment (2026-09-27, adversarial review F4, F5, F10, F11)
+## Amendment (2026-09-27)
 
 - **Answer state** (spec section 5.2):
   - A default counts as answered, and the answer carries `defaulted:
@@ -69,7 +69,7 @@ that version 1 readers ignore.
   `"asqr": 2` is the validation error "unsupported format version".
 - **`follows`** is only shown in the header.
 
-## Amendment (2026-09-27, UX review, ADR 22)
+## Amendment (2026-09-27, ADR 22)
 
 `length.max` and `custom.multiline` are dropped from format version 1
 before any release. Lengths only guide (`target`, `warn`), and own

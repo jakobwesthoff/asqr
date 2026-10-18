@@ -49,7 +49,7 @@ long option texts and sometimes with an image.
 The key map is fixed in version 1. A configurable key map can come later
 without breaking the file format.
 
-## Amendment (2026-09-27, adversarial review F8, F9)
+## Amendment (2026-09-27)
 
 - **Text fields:** while one is open, every key goes to the editor
   except `esc`, which keeps the text.

@@ -37,7 +37,7 @@ The watcher has to cope with partial writes and editors that save in
 several steps. The debouncing and the `.tmp` rule handle that.
 Networking and several people on one queue are out of scope.
 
-## Amendment (2026-09-27, adversarial review F1, F3, F5, F12)
+## Amendment (2026-09-27)
 
 - **Replacing a session is a rule of `asqr ask`, not of the queue**, since
   a rename replaces an inbox file unconditionally.

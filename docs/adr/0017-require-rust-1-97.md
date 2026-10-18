@@ -8,8 +8,8 @@ Accepted
 
 ## Context
 
-The Rust 2024 edition works from 1.85. That floor is old, and the user
-prefers a newer one.
+The Rust 2024 edition works from 1.85. That floor is old, and a newer one
+is preferred.
 
 ## Decision
 

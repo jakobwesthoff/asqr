@@ -12,8 +12,9 @@ The tool is meant for many people and projects.
 
 ## Decision
 
-asqr is licensed under the Mozilla Public License 2.0 (user's choice).
-The Rust default, MIT or Apache-2.0, was offered and not chosen.
+asqr is licensed under the Mozilla Public License 2.0.
+
+Rejected: the Rust default, MIT or Apache-2.0.
 
 ## Consequences
 

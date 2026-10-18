@@ -13,8 +13,8 @@ Homebrew tap were also considered.
 
 ## Decision
 
-asqr is used locally first, installed from the repo. The user decides
-when to make the repository public and publish on crates.io. Nobody
+asqr is used locally first, installed from the repo. Making the
+repository public and publishing on crates.io is a later step. Nobody
 publishes before that.
 
 ## Consequences

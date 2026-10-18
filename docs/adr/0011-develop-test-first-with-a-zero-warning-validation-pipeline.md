@@ -10,9 +10,8 @@ Amended by [21. Run coverage in CI and on demand only](0021-run-coverage-in-ci-a
 
 ## Context
 
-The user wants the tool developed test driven from the first line, with
-no clippy warnings and good test coverage for everything written or
-changed.
+The tool is developed test driven from the first line, with no clippy
+warnings and good test coverage for everything written or changed.
 
 ## Decision
 
@@ -26,8 +25,8 @@ changed.
 - **Pre-commit hook:** a hook versioned in the repo runs `just check`, so
   nothing red gets committed. GitHub Actions follows once the repo has a
   remote.
-- **Coverage:** reported only, with no threshold (user's choice). Every
-  code change is expected to be covered, and review checks it.
+- **Coverage:** reported only, with no threshold. Every code
+  change is expected to be covered, and review checks it.
 - **TUI tests:** go through the application state and ratatui's
   `TestBackend`, with `insta` snapshots.
 

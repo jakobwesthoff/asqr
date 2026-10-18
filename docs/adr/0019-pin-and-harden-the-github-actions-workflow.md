@@ -8,9 +8,9 @@ Accepted
 
 ## Context
 
-A review on 2026-09-27 found `actions/checkout` two majors behind (v5,
-latest v7.0.1). It also found that the workflow followed none of the
-hardening advice in GitHub's security guide.
+`actions/checkout` was two majors behind (v5, latest v7.0.1), and the
+workflow followed none of the hardening advice in GitHub's security
+guide.
 
 ## Decision
 

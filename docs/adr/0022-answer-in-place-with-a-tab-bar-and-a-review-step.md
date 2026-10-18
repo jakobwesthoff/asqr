@@ -26,16 +26,12 @@ One-line own answer superseded by [36. Treat every typed field alike](0036-treat
 
 ## Context
 
-The user looked at the first screens and the key model of ADR 8 and
-asked for a simpler interaction:
+The interaction of ADR 8 is simplified:
 
 - the own answer as a row like the options, typed in place
 - no separate submit key, since the last step should be the submission
 - `enter`, not `space`, to choose on a single-choice question
 - a TUI that adapts to the terminal size
-
-Two rounds with the question tool settled the details. The user's
-wording is in the logbook.
 
 ## Decision
 
@@ -63,7 +59,7 @@ wording is in the logbook.
 - **Format:** `custom.multiline` is dropped, since own answers are
   always one line.
 
-Rejected in the rounds:
+Rejected:
 
 - an own answer that needs `enter` before typing
 - typing that selects the own answer on single-choice questions
@@ -74,7 +70,7 @@ Rejected in the rounds:
 
 ## Consequences
 
-- The TUI state of phase 4 and the drawing of phase 5 are reworked.
+- The TUI state and the drawing are reworked.
 - An asker can no longer enforce a length, only guide it.
 - Format version 1 changes before anything was released. `max` and
   `multiline` in existing files become unknown fields, which parse and
