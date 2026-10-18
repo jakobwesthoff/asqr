@@ -15,18 +15,17 @@ screen
 asqr runs in a terminal of its own, often in a tab the person does not
 look at. Until now its state showed only inside the window, plus a
 desktop notification and the bell when a session arrives (spec section
-7.5). The user chose on 2026-10-15 to show the number of waiting
-sessions in the terminal title, as `asqr · {n} waiting`, with a
-`--no-title` flag that switches it off like `--no-notify` and
-`--no-bell`. Reporting progress through OSC 9;4 stays open until it is
-known which terminals support it.
+7.5). asqr shows the number of waiting sessions in the terminal title,
+as `asqr · {n} waiting`, with a `--no-title` flag that switches it off
+like `--no-notify` and `--no-bell`. Reporting progress through OSC 9;4
+stays open until it is known which terminals support it.
 
 A program that sets the title has to decide three things: which OSC
 sets it, what happens to the title when the program ends, and how it
-goes through tmux. How terminals answer these was established on
-2026-10-15 by reading the source of each terminal at the commit named
-in the table below, and, for Terminal.app, from Apple's help text and
-an analysis of the installed binary. No terminal was checked by hand.
+goes through tmux. How terminals answer these comes from the source of
+each terminal at the commit named under Sources, and, for Terminal.app,
+from Apple's help text and an analysis of the installed binary. No
+terminal was checked by hand.
 
 What each terminal does with the sequence asqr writes (see Decision):
 the push, OSC 0 titles, an empty OSC 0, the pop.
@@ -109,11 +108,10 @@ only when the text changed, so a redraw writes nothing.
 asqr writes the title with crossterm's `SetTitle`, which writes OSC 0,
 `ESC ] 0 ; <title> BEL` (crossterm 0.29.0, `src/terminal.rs` lines
 386-391). OSC 0 sets the window title and the icon title; OSC 2 sets
-only the window title. The user decided on OSC 0 on 2026-10-15, after
-the research, because iTerm2 shows an OSC 2 title only in the window
-bar: its tab shows the icon title of the current pane (iTerm2's Python
-API documentation, "By default, a tab shows the icon title of the
-current pane"). OSC 0 puts the count on iTerm2's tab. The cost: in
+only the window title. asqr uses OSC 0 because iTerm2 shows an OSC 2
+title only in the window bar: its tab shows the icon title of the
+current pane (iTerm2's Python API documentation, "By default, a tab
+shows the icon title of the current pane"). OSC 0 puts the count on iTerm2's tab. The cost: in
 WezTerm, OSC 0 clears a tab title the person set with OSC 1.
 
 ### Push, titles, empty title, pop

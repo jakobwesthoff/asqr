@@ -39,8 +39,7 @@ They also differed in `↑`/`↓`:
 - In a question's note, `↑`/`↓` moved the text cursor between the
   note's lines, as the editor does.
 
-The user decided on 2026-10-14 that one rule holds for every typed
-field, for three reasons:
+One rule holds for every typed field, for three reasons:
 
 - There is no reason for a field to refuse line breaks.
 - One rule for every typed field: `enter` acts, `ctrl-j` adds a line.
@@ -70,7 +69,7 @@ field, for three reasons:
 - **Rows as drawn:** `↑`/`↓` move the text cursor to the row above or
   below as the field shows it, which is the wrapped output, not the
   text's lines. A long text without line breaks is one line but several
-  rows, and `↑` moves up a row (user, 2026-10-14).
+  rows, and `↑` moves up a row.
 - **Leaving:** a field is left with `↑` only from its first row and with
   `↓` only from its last row, as `←` leaves only at the start of the
   text and `→` only at its end. A question's note, which is not a row,
@@ -82,8 +81,6 @@ field, for three reasons:
 - **Key bars:** the key bars of the own answer, the session note and
   the reject reason drop their `↑/↓ leave` and `↑ back` hints, which no
   longer held. The help states the rule.
-
-Agent's choices within that design:
 
 - **One component:** every typed field is the same component,
   `src/tui/text_field.rs`, for editing, measuring and drawing. What
@@ -103,12 +100,12 @@ Agent's choices within that design:
   cursor on the blank where such a row breaks. `↑`/`↓` aim for a row on
   screen and never move the cursor to a position that would show on
   another row; they take the closest position before it on that row.
-- **The end of a full row,** the one exception: `↓` from the last row of a line whose end
-  shows on a row of its own goes to that end, and only the next `↓`
-  moves on or leaves the field. `↑` from a line below goes to the full
-  row. So a person who typed to the end of a full row, pressed `↑` and
-  then `↓` is back at the end instead of out of the field (user,
-  2026-10-14).
+- **The end of a full row,** the one exception: `↓` from the last row
+  of a line whose end shows on a row of its own goes to that end, and
+  only the next `↓` moves on or leaves the field. `↑` from a line below
+  goes to the full row. So a person who typed to the end of a full row,
+  pressed `↑` and then `↓` is back at the end instead of out of the
+  field.
 
 ## Consequences
 
@@ -121,13 +118,12 @@ Agent's choices within that design:
 - `↑` and `↓` take as many presses as a field has rows before they leave
   it.
 
-## Amendment (2026-10-14, adversarial review round 2)
+## Amendment (2026-10-14)
 
 Every field hands the keys it does not handle itself to its editor,
 ratatui-textarea, whose default key table assumes that the editor draws
 itself. asqr draws the field, so some of those keys acted on a view
-nobody saw. The lead and the reviewer agreed on what each key does in a
-field (spec section 7.3):
+nobody saw. Each key does the following in a field (spec section 7.3):
 
 - **Kept:** the editor's moves by character, word, line, paragraph and
   to the first or last line, its deletes, undo, redo and `ctrl-y`.
@@ -151,15 +147,14 @@ field (spec section 7.3):
   is restored, so a field never counts rows it does not draw.
 - **A paste where no field has the keys** goes into the field of the
   row, giving it the keys again, and elsewhere a message says where a
-  paste goes, where it vanished before.
-- **Entering a field by direction** (user, 2026-10-14): a field was
-  always entered with the text cursor at the end of its text, so `↓`
-  into a field of several rows landed on its last row, past the rows
-  in between. The cursor that moves down onto a field's row now puts
-  the text cursor at the end of the field's first row; moving up onto
-  it, the end of its last row, which is the end of the text, as before.
-  A field of one row is entered at the end of its text either way.
-  Agent's choices: the rows are the rows as drawn. A field entered from
+  paste goes.
+- **Entering a field by direction:** the cursor that moves down onto a
+  field's row puts the text cursor at the end of the field's first row,
+  not at the end of the text, where `↓` into a field of several rows
+  would land on its last row, past the rows in between. Moving up onto
+  it puts the text cursor at the end of its last row, which is the end
+  of the text. A field of one row is entered at the end of its text
+  either way. The rows are the rows as drawn. A field entered from
   above is drawn once with the text cursor at the end of its first
   line, as its rows are known only then; the cursor then moves to its
   first row's end and the screen is drawn again at once, unless a key
@@ -168,5 +163,4 @@ field (spec section 7.3):
 - **A replaced session file** keeps the focus on the row found again: a
   field left with `esc` stays without the keys, a field typed in keeps
   its text cursor, and an open note stays open while the question still
-  takes notes. Before, the row's field got the keys again with the text
-  cursor at its end, and an open note closed.
+  takes notes.

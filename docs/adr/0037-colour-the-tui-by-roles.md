@@ -23,13 +23,10 @@ equally loud blocks stood on one screen. Colour appeared only for states:
 the length counter, diff lines, notices and highlighted code.
 
 The section "Terminal interface" of the design guide gives every role a
-terminal colour. The user compared six prototyped colour variants in four
-terminal themes on 2026-10-15 and chose "Teal + Amber focus": cyan as the
-primary colour, a yellow focus fill.
+terminal colour. Cyan is the primary colour, and the focus is a yellow
+fill.
 
 ## Decision
-
-Decided with the user on 2026-10-15.
 
 The roles and their terminal colours, all named ANSI colours, so the
 terminal's theme decides how they look:
@@ -52,9 +49,8 @@ terminal's theme decides how they look:
   the cursor shows yellow on the fill like the rest of its row.
 - **One focus fill at a time:** while the context pane has the focus, its
   header has the fill, and the question's current row keeps its pointer
-  and bold text but loses its fill. ADR 31 had the header highlighted the
-  way the current tab was; the current tab is now primary text, and the
-  pane's header takes the focus fill.
+  and bold text but loses its fill. ADR 31 highlighted the header the
+  way the current tab was; here the pane's header takes the focus fill.
 - **The submit button** is the one fill that is not the focus: always
   `[ Submit ]` in a bold cyan fill, brackets included, so it stays apart
   from the focus fill where colours are off. When the cursor is on it,
@@ -108,33 +104,32 @@ terminal's theme decides how they look:
 
 With a session shown, the title line holds the session's title, bold in
 the text colour, after `asqr`, and the queue and the count stand
-secondary at its right end. The user chose the dim count on 2026-10-16,
-over the text colour the bullet "Title line and key bar have no fills"
-gives it; on the empty queue the count keeps the text colour. The
+secondary at its right end. The count is dim, not in the text colour the
+bullet "Title line and key bar have no fills" gives it; on the empty
+queue the count keeps the text colour. The
 `from` and `follows` line under the title is secondary. The intro keeps
 the text colour.
 
 ## Amendment (2026-10-16, the count on the empty queue)
 
-Jakob decided on 2026-10-16 that the count is dim on the empty queue
-too, so the queue and the count are secondary in every title bar. This
+The count is dim on the empty queue too, so the queue and the count are
+secondary in every title bar. This
 replaces "the count in the text colour" in the bullet "Title line and
 key bar have no fills" and "on the empty queue the count keeps the text
 colour" in the amendment above.
 
 ## Amendment (2026-10-16, the own answer's mark)
 
-Jakob decided on 2026-10-16 that the own answer's chosen mark is bold in
-the primary colour when it counts, like an option's. That is off the
+The own answer's chosen mark is bold in the primary colour when it
+counts, like an option's. That is off the
 fill and while the field has the keys; under the focus fill the mark
 takes the fill's colour like the rest of its row and keeps its bold, as
 an option's chosen mark does. This extends "chosen marks of options" in
 the Decision table's Primary row. A field's head is a list of spans, so
 the mark takes a style of its own.
 
-Jakob also decided on 2026-10-16 that a field's head carries no focus
-fill while the field has the keys, as the TUI drew it since before this
-ADR; the text cursor shows where typing goes. A field's head under the
-cursor is filled only while the field does not have the keys. This
+A field's head carries no focus fill while the field has the keys; the
+text cursor shows where typing goes. A field's head under the cursor is
+filled only while the field does not have the keys. This
 narrows "a field's head under the cursor" in the Decision table's Focus
 row.

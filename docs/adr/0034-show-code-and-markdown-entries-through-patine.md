@@ -16,19 +16,15 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 
 The amendment of ADR 28 replaced the `text` entry by two types: `code`,
 shown exactly as written and highlighted, and `markdown`, rendered. Until
-now the context pane showed both as a placeholder (ADR 31). Step 4 of the
-plan todo "Split the TUI into a question pane and a context pane" gives
-each type a viewer behind the pane's `Viewer` trait.
+now the context pane showed both as a placeholder (ADR 31). Each type
+gets a viewer behind the pane's `Viewer` trait.
 
-patine, the user's Markdown renderer for the terminal, renders Markdown
+patine, a Markdown renderer for the terminal, renders Markdown
 and highlights code into style-neutral lines of styled spans since
-version 1.5.0, published 2026-10-14, so that asqr can draw them. The todo
-"Full Markdown in question texts, rendered like patine" uses the same
-library for question texts.
+version 1.5.0, published 2026-10-14, so that asqr can draw them. Question
+texts use the same library (ADR 35).
 
 ## Decision
-
-Taken with the user (plan, *Viewers*, and the step's todo):
 
 - **patine:** highlighting and Markdown both come from patine 1.5's
   library: `highlight` for code and `render_lines` for Markdown. Both use
@@ -58,9 +54,6 @@ Taken with the user (plan, *Viewers*, and the step's todo):
 - **Unreadable files** show through the pane's placeholder, as for a
   diff: "code not shown" or "markdown not shown", the path and the
   reason.
-
-Settled with the user in the review of this step's plan:
-
 - **Markdown never cuts a line.** patine leaves some lines wider than
   the width it got: lines of code blocks and frontmatter, a word or URL
   longer than the width, a table that cannot shrink any further. asqr
@@ -75,15 +68,12 @@ Settled with the user in the review of this step's plan:
   sideways for Markdown. Sideways scrolling would move the wrapped prose
   out of view as well whenever one line of code is wide, and cutting
   would lose content.
-- **One rule for Markdown everywhere:** the user decided the same for
-  code blocks in question texts, so every place asqr renders Markdown
+- **One rule for Markdown everywhere:** code blocks in question texts
+  wrap the same way, so every place asqr renders Markdown
   wraps this way, through the adapter's `markdown_rows`.
 - **Wide characters at the break** keep ADR 33's rule for an edge: a
   character that would cross the end of a row starts the next one, and
   the cell it leaves shows a blank in its style.
-
-Agent's choices within that design:
-
 - **A file name without an extension counts whole**, so `Makefile` and
   `Dockerfile` get their grammars: syntect's grammars list such names
   among their extensions. This applies to `title` too, so a title that
@@ -146,10 +136,9 @@ patine 1.7.2 breaks a word wider than its table column between
 characters, inside its cell, so a table fits its width. A long word in
 a cell, and since patine 1.7.1 the `(url)` of a link there, widened its
 table past the pane; every row wrapped, and each continuation row
-repeated the table's border `│ ` as if it were a quote bar. The user
-decided on 2026-10-16 to fix this in patine by breaking long words in
-cells, instead of scrolling a wide table sideways or wrapping it in
-asqr another way.
+repeated the table's border `│ ` as if it were a quote bar. The fix is
+in patine, which breaks long words in cells, instead of asqr scrolling
+a wide table sideways or wrapping it another way.
 
 `markdown_rows` keeps wrapping every line wider than its space. A table
 row still reaches it when not even one character per column fits, and,

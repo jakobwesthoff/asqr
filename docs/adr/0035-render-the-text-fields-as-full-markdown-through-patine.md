@@ -19,17 +19,13 @@ descriptions, to a Markdown subset: bold, italic, inline code, lists and
 line breaks. asqr rendered it with `pulldown-cmark` (ADR 9) and showed
 every other element as written in its source.
 
-The user asked on 2026-09-28 and again on 2026-10-14 for full Markdown
-in these fields, rendered in the style of patine, after answering long,
-structured questions through asqr: inline code showed reversed, as solid
+In long, structured questions, inline code showed reversed, as solid
 blocks, and bold labels did not stand out enough to structure a text.
+The fields should render full Markdown in the style of patine.
 ADR 34 brought patine 1.5 and the adapter `patine_adapter.rs` for the
 context pane's Markdown entries.
 
 ## Decision
-
-Taken with the user (todo "Full Markdown in question texts, rendered
-like patine"):
 
 - **Full Markdown everywhere:** the intro, question texts and option
   descriptions follow one rule and render full Markdown.
@@ -55,19 +51,15 @@ like patine"):
 - **Markdown entries keep CommonMark:** they are documents, so the
   context pane renders them with patine's defaults, which join single
   newlines and leave raw HTML out.
-
-Agent's choices within that design, confirmed in the review of the
-plan:
-
 - **The intro stays dim** under the title: dim is added on top of
   patine's styles, which stay underneath. The `i` frame shows the intro
-  without the dim, as it did before.
+  without the dim.
 - **The cut intro** keeps the first three rendered rows, one on
   terminals under 24 rows, and the last ends in `… i: more`. The `i`
   frame scrolls over all rows.
 - **Option descriptions** render for the columns from the description
   column to the end of the line, beside the label or, where that leaves
-  less than 30 columns, below it from column 6, as before. Every row
+  less than 30 columns, below it from column 6. Every row
   starts at that column, so a description keeps its hanging indent and
   patine's list indents and `↪` rows sit inside it.
 - **The review tab** shows question headers, option labels and typed
@@ -102,10 +94,9 @@ plan:
 
 ## Amendment (2026-10-14, no render cache)
 
-The first version of this decision kept the rendered rows of each text
-per width in the screen's `View`, from one frame to the next. The user
-decided the same day to remove that cache, so a text renders through a
-plain function from the text and a width to its rows. The reasons:
+The screen's `View` keeps no rendered rows of the texts from one frame
+to the next. A text renders through a plain function from the text and
+a width to its rows. The reasons:
 
 - asqr draws once per event: the loop in `src/tui/run.rs` blocks until
   a key, a resize, a change in the inbox or regained focus arrives, and
@@ -127,11 +118,10 @@ than 15 rows, down to one row.
 
 patine 1.7.0 draws a quote's text in the style of the text around it
 instead of dim and italic, and its bar in a colour, cyan by default,
-chosen through `RenderOptions::with_quote_style`. The user decided on a
-blue bar for asqr, and on a dim bar without a colour under `NO_COLOR`:
-asqr takes the colours off the finished screen and keeps dim (ADR 15),
-so a blue bar would be left in the text colour, like the quoted text
-beside it.
+chosen through `RenderOptions::with_quote_style`. asqr draws the bar
+blue, and dim without a colour under `NO_COLOR`: asqr takes the colours
+off the finished screen and keeps dim (ADR 15), so a blue bar would be
+left in the text colour, like the quoted text beside it.
 
 - The text fields pass the quote style with their two options, which
   are built with it on each call instead of held in a constant.

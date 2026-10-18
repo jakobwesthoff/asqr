@@ -23,15 +23,13 @@ warning colour (yellow), a failure such as an inbox that cannot be read
 the error colour (red), and a submitted session the success colour
 (green).
 
-The user decided on 2026-10-15 that notices get kinds (information,
-warning, error, success) before asqr confirms a submitted or rejected
-session, and that one ADR covers both.
+Notices get kinds (information, warning, error, success) before asqr
+confirms a submitted or rejected session. This ADR covers both.
 
 ## Decision
 
 Every notice and every message carries one of four kinds, and the status
-line draws it in the kind's colour. The rule for the kind was settled in
-the review of the implementation plan on 2026-10-15:
+line draws it in the kind's colour. The rule for the kind:
 
 | Kind | When | Colour |
 |---|---|---|
@@ -68,9 +66,8 @@ a notice says so, with the session's title, or its id when it has none:
     ✔ sent "Release 0.2.0" · 1 answered, 2 skipped
     ✗ rejected "Release 0.2.0"
 
-The user chose this format on 2026-10-15, with the sent line in the
-success colour and the rejected line neutral, so the sent line is a
-success and the rejected line information. The counts are the review's
+The sent line is in the success colour and the rejected line neutral,
+so the sent line is a success and the rejected line information. The counts are the review's
 answered and skipped questions. A submit or reject that does not finish
 shows its error or warning instead.
 
@@ -79,9 +76,8 @@ from the text around it, and the status line cuts the name to the
 columns the rest leaves, ending in `…`. The counts and the closing
 quote show whole; where they leave no room, the name is left out.
 
-The user decided on 2026-10-15 that the confirmation stays until the
-next key or paste, also over the next session and over the empty queue.
-A notice is cleared by a key or a paste alone, so reading the inbox
+The confirmation stays until the next key or paste, also over the next
+session and over the empty queue. A notice is cleared by a key or a paste alone, so reading the inbox
 again after the finish keeps it.
 
 ## Consequences

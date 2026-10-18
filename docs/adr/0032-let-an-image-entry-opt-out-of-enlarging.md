@@ -21,8 +21,6 @@ show what the asker wants the person to judge.
 
 ## Decision
 
-Settled in the review of ADR 31's viewer interface:
-
 - An image entry takes an optional `enlarge`, default `true`. With
   `false`, the image keeps its natural size where it fits and only
   shrinks when it does not, in the pane and in the `z` view alike. `o`
@@ -33,9 +31,6 @@ Settled in the review of ADR 31's viewer interface:
 - The skill describes the field and tells agents to use it sparingly,
   only where the exact pixel size matters, since for most images the
   person is better served by seeing them larger.
-
-Agent's choices within that design:
-
 - A new ADR rather than an amendment inside ADR 28 or 31: the field has
   a reason of its own, which follows from ADR 31's scaling, and ADR 29
   added the session note to format version 2 the same way.

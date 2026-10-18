@@ -14,10 +14,10 @@ Superseded by [43. Draw Talqi as the emblem in text cells](0043-draw-talqi-as-th
 
 With no session waiting, the main area held one centred sentence,
 "Nothing to answer. New sessions show up here as soon as they arrive.",
-and was otherwise empty. On 2026-10-15 the user chose to fill that space
-with asqr's mascot, the chameleon Talqi (pronounced like "talkie"), whom
-the design guide names. The originals are PNGs of 1536×1536 pixels under
-`assets/`, which `Cargo.toml` leaves out of the published crate.
+and was otherwise empty. That space shows asqr's mascot, the chameleon
+Talqi (pronounced like "talkie"), whom the design guide names. The
+originals are PNGs of 1536×1536 pixels under `assets/`, which
+`Cargo.toml` leaves out of the published crate.
 
 ratatui-image 11.1.0, which draws asqr's images, and image 0.25.10,
 which decodes and resizes them, behave as follows where it matters here:
@@ -39,7 +39,7 @@ which decodes and resizes them, behave as follows where it matters here:
 
 ## Decision
 
-Which picture (the user, 2026-10-15):
+Which picture:
 
 - From asqr's start until the first session arrives, the empty queue
   shows Talqi awake (`assets/mascot-1536.png`). Once sessions came in
@@ -52,30 +52,28 @@ How the pictures are built in:
 
 - Both are part of the executable as lossy WebP of 768×768 pixels,
   quality 90 with full alpha quality, under `src/tui/render/mascot/`
-  (74 KB awake, 71 KB asleep). They are made with `cwebp`, as the user
-  asked:
+  (74 KB awake, 71 KB asleep). They are made with `cwebp`:
 
       cwebp -q 90 -alpha_q 100 -m 6 -metadata none -resize 768 768 \
           <original>.png -o <copy>.webp
 
 - The size is 768 pixels because 44 columns of cells 15 pixels wide,
-  as the user's Ghostty reports them, take 660 pixels, more than a
-  picture of 512 pixels holds. 512 pixels was the first choice.
+  as Ghostty reports them, take 660 pixels, more than a picture of 512
+  pixels holds.
 
 Size and place:
 
-- The picture is drawn at about the size of a half-block rendering, as
-  the user chose: at most 44 columns by 22 rows, the cells a square
-  picture takes in half blocks of one pixel wide and two tall. Where
-  the area is smaller, the picture is smaller. It is never stretched to
-  fill the area.
+- The picture is drawn at about the size of a half-block rendering: at most 44 columns by
+  22 rows, the cells a square picture takes in half blocks of one pixel
+  wide and two tall. Where the area is smaller, the picture is smaller.
+  It is never stretched to fill the area.
 - The side of the square in pixels is the smaller of that box's width
   and height in pixels, cells times the cell size asqr learned from the
   terminal at start. The picture's cells are that side divided by the
   cell size, rounded up on each axis.
 - The picture shows only when the main area has at least 12 rows and
-  30 columns (the user, 2026-10-15). It gets the main area less the 3
-  rows of the sentence and one blank row. Picture, blank row and
+  30 columns. It gets the main area less
+  the 3 rows of the sentence and one blank row. Picture, blank row and
   sentence form one group, centred down the main area, with the picture
   centred across, so it stands directly above the sentence.
 
@@ -106,7 +104,7 @@ Drawing:
 Without an image protocol:
 
 - In a terminal without an image protocol, Talqi is drawn in half
-  blocks in the picture's own colours, as the user chose. asqr works
+  blocks in the picture's own colours. asqr works
   them out at run time from the same two pictures; nothing else is
   built in.
 - A terminal with an image protocol that reports a cell side of zero
@@ -125,7 +123,7 @@ Without an image protocol:
 - asqr draws these half blocks itself, not through ratatui-image's,
   which drop the alpha channel.
 - Their colours are RGB and stay under `NO_COLOR`, as those of images
-  do (the user, 2026-10-15). Superseded by ADR 41: under `NO_COLOR`,
+  do. Superseded by ADR 41: under `NO_COLOR`,
   Talqi is a braille outline without any colour, with an image protocol
   or without one.
 - The scaled picture is kept until a picture or a size is drawn for

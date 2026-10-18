@@ -16,15 +16,11 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 
 A diff entry carries the old and the new text, each inline or from a
 file, so asqr computes the diff itself (ADR 28). Until now the context
-pane showed a placeholder for it (ADR 31). Step 5 of the plan todo
-"Split the TUI into a question pane and a context pane" gives diffs a
-viewer of their own behind the pane's viewer interface. The text viewer
-of the next step shows source lines too, and both have to measure and
-cut such lines the same way.
+pane showed a placeholder for it (ADR 31). Diffs get a viewer of their
+own behind the pane's viewer interface. The text viewer shows source
+lines too, and both have to measure and cut such lines the same way.
 
 ## Decision
-
-Taken with the user (plan, *Viewers*, and the step's todo):
 
 - **Unified:** hunks with 3 lines of context, a dim separator line
   between hunks, the old and the new line number in a dim gutter.
@@ -43,9 +39,6 @@ Taken with the user (plan, *Viewers*, and the step's todo):
 - **The crate:** `similar` 3.x, by the author of `insta`, which asqr
   already uses for snapshots. Its `inline` feature finds the changed
   words. The amendment of 2026-10-16 drops the `inline` feature.
-
-Agent's choices within that design:
-
 - **Words end at punctuation:** `similar`'s `unicode` feature splits a
   line into Unicode words, so `get(url)` changed to `get(uri)` marks
   `url` and `uri` and not the whole call. Without it, words are runs
@@ -104,8 +97,7 @@ Agent's choices within that design:
   thread would keep a large file from stalling the screen at all; it is
   not part of this decision.
 
-Agent's choices, confirmed in the review of this step's plan, for every
-viewer that shows lines of source:
+For every viewer that shows lines of source:
 
 - **Tabs** expand to the next stop of 4 columns, counted from the start
   of the line. Panes are often 40 to 60 columns wide, where the
@@ -148,17 +140,15 @@ as ratatui and terminals draw it.
 
 ## Amendment (2026-10-16, a line diff without marked words)
 
-The user tested the diff of a Rust file before and after a change on
-2026-10-16 and compared the marking as built with three other ways of
-marking words. The marked words did not show what changed, and none of
-the ways convinced the user, who decided that asqr shows diffs line by
-line without marked words.
+The marked words did not show what changed in the diff of a Rust file
+before and after a change. asqr shows diffs line by line without marked
+words.
 
 - A changed line shows whole in its colour: the old version red, the
   new one green. Nothing inside a line is reversed. This replaces the
   decision that the changed words are emphasised on top of the colour,
-  and the agent's choices *Words end at punctuation* and *Emphasis is
-  reversed video*.
+  and the entries *Words end at punctuation* and *Emphasis is reversed
+  video*.
 - `similar` comes without its `inline` and `unicode` features.
   `unicode-segmentation` stays a direct dependency, for measuring
   columns.
@@ -169,9 +159,7 @@ todo `01M520ZWWR3RJAGXT9VDZ36DZK-find-out-how-github-marks-the-changed-words-of-
 
 ## Amendment (2026-10-16, naming the line ends)
 
-The user, testing a diff of a CRLF file against an LF file on
-2026-10-16, asked that the note say which ends each side uses, and
-decided its wording:
+The note says which line ends each side of a diff uses:
 
 - The note names the ends of both sides: `line endings differ: old
   CRLF, new LF`. `CRLF` is `\r\n`, `LF` is `\n` and `CR` a lone `\r`.
@@ -179,19 +167,16 @@ decided its wording:
   as `old mixed CRLF and LF`. In a narrow pane the note is cut at the
   edge, as notes are.
 
-Agent's choices: the kinds are named in the order CRLF, LF, CR, and a
-side with all three is `mixed CRLF, LF and CR`. A note owns its text
-where the text is built for the content, as this one is.
+The kinds are named in the order CRLF, LF, CR, and a side with all
+three is `mixed CRLF, LF and CR`. A note owns its text where the text
+is built for the content, as this one is.
 
 ## Amendment (2026-10-16, a cut between CR and LF)
 
-The user chose on 2026-10-16 to fix a side whose 8 MiB limit fell
-between the `\r` and the `\n` of a `\r\n`. Its text ended in a lone
-`\r`, so the note named a `CR` end the file does not use: `old mixed
-CRLF and CR` against an LF side, and a note against a CRLF side, where
-none belongs.
-
-Agent's choices:
+A side whose 8 MiB limit falls between the `\r` and the `\n` of a
+`\r\n` must not end in a lone `\r`. Otherwise the note names a `CR` end
+the file does not use: `old mixed CRLF and CR` against an LF side, and
+a note against a CRLF side, where none belongs.
 
 - When the limit falls inside a `\r\n`, the text stops before the `\r`.
   The read takes one byte past the limit to tell a cut file from a whole
