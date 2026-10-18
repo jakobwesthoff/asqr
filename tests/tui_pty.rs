@@ -591,38 +591,85 @@ fn a_key_typed_after_an_unanswered_query_reaches_asqr() {
     assert_eq!(tui.wait_for_exit(), 0);
 }
 
+/// How often [`an_answer_after_the_query_gave_up_picks_no_option`] starts
+/// asqr anew when its answer missed the window asqr discards in.
+const LATE_ANSWER_ATTEMPTS: usize = 3;
+
 /// An answer that arrives just after the query gave up is no input: its
 /// digits would pick an option.
+///
+/// asqr discards only what arrives within a short quiet time after the
+/// query gave up, and whether the answer gets there depends on how
+/// promptly the test runs. The log tells: an attempt proves something
+/// only when asqr discarded the whole answer. One that missed the window
+/// is started anew; a wrong screen after a whole discard fails at once.
 #[test]
 fn an_answer_after_the_query_gave_up_picks_no_option() {
-    let sandbox = Sandbox::new();
-    let dir = sandbox.queue_dir();
-    let file = sandbox.file("session.json", SESSION);
-    sandbox
-        .asqr_in_queue(&["ask"])
-        .arg(&file)
-        .assert()
-        .success();
-    let mut tui = Tui::start(
-        &sandbox,
-        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
-        PASSTHROUGH_ON,
+    let discarded_all = format!(
+        "discarded late answers to the graphics query bytes={}",
+        KITTY_GRAPHICS.len()
     );
-    tui.wait_for_the_query();
-    std::thread::sleep(QUERY_WAIT);
+    for _ in 0..LATE_ANSWER_ATTEMPTS {
+        let sandbox = Sandbox::new();
+        let dir = sandbox.queue_dir();
+        let file = sandbox.file("session.json", SESSION);
+        sandbox
+            .asqr_in_queue(&["ask"])
+            .arg(&file)
+            .assert()
+            .success();
+        let log = sandbox.log_path();
+        let mut tui = Tui::start(
+            &sandbox,
+            &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+            PASSTHROUGH_ON,
+        );
 
-    tui.send(KITTY_GRAPHICS);
-    tui.wait_for("Pick a fruit");
-    std::thread::sleep(Duration::from_millis(500));
+        // asqr logs this once the query gave up and before it starts
+        // discarding, so the answer goes out at the start of the window.
+        wait_for_log(&log, "no graphics protocol detected");
+        tui.send(KITTY_GRAPHICS);
+        // Logged once the discarding is over, whatever it took.
+        wait_for_log(&log, "graphics protocol detected protocol=");
+        if !read_log(&log).contains(&discarded_all) {
+            continue;
+        }
 
-    let screen = tui.screen();
-    assert!(!screen.contains("Review your answers"), "{screen}");
-    tui.press("q");
-    assert_eq!(tui.wait_for_exit(), 0);
-    assert!(
-        !sandbox.queue_dir().join("outbox/pty-test.json").exists(),
-        "nothing answered"
+        tui.wait_for("Pick a fruit");
+        std::thread::sleep(Duration::from_millis(500));
+
+        let screen = tui.screen();
+        assert!(!screen.contains("Review your answers"), "{screen}");
+        tui.press("q");
+        assert_eq!(tui.wait_for_exit(), 0);
+        assert!(
+            !sandbox.queue_dir().join("outbox/pty-test.json").exists(),
+            "nothing answered"
+        );
+        return;
+    }
+    panic!(
+        "the late answer never landed in asqr's discard window in {LATE_ANSWER_ATTEMPTS} attempts"
     );
+}
+
+/// The log at `log` so far; empty while asqr has not created it.
+fn read_log(log: &std::path::Path) -> String {
+    std::fs::read_to_string(log).unwrap_or_default()
+}
+
+/// Waits until the log at `log` contains `text`. It polls often, as the
+/// test acts on what asqr logged within the discard window.
+fn wait_for_log(log: &std::path::Path, text: &str) {
+    let start = Instant::now();
+    while !read_log(log).contains(text) {
+        assert!(
+            start.elapsed() < PATIENCE,
+            "{text:?} never showed in the log:\n{}",
+            read_log(log)
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
 }
 
 /// Over ssh from a tmux pane, `TERM` names tmux and `TMUX` is not there:

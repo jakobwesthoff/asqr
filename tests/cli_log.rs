@@ -6,16 +6,7 @@
 
 mod common;
 
-use common::{Sandbox, stdout};
-
-fn log_path(sandbox: &Sandbox) -> std::path::PathBuf {
-    let output = sandbox
-        .asqr_in_queue(&["paths", "--json"])
-        .output()
-        .expect("runs");
-    let paths: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("JSON");
-    paths["log"].as_str().expect("a log path").into()
-}
+use common::Sandbox;
 
 #[test]
 fn commands_log_what_they_changed() {
@@ -31,7 +22,7 @@ fn commands_log_what_they_changed() {
         .assert()
         .success();
 
-    let log = std::fs::read_to_string(log_path(&sandbox)).expect("the log file exists");
+    let log = std::fs::read_to_string(sandbox.log_path()).expect("the log file exists");
     assert!(log.contains("dropped session"), "{log}");
     assert!(log.contains("logged"), "{log}");
 }
@@ -39,7 +30,7 @@ fn commands_log_what_they_changed() {
 #[test]
 fn an_unwritable_log_does_not_stop_the_command() {
     let sandbox = Sandbox::new();
-    let log = log_path(&sandbox);
+    let log = sandbox.log_path();
     // Asking for the path already opened the log; a directory takes its
     // place.
     std::fs::remove_file(&log).expect("the log file was created");
@@ -51,7 +42,8 @@ fn an_unwritable_log_does_not_stop_the_command() {
 #[test]
 fn an_unusable_cache_directory_does_not_stop_the_command() {
     let sandbox = Sandbox::new();
-    let cache = log_path(&sandbox)
+    let cache = sandbox
+        .log_path()
         .parent()
         .expect("the log has a directory")
         .to_path_buf();

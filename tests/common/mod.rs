@@ -67,6 +67,16 @@ impl Sandbox {
         command
     }
 
+    /// The log file asqr writes in this sandbox, as `asqr paths` names it.
+    pub fn log_path(&self) -> PathBuf {
+        let output = self
+            .asqr_in_queue(&["paths", "--json"])
+            .output()
+            .expect("runs");
+        let paths: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("JSON");
+        paths["log"].as_str().expect("a log path").into()
+    }
+
     /// Writes a file into the sandbox and returns its path.
     pub fn file(&self, name: &str, content: &str) -> PathBuf {
         let path = self.home.path().join(name);
