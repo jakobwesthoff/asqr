@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The text a viewer shows, from a file or given inline (spec section
-//! 7.7). Every viewer of text reads it the same way: a relative path is
+//! 8.3). Every viewer of text reads it the same way: a relative path is
 //! never resolved, only a regular file is read and only its first 8 MiB,
 //! a binary file is not shown, and bytes that are not UTF-8 show as `�`.
 //! The image viewer opens a path by the same rule and refuses an image
@@ -143,7 +143,7 @@ impl Unreadable {
 /// that reads a file, images included, asks before it opens one.
 pub fn regular_file(path: &str) -> Result<(), Unreadable> {
     // A relative path depends on where asqr was started, so it is never
-    // resolved (spec section 4).
+    // resolved (spec section 3.3).
     if Path::new(path).is_relative() {
         return Err(Unreadable::refused(path, "RelativePath", "relative path"));
     }

@@ -24,7 +24,7 @@ Kitty images only, not for Sixel and iTerm2
 - ratatui-image 12.0.0-rc.2 runs `tmux set -p allow-passthrough on` for
   the pane in every `Picker` constructor when `TERM` starts with `tmux`
   or `TERM_PROGRAM` is `tmux`, and asqr puts the pane's own value back
-  afterwards (spec section 7.7).
+  afterwards (spec section 8.9).
 - The Kitty protocol shows an image only where placeholder cells name
   it, and those are part of the pane's own content, which tmux draws
   only for a pane that shows. Sixel and iTerm2 images are written where

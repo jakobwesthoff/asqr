@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Reading the archive (spec sections 3.1 and 7.1): the title of the
+//! Reading the archive (spec sections 5.1 and 7.2): the title of the
 //! last finished session of an id, which the header shows for a
 //! follow-up's `follows`.
 

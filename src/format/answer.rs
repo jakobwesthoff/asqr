@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The answer-state rules (spec section 5.2): when a question counts as
+//! The answer-state rules (spec section 4.2): when a question counts as
 //! answered, and the shape its answer takes in a result. The TUI keeps its
 //! working answers in the draft shape; these functions turn them into what
 //! the asker reads.

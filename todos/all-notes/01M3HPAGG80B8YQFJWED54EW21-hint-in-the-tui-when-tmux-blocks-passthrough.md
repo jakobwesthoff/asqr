@@ -28,7 +28,7 @@ when it is `on`, which could get the hint too.
 ## Why not in version 1
 
 A wrong hint is worse than none, and version 1 documents the limitation
-in the README and the spec (section 7.7) and relies on the block
+in the README and the spec (section 8.9) and relies on the block
 fallback, which always works.
 
 ## Since then

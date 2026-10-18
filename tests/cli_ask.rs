@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! `asqr ask` (spec sections 3.5 and 8).
+//! `asqr ask` (spec sections 5.5 and 6.3).
 
 mod common;
 

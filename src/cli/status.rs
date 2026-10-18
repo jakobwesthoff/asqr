@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! `asqr status` (spec section 8): what waits, what is answered, and who
+//! `asqr status` (spec section 6.5): what waits, what is answered, and who
 //! watches the queue. Agents use `--json` to find sessions they lost track
 //! of after a tool timeout.
 //!

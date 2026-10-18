@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The screen (spec sections 7.1 to 7.4, ADR 8): a title bar, the session
+//! The screen (spec sections 7.2 to 7.8, ADR 8): a title bar, the session
 //! header, the tab bar, the current tab, a status line and the key bar.
 //! Each part is drawn by its own module; this one lays them out, picks the
 //! overlay and keeps what the screen remembers from one draw to the next.

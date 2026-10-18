@@ -332,7 +332,7 @@
       ]
     },
     "Length": {
-      "description": "How long typed text should be (spec section 7.3). Both parts are\noptional; validation checks that they are consistent. There is no hard\nlimit: the counter guides, and input is never refused (ADR 8).",
+      "description": "How long typed text should be (spec section 7.7). Both parts are\noptional; validation checks that they are consistent. There is no hard\nlimit: the counter guides, and input is never refused (ADR 8).",
       "properties": {
         "target": {
           "description": "The range the text should land in.",
@@ -521,7 +521,7 @@
       "type": "integer"
     },
     "follows": {
-      "description": "The id of an earlier session this one continues (spec section 10).",
+      "description": "The id of an earlier session this one continues (spec section 3.1).",
       "type": [
         "string",
         "null"

@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! How a question tab shares its area between the question and its context
-//! (spec section 7.1, ADR 30). The question never gets wider than a reading
+//! (spec section 7.4, ADR 30). The question never gets wider than a reading
 //! width. When the question or one of its options has context, the context
 //! area goes beside the question on a landscape area and below it on a
 //! portrait one, or shrinks to a one-line hint when neither fits.

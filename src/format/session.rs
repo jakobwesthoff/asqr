@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The session file (spec section 4): what an asker writes into the inbox.
+//! The session file (spec section 3): what an asker writes into the inbox.
 //!
 //! The types only describe the shape. Parsing is deliberately lenient:
 //! unknown fields are ignored so later format versions can add optional
@@ -177,7 +177,7 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
 
-    /// The id of an earlier session this one continues (spec section 10).
+    /// The id of an earlier session this one continues (spec section 3.1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follows: Option<String>,
 
@@ -241,7 +241,7 @@ fn note_allowed_by_default() -> bool {
 }
 
 /// Reads a `null` context as an empty list. A `null` counts as a missing
-/// field everywhere in the format (spec section 4), and the other optional
+/// field everywhere in the format (spec section 3.3), and the other optional
 /// fields get that from their `Option`.
 fn null_as_no_context<'de, D>(deserializer: D) -> Result<Vec<ContextEntry>, D::Error>
 where
@@ -330,7 +330,7 @@ pub struct CustomConfig {
     pub length: Option<Length>,
 }
 
-/// How long typed text should be (spec section 7.3). Both parts are
+/// How long typed text should be (spec section 7.7). Both parts are
 /// optional; validation checks that they are consistent. There is no hard
 /// limit: the counter guides, and input is never refused (ADR 8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(session.id, None);
         let question = &session.questions[0];
         // Notes are allowed unless the asker switches them off (spec
-        // section 4).
+        // section 3.2).
         assert!(question.note);
         assert_eq!(question.custom, None);
         assert!(question.context.is_empty());
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn unknown_fields_are_ignored_when_parsing() {
         // Later format versions may add optional fields, so version 2
-        // readers must not reject them (spec section 4); warnings about them
+        // readers must not reject them (spec section 3.4); warnings about them
         // come from validation.
         let session: Session = serde_json::from_str(
             r#"{"asqr": 2, "future": 1,
@@ -627,7 +627,7 @@ mod tests {
 
     #[test]
     fn a_null_context_is_no_context() {
-        // Spec section 4: a `null` counts as a missing field, as it does
+        // Spec section 3.3: a `null` counts as a missing field, as it does
         // for every other optional field.
         let (_, session) = parse_session(
             br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",

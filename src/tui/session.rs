@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The state of one session while the person answers it (spec sections
-//! 5.2 and 7.1 to 7.4, ADR 8), driven by key events and nothing else.
+//! 4.2 and 7.2 to 7.8, ADR 8), driven by key events and nothing else.
 //!
 //! A session is a row of tabs: one per question and the review last. Each
 //! tab is a list of rows: the options and the own answer, a text answer,
@@ -132,7 +132,7 @@ struct Working {
     selected: Vec<String>,
     /// The own answer, or the answer of a `text` question. On a `single`
     /// question it counts only while no option is chosen (spec section
-    /// 5.2).
+    /// 4.2).
     custom: String,
     note: String,
     /// The person edited the question; a default then no longer counts as
@@ -387,7 +387,7 @@ impl SessionState {
     }
 
     /// The title of the session `follows` names, as the inbox found it
-    /// when it loaded this one (spec section 7.1); `None` where it found
+    /// when it loaded this one (spec section 7.2); `None` where it found
     /// none. A replaced file starts without it until the inbox looks again.
     pub fn follows_title(&self) -> Option<&str> {
         self.follows_title.as_deref()
@@ -472,7 +472,7 @@ impl SessionState {
     /// The context entry shown on the current tab, and which one it is. The
     /// option under the cursor shows its own context, so the person can
     /// browse the options before picking; every other row shows the
-    /// question's (spec section 7.7).
+    /// question's (spec section 8.1).
     pub fn shown_entry(&self) -> Option<(EntryKey, &ContextEntry)> {
         self.question()?;
         self.entry_at(self.tab, self.current_row()?)
@@ -1098,7 +1098,7 @@ impl SessionState {
     }
 
     /// Inserts `text` the person pasted at the text cursor of the focused
-    /// field or note (spec section 7.3). The terminal sends a paste as one
+    /// field or note (spec section 7.7). The terminal sends a paste as one
     /// event, so a line break in it never reaches `enter`, which would
     /// pick, submit or reject; every field keeps the line breaks (ADR 36).
     ///

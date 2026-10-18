@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Images in the terminal (spec section 7.7). The binary asks the terminal
+//! Images in the terminal (spec section 8.8). The binary asks the terminal
 //! once at start which graphics protocol it speaks and keeps what it
 //! learnt as a [`Graphics`]; [`Images`] makes the [`Image`]s of context
 //! entries for it and keeps the book of the run's Kitty image ids. Only
@@ -47,7 +47,7 @@ pub enum Protocol {
 }
 
 /// What tmux passes on to the terminal outside from asqr's pane, as its
-/// `allow-passthrough` says (spec section 7.7).
+/// `allow-passthrough` says (spec section 8.9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Passthrough {
     /// No tmux stands between asqr and the terminal, or it passes nothing.

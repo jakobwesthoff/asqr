@@ -15,7 +15,7 @@ screen
 asqr runs in a terminal of its own, often in a tab the person does not
 look at. Without a title its state shows only inside the window, plus a
 desktop notification and the bell when a session arrives (spec section
-7.5). asqr shows the number of waiting sessions in the terminal title,
+7.9). asqr shows the number of waiting sessions in the terminal title,
 as `asqr · {n} waiting`, with a `--no-title` flag that switches it off
 like `--no-notify` and `--no-bell`. Reporting progress through OSC 9;4
 stays open until it is known which terminals support it.

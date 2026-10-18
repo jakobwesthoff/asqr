@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Drafts (spec section 5.3): the answers to a session while it is being
+//! Drafts (spec section 4.3): the answers to a session while it is being
 //! answered, in `drafts/<id>.json`.
 
 use std::io;
@@ -44,7 +44,7 @@ pub fn delete_draft(location: &QueueLocation, id: &str) -> io::Result<()> {
 /// to a question or to the whole session. A selection counts even where it
 /// does not answer the question yet (a `multi` below `min`), since it is
 /// still work that a replacement would throw away. The reject reason does
-/// not count (spec section 3.5).
+/// not count (spec section 5.5).
 pub fn draft_has_answer(draft: &SessionResult) -> bool {
     let filled =
         |text: &Option<String>| text.as_deref().is_some_and(|text| !text.trim().is_empty());

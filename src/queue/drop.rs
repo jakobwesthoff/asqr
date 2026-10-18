@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! Dropping a session into the inbox, the way `asqr ask` does it (spec
-//! section 3.5). These are rules of `ask`, not of the queue: a rename
+//! section 5.5). These are rules of `ask`, not of the queue: a rename
 //! replaces an inbox file unconditionally, so only the writer can decide
 //! whether a replacement is allowed. A file dropped by hand replaces
 //! whatever is there.

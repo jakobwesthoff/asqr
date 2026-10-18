@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Keeps the app in step with the queue's files (spec sections 3.4 to 3.8):
+//! Keeps the app in step with the queue's files (spec sections 5.4 to 5.8):
 //! sessions that arrive, change or disappear in the inbox, invalid files,
 //! and the files the app's effects write, drafts and finished sessions.
 //!
@@ -80,7 +80,7 @@ impl Inbox {
     pub fn sync(&mut self, app: &mut App) -> io::Result<Synced> {
         // Recovery runs on every sync, not only at the start: it is also
         // what archives a session dropped by hand next to an unread result
-        // under its id (spec section 3.7).
+        // under its id (spec section 5.7).
         for recovery in recover(&self.location)? {
             match recovery {
                 Recovery::Completed(id) => {
@@ -211,7 +211,7 @@ impl Inbox {
     }
 
     /// The title of the session that session `id`'s `follows` names (spec
-    /// section 7.1): a waiting session's, else the one archived last under
+    /// section 7.2): a waiting session's, else the one archived last under
     /// that id. A session that names its own id can only mean an earlier
     /// round in the archive. A waiting session without a title names
     /// nothing, as it is the one meant.
@@ -344,7 +344,7 @@ impl Inbox {
 }
 
 /// The status line's word that `state` was finished as `outcome`, since
-/// the session leaves the screen at once (spec section 7.4). A sent
+/// the session leaves the screen at once (spec section 7.8). A sent
 /// session is a success and counts its answers as the review showed
 /// them; a rejected one is plain news (ADR 38). The name stays apart from
 /// the rest, as the status line cuts it to keep the rest whole.
@@ -590,7 +590,7 @@ mod tests {
     fn a_session_of_format_version_1_still_waiting_gets_an_error_result() {
         // Sessions an earlier asqr would have shown can wait in a queue
         // across an upgrade. Their askers learn from the result what to
-        // write instead (spec section 3.8).
+        // write instead (spec section 3.6).
         let (_scratch, location) = queue();
         put(
             &location,

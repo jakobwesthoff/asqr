@@ -45,7 +45,7 @@ Why files: dropping a file already triggers asqr, files queue while asqr
 is not running, they survive crashes, and any language can write them
 without a client library.
 
-The details are in `docs/spec.md` section 3.
+The details are in `docs/spec.md` section 5.
 
 ## Consequences
 

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Finding out at start what the terminal can show (spec section 7.7):
+//! Finding out at start what the terminal can show (spec section 8.8):
 //! whether to ask it for its graphics protocol at all, what to do with
 //! tmux's `allow-passthrough` around the query and for the run, and the
 //! answers that may still arrive after it. The binary runs the query and
@@ -34,7 +34,7 @@ use crate::terminal_env::{TerminalEnv, TmuxState};
 /// answer holds up the start for its whole wait, and an answer later than
 /// that may reach asqr as typed keys ([`answers_may_follow_the_query`]),
 /// so where none can come the query is skipped and images fall back to
-/// half blocks (spec section 7.7).
+/// half blocks (spec section 8.9).
 ///
 /// Outside a tmux pane the terminal is always asked. A terminal that names
 /// tmux there is a tmux asqr cannot ask, as after ssh from a tmux pane;
@@ -59,7 +59,7 @@ pub fn may_query_protocol(env: &TerminalEnv, tmux: Option<&TmuxState>) -> bool {
 /// Whether asqr sets `allow-passthrough all` for its pane for the run:
 /// under the Kitty protocol with its commands wrapped for tmux, inside a
 /// tmux 3.4 or later whose pane has no `all` yet, as `tmux` says (spec
-/// section 7.7, ADR 44). Transfers and deletes then reach the terminal
+/// section 8.9, ADR 44). Transfers and deletes then reach the terminal
 /// from a hidden pane too. Kitty images are drawn through placeholder
 /// cells, which only the pane's own content places. Sixel and iTerm2
 /// images are written where the cursor is, and from a hidden pane tmux

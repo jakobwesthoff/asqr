@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The Markdown of the intro, question texts and option descriptions (spec
-//! section 7.6, ADR 35): rendered by patine for the width the text gets,
+//! section 7.10, ADR 35): rendered by patine for the width the text gets,
 //! with every newline a line break and raw HTML as written, laid out by
 //! the adapter's one rule for Markdown, so a line patine leaves wider
 //! wraps behind a dim `↪`.

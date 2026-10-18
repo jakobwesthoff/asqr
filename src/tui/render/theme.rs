@@ -142,7 +142,7 @@ pub(crate) fn secondary() -> Style {
     Style::new().dim()
 }
 
-/// The style of a length counter at `level` (spec section 7.3).
+/// The style of a length counter at `level` (spec section 7.7).
 pub(crate) fn for_level(level: Level) -> Style {
     match level {
         Level::Fine => success(),
@@ -163,7 +163,7 @@ pub(crate) fn for_tone(tone: Tone) -> Style {
 }
 
 /// Takes every named and indexed colour out of the drawn `buf`, for
-/// `NO_COLOR` (spec section 8). The modifiers stay, and with them what
+/// `NO_COLOR` (spec section 7.3). The modifiers stay, and with them what
 /// marks, pointers, bold, dim and reversed say.
 ///
 /// One pass over the finished buffer covers every colour, those of the

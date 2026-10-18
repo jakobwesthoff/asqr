@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The main area while no session waits (spec section 7.1, ADR 43): a
+//! The main area while no session waits (spec section 7.5, ADR 43): a
 //! sentence that says so, with Talqi above it where there is room.
 
 use ratatui::buffer::Buffer;

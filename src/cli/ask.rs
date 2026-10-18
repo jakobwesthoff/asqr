@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! `asqr ask` (spec sections 3.5 and 8): validate a session file, make it
+//! `asqr ask` (spec sections 5.5 and 6.3): validate a session file, make it
 //! ready for the inbox and drop it there, then optionally wait for the
 //! result.
 
@@ -129,7 +129,7 @@ fn make_path_absolute(object: &mut Value, base: &Path) {
 }
 
 /// The session queues either way, but the asker should tell the person to
-/// start asqr (spec section 3.5).
+/// start asqr (spec section 5.5).
 fn warn_if_nobody_watches(location: &QueueLocation) {
     if matches!(lock_holder(location), Ok(None)) {
         let queue = location

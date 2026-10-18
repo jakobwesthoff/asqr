@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The keys (spec sections 7.1 and 7.2): the key bar at the bottom of the
+//! The keys (spec sections 7.2 and 7.6): the key bar at the bottom of the
 //! screen, with the hints that work where the focus is, and the help
 //! overlay that lists every key.
 

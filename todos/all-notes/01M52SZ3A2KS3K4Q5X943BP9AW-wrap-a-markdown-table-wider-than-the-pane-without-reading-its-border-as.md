@@ -47,7 +47,7 @@ table rendered 66 columns wide at a width of 40. asqr's adapter
 than the pane and repeats the blanks and quote bars it starts with, and
 the border `│ ` of a table row counts as such a bar. Until patine 1.7.2
 the spec named this wrap as intended for "a table that cannot shrink"
-(section 7.7).
+(section 7.10).
 
 Reproduced again on 2026-10-16 with patine 1.7.2, through the same
 viewer: the table above fits in 7 rows of 40 columns, its URL broken
@@ -64,7 +64,7 @@ inside the cell. Two cases still wrap the way shown above:
 
 The test `a_table_row_patine_leaves_wider_still_wraps` in
 `src/tui/render/markdown_viewer.rs` covers both cases. The spec (section
-7.7) and ADR 0034 name them.
+7.10) and ADR 0034 name them.
 
 ## Impact
 

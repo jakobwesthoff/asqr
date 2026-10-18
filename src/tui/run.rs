@@ -38,7 +38,7 @@ pub enum Event {
     /// A context entry finished loading apart from drawing; the next draw
     /// shows it (ADR 46).
     Loaded,
-    /// SIGTERM, SIGINT or SIGHUP asked asqr to quit (spec section 7).
+    /// SIGTERM, SIGINT or SIGHUP asked asqr to quit (spec section 7.1).
     Quit,
 }
 
@@ -71,13 +71,13 @@ pub trait Host {
 }
 
 /// The terminal title for the state of `app`, so a tab in the background
-/// tells how many sessions wait (spec section 7.5).
+/// tells how many sessions wait (spec section 7.9).
 pub fn terminal_title(app: &App) -> String {
     format!("asqr · {} waiting", app.sessions().len())
 }
 
 /// Reads the queue for the first time: what waits when asqr starts is
-/// shown without an alert. Register the watcher before (spec section 3.4).
+/// shown without an alert. Register the watcher before (spec section 5.4).
 pub fn start(location: QueueLocation) -> anyhow::Result<(App, Inbox)> {
     let mut app = App::default();
     let mut inbox = Inbox::new(location);

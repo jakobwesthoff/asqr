@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Watching the inbox (spec section 3.4). The watcher only says that
+//! Watching the inbox (spec section 5.4). The watcher only says that
 //! something changed; [`Inbox::sync`](super::Inbox::sync) then works out
 //! what, so events carry no paths.
 
@@ -19,7 +19,7 @@ pub struct InboxWatcher {
 }
 
 /// Starts watching the inbox of `location` and calls `changed` after each
-/// burst of changes. Register it before the first scan (spec section 3.4).
+/// burst of changes. Register it before the first scan (spec section 5.4).
 pub fn watch_inbox(
     location: &QueueLocation,
     mut changed: impl FnMut() + Send + 'static,

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The command line as a whole, and `asqr paths` (spec sections 3.2, 8).
+//! The command line as a whole, and `asqr paths` (spec sections 5.2, 6).
 
 mod common;
 

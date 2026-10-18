@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Result and draft files (spec sections 5.1 and 5.3). A draft is a result
+//! Result and draft files (spec sections 4.1 and 4.3). A draft is a result
 //! in progress: the same shape with the status `draft`, so restoring and
 //! finishing work on one type.
 
@@ -31,7 +31,7 @@ pub struct SessionResult {
     /// The SHA-256 of the session file's bytes as read from the inbox. It
     /// ties the result to one version of a session that may have been
     /// replaced, and lets recovery tell an interrupted finish from a new
-    /// session under the same id (spec section 3.7). Absent in drafts.
+    /// session under the same id (spec section 5.7). Absent in drafts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_sha256: Option<String>,
 
@@ -70,7 +70,7 @@ pub enum Status {
 }
 
 /// The answer to one question. Which fields appear depends on the question
-/// kind and the answer state (spec section 5.2).
+/// kind and the answer state (spec section 4.2).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Answer {
     pub question: String,

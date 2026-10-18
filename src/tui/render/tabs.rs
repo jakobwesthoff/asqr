@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The tab bar (spec section 7.1): one tab per question and the review,
+//! The tab bar (spec section 7.2): one tab per question and the review,
 //! scrolled so the current tab shows, over a rule that marks the current
 //! tab.
 

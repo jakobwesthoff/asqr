@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Warnings about a session file (spec section 4): things that do not make
+//! Warnings about a session file (spec section 3.4): things that do not make
 //! it invalid but are likely mistakes. Parsing ignores unknown fields so
 //! later versions can add some; a typo such as `requred` would then be
 //! silently lost, so `asqr validate` and `asqr ask` report them. The files
@@ -452,7 +452,7 @@ fn check_file(
 
 fn check_decodable(resolved: &Path, path: FieldPath, found: &mut Vec<Warning>) {
     // The terminal UI would show a placeholder for this file, and a broken
-    // image never becomes an error result (spec section 7.7), so the asker
+    // image never becomes an error result (spec section 8.3), so the asker
     // only learns about it here. The file is
     // opened the way `graphics/mod.rs` opens it, but only its header
     // is read: that is enough to find a missing decoder, as for SVG or
@@ -1004,7 +1004,7 @@ mod tests {
     }
 
     /// `DECODABLE_FORMATS`, SKILL.md, the `image` field's description and
-    /// spec section 7.7 name these formats. The set follows the `image`
+    /// spec section 8.8 name these formats. The set follows the `image`
     /// crate's features, so this test fails when they change until those
     /// texts follow.
     #[test]

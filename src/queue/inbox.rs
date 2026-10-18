@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Reading the inbox (spec section 3.4): which files are sessions and in
+//! Reading the inbox (spec section 5.4): which files are sessions and in
 //! which order they are answered.
 
 use std::io;
@@ -23,7 +23,7 @@ pub struct Waiting {
 }
 
 /// What the inbox holds: sessions in queue order, `.json` files whose stem
-/// is no valid id, which only get archived (spec section 3.8), and
+/// is no valid id, which only get archived (spec section 5.8), and
 /// everything else, which is left alone.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InboxScan {

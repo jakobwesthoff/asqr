@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! `asqr new`, `asqr validate` and `asqr schema` (spec sections 4 and 8).
+//! `asqr new`, `asqr validate` and `asqr schema` (spec sections 3 and 6).
 
 mod common;
 

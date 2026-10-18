@@ -2,9 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Context entries (spec section 4): material that helps to answer a
+//! Context entries (spec section 3.3): material that helps to answer a
 //! question, attached to the question or to one of its options. The TUI
-//! shows it next to the question (spec section 7.7).
+//! shows it next to the question (spec section 8).
 //!
 //! As with the rest of the session, the types only describe the shape.
 //! Rules that span fields, such as a code entry naming either a file or

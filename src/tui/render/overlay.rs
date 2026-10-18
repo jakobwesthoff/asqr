@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! Frames drawn over the middle of the screen: the whole intro, the help
-//! and the list of waiting sessions (spec section 7.2). They share the way
+//! and the list of waiting sessions (spec section 7.6). They share the way
 //! they take their place and their frame; what each shows inside is its
 //! own widget.
 

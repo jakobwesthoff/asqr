@@ -63,7 +63,7 @@ jobs:
             os: ubuntu-latest
 
           # No Windows build: Windows support is out of scope (spec
-          # section 11) and CI does not test it.
+          # section 10) and CI does not test it.
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

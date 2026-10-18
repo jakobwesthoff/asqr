@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! File names in a queue (spec sections 3.3, 3.4 and 3.7): which inbox
+//! File names in a queue (spec sections 5.3, 5.4 and 5.7): which inbox
 //! files are sessions, how a session is found whatever the case of its
 //! name, and how archive entries are named so they never collide.
 

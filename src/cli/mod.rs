@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The command line (spec section 8). The binary parses the arguments and
+//! The command line (spec section 6). The binary parses the arguments and
 //! hands them to [`run`]; everything else happens here, so the commands
 //! are reachable from tests.
 

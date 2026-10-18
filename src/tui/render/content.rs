@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The current tab (spec sections 7.1, 7.3 and 7.4): a question with its
+//! The current tab (spec sections 7.2, 7.7 and 7.8): a question with its
 //! options, fields and note, or the review, beside or above the context
 //! pane.
 //!
@@ -137,7 +137,7 @@ impl TabState {
 type RowsKey = (String, u64, usize, u16);
 
 /// How many rows the question takes above a context pane below it (spec
-/// section 7.1, ADR 30). It is the most any question with context in the
+/// section 7.4, ADR 30). It is the most any question with context in the
 /// session needs, so moving between questions never moves the pane, and it
 /// follows what the person types only line by line.
 #[derive(Default)]
@@ -419,7 +419,7 @@ enum Pass {
     /// cursor and counter.
     Live,
     /// Without a cursor, to count the rows any question takes (spec section
-    /// 7.1): no row is current and every field shows unfocused, with the
+    /// 7.4): no row is current and every field shows unfocused, with the
     /// text typed so far. A field with a length keeps a row for its
     /// counter, so focusing it adds none, and the cursor's blank after a
     /// full line is left out.

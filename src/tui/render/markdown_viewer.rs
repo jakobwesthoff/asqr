@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The viewer of Markdown entries (spec section 7.7, ADR 34): the text
+//! The viewer of Markdown entries (spec section 8.7, ADR 34): the text
 //! rendered by patine for the body's width and wrapped, without a gutter
 //! and without sideways scrolling. Lines that patine leaves wider, such as
 //! those of a code block, wrap behind a dim `↪`.

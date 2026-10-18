@@ -115,7 +115,7 @@ pub(super) fn run_wait(location: &QueueLocation, id: &str, timeout: Option<Durat
 }
 
 /// `asqr result <id>`: one look, the way `wait --timeout 0` would take
-/// it, so the exit codes mean the same (spec section 8).
+/// it, so the exit codes mean the same (spec section 6.6).
 pub(super) fn run_result(location: &QueueLocation, id: &str) -> Exit {
     wait_for_result(location, id, Some(Duration::ZERO))
 }

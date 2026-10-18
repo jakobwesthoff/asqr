@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Session ids (spec section 3.3). A session id is also a file stem in
+//! Session ids (spec section 5.3). A session id is also a file stem in
 //! the queue, so its syntax keeps it a safe, visible file name on every
 //! platform.
 
@@ -49,7 +49,7 @@ mod tests {
 
     #[test]
     fn rejects_a_leading_dot() {
-        // A dotfile in the inbox is ignored by the watcher (spec section 3.4),
+        // A dotfile in the inbox is ignored by the watcher (spec section 5.4),
         // so such an id could never be answered.
         assert!(!is_valid_session_id(".hidden"));
         assert!(is_valid_session_id("not.hidden"));

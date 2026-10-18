@@ -152,7 +152,7 @@ Choosing the glyphs, once at start:
   `tmux display-message -p` asqr runs at start (ADR 44) asks for
   `#{client_termtype}` among its fields, separated by tabs since the
   termtype holds blanks, and its answer serves both the graphics query
-  (spec section 7.7) and the glyphs. The termtype decides by its prefix
+  (spec section 8.9) and the glyphs. The termtype decides by its prefix
   and version.
   An empty or unknown termtype, or no answer from tmux, gives quadrants.
 - Version floors are the first versions above. A version is read as the

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The state across all waiting sessions (spec section 7.5): which one is
+//! The state across all waiting sessions (spec section 7.9): which one is
 //! being answered, the session list behind `L`, the intro overlay behind
 //! `i`, and notices about the queue. Sessions are kept in the order they are added, which the running
 //! app keeps in queue order.
@@ -101,7 +101,7 @@ impl Notice {
 }
 
 /// A session asqr answered with an error result because its file is
-/// invalid, which a dialog shows with every error (spec section 3.8).
+/// invalid, which a dialog shows with every error (spec section 7.9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invalid {
     pub id: String,
@@ -199,7 +199,7 @@ impl App {
 
     /// Shows `text` as `tone` until the next key or paste, such as a
     /// session archived because it collided with an unread result (spec
-    /// section 3.7).
+    /// section 5.7).
     pub fn notice(&mut self, tone: Tone, text: impl Into<String>) {
         self.show(Notice::new(tone, text));
     }

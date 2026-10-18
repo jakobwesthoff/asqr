@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Cleaning up on request (spec section 3.9). asqr deletes nothing on its
+//! Cleaning up on request (spec section 5.9). asqr deletes nothing on its
 //! own apart from drafts, so the archive grows until `asqr prune` runs.
 
 use std::io;

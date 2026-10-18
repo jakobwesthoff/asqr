@@ -100,7 +100,7 @@ impl TerminalEnv {
 /// `sequence` wrapped for tmux's passthrough: tmux hands what is inside
 /// the wrapper to the terminal outside, with every escape inside doubled,
 /// and only where the pane's `allow-passthrough` lets it (spec section
-/// 7.7).
+/// 8.9).
 pub fn passthrough(sequence: &[u8]) -> Vec<u8> {
     let mut wrapped = b"\x1bPtmux;".to_vec();
     for &byte in sequence {

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Atomic writes (spec section 3.5). Every file asqr writes into a queue
+//! Atomic writes (spec section 5.5). Every file asqr writes into a queue
 //! is written to a temp file in the target directory and renamed into
 //! place, so a reader never sees half a file. The temp file carries the
 //! `.tmp` suffix the inbox watcher ignores.

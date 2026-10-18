@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Validation of a parsed session (spec section 4). Every rule beyond the
+//! Validation of a parsed session (spec section 3.4). Every rule beyond the
 //! JSON shape lives here, and every error names the field it is about, so
 //! an error result tells the asker exactly what to fix. All errors are
 //! collected, not just the first, so one round trip fixes a file.
@@ -22,7 +22,7 @@ pub const FORMAT_VERSION: u32 = 2;
 
 /// The context entries one question or option may carry. The format
 /// allows a list, so showing several entries later needs no new format
-/// version (spec section 4).
+/// version (spec section 3.1).
 pub const MAX_CONTEXT_ENTRIES: usize = 1;
 
 /// One problem in a session file, with the path of the field it is about,
@@ -173,7 +173,7 @@ impl fmt::Display for FieldPath {
     }
 }
 
-/// Checks `session` against every rule of spec section 4.
+/// Checks `session` against every rule of spec section 3.4.
 ///
 /// `file_stem` is the name the session has in the inbox. It is `None` for a
 /// file that is not in a queue yet, such as the argument of `asqr ask`,

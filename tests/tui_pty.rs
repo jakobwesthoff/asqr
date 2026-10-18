@@ -346,7 +346,7 @@ fn answers_a_session_that_arrives_while_it_runs() {
     );
 
     // asqr asks for focus reports, so it can send its images again when
-    // it comes back into view (spec section 7.7). A report is no key: in
+    // it comes back into view (spec section 8.8). A report is no key: in
     // the middle of typing an own answer, its escape would leave the
     // field and the y would go nowhere.
     assert!(

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The context pane (spec section 7.7): a header line that names the entry
+//! The context pane (spec section 8.1): a header line that names the entry
 //! shown, and below it the entry's viewer. The same pane fills the tab's
 //! area when the person shows the entry full screen with `z`. Where the
 //! terminal has room for no pane at all, a one-line hint stands in for it.

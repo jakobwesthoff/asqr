@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Finishing a session (spec sections 3.7 and 3.8). Submit, cancel and an
+//! Finishing a session (spec sections 5.7 and 5.8). Submit, cancel and an
 //! error result take one path: write the result, archive the session file,
 //! delete the draft. Each step can run again safely, and the result's
 //! `session_sha256` tells an interrupted finish from a new session that

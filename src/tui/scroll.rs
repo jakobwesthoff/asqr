@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! Scrolling a view that is larger than its place on screen (spec section
-//! 7.2). How far a view can scroll depends on
+//! 7.6). How far a view can scroll depends on
 //! the size it was drawn at, so each draw records what it showed as a
 //! [`Page`], and the keys that follow move within it.
 

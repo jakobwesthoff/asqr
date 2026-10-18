@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! `asqr paths` (spec section 3.2): where the queue and its files are, so
+//! `asqr paths` (spec section 5.2): where the queue and its files are, so
 //! agents and scripts need not know the platform rules.
 
 use std::path::{Path, PathBuf};

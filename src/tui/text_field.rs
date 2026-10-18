@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! A typed field (spec section 7.3): the own answer, the answer of a
+//! A typed field (spec section 7.7): the own answer, the answer of a
 //! `text` question, a question's note, the session note and the reject
 //! reason. What every field does the same lives here: editing its text,
 //! measuring it and drawing it. Where a field's text is kept, and what
@@ -192,7 +192,7 @@ impl TextField {
     /// end; inside the text, and with a modifier held, they move the text
     /// cursor.
     ///
-    /// The editor's other keys keep their meaning (spec section 7.3), but
+    /// The editor's other keys keep their meaning (spec section 7.7), but
     /// for those that scroll its own view: asqr draws the field itself, so
     /// that view never has a size, and scrolling it threw the text cursor
     /// to the start of the text. `tab` never types a tab, which would show
@@ -350,7 +350,7 @@ impl TextField {
     /// as `shape` says: the line, the columns its cell takes, two for a
     /// wide character, and whether the line is the last of the text. The
     /// screen keeps that cell in view and clear of its markers, and on the
-    /// last line the counter below it too (spec section 7.1).
+    /// last line the counter below it too (spec section 7.4).
     pub fn cursor_cell(&self, shape: &FieldShape) -> (usize, Range<usize>, bool) {
         let lines: Vec<&str> = self.editor.lines().iter().map(String::as_str).collect();
         let cursor = self.cursor();
@@ -377,7 +377,7 @@ impl TextField {
     }
 }
 
-/// `text` as a field keeps it (spec section 7.3), for text that reaches
+/// `text` as a field keeps it (spec section 7.7), for text that reaches
 /// a field without being typed: a paste, or a draft. Terminals send a line
 /// break as `\r`, some as `\r\n`; both become `\n`, so the text keeps
 /// its lines. A tab becomes blanks up to the next multiple of 4 columns,
@@ -432,7 +432,7 @@ pub fn resting_lines(
 }
 
 /// The lines a field holding `text` takes however it shows, so the layout
-/// can count them (spec section 7.1): the lines without the keys, and a
+/// can count them (spec section 7.4): the lines without the keys, and a
 /// row for the counter when the field has `limits`, so giving it the keys
 /// adds none. Without a cursor, the cursor's blank after a full line is
 /// left out. A field whose head can take the focus fill is counted
@@ -739,7 +739,7 @@ fn drawn(rows: &[VisualRow]) -> Vec<Line<'static>> {
 // The counter
 // ---------------------------------------------------------------------
 
-/// How a length counter is coloured (spec section 7.3).
+/// How a length counter is coloured (spec section 7.7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
     /// Within the target.

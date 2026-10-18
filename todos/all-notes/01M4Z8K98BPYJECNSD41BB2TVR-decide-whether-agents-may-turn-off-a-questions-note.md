@@ -11,7 +11,7 @@ tags: [ux]
 The user asked on 2026-10-15 whether it makes sense at all that an
 agent can switch off the note of a question. Today every question takes
 a note unless the session file sets `"note": false` on it (spec section
-4, `note`, default `true`; skill: "set `"note": false` to turn it off").
+3.2, `note`, default `true`; skill: "set `"note": false` to turn it off").
 `n` on such a question says that it takes no note.
 
 ## Context

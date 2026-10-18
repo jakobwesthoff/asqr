@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! Viewers show the content of one context entry in the body of the
-//! context pane (spec section 7.7), and [`Viewers`] keeps one per entry
+//! context pane (spec section 8), and [`Viewers`] keeps one per entry
 //! shown, so work that depends only on the entry, or on the entry and the
 //! body's size, is done once. Viewers are built and laid out apart from
 //! drawing (ADR 46); the pane shows a dim `loading…` until its viewer is

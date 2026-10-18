@@ -41,7 +41,7 @@ that key.
   `reason` may contain `\n`. Validation never checks them for line
   breaks.
 - **Review tab:** the summary line of a question shows a line break in
-  the own answer or a `text` answer as `⏎` (spec section 7.4). The
+  the own answer or a `text` answer as `⏎` (spec section 7.8). The
   session note and the reject reason show their lines in their fields.
 - **Wrapping:** a field's text wraps onto as many screen lines as it
   needs, focused or not, and is never cut with `…`. Further lines start
@@ -94,7 +94,7 @@ that key.
 Every field hands the keys it does not handle itself to its editor,
 ratatui-textarea, whose default key table assumes that the editor draws
 itself. asqr draws the field, so each key does the following in a field
-(spec section 7.3):
+(spec section 7.7):
 
 - **Kept:** the editor's moves by character, word, line, paragraph and
   to the first or last line, its deletes, undo, redo and `ctrl-y`.

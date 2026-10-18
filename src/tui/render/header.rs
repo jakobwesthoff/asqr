@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The session in the title bar and the header under it (spec section
-//! 7.1, ADR 47): the title beside `asqr`, then `from`, `follows` and the
+//! 7.2, ADR 47): the title beside `asqr`, then `from`, `follows` and the
 //! intro, which hang under the title. On a low terminal the header gives
 //! its rows to the tab's area, the blank line first, then intro lines.
 

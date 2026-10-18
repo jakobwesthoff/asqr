@@ -58,7 +58,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     let (sender, events) = mpsc::channel();
 
     // The watcher comes first and the first scan second, so no file can
-    // arrive unseen in between (spec section 3.4).
+    // arrive unseen in between (spec section 5.4).
     let inbox_sender = sender.clone();
     let _watcher = watch_inbox(location, move || {
         let _ = inbox_sender.send(Event::InboxChanged);
@@ -78,7 +78,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // Every `Picker` constructor turns passthrough on for the pane. This
     // guard gives the pane its own setting back once the picker is built,
     // or as asqr ends when the pane gets `all` for Kitty images (spec
-    // section 7.7). Made first, it is dropped last, so the deletes of the
+    // section 8.9). Made first, it is dropped last, so the deletes of the
     // Kitty images on quitting still pass from a hidden pane.
     let mut pane = PanePassthrough::snapshot(&env, run_tmux);
 
@@ -144,9 +144,9 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
 
     // Focus reports tell asqr when it comes back into view, so it can send
     // images again whose transfer tmux dropped while it was hidden (spec
-    // section 7.7). tmux forwards them with its `focus-events` option.
+    // section 8.8). tmux forwards them with its `focus-events` option.
     // Bracketed paste sends a paste as one event, so a line break in it is
-    // no `enter` that picks, submits or rejects (spec section 7.3). The TUI
+    // no `enter` that picks, submits or rejects (spec section 7.7). The TUI
     // works without either, and a legacy Windows console refuses bracketed
     // paste, so a refusal is logged and the run goes on.
     if let Err(error) = execute!(io::stdout(), EnableFocusChange) {

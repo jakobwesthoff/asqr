@@ -24,7 +24,7 @@ is its answer.
 ## Decision
 
 The format is JSON. The full description is in `docs/spec.md` sections
-4 and 5, the specification of the current asqr, with the format version
+3 and 4, the specification of the current asqr, with the format version
 named at its top.
 
 Version:
@@ -34,7 +34,7 @@ Version:
 - A file with a lower version is refused with the message that this asqr
   no longer supports format version N and that `asqr skill` describes
   the current format. A version 1 session that waits in a queue when
-  asqr is upgraded gets this as an error result (spec section 3.8), so
+  asqr is upgraded gets this as an error result (spec section 5.8), so
   the waiting agent sees exit code 11 and the hint.
 - An `asqr` value that is no unsigned integer, such as `2.0`, `"2"`, `-1`
   or `true`, is refused as "unsupported format version" with the value
@@ -150,7 +150,7 @@ Results and drafts:
   `submitted`, `cancelled` or `error`. There are no partial submits.
 - Results carry `session_sha256` over the session file's bytes.
 - A submitted result carries the session note (ADR 29).
-- Answer state (spec section 5.2): a default counts as answered, and the
+- Answer state (spec section 4.2): a default counts as answered, and the
   answer carries `defaulted: true` until the person edits the question.
   A question's note never answers the question. `min` and `max` only apply once
   something is selected. Custom text that is empty after trimming does

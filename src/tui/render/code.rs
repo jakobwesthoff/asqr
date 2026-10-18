@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The viewer of code entries (spec section 7.7, ADR 34): text exactly as
+//! The viewer of code entries (spec section 8.6, ADR 34): text exactly as
 //! written, highlighted by patine, with its line numbers in a dim gutter.
 //! Lines never wrap; the pane scrolls sideways under the gutter.
 

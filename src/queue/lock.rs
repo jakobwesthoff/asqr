@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! One asqr instance per queue (spec section 3.6, ADR 14). The TUI holds
+//! One asqr instance per queue (spec section 5.6, ADR 14). The TUI holds
 //! an advisory lock on `<queue>/lock` for as long as it runs. The kernel
 //! releases the lock when the process ends, however it ends, so a lock can
 //! never go stale. The pid and host name written into the file only serve

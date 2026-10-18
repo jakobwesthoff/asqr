@@ -1,7 +1,7 @@
 {
   "$defs": {
     "Answer": {
-      "description": "The answer to one question. Which fields appear depends on the question\nkind and the answer state (spec section 5.2).",
+      "description": "The answer to one question. Which fields appear depends on the question\nkind and the answer state (spec section 4.2).",
       "properties": {
         "custom": {
           "type": [
@@ -111,7 +111,7 @@
       ]
     },
     "session_sha256": {
-      "description": "The SHA-256 of the session file's bytes as read from the inbox. It\nties the result to one version of a session that may have been\nreplaced, and lets recovery tell an interrupted finish from a new\nsession under the same id (spec section 3.7). Absent in drafts.",
+      "description": "The SHA-256 of the session file's bytes as read from the inbox. It\nties the result to one version of a session that may have been\nreplaced, and lets recovery tell an interrupted finish from a new\nsession under the same id (spec section 5.7). Absent in drafts.",
       "type": [
         "string",
         "null"

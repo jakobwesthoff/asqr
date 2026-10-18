@@ -62,7 +62,7 @@ On the review tab, submitting is what usually follows.
   a terminal bell. Both can be switched off. Inside tmux the
   notification goes out in tmux's passthrough wrapper and needs
   passthrough for asqr's pane; without it only the bell reaches the
-  person. A hint for this in the TUI is an open item (spec section 11).
+  person. A hint for this in the TUI is an open item (spec section 10).
 - **Later:** `asqr answer <file>`, which answers one file in the current
   terminal without a queue.
 

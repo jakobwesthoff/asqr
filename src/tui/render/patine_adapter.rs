@@ -20,7 +20,7 @@ const CONTINUATION: &str = "↪ ";
 /// How Markdown quotes look wherever asqr renders Markdown: a blue bar,
 /// apart from the cyan that marks what can be acted on, and a dim one
 /// under `NO_COLOR`. The colours come off the finished screen there and
-/// dim stays (spec section 8), so a blue bar would be left in the text
+/// dim stays (spec section 7.3), so a blue bar would be left in the text
 /// colour, like the quoted text beside it.
 pub(crate) const fn quote_style(no_color: bool) -> QuoteStyle {
     if no_color {

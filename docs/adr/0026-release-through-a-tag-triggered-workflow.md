@@ -23,7 +23,7 @@ no binaries.
 - A release's title is the tag and its body is empty.
 - Targets: `aarch64-apple-darwin`, `x86_64-apple-darwin`,
   `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. There is
-  no Windows build, as Windows support is out of scope (spec section 11).
+  no Windows build, as Windows support is out of scope (spec section 10).
 - The actions are pinned to commit SHAs, as in ADR 19.
 - No project website yet.
 

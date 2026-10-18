@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Telling the person that sessions arrived (spec section 7.5): a desktop
+//! Telling the person that sessions arrived (spec section 7.9): a desktop
 //! notification through an OSC escape sequence, and the terminal bell.
 
 use std::io::{self, Write};
