@@ -1,6 +1,6 @@
 # 40. Set the terminal title
 
-Date: 2026-10-15
+Date: 2026-10-16
 
 ## Status
 
@@ -13,7 +13,7 @@ screen
 ## Context
 
 asqr runs in a terminal of its own, often in a tab the person does not
-look at. Until now its state showed only inside the window, plus a
+look at. Without a title its state shows only inside the window, plus a
 desktop notification and the bell when a session arrives (spec section
 7.5). asqr shows the number of waiting sessions in the terminal title,
 as `asqr · {n} waiting`, with a `--no-title` flag that switches it off
@@ -136,8 +136,9 @@ in its tab title, would keep `asqr · N waiting` after asqr ended.
 
 On a panic, ratatui's panic hook leaves the alternate screen before the
 unwinding drops the guard that writes the empty title and the pop
-(ratatui 0.30.2, `src/init.rs` lines 566-572). There they land on the
-main screen.
+(ratatui 0.30.2, `src/init.rs` lines 566-572). asqr therefore puts a
+panic hook in front of ratatui's, which writes the empty title and the
+pop before ratatui's hook leaves the alternate screen (ADR 42).
 
 ### tmux
 
@@ -172,10 +173,3 @@ showed before asqr. Accepted gaps, where they do not:
   version 2.15's binary, not on its source.
 
 Under `--no-title` asqr leaves the terminal's title alone.
-
-## Amendment (2026-10-16, a panic gives the title back on the alternate screen)
-
-asqr puts a panic hook in front of ratatui's, which writes the empty
-title and the pop before ratatui's hook leaves the alternate screen
-(ADR 42). This replaces the statement above that on a panic they land
-on the main screen.

@@ -48,4 +48,4 @@ field. Longer answers and notes can then be written with a real editor.
 - Editor exits with an error, or the file is unchanged: keep the field
   as it was.
 - The key goes into the key bar of every typed field and into the
-  help, spec section 7.2 and an ADR amendment of ADR 0036.
+  help, spec section 7.2 and a change to ADR 0036.

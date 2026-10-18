@@ -16,15 +16,11 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 
 ## Context
 
-- ADR 31 split a viewer's start into building it when its entry was
-  first shown and a `load` step. The only caller loaded each viewer right
-  after building it, and laying out or drawing a viewer not loaded
-  panicked. Building the viewer is its loading;
-  there is no separate `load` step.
-- All of it ran on the thread that draws the screen: reading, patine's
-  highlighting, the diff and decoding an image while the viewer was
-  built; rendering Markdown and scaling and encoding an image while it
-  was laid out, again at every new size of the pane.
+- Building a context viewer reads its file and prepares its content:
+  patine's highlighting, the diff, decoding an image. Laying it out
+  renders Markdown and scales and encodes an image, again at every new
+  size of the pane (ADR 31). On the thread that draws the screen, all
+  of it holds up every key.
 - Measured with release builds: building the viewer of the
   first 8 MiB of a log took 31.7 s, 23.0 s of it highlighting with the
   log grammar, at about 0.19 ms a line. In a terminal, the key that moved
@@ -54,9 +50,9 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 - A code entry longer than 1 MiB stays plain. Below that, an entry shows
   once it is highlighted, with no plain first pass. Markdown keeps its
   highlighted code blocks at any size.
-- The entry shown gets a thread of its own at once while fewer such
-  jobs run than one fewer than the cores, at least one (one on one or
-  two cores); past that its job goes first in the queue of the thread
+- The entry shown gets a thread of its own at once while fewer than
+  max(1, cores − 1) such jobs run, which is one on one or two cores;
+  past that its job goes first in the queue of the thread
   that loads ahead. Loading ahead runs on one background thread in the
   window's order; the entry shown takes its job out of that queue when
   it has not started.

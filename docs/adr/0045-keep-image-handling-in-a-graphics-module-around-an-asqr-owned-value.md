@@ -6,8 +6,6 @@ Date: 2026-10-16
 
 Accepted
 
-Amends [8. TUI interaction model](0008-tui-interaction-model.md)
-
 Amends [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md)
 
 Amends [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
@@ -25,25 +23,25 @@ the screen mends a Kitty image once the overlays are drawn
 
 ## Context
 
-- ADR 8 has the library take the detected image protocol as
-  ratatui-image's `Picker`. The picker was handed through the view, the
-  tab, the viewers and the encoder, and about sixty tests built one with
+- The library took the detected image protocol as ratatui-image's
+  `Picker`. The picker was handed through the view, the tab, the viewers
+  and the encoder, and about sixty tests built one with
   `Picker::halfblocks()`.
 - Every `Picker` constructor in ratatui-image 12.0.0-rc.2 runs
   `tmux set -p allow-passthrough on` when `TERM` starts with `tmux` or
   `TERM_PROGRAM` is `tmux`. A test run inside tmux set the test's own
-  pane to `on`, also where the person had `all`. The `just test` recipe
-  set a plain `TERM` and an empty `TERM_PROGRAM` to avoid it.
+  pane to `on`, also where the person had `all`: with a stand-in `tmux`
+  that notes its calls and `TERM=tmux-256color`, the library's tests
+  called `tmux set -p allow-passthrough on` 272 times.
 - The image code lived in one file of the screen's module, next to
   terminal detection, while the other half of detection, the snapshot
   and restore of the pane's `allow-passthrough`, lived in the binary.
 - The screen was cleared after an overlay closed over an image under
-  every protocol, although ADR 31 names Sixel and iTerm2 as the reason,
-  and the images were read and sent again on every focus gain, although
-  ADR 24 names Kitty transfers that tmux with `on` drops.
+  every protocol, although only Sixel and iTerm2 need it (ADR 31), and
+  the images were read and sent again on every focus gain, although
+  only Kitty transfers that tmux with `on` drops need it (ADR 24).
 - A module of its own around an asqr-owned value lets both policies key
-  on the protocol and the passthrough. It comes after the move to
-  12.0.0-rc.2.
+  on the protocol and the passthrough.
 
 ## Decision
 
@@ -81,14 +79,14 @@ the screen mends a Kitty image once the overlays are drawn
   ratatui-image's picker.
 - A test run runs no `tmux` command, also in a terminal that names
   tmux, and the `just test` and `just coverage` recipes set no `TERM` of
-  their own. Checked with a stand-in `tmux` that notes its
-  calls first on the path and `TERM=tmux-256color`: the whole test run
-  called it 0 times, where the library's tests before this change
-  called `tmux set -p allow-passthrough on` 272 times. The comparison
-  with the picker checks nothing in such a terminal.
-- An image is decoded when its viewer is built (ADR 46) and encoded for
-  the body's size when the viewer is laid out, once per size, with
-  ratatui-image's fixed-size protocols. A failed encoding drops the decoded picture.
+  their own. Checked with a stand-in `tmux` that notes its calls first
+  on the path and `TERM=tmux-256color`: the whole test run calls it 0
+  times. The comparison with the picker checks nothing in such a
+  terminal.
+- An image is decoded when its viewer is built and encoded for the
+  body's size when the viewer is laid out, once per size, both on a
+  worker (ADR 46), with ratatui-image's fixed-size protocols. A failed
+  encoding drops the decoded picture.
 - Under half blocks and the Kitty protocol, closing an overlay over an
   image does not redraw the whole screen. Outside tmux with `on`,
   regaining the focus does not read the images again or write the

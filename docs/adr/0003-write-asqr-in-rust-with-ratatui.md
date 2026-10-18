@@ -18,7 +18,7 @@ asqr is written in Rust (edition 2024) with `ratatui` and `crossterm`.
 
 - `ratatui-image` shows images through the Kitty graphics protocol, the
   iTerm2 protocol or Sixel, and picks the one the terminal supports.
-- `tui-textarea` edits text over several lines.
+- `ratatui-textarea` edits text over several lines.
 - The result is one small binary that is installed with `cargo install`.
 
 Rejected: Bun with Ink or OpenTUI. Ink has no image support and only

@@ -17,7 +17,7 @@ the design asqr has by then.
 ## The idea
 
 asqr shows at most one context image per frame (`draw_pane` runs once per
-frame; an option's image replaces the question's, ADR 25; the review
+frame; an option's image replaces the question's, ADR 28; the review
 shows none). Instead of a fresh random Kitty id per encode plus deleting
 every dropped id after the frame (ADR 42, built on 2026-10-15), each asqr
 process would own two Kitty ids and send every new transmission,
@@ -35,7 +35,7 @@ alternating ids for animations).
   holds an earlier picture, so the placeholders, now pointing at it, show
   that earlier picture: a wrong image instead of an empty one. With fresh
   ids the same drop leaves the area empty until the focus-gain re-send.
-  For images under options (ADR 25) a wrong picture is worse than none.
+  For images under options (ADR 28) a wrong picture is worse than none.
   (Reviews: OR4 and FR4 in the logbook ledger.)
 - **Re-sends while browsing.** Today the images of a session stay in the
   terminal while it waits, so going back to an image shows it at once.

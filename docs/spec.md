@@ -110,8 +110,8 @@ are not supported: the lock is per host (section 3.6).
   keeps the spelling it was given, and so does its draft. Lookups search
   directory listings case-insensitively instead of building a path from
   the id.
-- Ids asqr creates are ULIDs: the ids `asqr ask` assigns, the ids `asqr
-  new` writes, and the suffix of archive names.
+- Ids asqr creates are ULIDs: the ids `asqr ask` assigns and the suffix
+  of archive names.
 
 ### 3.4 What the watcher considers
 
@@ -360,7 +360,7 @@ Question fields:
   none, on a question and on an option.
 - `note` (optional, default `true`): whether the person may add a note.
   One note per question.
-- Every question is optional (ADR 23): there is no way to force an
+- Every question is optional (ADR 28): there is no way to force an
   answer, and a skipped question comes back as `skipped: true`. Files
   that still set the former `required` field parse as before; the field
   is ignored and reported as unknown.
@@ -543,7 +543,7 @@ Otherwise it is **skipped**.
 - A note never answers a question. A skipped question keeps its note.
 - `min` and `max` only apply once something is selected, so a `multi`
   with `min: 2` can be skipped. They count the picked options; the own
-  answer of a `multi` comes on top of them (ADR 23).
+  answer of a `multi` comes on top of them (ADR 28).
 - Nothing blocks a submit: every question is optional.
 - Typed text and notes go into the result as typed; only the check
   whether they are empty trims them. Every typed field takes line
@@ -673,7 +673,7 @@ has context (ADRs 30 and 31):
   between 2 and 3 items", "pick at least 2 items", "pick up to 3 items",
   "pick 2 items", "pick any" or "type your answer". A `single` with
   `custom` adds ", or type your own"; a `multi` does not mention its own
-  answer, which people find on their own (ADR 23).
+  answer, which people find on their own (ADR 8).
 - Options show `( )`/`(•)` in a `single` and `[ ]`/`[x]` in a `multi`,
   a chosen mark bold in the primary colour and the option's number dim.
   Option descriptions start after the widest label and wrap under
@@ -889,16 +889,16 @@ a frame:
   every key that produces text types into it. `←`/`→` and `↑`/`↓` move
   the text cursor (see below), and `esc` leaves the field while the
   cursor stays. `←` with the text cursor at the start of the text goes
-  to the previous question, `→` at its end to the next one (ADR 23). After `esc`, `↑`/`↓` move on as usual; where the move
-  cannot leave the row (the single row of a `text` question, `↓` on the
-  last row), they focus the field again. `enter` picks the own answer
-  and moves on, like an option. `ctrl-j` adds a line, as in every
-  field (ADR 36). A text longer than the line wraps onto further lines
-  under its start, after the row's head, focused or not, and is never
-  cut with `…`. Every line after the first starts there too. When the
-  head leaves the text less than 20 columns, the further lines start 4
-  columns in (ADR 27). On a `multi` question the own answer
-  counts once it has text.
+  to the previous question, `→` at its end to the next one (ADR 36).
+  After `esc`, `↑`/`↓` move on as usual; where the move cannot leave the
+  row (the single row of a `text` question, `↓` on the last row), they
+  focus the field again. `enter` picks the own answer and moves on, like
+  an option. `ctrl-j` adds a line, as in every field (ADR 36). A text
+  longer than the line wraps onto further lines under its start, after
+  the row's head, focused or not, and is never cut with `…`. Every line
+  after the first starts there too. When the head leaves the text less
+  than 20 columns, the further lines start 4 columns in (ADR 36). On a
+  `multi` question the own answer counts once it has text.
 - **A `text` question's answer** is a field that is active when the
   question is shown. It grows with its lines; `ctrl-j` adds a line, and
   `enter` moves on. `←`/`→` at the start or end of its text switch
@@ -998,7 +998,7 @@ and defaulted questions, the numbers bold and the words dim, then:
   bold, brackets included, so it stays apart from the focus fill without
   colours (ADR 37). With the cursor on it, the pointer before it is bold
   yellow. `enter` submits. The review tab opens with the cursor here
-  (ADR 23), and the keys stay commands on this row.
+  (ADR 8), and the keys stay commands on this row.
 - **Note to the asker**: a live field for an optional note to the whole
   session; `enter` submits with it (ADR 29). There is no `n` on the
   review tab.
@@ -1505,7 +1505,7 @@ The skill teaches:
 
 - that it is used only when the user explicitly asks the agent to use
   asqr; the skill's description says so, and an agent never switches to
-  asqr on its own (ADR 23)
+  asqr on its own (ADR 6)
 - once asked, when asqr fits better than a question in the chat
 - `asqr paths`, `asqr new` and the format, with a short example
 - the main waiting pattern, which works under any command time limit:
@@ -1588,7 +1588,7 @@ newest version.
   --all-features -- -D warnings`, `cargo test --all-targets` and `cargo
   test --doc`. Zero warnings, from the start.
 - Coverage runs in CI and on demand with `just coverage` (`cargo
-  llvm-cov`), not in the hook (ADR 21). It is reported without a
+  llvm-cov`), not in the hook (ADR 11). It is reported without a
   threshold, and review checks that every written or changed line is
   covered.
 - GitHub Actions runs `just check` and `just coverage` on Ubuntu and

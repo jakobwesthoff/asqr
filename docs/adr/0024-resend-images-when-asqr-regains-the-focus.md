@@ -6,10 +6,8 @@ Date: 2026-09-28
 
 Accepted
 
-Amends [8. TUI interaction model](0008-tui-interaction-model.md)
-
-The consequence that asqr does not delete the earlier copies is
-superseded by [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-images-the-terminal-no-longer-shows.md)
+Amended by [42. Delete Kitty images the terminal no longer shows](0042-delete-kitty-images-the-terminal-no-longer-shows.md):
+asqr deletes the earlier copies of the images it sends again
 
 Amended by [44. Pass Kitty images through tmux from a hidden pane](0044-pass-kitty-images-through-tmux-from-a-hidden-pane.md):
 under the Kitty protocol inside tmux 3.4 or later, asqr sets
@@ -41,16 +39,18 @@ In a separate tmux server attached from Ghostty:
 - tmux forwards focus reports to the pane when the person switches to
   its window, and so does the terminal when it gets the focus back.
 
-ADR 8 names `allow-passthrough on` as the tmux requirement.
-
 ## Decision
 
 - asqr asks the terminal for focus reports. When its terminal gains the
-  focus, asqr forgets the images it has loaded, so each one is read and
-  sent again as it is next drawn.
-- README and spec recommend `set -g allow-passthrough all` instead of
-  `on`, and say that with `on` asqr depends on focus reports, which tmux
-  only forwards with `focus-events on`.
+  focus, and the images go out under the Kitty protocol behind tmux with
+  `allow-passthrough on` or behind a tmux asqr cannot ask (ADR 45), asqr
+  forgets the images a frame showed and loads them again behind the
+  placeholder (ADR 46), so each one is read and sent again. An image
+  loaded ahead and never shown has sent nothing and stays.
+- README and spec recommend `set -g allow-passthrough all`, and say
+  that with `on` asqr depends on focus reports, which tmux only forwards
+  with `focus-events on`. Under the Kitty protocol inside tmux 3.4 or
+  later, asqr sets `all` for its own pane (ADR 44).
 
 ## Consequences
 
@@ -58,9 +58,9 @@ ADR 8 names `allow-passthrough on` as the tmux requirement.
   hidden window appears when the person switches to it. With
   `focus-events off` it stays empty until asqr restarts; `all` avoids
   the problem entirely.
-- Every focus change reads and sends the images shown after it again,
-  including those that were fine. asqr does not ask the terminal to
-  delete the earlier copies.
+- Every focus change where the rule applies reads and sends the images
+  shown again, including those that were fine. asqr deletes the earlier
+  copies (ADR 42).
 - A switch done by a tmux command while the terminal itself has no focus
   sends no focus report; the image appears once the terminal gets the
   focus.

@@ -14,13 +14,13 @@ that.
 
 ## Decision
 
-`X` rejects the whole session after a confirmation. The person may give
-a reason. The result has the status `cancelled` and the reason in
-`reason`.
+The review tab holds Reject, a row with a live field for an optional
+reason (ADR 8). `enter` there rejects the whole session. The result has
+the status `cancelled` and the reason in `reason`.
 
 Rejected: rejecting without a reason, and having no way to reject.
 
 ## Consequences
 
 Askers have to handle `cancelled` and should show the reason. `asqr ask
---wait` exits with 1 for it.
+--wait` exits with 10 for it.

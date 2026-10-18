@@ -17,8 +17,8 @@ Amends [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md)
 Above the tabs the screen showed four kinds of line without space
 between them: the title bar with `asqr`, the queue and the count; the
 session's title with `from` and `follows`; the intro, dimmed, in up to
-three lines; then the tab bar. The area is squeezed, and little in it
-registers except the questions.
+three lines; then the tab bar. The area looked squeezed, and only the
+questions stood out.
 
 The title line also cost the context pane its place. At 80×24, a
 session whose title, `from` and `follows` id did not fit one line took
@@ -31,15 +31,18 @@ and the pane shrank to its one-line hint.
 - **Title in the title bar:** the session's title stands next to `asqr`
   in the title bar. `from`, `follows` and the intro hang under it,
   indented to the title's first column, with a blank line before the
-  tab bar. The intro takes at most two lines.
-- **Intro in the text colour** instead of dim.
+  tab bar. The intro takes at most two lines, wraps at the reading width
+  (ADR 30), and a cut intro ends in `… i: more`; `i` shows the whole
+  intro (ADR 30). The tab bar keeps the full width. The skill explains
+  what the intro is for.
+- **Intro in the text colour**, with patine's styles (ADR 35).
 - **The header gives way** before the context pane drops to its hint:
   first its blank line, then intro lines.
-- **The count is dim** beside a session, like the queue, rather than in the
-  text colour ADR 37 gives the count in the title line.
+- **The count is dim** like the queue, in every title bar (ADR 37).
 - Where the title and the queue do not both fit, the queue goes before
   the title is cut. The title takes one line.
-- The empty queue keeps its title bar as it was.
+- On the empty queue the title bar shows `asqr`, the queue and the
+  count, without a session title.
 - The title starts in column 7, after ` asqr` and two blanks, and ends
   where the question's reading width ends. The queue and `N waiting`
   stand at the right end of the bar, a column before the edge; the
@@ -54,13 +57,11 @@ and the pane shrank to its one-line hint.
 - A title, `from` or `follows` with line breaks shows on one line with
   single blanks.
 
-### The alternative: accent bar
-
-An alternative is a bar `▎` in the primary colour left of the title,
+Rejected: an accent bar `▎` in the primary colour left of the title,
 the intro in the text colour and the `from` and `follows` line, with a
 blank line above and below, while the title bar keeps the queue and the
-count. It took 7 rows above the tabs at 110×32, lost the context pane to its hint at 80×24,
-and needed a new use of the primary colour.
+count. It took 7 rows above the tabs at 110×32, lost the context pane to
+its hint at 80×24, and needed a new use of the primary colour.
 
 ## Consequences
 
@@ -70,10 +71,3 @@ and needed a new use of the primary colour.
 - A session's title takes one line.
 - A session without `from`, `follows` and intro has no header row on
   terminals of 20 rows or fewer, and its tab has that row.
-
-## Amendment (2026-10-16, the count on the empty queue)
-
-The count is dim on the empty queue too, so the queue and the count
-are dim in every title bar. This replaces "The empty queue keeps its
-title bar as it was." above; the empty queue's bar keeps its words and
-its order.

@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The state of one session while the person answers it (spec sections
-//! 5.2 and 7.1 to 7.4, ADR 22), driven by key events and nothing else.
+//! 5.2 and 7.1 to 7.4, ADR 8), driven by key events and nothing else.
 //!
 //! A session is a row of tabs: one per question and the review last. Each
 //! tab is a list of rows: the options and the own answer, a text answer,

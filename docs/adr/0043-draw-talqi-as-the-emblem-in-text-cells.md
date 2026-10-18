@@ -6,20 +6,14 @@ Date: 2026-10-15
 
 Accepted
 
-Supersedes [39. Show the mascot on the empty queue](0039-show-the-mascot-on-the-empty-queue.md)
-
-Supersedes [41. Show Talqi as a braille outline under NO_COLOR](0041-show-talqi-as-a-braille-outline-under-no-color.md)
-
 ## Context
 
-ADR 39 shows Talqi on the empty queue as a painted picture: through the
-terminal's image protocol, or in half blocks of the picture's colours,
-awake before the first session and asleep after. ADR 41 shows a braille
-outline of the terminal emblem (`assets/emblem/talqi-terminal.svg`)
-under `NO_COLOR`.
-
-Talqi is drawn as the emblem in text cells, with colours and without,
-in place of the picture and the braille outline.
+With no session waiting, the main area holds one centred sentence,
+"Nothing to answer. New sessions show up here as soon as they arrive.",
+and is otherwise empty. That space shows asqr's mascot, the chameleon
+Talqi (pronounced like "talkie"), whom the design guide names, as the
+terminal emblem (`assets/emblem/talqi-terminal.svg`) drawn in text
+cells, with colours and without.
 
 What the choice of glyphs rests on:
 
@@ -54,8 +48,7 @@ What the choice of glyphs rests on:
 
 What the empty queue shows:
 
-- The standard terminal emblem, the same for the whole run. There is no
-  awake and asleep.
+- The standard terminal emblem, the same for the whole run.
 - A fixed block of 44 columns by 22 rows. With colours, each cell is a
   glyph with a 24-bit foreground and background. Under `NO_COLOR`, it is
   the emblem's outline without any colour.
@@ -116,8 +109,7 @@ The templates:
           --fg white --bg black <mask>.png
 
 - The script checks that every template has 22 lines and that the
-  outlines hold no escape character. A second run of the script wrote
-  the same four files.
+  outlines hold no escape character.
 
 Reading and drawing:
 
@@ -139,8 +131,9 @@ Size and place:
 
 - Talqi shows when the main area has room for the emblem's 22 rows, a
   blank row and the 3 rows kept for the sentence, 26 rows, and for its
-  44 columns, with colours and under `NO_COLOR`. Otherwise the sentence
-  stands alone. The main area has 6 rows less than the terminal, so
+  44 columns, with colours and under `NO_COLOR`, except while the dialog
+  of an invalid session shows (ADR 49). Otherwise the sentence stands
+  alone. The main area has 6 rows less than the terminal, so
   Talqi needs a terminal of at least 32 rows.
 - Emblem, blank row and sentence form one group, centred down the main
   area, with the emblem centred across.
@@ -156,11 +149,11 @@ Choosing the glyphs, once at start:
   `LC_TERMINAL`, `VTE_VERSION`, `KONSOLE_VERSION` and the rest of the
   variables above.
 - Inside tmux, the environment does not count. The one
-  `tmux display-message -p` asqr runs at start asks for
-  `#{allow-passthrough}`, `#{session_attached}` and
-  `#{client_termtype}`, separated by tabs since the termtype holds
-  blanks, and its answer serves both the graphics query (spec section
-  7.7) and the glyphs. The termtype decides by its prefix and version.
+  `tmux display-message -p` asqr runs at start (ADR 44) asks for
+  `#{client_termtype}` among its fields, separated by tabs since the
+  termtype holds blanks, and its answer serves both the graphics query
+  (spec section 7.7) and the glyphs. The termtype decides by its prefix
+  and version.
   An empty or unknown termtype, or no answer from tmux, gives quadrants.
 - Version floors are the first versions above. A version is read as the
   numbers at its start, separated by dots; a pre-release such as
@@ -176,10 +169,8 @@ Choosing the glyphs, once at start:
 
 - Talqi does not show on terminals of fewer than 32 rows, 80×24
   included, with colours or without.
-- Talqi sends no image. asqr holds no pictures `talqi-awake.webp` and
-  `talqi-asleep.webp`, no braille outline and no code that scales,
-  encodes or draws a picture, and uses ratatui-image for nothing of
-  Talqi.
+- Talqi sends no image, and asqr uses no image protocol and no
+  ratatui-image for Talqi.
 - Under `NO_COLOR`, no SGR with a colour other than the terminal's
   defaults reaches the terminal while the empty queue shows. A test in a
   pseudo-terminal checks the output for 38, 48 and the palette codes.

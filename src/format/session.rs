@@ -332,7 +332,7 @@ pub struct CustomConfig {
 
 /// How long typed text should be (spec section 7.3). Both parts are
 /// optional; validation checks that they are consistent. There is no hard
-/// limit: the counter guides, and input is never refused (ADR 22).
+/// limit: the counter guides, and input is never refused (ADR 8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Length {
     /// The range the text should land in.

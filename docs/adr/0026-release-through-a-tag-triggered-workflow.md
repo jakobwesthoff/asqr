@@ -6,15 +6,12 @@ Date: 2026-10-06
 
 Accepted
 
-Supersedes [20. Use asqr locally before publishing it](0020-use-asqr-locally-before-publishing-it.md)
-
 ## Context
 
-ADR 20 left the decision to publish open and considered prebuilt
-binaries next to crates.io. asqr is published: versions 0.9.0 to 0.10.0
-are on crates.io. The GitHub releases for v0.9.0 to v0.9.2 were created
-without a workflow, with the version as title, release notes as
-body and no binaries.
+asqr is published on crates.io, and prebuilt binaries were considered
+next to it. The GitHub releases for v0.9.0 to v0.9.2 were created
+without a workflow, with the version as title, release notes as body and
+no binaries.
 
 ## Decision
 
@@ -29,3 +26,10 @@ body and no binaries.
   no Windows build, as Windows support is out of scope (spec section 11).
 - The actions are pinned to commit SHAs, as in ADR 19.
 - No project website yet.
+
+## Consequences
+
+- Publishing to crates.io stays a manual `cargo publish`; the workflow
+  only makes the GitHub release.
+- The workflow can also be started by hand for a tag that already
+  exists, for a tag pushed before the workflow or a run that failed.

@@ -1,12 +1,10 @@
 # 6. Integrate agents through a bundled skill first
 
-Date: 2026-09-27
+Date: 2026-09-28
 
 ## Status
 
 Accepted
-
-Amended by [23. Refine the interaction after the first real use](0023-refine-the-interaction-after-the-first-real-use.md)
 
 ## Context
 
@@ -15,7 +13,7 @@ that explains the files and the CLI, or through an MCP server.
 
 ## Decision
 
-Version 1 ships a skill at `skills/asqr/SKILL.md`. The skill explains:
+asqr ships a skill at `skills/asqr/SKILL.md`. The skill explains:
 
 - the file format
 - `asqr paths`
@@ -26,6 +24,10 @@ Version 1 ships a skill at `skills/asqr/SKILL.md`. The skill explains:
 The skill is compiled into the binary. `asqr skill` prints it and
 `asqr skill --install <dir>` writes it, so the installed skill always
 matches the installed asqr.
+
+The skill's description and its "When to use it" section say that it is
+used only when the user explicitly asks for asqr. An agent may mention
+asqr but never switches to it on its own.
 
 An MCP server (`asqr mcp`, stdio) comes later as a thin layer on the same
 queue code.

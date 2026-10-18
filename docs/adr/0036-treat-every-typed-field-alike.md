@@ -6,82 +6,66 @@ Date: 2026-10-14
 
 Accepted
 
-Amends [22. Answer in place with a tab bar and a review step](0022-answer-in-place-with-a-tab-bar-and-a-review-step.md)
+Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
-Amends [27. Wrap the own answer and the reject reason](0027-wrap-the-own-answer-and-the-reject-reason.md)
-
-Supersedes the one-line own answer of [7. Session and result format version 1](0007-session-and-result-format-version-1.md)
-
-Supersedes the one-line own answer of [22. Answer in place with a tab bar and a review step](0022-answer-in-place-with-a-tab-bar-and-a-review-step.md)
-
-Supersedes the one-line value of [27. Wrap the own answer and the reject reason](0027-wrap-the-own-answer-and-the-reject-reason.md)
-
-Supersedes the one-line session note of [29. Let the person add a note to the whole session](0029-let-the-person-add-a-note-to-the-whole-session.md)
+Amends [29. Let the person add a note to the whole session](0029-let-the-person-add-a-note-to-the-whole-session.md):
+the session note takes several lines
 
 ## Context
 
 asqr has five typed fields: the own answer, the answer of a `text`
 question, a question's note, the note to the whole session and the
-reject reason. They followed different rules.
-
-Two of them took several lines: the `text` answer and the question's
-note, where `ctrl-j` added a line. The own answer, the session note and
-the reject reason were one line (ADRs 7, 22, 27 and 29). There, `ctrl-j`
-did nothing, and a pasted line break became a blank.
-
-They also differed in `↑`/`↓`:
-
-- In the own answer, the `text` answer, the session note and the reject
-  reason, `↑`/`↓` left the row at once (ADR 22), from any of the rows a
-  long text wraps onto (ADR 27). A `text` question has only one row, so
-  there `↑` did nothing at all: the cursor could not reach an earlier
-  line of a multi-line answer.
-- In a question's note, `↑`/`↓` moved the text cursor between the
-  note's lines, as the editor does.
-
-One rule holds for every typed field, for three reasons:
+reject reason. One rule holds for every typed field, for three reasons:
 
 - There is no reason for a field to refuse line breaks.
 - One rule for every typed field: `enter` acts, `ctrl-j` adds a line.
-- A pasted structured answer, such as a list, kept its structure only in
-  some fields and lost it in the others.
+- A pasted structured answer, such as a list, has to keep its structure
+  in every field.
+
+If the arrows only moved the text cursor in a field, a person could not
+reach other questions without first pressing `esc`, and would not find
+that key.
 
 ## Decision
 
-- **Several lines everywhere:** the own answer, the session note and the
-  reject reason take line breaks like the `text` answer and the
-  question's note. `ctrl-j` adds a line in every typed field, and every
-  key bar of a field shows it.
+- **Several lines everywhere:** every typed field takes line breaks.
+  `ctrl-j` adds a line in every typed field, and every key bar of a field
+  shows it.
 - **`enter` keeps its action:** on the own answer it picks the own answer
   and moves on, in the session note it submits, in the reject reason it
   rejects, in a `text` answer it moves on, and in a question's note it
   returns to the row.
 - **Paste:** a pasted text keeps its line breaks in every field. `\r`
-  and `\r\n` still become `\n`.
-- **Results:** `custom`, the session `note` and `reason` may contain
-  `\n`, as `custom` of a `text` answer and a question's `note` already
-  could. The format stays version 2: the fields keep their names and
-  types, and validation never checked them for line breaks.
+  and `\r\n` become `\n`.
+- **Results:** `custom`, the session `note`, a question's `note` and
+  `reason` may contain `\n`. Validation never checks them for line
+  breaks.
 - **Review tab:** the summary line of a question shows a line break in
-  the own answer as `⏎`, as it does for a `text` answer (spec section
-  7.4). The session note and the reject reason show their lines in their
-  fields.
+  the own answer or a `text` answer as `⏎` (spec section 7.4). The
+  session note and the reject reason show their lines in their fields.
+- **Wrapping:** a field's text wraps onto as many screen lines as it
+  needs, focused or not, and is never cut with `…`. Further lines start
+  under the start of the text, after the row's head. When the head
+  leaves the text less than 20 columns, further lines start 4 columns
+  in instead; the first line still starts after the head. The head holds
+  the asker's label for the own answer.
+- **Counter:** the counter of a focused field with a length stands on a
+  line of its own after the text.
 - **Rows as drawn:** `↑`/`↓` move the text cursor to the row above or
   below as the field shows it, which is the wrapped output, not the
   text's lines. A long text without line breaks is one line but several
   rows, and `↑` moves up a row.
-- **Leaving:** a field is left with `↑` only from its first row and with
-  `↓` only from its last row, as `←` leaves only at the start of the
-  text and `→` only at its end. A question's note, which is not a row,
-  keeps the cursor where it is there.
+- **Leaving:** `←` with the text cursor at the start of a field's text
+  goes to the previous question, `→` at the end to the next one. Inside
+  the text the arrows move the cursor, and `esc` leaves the field. A
+  field is left with `↑` only from its first row and with `↓` only from
+  its last row. A question's note, which is not a row, keeps the cursor
+  where it is there. The help lists these rules; the key bar inside a
+  field does not, as it is full at 60 columns.
 - **The column:** the cursor goes to the same display column in the row
   it moves to, or to the end of a shorter row. While `↑` and `↓` follow
   each other, the column they started from is kept, so passing a short
   row does not lose it.
-- **Key bars:** the key bars of the own answer, the session note and
-  the reject reason drop their `↑/↓ leave` and `↑ back` hints, which no
-  longer held. The help states the rule.
-
 - **One component:** every typed field is the same component,
   `src/tui/text_field.rs`, for editing, measuring and drawing. What
   depends on the field, such as where its text is kept and what `enter`
@@ -107,44 +91,33 @@ One rule holds for every typed field, for three reasons:
   pressed `↑` and then `↓` is back at the end instead of out of the
   field.
 
-## Consequences
-
-- A person can paste or type a structured answer into any field, and the
-  asker gets it with its lines.
-- An agent reading `custom`, `note` or `reason` has to expect line
-  breaks in each of them. The skill says so.
-- The cursor reaches every line of a multi-line `text` answer and every
-  row of a long own answer with the arrows.
-- `↑` and `↓` take as many presses as a field has rows before they leave
-  it.
-
-## Amendment (2026-10-14)
-
 Every field hands the keys it does not handle itself to its editor,
 ratatui-textarea, whose default key table assumes that the editor draws
-itself. asqr draws the field, so some of those keys acted on a view
-nobody saw. Each key does the following in a field (spec section 7.3):
+itself. asqr draws the field, so each key does the following in a field
+(spec section 7.3):
 
 - **Kept:** the editor's moves by character, word, line, paragraph and
   to the first or last line, its deletes, undo, redo and `ctrl-y`.
 - **Mapped:** `ctrl-p` and `ctrl-n` move by a row as `↑` and `↓` do,
   leaving the field from its first or last row.
-- **Swallowed:** `pgup`/`pgdn`, `ctrl-v` and `alt-v` scroll the editor's
-  own view, which never has a size, and so moved the text cursor to the
-  start of the text. Without a context pane they do nothing.
+- **Swallowed:** `pgup`/`pgdn`, `ctrl-v` and `alt-v` never reach the
+  editor, whose own view never has a size, so they would move the text
+  cursor to the start of the text. `pgup`/`pgdn` scroll the context pane
+  where one shows (ADR 31); otherwise they, `ctrl-v` and `alt-v` do
+  nothing.
 - **Never typed:** `shift-tab` acts as `tab` everywhere, and neither
   reaches the editor, which would insert a tab character that shows as
   nothing.
-- **No selection:** a move with `shift` held started a selection the
-  field did not show, and the next typed key replaced the selected text.
-  The selection ends after every key, so `shift` only moves and `ctrl-x`
-  cuts nothing.
+- **No selection:** a move with `shift` held would start a selection the
+  field does not show, and the next typed key would replace the selected
+  text. The selection ends after every key, so `shift` only moves and
+  `ctrl-x` cuts nothing.
 - **Pasted control characters:** a field draws no tab and no other
-  control character, so a pasted one was text the person could not see,
-  and a position where the text cursor had no cell. A paste turns a tab
-  into blanks up to the next multiple of 4 columns and drops the other
-  control characters. Text from a draft is cleaned the same way when it
-  is restored, so a field never counts rows it does not draw.
+  control character, so a pasted one would be text the person cannot
+  see, and a position where the text cursor has no cell. A paste turns a
+  tab into blanks up to the next multiple of 4 columns and drops the
+  other control characters. Text from a draft is cleaned the same way
+  when it is restored, so a field never counts rows it does not draw.
 - **A paste where no field has the keys** goes into the field of the
   row, giving it the keys again, and elsewhere a message says where a
   paste goes.
@@ -164,3 +137,20 @@ nobody saw. Each key does the following in a field (spec section 7.3):
   field left with `esc` stays without the keys, a field typed in keeps
   its text cursor, and an open note stays open while the question still
   takes notes.
+
+## Consequences
+
+- A person can paste or type a structured answer into any field, and the
+  asker gets it with its lines.
+- An agent reading `custom`, `note` or `reason` has to expect line
+  breaks in each of them. The skill says so.
+- The cursor reaches every line of a multi-line `text` answer and every
+  row of a long own answer with the arrows, and a person can move
+  through every question with the arrows alone.
+- `↑` and `↓` take as many presses as a field has rows before they leave
+  it.
+- The row of a long own answer takes several lines. The question scrolls
+  so that the whole row stays in view. When the row is taller than the
+  area, its start is shown, and the text cursor at the end of a long
+  text can lie below the visible lines.
+- A field never takes a typed tab character.

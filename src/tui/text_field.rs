@@ -22,7 +22,7 @@ use crate::format::Length;
 
 /// The text of a field wraps under its own start while that leaves it at
 /// least this much room; otherwise its further lines start at
-/// `NARROW_INDENT` (ADR 27). Lower than the 30 columns option
+/// `NARROW_INDENT` (ADR 36). Lower than the 30 columns option
 /// descriptions need beside their label, so the reject reason, whose
 /// head leaves 27 columns in a 60-column terminal, still wraps under its
 /// start there.
@@ -573,7 +573,7 @@ impl VisualRow<'_> {
 ///
 /// Every line after the first starts under the start of the text, or
 /// `NARROW_INDENT` columns in when the head leaves the text less than
-/// `MIN_TEXT_WIDTH` (ADR 27), and so does every row a line wraps onto.
+/// `MIN_TEXT_WIDTH` (ADR 36), and so does every row a line wraps onto.
 fn layout<'a>(
     head: &'a [Span<'a>],
     filled: bool,

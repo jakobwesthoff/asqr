@@ -6,9 +6,7 @@ Date: 2026-10-14
 
 Accepted
 
-Amends [22. Answer in place with a tab bar and a review step](0022-answer-in-place-with-a-tab-bar-and-a-review-step.md)
-
-Amends [28. Session and result format version 2 with a context field](0028-session-and-result-format-version-2-with-a-context-field.md)
+Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 
 Amends [30. Cap the question at a reading width and place context by the terminal's shape](0030-cap-the-question-at-a-reading-width-and-place-context-by-the-terminals-shape.md)
 
@@ -18,7 +16,8 @@ Amended by [33. Show diffs as a unified diff computed with similar](0033-show-di
 
 Amended by [34. Show code and Markdown entries through patine](0034-show-code-and-markdown-entries-through-patine.md)
 
-Amended by [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md)
+Amended by [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md):
+the focused pane's header takes the focus fill
 
 Amended by [45. Keep image handling in a graphics module around an asqr-owned value](0045-keep-image-handling-in-a-graphics-module-around-an-asqr-owned-value.md):
 the screen is cleared after an overlay closes over an image entry only
@@ -26,39 +25,34 @@ under Sixel and iTerm2
 
 Amended by [46. Build and lay out context viewers on worker threads](0046-build-and-lay-out-context-viewers-on-worker-threads.md):
 building a viewer prepares its content, on a thread apart from
-drawing, and the separate `load` step of the lifecycle is gone
+drawing, and viewers are kept for a window of three questions
 
 Amended by [48. Mend Kitty images an overlay is drawn over](0048-mend-kitty-images-an-overlay-is-drawn-over.md):
 a viewer's `draw` returns the Kitty image it drew
 
 ## Context
 
-ADR 30 placed the context area beside or below the question. It drew an
-image fit into the area and a placeholder for text and diff entries, and
-`z` and `o` acted on images only (ADR 28). This ADR makes the area a
-pane of its own: a header, viewers for each kind of entry, and scrolling
-with its own keys. The text and diff viewers follow in later steps, and
-a later step shows several entries per question with a tab strip.
+The context area beside or below the question (ADR 30) shows entries of
+several kinds: images, code, Markdown and diffs (ADR 28). Their content
+is often longer or wider than the area, so the person has to scroll it,
+and each kind needs its own way of showing.
 
 ## Decision
 
 - **Header:** the pane starts with a line that names the entry by its
-  `title`, or by its file name.
+  `title`, or by its file name (a diff by its `name`).
 - **Viewers:** each kind of entry is shown by a viewer behind one
-  interface, so new kinds plug into the pane without changing it.
-  Images are the first viewer; text and diff entries keep their
-  placeholder, as a viewer, until their own viewers land.
-- **`z`:** shows any entry full screen, not only an image. `o` still
-  opens images only. Both work from the question and from the focused
-  pane.
+  interface, so new kinds plug into the pane without changing it: images,
+  code and Markdown (ADR 34), diffs (ADR 33).
+- **`z`:** shows any entry full screen. `o` opens images only. Both work
+  from the question and from the focused pane.
 - **Page keys:** `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the pane
   from anywhere, also while the person types in a field. `ctrl-u` and
   `ctrl-d` serve laptops without page keys and are the same on every
   keyboard layout.
 - **Focus:** `tab` gives the pane the focus, `tab` or `esc` give it
-  back. `tab` had no meaning since ADR 22 removed it. The focused pane
-  scrolls with `↑`/`↓` and `j`/`k` by line, `←`/`→` and `h`/`l`
-  sideways, `g`/`G` and `home`/`end` to the ends.
+  back. The focused pane scrolls with `↑`/`↓` and `j`/`k` by line,
+  `←`/`→` and `h`/`l` sideways, `g`/`G` and `home`/`end` to the ends.
 - **Key bar and help** show the pane's keys while it has the focus.
 - **No keys that need AltGr or Option** on non-US layouts, such as `[`
   and `]`.
@@ -72,31 +66,28 @@ a later step shows several entries per question with a tab strip.
 - **Ownership:** a viewer owns its content, which does not change for
   the viewer's life, and everything derived from it. The pane owns
   everything around it: the header, the scroll position and the keys.
-  An image viewer owns its decoded image, built from its own copy of
-  the terminal's graphics protocol; no shared image cache remains.
-- **Lifecycle:** a viewer is built cheaply when its entry is first
-  shown, and `load` then prepares everything that does not depend on
-  the body's size, once: reading files, decoding images, highlighting,
+  An image viewer owns its image, built from its own copy of the
+  terminal's graphics protocol; there is no shared image cache.
+- **Lifecycle:** a viewer is built when its entry is first needed, shown
+  or loaded ahead. Building it prepares everything that does not depend
+  on the body's size, once: reading files, decoding images, highlighting,
   computing a diff. `lay_out` arranges the content for a body size and
-  returns its size; `draw` draws it at a scroll offset on every frame.
-  The interface is used as a trait object, which cannot hold a
-  constructor, so without `load` each viewer would decide alone whether
-  expensive work happens when it is built or on first use. The pane
-  decides when to load, which leaves room to load ahead of time.
-- **Failures are content:** `load` returns nothing. A missing file or an
-  undecodable image shows in the pane, which could do nothing better
-  with it, and the pane needs no error handling per kind of entry.
-- **Viewers live as long as their entry** in a waiting session, not one
-  frame. Building them on every frame would read, highlight and render
-  again each time. A viewer is rebuilt when a replaced session file
-  puts another entry in its place, and dropped when its session leaves
-  the queue.
+  returns its size. Both run on a worker (ADR 46). `draw` draws the
+  content at a scroll offset on every frame, on the drawing thread, and
+  returns the Kitty image it drew (ADR 48).
+- **Failures are content:** a missing file or an undecodable image shows
+  in the pane as a card (ADR 49), and the pane needs no error handling
+  per kind of entry.
+- **Viewers outlive the frame:** building them on every frame would
+  read, highlight and render again each time. The keeper keeps a viewer
+  while its entry is inside the window of ADR 46. A viewer is rebuilt
+  when a replaced session file puts another entry in its place.
 - **Layout only on a new size:** as the content is fixed, the layout
   depends on the body's size alone. The keeper of the viewers remembers
   the size each viewer was last laid out for and what it returned, and
-  calls `lay_out` again only for another size, so a viewer computes
-  without checking for changes itself, and `draw` always follows a
-  `lay_out` of its area's size.
+  lays it out again only for another size, so a viewer computes without
+  checking for changes itself, and `draw` always follows a `lay_out` of
+  its area's size.
 - **Sideways scrolling follows from the size:** content that wraps
   reports at most the body's width, so lines wider than the body mean
   cut lines, and the pane offers sideways scrolling only then. A
@@ -108,13 +99,13 @@ a later step shows several entries per question with a tab strip.
   shown full screen: `z` only gives it a larger area.
 - **Images scale to their area,** keeping their proportions, in the pane
   as in the `z` view. A small image fills the pane, so the person sees
-  more of it.
-- **Focus regained (ADR 24)** drops only the image viewers, so their
-  images are sent to the terminal again. Text and diff viewers keep what
-  they derived: highlighting a large file again on every change of
-  window would stall.
-- An entry without a title and without a path, such as inline text, is
-  named by its kind (`text`, `diff`) in the header.
+  more of it. An image entry can opt out of enlarging (ADR 32).
+- **Focus regained (ADR 24)** drops only images, so they are sent to the
+  terminal again where the rule of ADR 24 applies. Code, Markdown and
+  diff viewers keep what they derived: highlighting a large file again
+  on every change of window would stall.
+- An entry without a title and without a path, such as inline content,
+  is named by its kind (`code`, `markdown`, `diff`) in the header.
 - When the content is taller than the pane, the header's right end says
   which lines show, such as `4–15 of 120`, as the intro overlay does
   (ADR 30). While the pane does not have the focus and its content is
@@ -125,6 +116,7 @@ a later step shows several entries per question with a tab strip.
   `tab` goes before the name would have to be cut.
 - A row without context leaves the pane empty, header included, so the
   layout does not jump.
+- The review tab shows no context pane.
 - The full-screen view is the pane over the whole tab area, header
   included, inside the same one-column margins as the tab.
 - The hint that stands in for the pane on a small terminal offers `z`
@@ -142,10 +134,10 @@ a later step shows several entries per question with a tab strip.
   entry's fields, and starts the others at their top. It also keeps the
   pane's focus and the full-screen view while the same entry shows,
   and ends both when another entry takes its place.
-- The scroll keys and their conventions are the intro overlay's (ADR
-  30), and both share one function: a line key moves one line, a page
-  is the pane's height, and an offset a larger terminal left past the
-  end is brought back before a key applies. `←`/`→` move 4 columns.
+- The scroll keys and their conventions are the intro overlay's
+  (ADR 30), and both share one function: a line key moves one line, a
+  page is the pane's height, and an offset a larger terminal left past
+  the end is brought back before a key applies. `←`/`→` move 4 columns.
 - The focused pane reads like a pager, as the intro overlay does: it
   takes every key, and only `?`, `z`, `o` and `ctrl-c` keep their
   meaning from the question. `q` goes back like `tab` and `esc`, as it
@@ -154,9 +146,9 @@ a later step shows several entries per question with a tab strip.
   of a word. The pane's focus is kept apart from a field's, so `tab`,
   `esc` or `q` return to the field or note being typed in with its text
   cursor where it was.
-- While the pane has the focus, its header is highlighted the way the
-  current tab is, and a field's text cursor hides, so only one place
-  looks like it takes the keys.
+- While the pane has the focus, its header has the focus fill (ADR 37),
+  and a field's text cursor hides, so only one place looks like it takes
+  the keys.
 - A pane that goes away while it has the focus, as after a resize down
   to the hint, gives the focus back. Only a drawn tab without a pane
   counts: a frame below the minimum size draws no tab and says nothing
@@ -176,7 +168,8 @@ a later step shows several entries per question with a tab strip.
   screen. Where no entry shows, it says there is nothing to open. The
   key never does nothing without a word.
 - The key bar names `tab` before `?` wherever a pane shows. The general
-  help keeps its 13 lines, which fill the smallest screen: `space` and
+  help keeps its 13 lines, which with its frame fill the 15 rows of the
+  smallest screen: `space` and
   `1`-`9` share a line, as do `n` and `ctrl-j`, to make room for `tab`
   and the page keys. While the pane or the full-screen view has the
   focus, `?` lists the pane's keys instead, and the key bar shows them
@@ -186,29 +179,23 @@ a later step shows several entries per question with a tab strip.
   leave the full screen`, as it goes back to the pane when it was
   entered from there, where the pane's "back to the question" would be
   wrong.
+- The key bar leaves out whole hints that do not fit, by a rank: `n`
+  first, then `tab`, then `←`/`→`, then the others from the right, and
+  `?` and `q` last, since the help lists every key and quitting is what
+  a lost person looks for. On 80 columns the question's bar drops
+  `n note`, and a `multi` question's bar drops `tab context` too; on 60
+  columns every question's bar drops both.
 
 ## Consequences
 
-- The text and diff viewers plug into the pane without changing it, and
-  so does a later tab strip above the body.
-- The pane takes one row for its header, so an image beside or below
-  the question gets one row less than before. An image smaller than the
-  pane grows to fill it, where it kept its natural size before.
+- New kinds of entry plug into the pane without changing it.
+- The pane takes one row for its header.
 - Every viewer can be tested by drawing into a plain buffer.
-- `z` on a text or diff entry shows its placeholder full screen until
-  the viewers land.
-- A field can no longer take a typed tab character.
-- While a pane shows, `ctrl-u` no longer undoes and `ctrl-d` no longer
-  deletes in a field.
-- `tab context` made the key bar too long for 80 columns, where it cut
-  `q quit` in the middle. The key bar now leaves out whole hints that do
-  not fit, by a rank: `n` first, then `tab`, then `←`/`→`, then the
-  others from the right, and `?` and `q` last, since the help lists
-  every key and quitting is what a lost person looks for. On 80 columns
-  the question's bar drops `n note`; on 60 columns it also drops
-  `tab context`, where before it showed a cut `tab  co` and no
-  `? help`.
+- A field never takes a typed tab character.
+- While a pane shows, `ctrl-u` and `ctrl-d` scroll it, and a field's
+  editor does not get them.
 - ratatui never rewrites the cells under a Sixel or iTerm2 image, which
-  `ratatui-image` marks as skipped, so the first frame after the help,
-  the intro or the session list closes over an image entry clears the
-  terminal and draws the whole screen afresh.
+  `ratatui-image` marks as skipped, so under those protocols the first
+  frame after the help, the intro or the session list closes over an
+  image entry clears the terminal and draws the whole screen afresh
+  (ADR 45).

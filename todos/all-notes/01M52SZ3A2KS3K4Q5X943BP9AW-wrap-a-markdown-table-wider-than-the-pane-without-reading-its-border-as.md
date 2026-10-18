@@ -64,7 +64,7 @@ inside the cell. Two cases still wrap the way shown above:
 
 The test `a_table_row_patine_leaves_wider_still_wraps` in
 `src/tui/render/markdown_viewer.rs` covers both cases. The spec (section
-7.7) and the amendment "tables break long words" of ADR 0034 name them.
+7.7) and ADR 0034 name them.
 
 ## Impact
 
@@ -85,5 +85,5 @@ narrow context pane or text field.
 
 - 2026-10-16, Jakob: patine breaks a word longer than its table column
   across lines, so a table stays whole and fits. That landed in patine
-  1.7.2, and asqr picked it up on 2026-10-16 (ADR 0034, amendment
-  "tables break long words"). The cases above remain.
+  1.7.2, and asqr picked it up on 2026-10-16 (ADR 0034). The cases
+  above remain.

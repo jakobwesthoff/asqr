@@ -9,34 +9,30 @@ Accepted
 ## Context
 
 Two TUIs on the same queue would show the same sessions and race to
-submit them.
+submit them. A lock file with a pid check and takeover of a stale lock
+does not hold: pids get reused, two instances starting at once could
+both take over, and a pid means nothing on a shared filesystem.
 
 ## Decision
 
-A lock file in the queue allows only one running asqr instance per
-queue. A second instance names the process that holds the lock and
-exits. A lock left behind by a process that no longer exists is taken
-over.
+One running asqr instance per queue. The TUI takes an advisory lock on
+`<queue>/lock` with `std::fs::File::try_lock` (flock, stable since Rust
+1.89).
+
+- The kernel releases the lock when the process ends.
+- A `WouldBlock` that lasts through 200 ms of tries means another
+  instance runs: the second instance names the process that holds the
+  lock and exits. The tries cover the moment `ask` or `status` holds
+  the lock shared to see who watches. Any other error is a plain
+  failure.
+- The pid and host name in the file are only for that "held by" message.
+- The lock is per host, so queues on network or synced filesystems are
+  unsupported.
+- Commands that only ask or read (`ask`, `wait`, `result`, `paths`) do
+  not take the lock, and neither do `prune` and `ask --force`.
 
 Rejected: allowing several instances and letting the first submit win.
 
 ## Consequences
 
-Answering on two machines needs two queues. Commands that only ask or
-read (`ask`, `wait`, `result`, `paths`) do not take the lock.
-
-## Amendment (2026-09-27)
-
-The "stale lock" approach, a pid check with takeover, is replaced. Pids
-get reused, two instances starting at once could both take over, and a
-pid means nothing on a shared filesystem.
-
-- The TUI takes an advisory lock on `<queue>/lock` with
-  `std::fs::File::try_lock` (flock, stable since Rust 1.89).
-- The kernel releases the lock when the process ends.
-- `WouldBlock` means another instance runs. Any other error is a plain
-  failure.
-- The pid and host name in the file are only for the "held by" message.
-- The lock is per host, so queues on network or synced filesystems are
-  unsupported.
-- `prune` and `ask --force` do not take the lock.
+Answering on two machines needs two queues.

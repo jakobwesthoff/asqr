@@ -1,13 +1,13 @@
 # 42. Delete Kitty images the terminal no longer shows
 
-Date: 2026-10-15
+Date: 2026-10-16
 
 ## Status
 
 Accepted
 
-Supersedes the consequence "asqr does not ask the terminal to delete the
-earlier copies" of [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md)
+Amends [24. Resend images when asqr regains the focus](0024-resend-images-when-asqr-regains-the-focus.md):
+asqr deletes the earlier copies of the images it sends again
 
 Amends [40. Set the terminal title](0040-set-the-terminal-title.md):
 on a panic, the title is given back before asqr leaves the alternate
@@ -24,14 +24,14 @@ images are sent again on regaining the focus
 ## Context
 
 Copies of images pile up in the terminal under the Kitty graphics
-protocol, and asqr deletes them.
+protocol unless asqr deletes them.
 
-- ratatui-image 11.1.0 gives every image it encodes for the Kitty
-  protocol a new random id, and has no command that deletes one.
-- asqr encoded a context image again on every focus gain (ADR 24) and
-  for every replaced entry, and let the images of every session that
-  left go. It never asked the terminal to delete the copies, as ADR 24
-  accepted. Ghostty keeps them until its limit of 320 MB.
+- A context image is encoded again for a new size, for a replaced entry
+  and on a focus gain where images are sent again (ADR 24), and the
+  images of every session that leaves are let go. Without deletes,
+  Ghostty keeps every copy until its limit of 320 MB.
+- ratatui-image gives every image it encodes for the Kitty protocol a
+  new random id, and has no command that deletes one.
 - ratatui-image uses the Kitty protocol in kitty and Ghostty. It rules
   the protocol out where `WEZTERM_EXECUTABLE` or `KONSOLE_VERSION` is
   set, and WezTerm and Konsole get the iTerm2 protocol.
@@ -52,7 +52,7 @@ Ids:
   the image's id. It passes what ratatui-image's picker passes, the
   tmux wrapping and compression only where the terminal reported that
   it inflates it, and no background colour, which asqr never sets.
-  Every other protocol comes from the picker as before.
+  Every other protocol comes from the picker.
 - Every encoding gets a new random id. asqr draws again while the id is
   0 or one it handed out before in the same run.
 - asqr does not reuse an id for a new encoding of the same image. With
@@ -60,13 +60,18 @@ Ids:
   the length of the transfer, and ids derived from the session and the
   entry would clash between two asqr processes sharing one terminal
   through tmux.
+- A context image laid out at another size in cells gets a new id too:
+  asqr builds a new protocol under a new id, from the bytes it decodes
+  again for that size (ADR 46), and hands the old id on for deleting
+  after the frame.
 
 Deletes:
 
 - Every way a context image goes hands its id on for deletion: the focus
   gain that drops the images to send them again, a session that no
-  longer waits, and an entry replaced by another image, by an image
-  that cannot be read or by another kind of entry.
+  longer waits, an entry replaced by another image, by an image that
+  cannot be read or by another kind of entry, a new size, and a viewer
+  dropped outside the window of three questions (ADR 46).
 - The viewers of sessions that left go on every draw, also one that
   shows the empty queue or only says the terminal is too small, so the
   last session to leave hands its ids on with the frame that no longer
@@ -78,75 +83,51 @@ Deletes:
   and frees its data; `q=2` keeps the terminal from answering. Inside
   tmux the command is wrapped for passthrough as ratatui-image wraps
   its transmissions.
-- The deletes written since the last focus gain are written once more
-  after the frame that follows the next focus gain, together with that
-  frame's own, and then forgotten. Inside tmux with
-  `allow-passthrough on`, a delete written while asqr's pane is hidden
-  is lost, as a transfer is (ADR 24); the repeat reaches the terminal
-  once the pane shows again. A delete of an id the terminal does not
-  know does nothing and gets no answer.
-- When asqr quits, it deletes every image of a context entry it still
-  knows of, and those handed on since the last frame, before it gives
-  the title back and leaves the alternate screen. The same holds when
+- Where images are sent again on regaining the focus (ADR 45), the
+  deletes written since the last focus gain are written once more after
+  the frame that follows the next focus gain, together with that frame's
+  own, and then forgotten. Inside tmux with `allow-passthrough on`, a
+  delete written while asqr's pane is hidden is lost, as a transfer is
+  (ADR 24); the repeat reaches the terminal once the pane shows again.
+  Under `all` (ADR 44) the deletes pass from a hidden pane. A delete of
+  an id the terminal does not know does nothing and gets no answer.
+- One id book per run holds the Kitty ids, the deletes not yet written,
+  the repeat after a focus gain and whether deletes go out wrapped for
+  tmux, taken from the graphics the transmissions use. The book owns the
+  deletes: they leave it once the frame is flushed. A frame that fails
+  to flush ends the run, and its deletes are written on quitting. A
+  delete that could not be written goes back into the book and is
+  written after the next frame, or on quitting.
+- On quitting, the view goes first, and every image hands its id on as
+  it goes. A guard dropped next writes the deletes of every id left in
+  the book while the alternate screen is on, then the terminal is given
+  back, and last the pane's passthrough (ADR 44). The same holds when
   the run ends in an error.
+- On a panic, asqr's panic hook runs before the one ratatui installs,
+  which leaves the alternate screen. It writes the deletes of every id
+  in the book, those of the images still shown included, gives the
+  title back (ADR 40) and turns focus reports and bracketed paste off,
+  then ratatui's hook runs. The pane's passthrough is given back as the
+  panic unwinds, after both hooks, so the deletes pass while the pane
+  has `all` (ADR 44). The hook only tries the book: after a panic while
+  the book was locked, the deletes are written once the alternate screen
+  is left already.
 
-Talqi on the empty queue is left out. ADR 43 draws Talqi in text cells,
-which sends no image.
+Talqi on the empty queue is drawn in text cells and sends no image
+(ADR 43), so it leaves no copies to delete.
 
 ## Consequences
 
 - Only kitty and Ghostty receive deletes, as only they get the Kitty
   protocol.
-- A context image laid out at another size is encoded again by
-  ratatui-image under the id asqr gave it. The terminal replaces the
-  old copy, and Ghostty shows the image blank during the transfer.
 - Inside tmux with `allow-passthrough on`, the repeat depends on focus
-  reports, which tmux forwards only with `focus-events on`. The deletes
-  on quitting from a hidden pane are lost.
-- A panic or SIGKILL ends asqr without the deletes on quitting; the
-  copies stay until the terminal evicts them. On Unix, SIGTERM, SIGINT
-  and SIGHUP end the run as `q` does, and the deletes are written.
-- Talqi sends no image (ADR 43), so it leaves no copies to delete.
+  reports, which tmux forwards only with `focus-events on`. Without
+  `all`, the deletes on quitting from a hidden pane are lost.
+- A SIGKILL, and a panic in a build that aborts, end asqr without the
+  deletes; the copies stay until the terminal evicts them. On Unix,
+  SIGTERM, SIGINT and SIGHUP end the run as `q` does, and the deletes
+  are written.
+- ratatui-image does not hand out the picture it keeps, so the image
+  keeps its file's bytes to decode them again for a new size (ADR 46).
 - The rule on ids and the order on quitting follow Ghostty. That kitty
   keeps images per screen as well is not checked.
-
-## Amendment (2026-10-16, ratatui-image 12.0.0-rc.2)
-
-A context image laid out at another size gets a new id as well. Before
-ratatui-image encodes it again, asqr builds a new protocol under a new
-id from the decoded picture and hands the old id on for deleting after
-the frame. This replaces the consequence that such an image is encoded
-again under the id asqr gave it, which Ghostty showed blank during the
-transfer. ratatui-image does not hand out the picture it keeps, so asqr
-keeps a second decoded copy of each image under the Kitty protocol.
-
-## Amendment (2026-10-16, the id book owns the deletes)
-
-The deletes of a frame left the id book before the frame was flushed,
-so a frame or a write that failed lost them. The book owns the
-deletes.
-
-- One book per run holds the Kitty ids, the deletes not yet written,
-  the repeat after a focus gain and whether deletes go out wrapped for
-  tmux, taken from the graphics the transmissions use.
-- The deletes leave the book once the frame is flushed. A frame that
-  fails to flush ends the run, and its deletes are written on quitting.
-  A delete that could not be written goes back into the book and is
-  written after the next frame, or on quitting.
-- The book keeps the deletes since the last focus gain only where the
-  images are sent again on regaining the focus (ADR 45).
-- On quitting, the view goes first, and every image hands its id on as
-  it goes. A guard dropped next writes the deletes of every id left in
-  the book while the alternate screen is on, then the terminal is given
-  back, and last the pane's passthrough (ADR 44).
-- On a panic, asqr's panic hook runs before the one ratatui installs,
-  which leaves the alternate screen. It writes the deletes of every id
-  in the book, those of the images still shown included, gives the
-  title back and turns focus reports and bracketed paste off, then
-  ratatui's hook runs. The pane's passthrough is given back as the
-  panic unwinds, after both hooks, so the deletes pass while the pane
-  has `all` (ADR 44). The hook only tries the book: after a panic while
-  the book was locked, the deletes are written once the alternate
-  screen is left already. This replaces the consequence that a panic
-  ends asqr without the deletes on quitting; a SIGKILL, and a panic in
-  a build that aborts, still do.
