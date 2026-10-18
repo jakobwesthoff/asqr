@@ -9,11 +9,8 @@ This file describes asqr as it is now, with version 2 of the session and
 result format. The specifications of earlier versions are in the git
 history.
 
-Status: reviewed with the user and in an adversarial review on
-2026-09-27, with the findings F1 to F12 worked in, in three more
-adversarial reviews, two on 2026-10-14 and one on 2026-10-15, and
-revised with the decisions made while building it. The decisions behind
-it are recorded as ADRs in `docs/adr/`.
+The decisions behind this specification are recorded as ADRs in
+`docs/adr/`.
 
 ## 1. Purpose
 
@@ -355,7 +352,7 @@ Question fields:
 - `length` (optional, on `custom` and on `text` questions): `target` (a
   range) and `warn` (above it the counter warns). Both are optional, and
   `warn` must not be below the end of `target`. There is no hard limit:
-  the counter guides, and input is never refused (user, 2026-09-27).
+  the counter guides, and input is never refused.
 - `context` (optional): material that helps to answer the question,
   shown next to it (section 7.7). Most questions have none. A list,
   limited to one entry: the format allows more, so showing several
@@ -607,9 +604,9 @@ the terminal as asqr had set it up.
 
 ### 7.1 Layout
 
-A stack of rows over the full width (user, 2026-09-27), with the
-question kept to a reading width and a context pane beside or below it
-when the question has context (user, 2026-10-14; ADRs 30 and 31):
+A stack of rows over the full width, with the question kept to a
+reading width and a context pane beside or below it when the question
+has context (ADRs 30 and 31):
 
 ```
  asqr  Alt rework 3, batch 1                          default · 2 waiting
@@ -723,8 +720,8 @@ when the question has context (user, 2026-10-14; ADRs 30 and 31):
   - Below: the question keeps its width and takes the rows the tallest
     question with context in the session needs, at most half of H, and
     the context pane takes the rest over the whole of W. So the pane
-    keeps its place while the person moves between questions (user,
-    2026-10-14). A question's rows are counted at that width without a
+    keeps its place while the person moves between questions. A
+    question's rows are counted at that width without a
     cursor: every field unfocused with the text typed so far, the own
     answer's label highlighted as under the cursor, a row for the
     counter of a field with a length, and no row for the cursor after a
@@ -886,7 +883,7 @@ On an option row (vim style plus arrows):
 ### 7.3 Live fields and counters
 
 Typed text is entered in place, in the line where it is shown, without
-a frame (user, 2026-09-27):
+a frame:
 
 - **The own-answer row** is a field as soon as the cursor lands on it:
   every key that produces text types into it. `←`/`→` and `↑`/`↓` move
@@ -924,7 +921,7 @@ a frame (user, 2026-09-27):
   puts the text cursor at the end of the field's first row, as drawn;
   everywhere else, as moving up onto it, switching questions or after
   `esc`, the text cursor goes to the end of the text, which is the end
-  of its last row (user, 2026-10-14). In a field of one row the two are
+  of its last row. In a field of one row the two are
   the same.
 - Every edit is saved to the draft continuously, the session note and
   the reject reason included; there is no discard.
