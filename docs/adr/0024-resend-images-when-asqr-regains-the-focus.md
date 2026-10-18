@@ -26,13 +26,11 @@ the placeholder; an image loaded ahead and never shown is kept
 
 ## Context
 
-The user reported that the image of a session's first question never
-appeared. The session had arrived while asqr ran inside tmux in a window
-that was not shown; moving to another question and back did not bring it
-either.
+The image of a session's first question never appeared when the session
+arrived while asqr ran inside tmux in a window that was not shown.
+Moving to another question and back did not bring it either.
 
-Reproduced in a separate tmux server with the user's configuration,
-attached from Ghostty:
+In a separate tmux server attached from Ghostty:
 
 - tmux with `allow-passthrough on` passes escape sequences only while
   the pane is visible (tmux(1)). With `all` it passes them from hidden

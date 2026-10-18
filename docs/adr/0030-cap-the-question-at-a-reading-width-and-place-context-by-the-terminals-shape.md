@@ -18,23 +18,19 @@ Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-
 
 ADR 22 laid the TUI out in one column over the full width. On a
 terminal of about 230 columns, question texts, option descriptions and
-notes ran across nearly all of it and were hard to read (user's
-screenshot, 2026-10-14). Context went beside the question at 3:2 from
-100 columns of content on, and below it otherwise, in a strip of a third
+notes ran across nearly all of it and were hard to read.
+Context went beside the question at 3:2 from 100 columns of content on, and below it otherwise, in a strip of a third
 of the height and at most 12 rows.
 
-The user settled a new layout on 2026-10-14, recorded in the plan todo
-"Split the TUI into a question pane and a context pane". This ADR covers
-its second step: the reading width and where the context area goes. The
-context area becomes a pane with focus and scrolling in the next step.
+This ADR sets a new layout: the reading width and where the context
+area goes. The context area becomes a pane with focus and scrolling in
+the next step (ADR 31).
 
 ## Decision
 
-Taken with the user:
-
 - **Reading width:** the question never gets wider than a reading width
-  and starts at the left, with or without context. The plan names about
-  100 to 110 columns, to be tuned by trying it; asqr starts with 100.
+  and starts at the left, with or without context. The reading width is
+  100 columns.
 - **Beside:** the question takes half the width until it reaches the
   reading width, and the context area gets the rest after a one-column
   separator. It needs at least 60 columns for the question and 40 for
@@ -55,27 +51,20 @@ Taken with the user:
   hint. `z` shows an image full screen as before.
 - **Without context:** a question without context takes the width it
   can get, up to the reading width, and its text reflows when moving to
-  a question with context beside. The user left this choice to the
-  agent.
-- **Where the memory lives:** left to the agent, as long as a redraw
-  without a resize keeps the current arrangement.
+  a question with context beside.
+- **Memory:** a redraw without a resize keeps the current arrangement.
 - **Header:** the session title and intro wrap at the reading width; the
   tab bar keeps the full width. The intro still shows at most three
   lines, the cut is marked `… i: more`, and `i` shows the whole intro in
   an overlay. The skill explains what the intro is for.
 
-Settled while building it:
-
 - **Intro overlay:** it never cuts the intro. A longer one scrolls with
-  the keys the plan gives the context pane: `↑`/`↓` and `j`/`k` by line,
+  the keys of the context pane: `↑`/`↓` and `j`/`k` by line,
   `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` by page, `g`/`G` and `home`/`end`
   to the ends. `esc`, `q` and `i` close it, and other keys do nothing,
   so a scroll key never closes it. A dim position such as `4–15 of 16`
   on its bottom edge shows where it stands, and the key bar, which the
   overlay leaves free, says what scrolls and closes it.
-
-Agent's choices within that design:
-
 - W×H is the tab's area inside the one-column margins, so beside needs
   W = 101, a terminal of 103 columns. The question beside a context
   area takes half of W after the separator, at least 60 and at most 100
@@ -115,12 +104,12 @@ Agent's choices within that design:
   On a 60×24 terminal the example session `alt-rework-batch.json` shows
   its own answer and its note only when the cursor reaches them.
 
-## Amendment (2026-10-14, adversarial review U1)
+## Amendment (2026-10-14)
 
 Below, the question took the rows its own content needed, so the context
 pane jumped up and down while the person moved between questions of
 different heights, and moved with every line typed. Beside, it stays
-put. The user settled the rule:
+put. The rule:
 
 - **Per session:** below, the question takes the rows the tallest
   question with context in the session needs, still at most half the
@@ -133,18 +122,14 @@ put. The user settled the rule:
   split grows as soon as the tallest question gains a row and shrinks
   only once no field or note has the keys, so it moves at most once per
   new line and never while a line is deleted.
-
-Agent's choices within that rule:
-
 - A question's rows are counted by the function that draws it, drawn
   without a cursor: every field unfocused with the text typed so far, a
   row kept for the counter of a field with a length, and the cursor's
   blank after a full line left out. A second way to count would drift
   from the drawing.
 - While a field or a question's note has the keys, the current question
-  counts as drawn with its text cursor (adversarial review O5,
-  2026-10-14). Counted without it, a text that filled its line exactly
-  hid the question's last row behind `↓ more` until the next key, as
+  counts as drawn with its text cursor. Counted without it, a text that
+  filled its line exactly hid the question's last row behind `↓ more` until the next key, as
   the cursor's blank took a row the split did not count. The other
   questions are still counted without a cursor.
 - Questions without context do not count, as they show no pane.

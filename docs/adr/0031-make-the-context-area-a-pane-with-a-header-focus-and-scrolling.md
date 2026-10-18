@@ -35,16 +35,12 @@ a viewer's `draw` returns the Kitty image it drew
 
 ADR 30 placed the context area beside or below the question. It drew an
 image fit into the area and a placeholder for text and diff entries, and
-`z` and `o` acted on images only (ADR 28). The plan todo "Split the TUI
-into a question pane and a context pane" makes the area a pane of its
-own in its third step: a header, viewers for each kind of entry, and
-scrolling with its own keys. The text and diff viewers follow in the
-plan's next two steps, and phase 2 shows several entries per question
-with a tab strip.
+`z` and `o` acted on images only (ADR 28). This ADR makes the area a
+pane of its own: a header, viewers for each kind of entry, and scrolling
+with its own keys. The text and diff viewers follow in later steps, and
+a later step shows several entries per question with a tab strip.
 
 ## Decision
-
-Taken with the user (plan, *Keys*):
 
 - **Header:** the pane starts with a line that names the entry by its
   `title`, or by its file name.
@@ -66,9 +62,6 @@ Taken with the user (plan, *Keys*):
 - **Key bar and help** show the pane's keys while it has the focus.
 - **No keys that need AltGr or Option** on non-US layouts, such as `[`
   and `]`.
-
-Settled in the review of this step:
-
 - **`tab` never types:** it focuses the pane wherever one shows, from a
   field too, and does nothing otherwise. On a text question, whose
   field has the focus from the start, the pane would otherwise need
@@ -76,9 +69,6 @@ Settled in the review of this step:
 - **`ctrl-u` and `ctrl-d`** belong to the pane only while one shows.
   Without a pane, a field's editor keeps its own meaning for them
   (`ctrl-u` undoes, `ctrl-d` deletes the character under the cursor).
-
-Settled with the user in the review of the viewer interface:
-
 - **Ownership:** a viewer owns its content, which does not change for
   the viewer's life, and everything derived from it. The pane owns
   everything around it: the header, the scroll position and the keys.
@@ -123,9 +113,6 @@ Settled with the user in the review of the viewer interface:
   images are sent to the terminal again. Text and diff viewers keep what
   they derived: highlighting a large file again on every change of
   window would stall.
-
-Agent's choices within that design:
-
 - An entry without a title and without a path, such as inline text, is
   named by its kind (`text`, `diff`) in the header.
 - When the content is taller than the pane, the header's right end says
@@ -203,7 +190,7 @@ Agent's choices within that design:
 ## Consequences
 
 - The text and diff viewers plug into the pane without changing it, and
-  so does phase 2's tab strip above the body.
+  so does a later tab strip above the body.
 - The pane takes one row for its header, so an image beside or below
   the question gets one row less than before. An image smaller than the
   pane grows to fill it, where it kept its natural size before.

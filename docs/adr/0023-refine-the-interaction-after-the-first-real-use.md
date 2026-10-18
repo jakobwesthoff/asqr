@@ -14,22 +14,20 @@ Amends [6. Integrate agents through a bundled skill first](0006-integrate-agents
 
 ## Context
 
-The user answered six test sessions in a real terminal and left their
-feedback in the answers and notes. Four points needed a decision, taken
-with the question tool; the user's wording is in the logbook.
+Real use in a terminal showed four problems:
 
-- In a text field `←`/`→` move the text cursor, so the person could not
-  reach other questions without first pressing `esc`, which they did not
-  find: "i am always hanging in the test field of this text input".
-- A required question they could not answer left only a note, which does
-  not satisfy `required`: "maybe everything always should be optional".
-- A `multi` with `max: 3` and an own answer took three options plus the
-  own text, which surprised them: "it should be documented then".
+- In a text field `←`/`→` move the text cursor, so a person cannot reach
+  other questions without first pressing `esc`, and does not find that
+  key.
+- A required question that a person cannot answer is left with only a
+  note, which does not satisfy `required`.
+- A `multi` with `max: 3` and an own answer takes three options plus the
+  own text, which surprises people when the limit is not documented.
 - On the review tab the cursor started on the first question, although
   submitting is what usually follows.
 
-Separately, the user asked that the agent skill only applies when they
-explicitly ask the agent to use asqr.
+In addition, the agent skill applies only when the user explicitly asks
+the agent to use asqr.
 
 ## Decision
 
@@ -45,11 +43,8 @@ explicitly ask the agent to use asqr.
   with their notes.
 - **Own answer on a multi:** `min` and `max` count the picked options
   only, and the own answer comes on top; the spec and the skill say so.
-  The hint first said it too ("pick 2 to 3, and type your own if you
-  like"). In the retest the user found that too wordy: "the user will
-  find out that they can always add their own answer themselves". The
-  hint now reads "pick between 2 and 3 items" and leaves the own answer
-  out.
+  The hint reads "pick between 2 and 3 items" and leaves the own answer
+  out, since a person can add one anyway.
 - **Review:** the review tab opens with the cursor on Submit.
 - **Skill:** its description and its "When to use it" section say that
   it is used only when the user explicitly asks for asqr; an agent may
@@ -65,7 +60,7 @@ ignore when unknown changes no file that was valid before.
 - An asker can no longer force an answer; it has to handle skipped
   questions, which it had to anyway for everything not marked required.
 - `enter` on the last question followed by `enter` on the review
-  submits. That is the fast path the user asked for, and a submit can
-  no longer be refused.
-- An image vanishing in narrow terminals, also found in the test, is not
-  decided here; it is tracked separately for a later investigation.
+  submits. That is the fast path, and a submit can no longer be
+  refused.
+- An image vanishing in narrow terminals is not decided here; it is
+  tracked separately for a later investigation.

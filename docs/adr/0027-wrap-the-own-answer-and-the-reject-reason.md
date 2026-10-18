@@ -19,8 +19,7 @@ reject reason a one-line field like it. While typed, a long own answer
 showed only a window of its text that ended at the text cursor, with
 `…` for text scrolled out on the left. Without the focus, it was cut at
 the end of the line with `…`. A note wraps onto further lines under its
-start. The user asked on 2026-10-14 for the own answer to wrap the same
-way.
+start.
 
 ## Decision
 
@@ -35,7 +34,7 @@ way.
   leave the row from any of its screen lines.
 - **Counter:** the counter of a focused field moves to a line of its own
   after the text, as with a `text` answer.
-- **Reject reason:** it wraps the same way (user, 2026-10-14).
+- **Reject reason:** it wraps the same way.
 
 ## Consequences
 

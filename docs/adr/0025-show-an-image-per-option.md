@@ -16,13 +16,10 @@ Format part superseded by [28. Session and result format version 2 with a contex
 
 Choosing between logo variants through asqr took one question per image
 plus a separate question for the pick, since only a question could carry
-an image. The user asked for an image per option: "so that one could
-iterate through them in one question and the image is always shown from
-the selected one".
+an image. An image per option lets a person iterate through the variants
+in one question, with the image of the selected one always shown.
 
 ## Decision
-
-Taken with the user through the question tool:
 
 - An option may have an `image`, with the same rules as the question's:
   an absolute path, made absolute by `asqr ask`, warned about by
