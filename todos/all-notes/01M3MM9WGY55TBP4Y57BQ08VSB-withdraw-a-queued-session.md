@@ -23,6 +23,14 @@ the user to reject the old session. Meanwhile the user had already
 answered the old one and then had to cancel the new one by hand, with
 the reason "the answers for those questions i gave before already".
 
+A second case on 2026-10-18: an agent asked the user a single question
+through asqr, then the user said they were away from the console and
+answered the same question through the agent's own question tool. The
+asqr session was no longer needed. The agent withdrew it by deleting
+`inbox/<id>.json` by hand (no draft existed), and had to stop its own
+background `asqr wait` loop separately. A command would have done both
+in one step and left a result that ends any `asqr wait`.
+
 ## What is wanted
 
 A way for the asker to take back a session it dropped into the queue,
