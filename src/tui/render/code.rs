@@ -61,8 +61,7 @@ fn content_of(
 /// patine 1.7.1's command line (release build, a log in a fence, width
 /// 200) took 0.75 s to render a log of 1,045,937 bytes and 14,154 lines,
 /// and 6.5 s for one of 8,867,621 bytes and 120,000 lines: about 54 µs a
-/// line (2026-10-16, not asqr's own measurement). Jakob kept the limit at
-/// 1 MiB on 2026-10-16: a log under 1 MiB is highlighted in under a
+/// line. The limit is 1 MiB: a log under 1 MiB is highlighted in under a
 /// second, larger files stay unhighlighted and cost neither seconds nor
 /// hundreds of MB, and other grammars can be slow too.
 const HIGHLIGHT_LIMIT: usize = 1024 * 1024;

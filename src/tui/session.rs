@@ -272,7 +272,7 @@ impl SessionState {
     }
 
     /// Takes over a session file that was replaced while it was open,
-    /// keeping the answers that still fit (review F1) and where the person
+    /// keeping the answers that still fit and where the person
     /// was, so the reload does not throw them back to the start.
     ///
     /// The question shown is found again by its id, as a draft finds it,
@@ -918,7 +918,7 @@ impl SessionState {
         // Landing on a row focuses its field; a field left with esc is
         // landed on again when the move stays on it, as on a text question
         // with its single row. A field below the row left is entered at
-        // its first row (user, 2026-10-14).
+        // its first row.
         if row != self.row || self.focus == Focus::None {
             let from_above = row > self.row;
             self.row = row;
@@ -932,8 +932,8 @@ impl SessionState {
             return Effect::None;
         }
         self.tab = tab;
-        // The review opens on Submit, the usual next step (user,
-        // 2026-09-28); questions start on their first row.
+        // The review opens on Submit, the usual next step; questions start
+        // on their first row.
         self.row = if self.on_review() {
             self.session.questions.len()
         } else {
@@ -1030,7 +1030,7 @@ impl SessionState {
         Effect::DraftChanged
     }
 
-    /// Every question is optional (user, 2026-09-28), so a submit always
+    /// Every question is optional, so a submit always
     /// goes through; unanswered questions come back as skipped. The session
     /// note is trimmed like the reject reason (ADR 29).
     fn submit(&mut self) -> Effect {
@@ -1088,7 +1088,7 @@ impl SessionState {
             FieldKey::Leave(Leave::Down) => self.move_row(1),
             // At the edges of the text the arrows leave a row's field for
             // the question before or after, so a field never traps the
-            // person (user, 2026-09-28).
+            // person.
             FieldKey::Leave(Leave::Left) if self.tab > 0 => self.go_to_tab(self.tab - 1),
             FieldKey::Leave(Leave::Right) if self.tab + 1 < self.tab_count() => {
                 self.go_to_tab(self.tab + 1)

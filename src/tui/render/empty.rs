@@ -50,7 +50,7 @@ impl Widget for EmptyQueue {
 /// sentence.
 ///
 /// The emblem has a fixed size, so it shows only where `main` holds all
-/// of it, a blank row and the sentence (Jakob, 2026-10-15): 26 rows and
+/// of it, a blank row and the sentence: 26 rows and
 /// 44 columns, with colours and without.
 pub(super) fn emblem_screen_areas(main: Rect) -> (Option<Rect>, Rect) {
     if main.height < EMBLEM_ROWS + 1 + SENTENCE_ROWS || main.width < EMBLEM_COLUMNS {

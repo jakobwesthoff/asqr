@@ -404,7 +404,7 @@ fn is_hunk_header(line: &str) -> bool {
     rest.is_some_and(|section| section.is_empty() || section.starts_with(' '))
 }
 
-/// Above this size a code, Markdown or diff entry gets a warning (user, 2026-10-14).
+/// Above this size a code, Markdown or diff entry gets a warning.
 /// asqr still shows it. Images are exempt: screenshots above it are common,
 /// and the image viewer handles them.
 const LARGE_ENTRY_BYTES: u64 = 1024 * 1024;
@@ -727,7 +727,7 @@ mod tests {
     #[test]
     fn a_large_image_gets_no_size_warning() {
         // Screenshots above 1 MiB are common, and the image viewer handles
-        // them (decided with the user, 2026-10-14).
+        // them.
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
         let large = directory.path().join("large.png");
         // Noise does not compress, so the file stays near its 3 MiB of

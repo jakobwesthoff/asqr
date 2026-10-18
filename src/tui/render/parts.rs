@@ -81,7 +81,7 @@ pub fn kind_hint(question: &Question) -> String {
     };
     // A single takes the own answer instead of an option, which the hint
     // says. A multi takes it on top of its options; people find that row
-    // on their own, so its hint leaves it out (user, 2026-09-28).
+    // on their own, so its hint leaves it out.
     let own_answer = question
         .custom
         .as_ref()
@@ -219,7 +219,7 @@ mod tests {
             "pick up to 1 item"
         );
         // People find the own-answer row on their own, so a multi's hint
-        // leaves it out (user, 2026-09-28).
+        // leaves it out.
         assert_eq!(
             hint(
                 r#"{"id": "q", "text": "?", "kind": "multi", "min": 2, "max": 3, "custom": true, "options": []}"#

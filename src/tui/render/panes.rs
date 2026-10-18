@@ -16,8 +16,7 @@ use ratatui::layout::{Layout, Rect};
 
 /// The widest the question gets, in columns. Wider lines are hard to read,
 /// and on a terminal of 230 columns question texts and option descriptions
-/// ran across all of it (user, 2026-10-14). The plan names 100 to 110;
-/// 100 is where trying it starts.
+/// ran across all of it.
 pub const READING_WIDTH: u16 = 100;
 
 /// The narrowest question beside a context area: the smallest terminal
