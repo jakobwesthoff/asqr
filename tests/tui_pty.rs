@@ -18,6 +18,7 @@
 mod common;
 
 use std::io::{Read, Write};
+use std::num::NonZeroU16;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -175,7 +176,12 @@ impl Tui {
 
     /// A terminal that took all output so far.
     fn terminal(&self) -> vt100::Parser {
-        let mut parser = vt100::Parser::new(self.size.0, self.size.1, 0);
+        let (rows, columns) = self.size;
+        let mut parser = vt100::Parser::new(
+            NonZeroU16::new(rows).expect("the pty has rows"),
+            NonZeroU16::new(columns).expect("the pty has columns"),
+            0,
+        );
         parser.process(&self.output.lock().expect("not poisoned"));
         parser
     }
