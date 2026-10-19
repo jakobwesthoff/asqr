@@ -7,7 +7,8 @@
 # crates.io stays a manual `cargo publish`.
 #
 # `workflow_dispatch` releases a tag that already exists, for a tag pushed
-# before this workflow or a run that failed.
+# before this workflow or a run that failed. A release that already exists
+# for the tag is deleted and made again.
 #
 # Actions are pinned to full commit SHAs like in check.yml (ADR 19).
 name: release
@@ -45,6 +46,10 @@ jobs:
         with:
           ref: ${{ env.RELEASE_REF }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          # The release notes are the tag's section of the changelog. A tag
+          # without a section, an `-rc` tag included, fails the release
+          # instead of publishing it without notes.
+          changelog: CHANGELOG.md
 
   upload-assets:
     needs: create-release
