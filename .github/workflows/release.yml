@@ -42,6 +42,7 @@ jobs:
         with:
           ref: ${{ env.RELEASE_REF }}
           persist-credentials: false
+      - run: scripts/unwrap-changelog.sh CHANGELOG.md > "$RUNNER_TEMP/CHANGELOG.md"
       - uses: taiki-e/create-gh-release-action@eba8ea96c86cca8a37f1b56e94b4d13301fba651 # v1.11.0
         with:
           ref: ${{ env.RELEASE_REF }}
@@ -49,7 +50,7 @@ jobs:
           # The release notes are the tag's section of the changelog. A tag
           # without a section, an `-rc` tag included, fails the release
           # instead of publishing it without notes.
-          changelog: CHANGELOG.md
+          changelog: ${{ runner.temp }}/CHANGELOG.md
 
   upload-assets:
     needs: create-release
