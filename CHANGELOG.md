@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-10-19
+
+### Changed
+
+- asqr draws images with ratatui-image 12.0.0-rc.3. It writes the
+  graphics query to the terminal and reads the answer through the
+  terminal's file descriptors directly. The bytes it sends and the way
+  it parses the answer stay the same.
+- The other dependencies are updated to their latest compatible
+  versions, among them sha2 0.11.1, serde_json 1.0.154, schemars 1.2.3
+  and signal-hook 0.4.5.
+
 ## [0.12.1] - 2026-10-16
 
 ### Changed
