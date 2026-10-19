@@ -88,7 +88,7 @@ impl TerminalEnv {
     /// or a `TERM_PROGRAM` of `tmux`. ratatui-image takes exactly this for
     /// tmux, wraps every command for tmux's passthrough then, and runs
     /// `tmux set -p allow-passthrough on` in every picker it builds
-    /// (12.0.0-rc.2 `picker.rs` l.334-348). Over ssh from a tmux pane,
+    /// (12.0.0-rc.3 `picker.rs` l.336-350). Over ssh from a tmux pane,
     /// `TERM` comes along and `TMUX` does not.
     pub fn tmux_like_term(&self) -> bool {
         self.set("TERM")

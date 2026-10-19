@@ -986,7 +986,7 @@ fn showing_a_kitty_image_before(
     // `TERM_PROGRAM` of tmux makes ratatui-image wrap every command for
     // passthrough, and WezTerm's or Konsole's variable rules the Kitty
     // protocol out whatever the terminal answers (ratatui-image
-    // 12.0.0-rc.2 `picker.rs` l.131-138), where empty counts as unset.
+    // 12.0.0-rc.3 `picker.rs` l.133-140), where empty counts as unset.
     let mut variables = vec![
         ("TERM_PROGRAM", "pty-test"),
         ("WEZTERM_EXECUTABLE", ""),

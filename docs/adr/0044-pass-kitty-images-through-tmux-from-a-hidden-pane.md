@@ -21,7 +21,7 @@ Kitty images only, not for Sixel and iTerm2
   (ADR 24). Under `on`, a Kitty transfer or delete written while asqr's
   pane is hidden is lost, and asqr depends on focus reports to send
   images and deletes again.
-- ratatui-image 12.0.0-rc.2 runs `tmux set -p allow-passthrough on` for
+- ratatui-image 12.0.0-rc.3 runs `tmux set -p allow-passthrough on` for
   the pane in every `Picker` constructor when `TERM` starts with `tmux`
   or `TERM_PROGRAM` is `tmux`, and asqr puts the pane's own value back
   afterwards (spec section 8.9).

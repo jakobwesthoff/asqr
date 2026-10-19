@@ -38,7 +38,7 @@ Under Kitty, scale an image only down, to at most the pane's pixels,
 and let the terminal enlarge it to its cells. asqr encodes Kitty images
 itself (`src/graphics/image.rs:144-168`); ratatui-image's
 `transmit_base64` sends the picture's pixels as `s`/`v` and the cells
-as `c`/`r` (ratatui-image 12.0.0-rc.2 `kitty.rs:457`), so it does not
+as `c`/`r` (ratatui-image 12.0.0-rc.3 `kitty.rs:457`), so it does not
 force the pre-scaling, which comes from asqr's own `resize.resize`
 (`image.rs:101`). Pad the source to the cells' aspect ratio so the
 terminal scales it evenly. The triangle filter (commit `f853114`) keeps

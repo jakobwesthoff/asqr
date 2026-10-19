@@ -113,7 +113,7 @@ pub(crate) fn transmission(buf: &Buffer) -> &str {
 /// The Kitty ids of the images `buf` shows: the low three bytes from the
 /// foreground colour of the placeholders, the high byte from the third
 /// mark, which the first placeholder of each row carries (ratatui-image
-/// 12.0.0-rc.2 `protocol/kitty.rs` l.169-213).
+/// 12.0.0-rc.3 `protocol/kitty.rs` l.169-213).
 pub(crate) fn kitty_ids_on_screen(buf: &Buffer) -> BTreeSet<u32> {
     buf.content()
         .iter()

@@ -15,6 +15,14 @@ through byte-exact checks, pipe tests and a PTY with stand-in answers,
 but no real terminal. The user postponed the check in real terminals
 and asked to assume for now that it works.
 
+asqr moved to ratatui-image 12.0.0-rc.3 on 2026-10-19 after the
+Ghostty check below. rc.3 changes only the graphics query: it writes
+the query straight to the stdout descriptor with `rustix::io::write`
+and reads the answers from a borrowed stdin descriptor, where rc.2 went
+through `io::stdout()` and `io::stdin()`. Every terminal checked below
+before that date ran rc.2, so the query rows ("No digits or keys leak",
+the detected protocol) count for rc.3 only once checked again.
+
 ## Checked so far
 
 Ghostty under tmux, release build of `9b22439`, 2026-10-16, by Jakob

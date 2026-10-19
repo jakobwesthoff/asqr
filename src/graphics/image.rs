@@ -203,7 +203,7 @@ impl Image {
 /// The cells a picture of `pixels` (width, height) takes in `available`
 /// cells of `font`: scaled to fill them as far as its proportions allow
 /// with `enlarge`, else at its natural size and shrunk only where it does
-/// not fit. This is `Resize::size_for` of ratatui-image 12.0.0-rc.2 for
+/// not fit. This is `Resize::size_for` of ratatui-image 12.0.0-rc.3 for
 /// `Scale` and `Fit`, which takes a decoded picture only for its width
 /// and height; computed from the pixel size kept at the first decoding,
 /// it tells whether a new area needs a new encoding before anything is
@@ -264,7 +264,7 @@ fn fit_area_proportionally(
 /// Kitty protocol under a new id from the run's book.
 ///
 /// It passes what `Picker::new_protocol` passes (ratatui-image
-/// 12.0.0-rc.2 `picker.rs` l.263-298) but for the Kitty id and shared
+/// 12.0.0-rc.3 `picker.rs` l.265-300) but for the Kitty id and shared
 /// memory: the tmux wrapping, and compression only where the terminal
 /// said it inflates `o=z`. Shared memory stays off. The picker only
 /// reports it when the query asked for it, it works only with a terminal
@@ -571,7 +571,7 @@ mod tests {
 
     /// The protocol names an image by its id in the transmission and in
     /// every placeholder, the id's low three bytes as the foreground
-    /// colour (ratatui-image 12.0.0-rc.2 `protocol/kitty.rs` l.132-143).
+    /// colour (ratatui-image 12.0.0-rc.3 `protocol/kitty.rs` l.132-143).
     #[test]
     fn a_kitty_image_is_sent_under_the_id_its_book_issued() {
         let images = Images::with_ids(Graphics::KITTY, [0x00AB_CDEF]);

@@ -27,7 +27,7 @@ the screen mends a Kitty image once the overlays are drawn
   `Picker`. The picker was handed through the view, the tab, the viewers
   and the encoder, and about sixty tests built one with
   `Picker::halfblocks()`.
-- Every `Picker` constructor in ratatui-image 12.0.0-rc.2 runs
+- Every `Picker` constructor in ratatui-image 12.0.0-rc.3 runs
   `tmux set -p allow-passthrough on` when `TERM` starts with `tmux` or
   `TERM_PROGRAM` is `tmux`. A test run inside tmux set the test's own
   pane to `on`, also where the person had `all`: with a stand-in `tmux`

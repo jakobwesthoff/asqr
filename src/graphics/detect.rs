@@ -111,7 +111,7 @@ pub fn settle_passthrough(
 /// runs tmux with the arguments it gets and returns what it printed, or
 /// `None` when it cannot run or fails.
 ///
-/// ratatui-image 12.0.0-rc.2 runs `tmux set -p allow-passthrough on` in every
+/// ratatui-image 12.0.0-rc.3 runs `tmux set -p allow-passthrough on` in every
 /// `Picker` constructor in a terminal that names tmux, which would
 /// override the person's own setting for the pane on every start. The
 /// same test decides here whether to take a snapshot, so this acts exactly
@@ -211,7 +211,7 @@ pub const QUERY_WAIT: Duration = Duration::from_secs(5);
 
 /// How far short of [`QUERY_WAIT`] a query that ran out may come back:
 /// ratatui-image waits the time left in whole milliseconds, rounded down
-/// (12.0.0-rc.2 `picker.rs` l.570-577).
+/// (12.0.0-rc.3 `picker.rs` l.597-604).
 const QUERY_WAIT_ROUNDING: Duration = Duration::from_millis(10);
 
 /// How long [`discard_late_answers`] waits for the next byte of a late

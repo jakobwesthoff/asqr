@@ -41,7 +41,7 @@ Crates are added with `cargo add` when the first test needs them.
   0.30, which `ratatui-image` needs; `tui-textarea` 0.7 supports ratatui
   up to 0.29. It uses the crossterm version ratatui re-exports, so the
   whole tree has one crossterm.
-- **`ratatui-image`** is pinned to the release candidate `=12.0.0-rc.2`,
+- **`ratatui-image`** is pinned to the release candidate `=12.0.0-rc.3`,
   as Cargo selects a pre-release only when it is named exactly. It
   writes the size of a Kitty placement in cells, so asqr does not add it
   to the command itself, and reads the terminal's answer to its query

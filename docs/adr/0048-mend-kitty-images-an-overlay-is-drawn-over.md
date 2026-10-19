@@ -12,7 +12,7 @@ Amends [45. Keep image handling in a graphics module around an asqr-owned value]
 
 ## Context
 
-- ratatui-image 12.0.0-rc.2 draws a Kitty image as cells of the
+- ratatui-image 12.0.0-rc.3 draws a Kitty image as cells of the
   placeholder character U+10EEEE. Only the first cell of each image row
   carries the diacritics for its row, its column and the high byte of
   the image's id; the other cells carry none.

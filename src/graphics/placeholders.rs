@@ -4,7 +4,7 @@
 
 //! Kitty images that something was drawn over (ADR 48).
 //!
-//! ratatui-image 12.0.0-rc.2 draws a Kitty image as cells of the
+//! ratatui-image 12.0.0-rc.3 draws a Kitty image as cells of the
 //! placeholder character, and only the first cell of each image row
 //! carries the diacritics for its row, its column and the high byte of the
 //! image's id. The cells after it carry none: by the Kitty spec they take
