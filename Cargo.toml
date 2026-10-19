@@ -50,4 +50,4 @@ vt100 = "0.16.2"
 
 [target."cfg(unix)".dependencies]
 rustix = { version = "1.1.5", features = ["event", "fs"] }
-signal-hook = "0.3.18"
+signal-hook = "0.4.5"
