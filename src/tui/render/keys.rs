@@ -41,7 +41,8 @@ const HELP: &[(&str, &str)] = &[
 const PANE_HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "scroll by line"),
     ("←/→, h/l", "scroll sideways where lines are cut"),
-    ("pgup/pgdn", "scroll by page, also ctrl-u/ctrl-d"),
+    ("pgup/pgdn", "scroll by page"),
+    ("ctrl-u/ctrl-d", "scroll by half a page"),
     ("g/G", "to the top and the bottom, also home/end"),
     ("z", "show the context full screen and back"),
     ("o", "open an image in the system viewer"),
@@ -55,7 +56,8 @@ const PANE_HELP: &[(&str, &str)] = &[
 const FULL_SCREEN_HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "scroll by line"),
     ("←/→, h/l", "scroll sideways where lines are cut"),
-    ("pgup/pgdn", "scroll by page, also ctrl-u/ctrl-d"),
+    ("pgup/pgdn", "scroll by page"),
+    ("ctrl-u/ctrl-d", "scroll by half a page"),
     ("g/G", "to the top and the bottom, also home/end"),
     ("o", "open an image in the system viewer"),
     ("z/tab/esc/q", "leave the full screen"),
@@ -309,7 +311,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::{Color, Modifier};
 
-    use super::super::test_support::{find, line_texts, look_at, row};
+    use super::super::test_support::{find, line_texts, look_at, row, rows};
     use super::*;
     use crate::tui::Extent;
 
@@ -536,6 +538,68 @@ mod tests {
             look_at(&buf, "move between"),
             (Color::Reset, Modifier::empty())
         );
+    }
+
+    /// The lines inside the help's frame on the smallest screen, 60x15,
+    /// without the border and the blanks around them.
+    fn smallest_help_lines(state: &SessionState) -> Vec<String> {
+        let area = Rect::new(0, 0, 60, 15);
+        let mut buf = Buffer::empty(area);
+        draw_help(area, &mut buf, state);
+        let rows = rows(&buf);
+        let edge = |corner| {
+            rows.iter()
+                .position(|row| row.contains(corner))
+                .expect("the help is drawn in a frame")
+        };
+        rows[edge('╭') + 1..edge('╰')]
+            .iter()
+            .map(|row| row.trim().trim_matches('│').trim().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn the_pane_helps_list_ctrl_u_and_ctrl_d_apart_and_fit_the_smallest_screen() {
+        let text = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "context": [{"type": "code", "content": "x"}], "options": [{"id": "a", "label": "A"}]}]}"#;
+        let mut state =
+            SessionState::new("text", serde_json::from_str(text).expect("parses"), None);
+        state.set_pane_page(Some(crate::tui::PanePage::shown(Page::default())));
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let pane = smallest_help_lines(&state);
+        state.handle(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert!(state.full_screen());
+        let full_screen = smallest_help_lines(&state);
+
+        let scroll_lines = |lines: &[String]| {
+            let starting = |key: &str| lines.iter().find(|line| line.starts_with(key)).cloned();
+            (starting("pgup/pgdn"), starting("ctrl-u/ctrl-d"))
+        };
+        let expected = (
+            Some("pgup/pgdn     scroll by page".to_owned()),
+            Some("ctrl-u/ctrl-d scroll by half a page".to_owned()),
+        );
+        assert_eq!(
+            (scroll_lines(&pane), scroll_lines(&full_screen)),
+            (expected.clone(), expected)
+        );
+
+        // The frame's height is fixed before the lines wrap, so a line that
+        // wraps pushes the last one out of it.
+        for lines in [&pane, &full_screen] {
+            let whole = |key: &str, end: &str| {
+                lines
+                    .iter()
+                    .any(|line| line.starts_with(key) && line.ends_with(end))
+            };
+            assert!(
+                lines
+                    .last()
+                    .is_some_and(|last| last.starts_with('?') && last.ends_with("this help"))
+                    && whole("g/G", "home/end"),
+                "{lines:#?}"
+            );
+        }
     }
 
     #[test]

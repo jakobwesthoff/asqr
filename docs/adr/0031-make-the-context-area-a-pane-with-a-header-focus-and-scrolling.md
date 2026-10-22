@@ -30,6 +30,9 @@ drawing, and viewers are kept for a window of three questions
 Amended by [48. Mend Kitty images an overlay is drawn over](0048-mend-kitty-images-an-overlay-is-drawn-over.md):
 a viewer's `draw` returns the Kitty image it drew
 
+Amended by [52. Scroll half a page with ctrl-u and ctrl-d](0052-scroll-half-a-page-with-ctrl-u-and-ctrl-d.md):
+`ctrl-u` and `ctrl-d` scroll by half a page
+
 ## Context
 
 The context area beside or below the question (ADR 30) shows entries of

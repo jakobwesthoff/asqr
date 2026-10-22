@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asqr validate` and `asqr ask` print it, and the dialog and the error
   result of an invalid session in the queue carry it. Before, the
   message was the parser's `unknown variant`.
+- `ctrl-u` and `ctrl-d` scroll the context pane, the full-screen view
+  and the intro by half a page, as they do in Vim and `less`; an odd
+  height rounds down, as in Vim. Before, they scrolled a whole page, as
+  `pgup` and `pgdn` still do. The help of the pane and of the
+  full-screen view lists them on a line of their own.
 
 ## [0.12.2] - 2026-10-19
 

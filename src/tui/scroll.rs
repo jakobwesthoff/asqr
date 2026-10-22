@@ -23,6 +23,12 @@ impl Extent {
         self.total.saturating_sub(self.shown)
     }
 
+    /// How far `ctrl-u` and `ctrl-d` move: half of what shows, rounded
+    /// down as in Vim, and at least one line.
+    fn half(self) -> usize {
+        (self.shown / 2).max(1)
+    }
+
     /// Which lines show from `start` on, counted from 1, as "4–15 of 120";
     /// `None` where all of them fit, as then there is nothing to say.
     pub fn position(self, start: usize) -> Option<String> {
@@ -59,26 +65,27 @@ pub struct Offset {
 }
 
 /// How many columns `←`/`→` and `h`/`l` move sideways. A column at a time
-/// is too slow to read along a long line, and half a page, as `less` does,
-/// loses the place in it.
+/// is too slow to read along a long line, and half the width, as `less`
+/// does, loses the place in it.
 const SIDEWAYS_STEP: usize = 4;
 
 /// The offset after `key` in a view that showed `page` from `offset` on,
 /// or `None` when `key` does not scroll.
 ///
-/// `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll by a page in any case, as
-/// they do not type text. The line, sideways and end keys (`↑`/`↓`,
-/// `j`/`k`, `←`/`→`, `h`/`l`, `g`/`G`, `home`/`end`) only scroll a view
-/// that is `focused`, as elsewhere they move the cursor or type. The result
-/// never goes past either end, and neither does an offset that a smaller
-/// terminal left past the end: it is brought back first, so the first key
-/// after a resize already moves the view.
+/// `pgup`/`pgdn` scroll by a page and `ctrl-u`/`ctrl-d` by half a page, as
+/// in Vim and `less`, in any case, as they do not type text. The line,
+/// sideways and end keys (`↑`/`↓`, `j`/`k`, `←`/`→`, `h`/`l`, `g`/`G`,
+/// `home`/`end`) only scroll a view that is `focused`, as elsewhere they
+/// move the cursor or type. The result never goes past either end, and
+/// neither does an offset that a smaller terminal left past the end: it is
+/// brought back first, so the first key after a resize already moves the
+/// view.
 pub fn scroll(key: KeyEvent, offset: Offset, page: Page, focused: bool) -> Option<Offset> {
     let Offset { top, left } = page.clamp(offset);
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let (top, left) = match key.code {
-        KeyCode::Char('u') if control => (top.saturating_sub(page.rows.shown), left),
-        KeyCode::Char('d') if control => (top + page.rows.shown, left),
+        KeyCode::Char('u') if control => (top.saturating_sub(page.rows.half()), left),
+        KeyCode::Char('d') if control => (top + page.rows.half(), left),
         KeyCode::PageUp => (top.saturating_sub(page.rows.shown), left),
         KeyCode::PageDown => (top + page.rows.shown, left),
         _ if control || !focused => return None,
@@ -133,9 +140,7 @@ mod tests {
             (key('k'), at(5, 8), at(4, 8)),
             (code(KeyCode::Up), at(0, 8), at(0, 8)),
             (code(KeyCode::PageDown), at(5, 8), at(15, 8)),
-            (ctrl('d'), at(25, 8), at(30, 8)),
             (code(KeyCode::PageUp), at(5, 8), at(0, 8)),
-            (ctrl('u'), at(25, 8), at(15, 8)),
             (key('g'), at(25, 8), at(0, 8)),
             (code(KeyCode::Home), at(25, 8), at(0, 8)),
             (key('G'), at(5, 8), at(30, 8)),
@@ -182,13 +187,11 @@ mod tests {
     }
 
     #[test]
-    fn an_unfocused_view_scrolls_only_by_page() {
+    fn an_unfocused_view_scrolls_only_by_the_page_keys() {
         assert_eq!(
             scroll(code(KeyCode::PageDown), at(0, 0), PAGE, false),
             Some(at(10, 0))
         );
-        assert_eq!(scroll(ctrl('d'), at(0, 0), PAGE, false), Some(at(10, 0)));
-        assert_eq!(scroll(ctrl('u'), at(10, 0), PAGE, false), Some(at(0, 0)));
         assert_eq!(
             scroll(code(KeyCode::PageUp), at(10, 0), PAGE, false),
             Some(at(0, 0))
@@ -196,6 +199,61 @@ mod tests {
         for event in [key('j'), key('G'), code(KeyCode::Right), code(KeyCode::End)] {
             assert_eq!(scroll(event, at(5, 0), PAGE, false), None, "{event:?}");
         }
+    }
+
+    /// How far `down` and `up` move a view that shows `shown` of 100
+    /// lines from line 50, so that neither end gets in the way.
+    fn steps(down: KeyEvent, up: KeyEvent, shown: usize, focused: bool) -> (usize, usize) {
+        let page = Page {
+            rows: Extent { shown, total: 100 },
+            columns: Extent::default(),
+        };
+        let top = |event| {
+            scroll(event, at(50, 0), page, focused)
+                .expect("scrolls")
+                .top
+        };
+        (top(down) - 50, 50 - top(up))
+    }
+
+    #[test]
+    fn ctrl_u_and_ctrl_d_move_half_an_even_view() {
+        assert_eq!(steps(ctrl('d'), ctrl('u'), 10, true), (5, 5));
+    }
+
+    #[test]
+    fn half_an_odd_view_rounds_down() {
+        assert_eq!(steps(ctrl('d'), ctrl('u'), 11, true), (5, 5));
+    }
+
+    #[test]
+    fn half_a_view_of_one_row_is_one_line() {
+        assert_eq!(steps(ctrl('d'), ctrl('u'), 1, true), (1, 1));
+    }
+
+    #[test]
+    fn ctrl_u_and_ctrl_d_move_half_a_view_also_unfocused() {
+        assert_eq!(steps(ctrl('d'), ctrl('u'), 10, false), (5, 5));
+    }
+
+    #[test]
+    fn pgup_and_pgdn_move_a_whole_view() {
+        let (down, up) = (code(KeyCode::PageDown), code(KeyCode::PageUp));
+        assert_eq!(
+            [10, 11, 1].map(|shown| steps(down, up, shown, true)),
+            [(10, 10), (11, 11), (1, 1)]
+        );
+    }
+
+    #[test]
+    fn ctrl_d_and_ctrl_u_stop_at_the_ends() {
+        assert_eq!(
+            (
+                scroll(ctrl('d'), at(28, 8), PAGE, true),
+                scroll(ctrl('u'), at(3, 8), PAGE, true)
+            ),
+            (Some(at(30, 8)), Some(at(0, 8)))
+        );
     }
 
     #[test]

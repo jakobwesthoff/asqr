@@ -2618,14 +2618,12 @@ mod tests {
         assert_eq!(scrolled(code(KeyCode::Down)).top, 2);
         assert_eq!(scrolled(code(KeyCode::Char('k'))).top, 1);
         assert_eq!(scrolled(code(KeyCode::PageDown)).top, 11);
-        assert_eq!(scrolled(ctrl('d')).top, 21);
         assert_eq!(scrolled(code(KeyCode::Char('G'))).top, 30);
         assert_eq!(
             scrolled(code(KeyCode::Char('j'))).top,
             30,
             "stops at the end"
         );
-        assert_eq!(scrolled(ctrl('u')).top, 20);
         assert_eq!(scrolled(code(KeyCode::Home)).top, 0);
         assert_eq!(scrolled(code(KeyCode::End)).top, 30);
         assert_eq!(scrolled(code(KeyCode::Char('g'))).top, 0);
@@ -2634,6 +2632,33 @@ mod tests {
         assert_eq!(scrolled(code(KeyCode::Left)).left, 4);
         assert_eq!(scrolled(code(KeyCode::Char('h'))).left, 0);
         assert_eq!((state.tab(), state.row()), (0, 0), "the question stays");
+    }
+
+    /// Where the pane's entry starts after each of `ctrl-d`, `ctrl-d` and
+    /// `ctrl-u`.
+    fn half_page_tops(state: &mut SessionState) -> Vec<usize> {
+        [ctrl('d'), ctrl('d'), ctrl('u')]
+            .into_iter()
+            .map(|event| {
+                assert_eq!(state.handle(event), Effect::None);
+                top(state)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ctrl_u_and_ctrl_d_scroll_the_focused_pane_by_half_its_height() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(half_page_tops(&mut state), [5, 10, 5]);
+    }
+
+    #[test]
+    fn ctrl_u_and_ctrl_d_scroll_the_full_screen_view_by_half_its_height() {
+        let mut state = with_pane();
+        press(&mut state, "z");
+        assert!(state.full_screen());
+        assert_eq!(half_page_tops(&mut state), [5, 10, 5]);
     }
 
     #[test]
@@ -2789,11 +2814,12 @@ mod tests {
     #[test]
     fn page_keys_scroll_the_pane_from_the_question_and_from_a_field() {
         let mut state = with_pane();
+        let mut tops = Vec::new();
 
-        state.handle(code(KeyCode::PageDown));
-        assert_eq!(top(&state), 10);
-        state.handle(ctrl('d'));
-        assert_eq!(top(&state), 20);
+        for event in [code(KeyCode::PageDown), ctrl('d')] {
+            state.handle(event);
+            tops.push(top(&state));
+        }
         assert_eq!(press(&mut state, "j"), Effect::None);
         assert_eq!(state.row(), 1, "j still moves the cursor");
 
@@ -2802,10 +2828,11 @@ mod tests {
         assert_eq!(state.focus(), Focus::Field);
         press(&mut state, "ab");
         state.handle(code(KeyCode::Left));
-        state.handle(ctrl('u'));
-        assert_eq!(top(&state), 10);
-        state.handle(code(KeyCode::PageUp));
-        assert_eq!(top(&state), 0);
+        for event in [ctrl('u'), ctrl('u'), code(KeyCode::PageUp)] {
+            state.handle(event);
+            tops.push(top(&state));
+        }
+        assert_eq!(tops, [10, 15, 10, 5, 0]);
         assert_eq!(
             state.field_text().as_deref(),
             Some("ab"),

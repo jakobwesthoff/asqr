@@ -672,19 +672,31 @@ mod tests {
         assert_eq!(scrolled(code(KeyCode::Up)), 0);
         assert_eq!(scrolled(key('k')), 0, "stops at the start");
         assert_eq!(scrolled(code(KeyCode::PageDown)), 10);
-        assert_eq!(scrolled(ctrl('d')), 20);
+        assert_eq!(scrolled(code(KeyCode::PageDown)), 20);
         assert_eq!(
-            scrolled(ctrl('d')),
+            scrolled(code(KeyCode::PageDown)),
             30,
             "the last page ends with the last line"
         );
         assert_eq!(scrolled(key('j')), 30, "stops at the end");
         assert_eq!(scrolled(code(KeyCode::PageUp)), 20);
-        assert_eq!(scrolled(ctrl('u')), 10);
         assert_eq!(scrolled(key('g')), 0);
         assert_eq!(scrolled(key('G')), 30);
         assert_eq!(scrolled(code(KeyCode::Home)), 0);
         assert_eq!(scrolled(code(KeyCode::End)), 30);
+    }
+
+    #[test]
+    fn ctrl_u_and_ctrl_d_scroll_the_intro_by_half_its_height() {
+        let mut app = intro_open(10, 40);
+        let tops: Vec<usize> = [ctrl('d'), ctrl('d'), ctrl('u')]
+            .into_iter()
+            .map(|event| {
+                assert_eq!(app.handle(event), AppEffect::None);
+                app.intro_scroll().expect("still open")
+            })
+            .collect();
+        assert_eq!(tops, [5, 10, 5]);
     }
 
     #[test]

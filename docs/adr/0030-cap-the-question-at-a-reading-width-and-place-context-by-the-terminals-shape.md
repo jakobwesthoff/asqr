@@ -12,6 +12,9 @@ Amended by [31. Make the context area a pane with a header, focus and scrolling]
 
 Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-title-in-the-title-bar.md)
 
+Amended by [52. Scroll half a page with ctrl-u and ctrl-d](0052-scroll-half-a-page-with-ctrl-u-and-ctrl-d.md):
+`ctrl-u` and `ctrl-d` scroll the intro overlay by half a page
+
 ## Context
 
 Over the full width of a terminal of about 230 columns, question texts,

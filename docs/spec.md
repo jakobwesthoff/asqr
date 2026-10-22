@@ -962,7 +962,8 @@ On an option row (vim style plus arrows):
 | `i` | the whole intro |
 | `o`, `z` | open the image shown in the system viewer; show the context shown full screen |
 | `tab`, `shift-tab` | move into the context pane; `tab`, `shift-tab`, `esc` or `q` move back |
-| `pgup`/`pgdn`, `ctrl-u`/`ctrl-d` | scroll the context pane by a page, also while typing in a field |
+| `pgup`/`pgdn` | scroll the context pane by a page, also while typing in a field |
+| `ctrl-u`/`ctrl-d` | scroll the context pane by half a page, also while typing in a field |
 | `q`, `ctrl-c` | quit, keeping the draft; in the context pane `q` goes back |
 | `?` | help |
 
@@ -989,9 +990,9 @@ The context pane:
   such as next to the one-line hint. They never type into a field.
 - The focused pane takes every key: `↑`/`↓` and `k`/`j` scroll by line,
   `←`/`→` and `h`/`l` by 4 columns sideways where the entry's lines are
-  cut at the pane's edge, `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` by page,
-  `g`/`G` and `home`/`end` to the ends. `z`, `o` and `?` keep their
-  meaning and `ctrl-c` quits. `tab`, `shift-tab`, `esc` and `q` give the
+  cut at the pane's edge, `pgup`/`pgdn` by a page, `ctrl-u`/`ctrl-d` by
+  half a page, `g`/`G` and `home`/`end` to the ends. `z`, `o` and `?`
+  keep their meaning and `ctrl-c` quits. `tab`, `shift-tab`, `esc` and `q` give the
   focus back to where it was, a field being typed in included, so a word
   typed after `tab` never quits asqr. Every other key does nothing.
 - While the pane has the focus, its header shows the focus fill, the
@@ -999,10 +1000,13 @@ The context pane:
   fill, a field's text cursor hides, and the key bar and the help show
   the pane's keys, with `? help` and `tab/esc/q back`. A pane that goes
   away, as after a resize down to the hint, gives the focus back.
-- `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` scroll the context pane by a page
-  from anywhere, also from inside a field, while a pane shows. Without
-  a pane, `pgup`/`pgdn` do nothing inside a field, and `ctrl-u` and
-  `ctrl-d` undo and delete there (section 7.7, ADR 31).
+- `pgup`/`pgdn` scroll the context pane by a page and `ctrl-u`/`ctrl-d`
+  by half a page from anywhere, also from inside a field, while a pane
+  shows. A page is the height the pane, the full-screen view or the
+  intro shows, and half a page is half of it, rounded down, and at least
+  one line (ADR 52). Without a pane, `pgup`/`pgdn` do nothing inside a
+  field, and `ctrl-u` and `ctrl-d` undo and delete there (section 7.7,
+  ADR 31).
 - `z` shows the context pane of the entry shown over the question's
   area, header included. It acts on every kind of entry (ADR 31). The
   full-screen view reads like the focused pane: it takes every key, so
@@ -1021,9 +1025,9 @@ Overlays and dialogs:
 - `i` shows the session's whole intro in a frame over the question,
   rendered as in the header (section 7.10), with the key bar left free.
   An intro longer than the frame scrolls: `↑`/`↓` and `k`/`j` by line,
-  `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` by page, `g`/`G` and `home`/`end`
-  to the ends. The frame's bottom edge then shows which lines are
-  visible, such as `4–15 of 16`. `esc`, `q` and `i` close it and
+  `pgup`/`pgdn` by a page, `ctrl-u`/`ctrl-d` by half a page, `g`/`G`
+  and `home`/`end` to the ends. The frame's bottom edge then shows which
+  lines are visible, such as `4–15 of 16`. `esc`, `q` and `i` close it and
   `ctrl-c` quits; every other key does nothing, so a key meant to
   scroll never closes it. On a session without an intro, `i` does
   nothing.
