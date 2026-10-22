@@ -40,7 +40,7 @@ fn result_prints_a_result_that_is_there() {
     let sandbox = Sandbox::new();
     ask(&sandbox, "done");
     answer(&sandbox, "done", |sha| {
-        SessionResult::cancelled("done", sha, &now_rfc3339(), None)
+        SessionResult::cancelled("done", sha, &now_rfc3339(), None, None, Vec::new())
     });
 
     let output = sandbox
@@ -361,7 +361,7 @@ fn status_shows_every_result_status_and_skips_other_files() {
     ask(&sandbox, "rejected");
     ask(&sandbox, "invalid");
     answer(&sandbox, "rejected", |sha| {
-        SessionResult::cancelled("rejected", sha, &now_rfc3339(), None)
+        SessionResult::cancelled("rejected", sha, &now_rfc3339(), None, None, Vec::new())
     });
     answer(&sandbox, "invalid", |sha| {
         SessionResult::error("invalid", sha, &now_rfc3339(), "bad")

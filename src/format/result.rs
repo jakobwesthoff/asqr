@@ -35,8 +35,8 @@ pub struct SessionResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_sha256: Option<String>,
 
-    /// The person's note to the whole session, given on the review tab.
-    /// Only a submitted result carries it; a draft keeps it as typed.
+    /// The person's note to the whole session, given on the review tab. A
+    /// submitted or cancelled result carries it; a draft keeps it as typed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 
@@ -52,6 +52,10 @@ pub struct SessionResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current: Option<String>,
 
+    /// A submitted result holds every question once, in session order. A
+    /// cancelled result holds only the questions with an answer, an
+    /// untouched default included, or a note, in session order. An error
+    /// result holds none.
     #[serde(default)]
     pub answers: Vec<Answer>,
 }
@@ -142,14 +146,21 @@ impl SessionResult {
         }
     }
 
+    /// `note` is the person's note to the whole session, and `answers` are
+    /// those of the questions with an answer or a note (see
+    /// [`super::rejected_answers`]).
     pub fn cancelled(
         id: &str,
         session_sha256: &str,
         submitted_at: &str,
         reason: Option<String>,
+        note: Option<String>,
+        answers: Vec<Answer>,
     ) -> Self {
         SessionResult {
             reason,
+            note,
+            answers,
             ..Self::finished(id, Status::Cancelled, session_sha256, submitted_at)
         }
     }
@@ -274,7 +285,14 @@ mod tests {
 
     #[test]
     fn a_cancelled_result_carries_the_reason_and_no_answers() {
-        let result = SessionResult::cancelled("batch-01", "9f2c", AT, Some("out of date".into()));
+        let result = SessionResult::cancelled(
+            "batch-01",
+            "9f2c",
+            AT,
+            Some("out of date".into()),
+            None,
+            Vec::new(),
+        );
 
         assert_eq!(
             serde_json::to_value(&result).expect("result serializes"),
@@ -286,6 +304,38 @@ mod tests {
                 "session_sha256": "9f2c",
                 "reason": "out of date",
                 "answers": []
+            })
+        );
+    }
+
+    #[test]
+    fn a_cancelled_result_carries_the_reason_the_note_and_the_answers() {
+        let result = SessionResult::cancelled(
+            "batch-01",
+            "9f2c",
+            AT,
+            Some("see the note on q1".into()),
+            Some("look at q1 first".into()),
+            vec![Answer {
+                selected: vec!["new1".into()],
+                note: Some("maybe shorter".into()),
+                ..Answer::new("q1")
+            }],
+        );
+
+        assert_eq!(
+            serde_json::to_value(&result).expect("result serializes"),
+            json!({
+                "asqr": 2,
+                "id": "batch-01",
+                "status": "cancelled",
+                "submitted_at": AT,
+                "session_sha256": "9f2c",
+                "note": "look at q1 first",
+                "reason": "see the note on q1",
+                "answers": [
+                    { "question": "q1", "selected": ["new1"], "note": "maybe shorter" }
+                ]
             })
         );
     }

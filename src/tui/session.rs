@@ -23,7 +23,8 @@ use super::{FieldKey, FieldShape, Leave, Notice, Offset, Page, TextField, Tone};
 
 pub use crate::format::Length;
 use crate::format::{
-    Answer, ContextEntry, Kind, Question, Session, SessionResult, is_answered, result_answers,
+    Answer, ContextEntry, Kind, Question, Session, SessionResult, is_answered, rejected_answers,
+    result_answers,
 };
 
 /// What the running app has to do after a key.
@@ -38,8 +39,14 @@ pub enum Effect {
         answers: Vec<Answer>,
         note: Option<String>,
     },
-    /// The person rejected the session, with a reason if they gave one.
-    Reject(Option<String>),
+    /// The person rejected the session: the reason if they gave one, the
+    /// note to the whole session if they wrote one, and the answers of the
+    /// questions with an answer or a note (spec section 4.1).
+    Reject {
+        reason: Option<String>,
+        note: Option<String>,
+        answers: Vec<Answer>,
+    },
     Quit,
     OpenImage(String),
     OpenSessionList,
@@ -905,10 +912,7 @@ impl SessionState {
             Row::Own => self.pick_own(),
             Row::Question(index) => self.go_to_tab(index),
             Row::Submit | Row::Note => self.submit(),
-            Row::Reject => {
-                let reason = self.reject_reason.trim();
-                Effect::Reject((!reason.is_empty()).then(|| reason.to_owned()))
-            }
+            Row::Reject => self.reject(),
         }
     }
 
@@ -1034,10 +1038,19 @@ impl SessionState {
     /// goes through; unanswered questions come back as skipped. The session
     /// note is trimmed like the reject reason (ADR 29).
     fn submit(&mut self) -> Effect {
-        let note = self.session_note.trim();
         Effect::Submit {
             answers: result_answers(&self.session, &self.answers()),
-            note: (!note.is_empty()).then(|| note.to_owned()),
+            note: trimmed(&self.session_note),
+        }
+    }
+
+    /// A reject keeps the session note as a submit would send it, and the
+    /// answers of the questions with an answer or a note.
+    fn reject(&self) -> Effect {
+        Effect::Reject {
+            reason: trimmed(&self.reject_reason),
+            note: trimmed(&self.session_note),
+            answers: rejected_answers(&self.session, &self.answers()),
         }
     }
 
@@ -1167,6 +1180,12 @@ impl SessionState {
         }
         Effect::DraftChanged
     }
+}
+
+/// Typed text as a result carries it: trimmed, and absent when blank.
+fn trimmed(text: &str) -> Option<String> {
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_owned())
 }
 
 fn option_ids(question: &Question) -> impl Iterator<Item = &str> {
@@ -2013,10 +2032,10 @@ mod tests {
         state.handle(ctrl('j'));
         press(&mut state, "ask again");
 
-        assert_eq!(
-            state.handle(code(KeyCode::Enter)),
-            Effect::Reject(Some("stale\nask again".into()))
-        );
+        let Effect::Reject { reason, .. } = state.handle(code(KeyCode::Enter)) else {
+            panic!("enter on the reason rejects");
+        };
+        assert_eq!(reason.as_deref(), Some("stale\nask again"));
     }
 
     #[test]
@@ -2090,30 +2109,79 @@ mod tests {
     }
 
     #[test]
-    fn rejecting_leaves_the_session_note_out() {
+    fn rejecting_keeps_the_session_note_trimmed() {
         let mut state = state();
         review_row(&mut state, Row::Note);
-        press(&mut state, "approved");
+        press(&mut state, " approved ");
         state.handle(code(KeyCode::Down));
 
-        assert_eq!(state.handle(code(KeyCode::Enter)), Effect::Reject(None));
+        let Effect::Reject { reason, note, .. } = state.handle(code(KeyCode::Enter)) else {
+            panic!("enter on Reject rejects");
+        };
+        assert_eq!((reason, note.as_deref()), (None, Some("approved")));
+    }
+
+    #[test]
+    fn rejecting_keeps_an_untouched_default_flagged() {
+        let mut state = state();
+        review_row(&mut state, Row::Reject);
+
+        let Effect::Reject { answers, .. } = state.handle(code(KeyCode::Enter)) else {
+            panic!("enter on Reject rejects");
+        };
+        assert_eq!(
+            answers,
+            [Answer {
+                selected: vec!["b".into()],
+                defaulted: true,
+                ..Answer::new("single")
+            }]
+        );
+    }
+
+    #[test]
+    fn rejecting_keeps_the_answered_and_the_noted_questions() {
+        let mut state = state();
+        // `1` picks a and moves on to `multi`, whose note is the only thing
+        // entered there; `text` and `plain` stay untouched.
+        press(&mut state, "1n");
+        press(&mut state, "none fit");
+        state.handle(code(KeyCode::Enter));
+        review_row(&mut state, Row::Reject);
+
+        let Effect::Reject { answers, .. } = state.handle(code(KeyCode::Enter)) else {
+            panic!("enter on Reject rejects");
+        };
+        assert_eq!(
+            answers,
+            [
+                Answer {
+                    selected: vec!["a".into()],
+                    ..Answer::new("single")
+                },
+                Answer {
+                    note: Some("none fit".into()),
+                    ..Answer::skipped("multi")
+                },
+            ]
+        );
     }
 
     #[test]
     fn the_reject_row_takes_an_optional_reason() {
-        let mut state = state();
-        review_row(&mut state, Row::Reject);
-        assert_eq!(state.focus(), Focus::Field);
+        let reason = |typed: &str| {
+            let mut state = state();
+            review_row(&mut state, Row::Reject);
+            assert_eq!(state.focus(), Focus::Field);
+            press(&mut state, typed);
+            let Effect::Reject { reason, .. } = state.handle(code(KeyCode::Enter)) else {
+                panic!("enter on Reject rejects");
+            };
+            reason
+        };
 
-        press(&mut state, "  out of date ");
-        assert_eq!(
-            state.handle(code(KeyCode::Enter)),
-            Effect::Reject(Some("out of date".into()))
-        );
-
-        let mut empty = self::state();
-        review_row(&mut empty, Row::Reject);
-        assert_eq!(empty.handle(code(KeyCode::Enter)), Effect::Reject(None));
+        assert_eq!(reason("  out of date ").as_deref(), Some("out of date"));
+        assert_eq!(reason(""), None);
     }
 
     #[test]

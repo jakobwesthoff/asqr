@@ -13,6 +13,9 @@ Amends [28. Session and result format version 2](0028-session-and-result-format-
 Amended by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md):
 the session note takes several lines
 
+Amended by [53. Keep the notes and answers in the result of a rejected session](0053-keep-the-notes-and-answers-in-the-result-of-a-rejected-session.md):
+a rejected result carries the note
+
 ## Context
 
 Every question takes a note, but the session as a whole did not. A

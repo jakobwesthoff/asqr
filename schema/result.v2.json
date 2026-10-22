@@ -67,6 +67,7 @@
   "properties": {
     "answers": {
       "default": [],
+      "description": "A submitted result holds every question once, in session order. A\ncancelled result holds only the questions with an answer, an\nuntouched default included, or a note, in session order. An error\nresult holds none.",
       "items": {
         "$ref": "#/$defs/Answer"
       },
@@ -97,7 +98,7 @@
       "type": "string"
     },
     "note": {
-      "description": "The person's note to the whole session, given on the review tab.\nOnly a submitted result carries it; a draft keeps it as typed.",
+      "description": "The person's note to the whole session, given on the review tab. A\nsubmitted or cancelled result carries it; a draft keeps it as typed.",
       "type": [
         "string",
         "null"

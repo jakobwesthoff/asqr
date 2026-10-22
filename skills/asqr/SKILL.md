@@ -267,11 +267,16 @@ refuses while an unread result with the same id is in the outbox.
 
 - `status` is `submitted`, `cancelled` (rejected, with an optional
   `reason`) or `error` (with `error`).
-- A submitted result lists every question once, in session order.
+- A submitted result lists every question once, in session order. A
+  rejected result (`cancelled`) lists only the questions with an
+  answer, an untouched default included, or a note, in session order.
 - `note` at the top is the person's note to the whole session, such as
   a condition on their approval or a remark that spans several
   questions. It is absent when they wrote none. Read it before acting
-  on the answers. A rejected result has `reason` and no `note`.
+  on the answers. A rejected result has `reason`, and may also carry
+  `note` and answers: what the person had answered or noted before
+  rejecting, which they did not submit. The reason may refer to them,
+  so read them together.
 - `selected` holds option ids, `custom` the typed text, `note` the
   person's note. A skipped question has `skipped: true` and may still
   carry a note: read it, it often says why.

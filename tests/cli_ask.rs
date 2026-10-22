@@ -479,8 +479,9 @@ fn waits_for_the_result_and_prints_only_the_result() {
 
 #[test]
 fn a_rejected_session_exits_with_the_cancelled_code() {
-    let (code, _, _) =
-        ask_and_answer(|sha| SessionResult::cancelled("batch-01", sha, &now_rfc3339(), None));
+    let (code, _, _) = ask_and_answer(|sha| {
+        SessionResult::cancelled("batch-01", sha, &now_rfc3339(), None, None, Vec::new())
+    });
 
     assert_eq!(code, Some(10));
 }

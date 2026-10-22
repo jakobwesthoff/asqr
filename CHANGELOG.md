@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   height rounds down, as in Vim. Before, they scrolled a whole page, as
   `pgup` and `pgdn` still do. The help of the pane and of the
   full-screen view lists them on a line of their own.
+- The result of a rejected session keeps the note to the whole session
+  and the answers to the questions with an answer or a note, in the
+  shape of a submitted result. An untouched default is in it with
+  `"defaulted": true`. Before, the result carried only the reason, and
+  the notes and answers typed before rejecting were lost.
 
 ## [0.12.2] - 2026-10-19
 

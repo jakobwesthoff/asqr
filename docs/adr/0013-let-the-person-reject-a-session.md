@@ -6,6 +6,9 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [53. Keep the notes and answers in the result of a rejected session](0053-keep-the-notes-and-answers-in-the-result-of-a-rejected-session.md):
+the result keeps the session note and the answers
+
 ## Context
 
 Sometimes a whole session is wrong: out of date, badly asked, or not

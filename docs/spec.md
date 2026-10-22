@@ -331,14 +331,19 @@ rules are validation's alone.
     with an optional `note` to the whole session (trimmed; absent when
     empty; ADR 29)
   - `cancelled`: the person rejected the session, with an optional
-    `reason` (trimmed; absent when empty) and never a `note`
+    `reason` (trimmed; absent when empty) and an optional `note` as for
+    `submitted` (ADR 53)
   - `error`: the file was invalid, and `error` holds the message
 - `submitted_at` holds the time of finishing, as RFC 3339 with the
   offset. It is present for every status.
 - `session_sha256` is the SHA-256 of the session file's bytes as read
   from the inbox (section 5.7).
 - For `submitted`, every question appears exactly once, in session
-  order. For `cancelled` and `error`, `answers` is empty.
+  order. For `cancelled`, `answers` holds only the questions with an
+  answer or with a note that is not blank, in session order and in the
+  same shape; an untouched default counts as an answer and carries
+  `"defaulted": true` (section 4.2). The person did not submit any of
+  it. For `error`, `answers` is empty.
 - The fields are those of format version 1 plus `note` (section 3.6).
 
 ### 4.2 Answer state
@@ -1153,7 +1158,8 @@ and defaulted questions, the numbers bold and the words dim, then:
   session; `enter` submits with it (ADR 29). There is no `n` on the
   review tab.
 - **Reject**: a live field for the optional reason; `enter` rejects the
-  session with it. A rejected session never carries the note.
+  session with it. The result keeps the session note and the questions
+  with an answer or a note (section 4.1).
 
 `enter` on a question in the list moves to that question. The review
 shows no context.

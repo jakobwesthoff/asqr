@@ -56,6 +56,23 @@ pub fn result_answers(session: &Session, answers: &[Answer]) -> Vec<Answer> {
         .collect()
 }
 
+/// The answers of a rejected session's result (spec section 4.1): those of
+/// [`result_answers`] for the questions with an answer or a note that is
+/// not blank, in session order. An untouched default stays, flagged, so
+/// the asker can tell it from a default the person removed.
+pub fn rejected_answers(session: &Session, answers: &[Answer]) -> Vec<Answer> {
+    result_answers(session, answers)
+        .into_iter()
+        .filter(|answer| {
+            let noted = answer
+                .note
+                .as_deref()
+                .is_some_and(|note| !note.trim().is_empty());
+            noted || !answer.skipped
+        })
+        .collect()
+}
+
 /// An answered question's answer with only the fields its kind allows.
 fn shaped(question: &Question, answer: &Answer) -> Answer {
     let custom = if has_text(answer) {
@@ -272,6 +289,73 @@ mod tests {
         assert_eq!(
             result_answers(&session, std::slice::from_ref(&both)),
             [both]
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // The answers of a rejected session
+    // -----------------------------------------------------------------
+
+    /// A single question whose option b is the default.
+    const DEFAULTED: &str = r#"{"id": "d", "text": "?", "kind": "single",
+        "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B", "default": true}]}"#;
+
+    fn noted(answer: Answer, note: &str) -> Answer {
+        Answer {
+            note: Some(note.to_owned()),
+            ..answer
+        }
+    }
+
+    #[test]
+    fn a_rejected_result_keeps_an_answered_question_in_the_submitted_shape() {
+        let session = session(SINGLE);
+        let both = Answer {
+            custom: Some("own".into()),
+            ..selected("s", &["a"])
+        };
+
+        assert_eq!(rejected_answers(&session, &[both]), [selected("s", &["a"])]);
+    }
+
+    #[test]
+    fn a_rejected_result_keeps_a_skipped_question_with_its_note() {
+        let session = session(MULTI);
+        let below_min = noted(selected("m", &["a"]), "none fit");
+
+        assert_eq!(
+            rejected_answers(&session, &[below_min]),
+            [noted(Answer::skipped("m"), "none fit")]
+        );
+    }
+
+    #[test]
+    fn a_rejected_result_leaves_out_a_skipped_question_without_a_note() {
+        let session = session(&[SINGLE, MULTI, TEXT].join(","));
+        let answers = [
+            selected("s", &["a"]),
+            Answer::new("m"),
+            noted(Answer::new("t"), "  \n "),
+        ];
+
+        assert_eq!(
+            rejected_answers(&session, &answers),
+            [selected("s", &["a"])],
+            "a blank note is no note"
+        );
+    }
+
+    #[test]
+    fn a_rejected_result_keeps_an_untouched_default_with_its_flag() {
+        let session = session(DEFAULTED);
+        let untouched = Answer {
+            defaulted: true,
+            ..selected("d", &["b"])
+        };
+
+        assert_eq!(
+            rejected_answers(&session, std::slice::from_ref(&untouched)),
+            [untouched]
         );
     }
 }

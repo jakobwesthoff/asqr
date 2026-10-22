@@ -323,9 +323,11 @@ impl Inbox {
             Outcome::Submitted { answers, note } => {
                 SessionResult::submitted(&known.id, &known.sha256, &at, note, answers)
             }
-            Outcome::Rejected(reason) => {
-                SessionResult::cancelled(&known.id, &known.sha256, &at, reason)
-            }
+            Outcome::Rejected {
+                reason,
+                note,
+                answers,
+            } => SessionResult::cancelled(&known.id, &known.sha256, &at, reason, note, answers),
         };
         match finish(&self.location, &known.path, &result) {
             Ok(()) => {
@@ -359,7 +361,7 @@ fn confirmation(state: &SessionState, outcome: &Outcome) -> Notice {
             );
             Notice::naming(Tone::Success, "✔ sent \"", name, &after)
         }
-        Outcome::Rejected(_) => Notice::naming(Tone::Info, "✗ rejected \"", name, "\""),
+        Outcome::Rejected { .. } => Notice::naming(Tone::Info, "✗ rejected \"", name, "\""),
     }
 }
 
@@ -655,8 +657,14 @@ mod tests {
     #[test]
     fn an_invalid_session_next_to_an_unread_result_is_only_archived() {
         let (_scratch, location) = queue();
-        let unread =
-            SessionResult::cancelled("batch", "other bytes", "2026-09-27T17:05:12+02:00", None);
+        let unread = SessionResult::cancelled(
+            "batch",
+            "other bytes",
+            "2026-09-27T17:05:12+02:00",
+            None,
+            None,
+            Vec::new(),
+        );
         fs::write(
             location.outbox().join("batch.json"),
             serde_json::to_vec(&unread).expect("serializes"),
@@ -983,6 +991,56 @@ mod tests {
     }
 
     #[test]
+    fn a_reject_keeps_the_notes_and_the_answers_in_the_result() {
+        let (_scratch, location) = queue();
+        put(&location, "release.json", RELEASE);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        // A note on `q`, then `2` picks b and moves on to `r`, which `→`
+        // leaves unanswered for the review. There `j` goes into the session
+        // note and `↓` on to the reject reason.
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let mut keys = vec![key('n')];
+        keys.extend("see the logs".chars().map(key));
+        keys.extend([
+            enter,
+            key('2'),
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            key('j'),
+        ]);
+        keys.extend("ship after the fix".chars().map(key));
+        keys.push(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        keys.extend("see the note on q".chars().map(key));
+        keys.push(enter);
+        for key in keys {
+            let effect = app.handle(key);
+            inbox.apply(&mut app, effect);
+        }
+
+        let result = result(&location, "release");
+        assert_eq!(
+            (
+                result.status,
+                result.reason.as_deref(),
+                result.note.as_deref(),
+                result.answers
+            ),
+            (
+                Status::Cancelled,
+                Some("see the note on q"),
+                Some("ship after the fix"),
+                vec![Answer {
+                    selected: vec!["b".into()],
+                    note: Some("see the logs".into()),
+                    ..Answer::new("q")
+                }]
+            )
+        );
+        assert_eq!(names(&location.drafts()), Vec::<String>::new());
+    }
+
+    #[test]
     fn the_confirmation_stays_over_the_next_session_until_a_key() {
         let (_scratch, location) = queue();
         put(&location, "batch.json", SESSION);
@@ -1156,7 +1214,11 @@ mod tests {
         );
         let unknown = AppEffect::Finish {
             id: "unknown".into(),
-            outcome: Outcome::Rejected(None),
+            outcome: Outcome::Rejected {
+                reason: None,
+                note: None,
+                answers: Vec::new(),
+            },
         };
         assert_eq!(inbox.apply(&mut app, unknown), Applied::Continue);
     }

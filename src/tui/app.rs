@@ -24,7 +24,13 @@ pub enum Outcome {
         answers: Vec<Answer>,
         note: Option<String>,
     },
-    Rejected(Option<String>),
+    /// With the reason, the note to the whole session and the answers of
+    /// the questions with an answer or a note.
+    Rejected {
+        reason: Option<String>,
+        note: Option<String>,
+        answers: Vec<Answer>,
+    },
 }
 
 /// What the running app has to do after a key.
@@ -398,9 +404,17 @@ impl App {
                 id: state.id().to_owned(),
                 outcome: Outcome::Submitted { answers, note },
             },
-            Effect::Reject(reason) => AppEffect::Finish {
+            Effect::Reject {
+                reason,
+                note,
+                answers,
+            } => AppEffect::Finish {
                 id: state.id().to_owned(),
-                outcome: Outcome::Rejected(reason),
+                outcome: Outcome::Rejected {
+                    reason,
+                    note,
+                    answers,
+                },
             },
             Effect::Quit => AppEffect::Quit,
             Effect::OpenImage(path) => AppEffect::OpenImage(path),
@@ -521,8 +535,16 @@ mod tests {
             app.handle(code(KeyCode::Enter)),
             AppEffect::Finish {
                 id: "one".into(),
-                outcome: Outcome::Rejected(None)
-            }
+                outcome: Outcome::Rejected {
+                    reason: None,
+                    note: Some("k".into()),
+                    answers: vec![Answer {
+                        selected: vec!["a".into()],
+                        ..Answer::new("q")
+                    }],
+                }
+            },
+            "a reject keeps the session note and the answer"
         );
         app.handle(code(KeyCode::Esc));
         assert_eq!(app.handle(key('q')), AppEffect::Quit);
