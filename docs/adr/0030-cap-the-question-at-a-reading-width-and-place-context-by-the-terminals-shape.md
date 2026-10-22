@@ -19,6 +19,9 @@ Amended by [54. Set the context pane off from the question with a ledge](0054-se
 beside the question the pane has a left edge, and below it a blank row
 stands between question and pane
 
+Amended by [58. Name ctrl-u and ctrl-d in the general help and the key bar](0058-name-ctrl-u-and-ctrl-d-in-the-general-help-and-the-key-bar.md):
+the intro overlay's key bar names `ctrl-u/ctrl-d`
+
 ## Context
 
 Over the full width of a terminal of about 230 columns, question texts,

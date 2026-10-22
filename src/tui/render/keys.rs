@@ -191,6 +191,7 @@ pub(super) fn intro_hints(page: Extent) -> Vec<Hint> {
         vec![
             hint("↑/↓", "scroll", Rank::Cursor),
             hint("pgup/pgdn", "page", Rank::Cursor),
+            HALF_PAGE_HINT,
             close,
         ]
     } else {
@@ -581,6 +582,38 @@ mod tests {
         assert_eq!(
             bar_of(&state, page, 120),
             " ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ctrl-u/ctrl-d  half page   ?  help   q  quit"
+        );
+    }
+
+    /// An intro of 20 lines in an overlay that shows 5 of them.
+    const SCROLLING_INTRO: Extent = Extent {
+        shown: 5,
+        total: 20,
+    };
+
+    #[test]
+    fn the_intro_overlay_names_ctrl_u_and_ctrl_d_beside_the_page_keys() {
+        let hints = intro_hints(SCROLLING_INTRO);
+
+        assert_eq!(
+            pairs(&hints),
+            [
+                ("↑/↓", "scroll"),
+                ("pgup/pgdn", "page"),
+                ("ctrl-u/ctrl-d", "half page"),
+                ("esc/q/i", "close")
+            ]
+        );
+        assert_eq!(hints[2], HALF_PAGE_HINT, "the same hint, rank included");
+    }
+
+    #[test]
+    fn the_intro_overlay_shows_ctrl_u_and_ctrl_d_in_80_columns() {
+        let hints = intro_hints(SCROLLING_INTRO);
+
+        assert_eq!(
+            line_texts(&[key_line(&hints, 80)])[0].trim_end(),
+            " ↑/↓  scroll   pgup/pgdn  page   ctrl-u/ctrl-d  half page   esc/q/i  close"
         );
     }
 

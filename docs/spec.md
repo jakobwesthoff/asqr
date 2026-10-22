@@ -1065,7 +1065,10 @@ Overlays and dialogs:
   An intro longer than the frame scrolls: `↑`/`↓` and `k`/`j` by line,
   `pgup`/`pgdn` by a page, `ctrl-u`/`ctrl-d` by half a page, `g`/`G`
   and `home`/`end` to the ends. The frame's bottom edge then shows which
-  lines are visible, such as `4–15 of 16`. `esc`, `q` and `i` close it and
+  lines are visible, such as `4–15 of 16`. While the intro is longer than
+  the frame, the key bar names `ctrl-u/ctrl-d  half page` after
+  `pgup/pgdn  page` where it has room (section 7.2, ADR 58). `esc`, `q`
+  and `i` close it and
   `ctrl-c` quits; every other key does nothing, so a key meant to
   scroll never closes it. On a session without an intro, `i` does
   nothing.

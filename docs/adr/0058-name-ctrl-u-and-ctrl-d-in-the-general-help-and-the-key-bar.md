@@ -6,6 +6,8 @@ Date: 2026-10-22
 
 Accepted
 
+Amends [30. Cap the question at a reading width and place context by the terminal's shape](0030-cap-the-question-at-a-reading-width-and-place-context-by-the-terminals-shape.md)
+
 Amends [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
 
 Amends [52. Scroll half a page with ctrl-u and ctrl-d](0052-scroll-half-a-page-with-ctrl-u-and-ctrl-d.md)
@@ -13,7 +15,9 @@ Amends [52. Scroll half a page with ctrl-u and ctrl-d](0052-scroll-half-a-page-w
 ## Context
 
 `ctrl-u` and `ctrl-d` scroll half a page, `pgup` and `pgdn` a whole one
-(ADR 52). The general help named them on the line of `pgup`/`pgdn`, as
+(ADR 52). They scroll the intro overlay too (ADR 30, ADR 52), whose key
+bar named `↑/↓  scroll` and `pgup/pgdn  page` but not them. The general
+help named them on the line of `pgup`/`pgdn`, as
 `pgup/pgdn  scroll the context pane, also ctrl-u/ctrl-d`, which reads as
 if they moved as far as `pgup` and `pgdn`. The key bar never named them;
 only the helps of the focused pane and of the full-screen view listed
@@ -41,16 +45,20 @@ takes 45 of them after a key column of 11.
 - **Key bar:** `ctrl-u/ctrl-d  half page` follows `pgup/pgdn  page`
   while the pane or the full-screen view has the focus, and follows
   `tab  context` while a pane shows without the focus, in a field and a
-  note too.
+  note too. In the intro overlay it follows `pgup/pgdn  page` while the
+  intro is longer than the overlay, where the page keys show.
 - **Rank:** the hint ranks below `n`, so a key bar too narrow for every
   hint leaves it out first.
-- In ADR 31 this changes the key bar's order of leaving out hints, which
-  starts with `ctrl-u`/`ctrl-d`, before `n`. In ADR 52 it replaces the
-  general help's line `pgup/pgdn  scroll the context pane, also
-  ctrl-u/ctrl-d`.
+- In ADR 30 the intro overlay's key bar names it too. In ADR 31 this
+  changes the key bar's order of leaving out hints, which starts with
+  `ctrl-u`/`ctrl-d`, before `n`. In ADR 52 it replaces the general
+  help's line `pgup/pgdn  scroll the context pane, also ctrl-u/ctrl-d`.
 
 ## Consequences
 
 - On 120 columns the key bar of a `single` question with a note beside
   a pane shows `ctrl-u/ctrl-d  half page`; on 100 columns it leaves it
   out and keeps `n  note`.
+- On 80 columns the key bar of an intro longer than its overlay shows
+  `ctrl-u/ctrl-d  half page`; on the smallest screen, 60 columns, it
+  leaves it out.
