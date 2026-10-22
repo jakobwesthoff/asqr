@@ -242,9 +242,9 @@ impl<'a> View<'a> {
     }
 }
 
-/// Draws `app` into `frame`. Under `NO_COLOR` the colours go after every
-/// way [`draw_screen`] can end, the message of a too small terminal
-/// included.
+/// Draws `app` into `frame`. Under `NO_COLOR` the colours go after
+/// every way the drawing can end, the message of a too small
+/// terminal included.
 pub fn draw(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     let drawn = draw_screen(frame, app, view);
     if view.no_color {

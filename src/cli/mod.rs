@@ -157,7 +157,7 @@ enum Command {
 
     /// Print the agent skill, or install it under a skills directory.
     Skill {
-        /// Write it to <DIR>/asqr/SKILL.md, for example .claude/skills.
+        /// Write it to asqr/SKILL.md under this directory, for example .claude/skills.
         #[arg(long, value_name = "DIR")]
         install: Option<PathBuf>,
     },

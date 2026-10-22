@@ -40,8 +40,8 @@ pub enum WarningKind {
     /// text. asqr would diff it like any other text and show a diff of the
     /// diff.
     UnifiedDiff,
-    /// A code, Markdown or diff entry above [`LARGE_ENTRY_BYTES`]. Carries its size
-    /// in bytes.
+    /// A code, Markdown or diff entry above 1 MiB. Carries its size in
+    /// bytes.
     LargeEntry(u64),
     /// The file exists but asqr has no decoder for it, or its header is
     /// broken. Carries the reason.

@@ -240,9 +240,11 @@ impl TextField {
         self.editor.lines() != before.as_slice()
     }
 
-    /// Inserts pasted `text` at the text cursor, [`cleaned`] for the
-    /// column it lands in, and says whether the text changed. The `↑`/`↓`
-    /// that follow start from where the paste left the text cursor.
+    /// Inserts pasted `text` at the text cursor, cleaned the way a field
+    /// keeps text (spec section 7.7), with its tabs counted from the
+    /// column it lands in, and says whether the text changed. The
+    /// `↑`/`↓` that follow start from where the paste left the text
+    /// cursor.
     pub fn paste(&mut self, text: &str) -> bool {
         self.wanted = None;
         self.from_above = false;
