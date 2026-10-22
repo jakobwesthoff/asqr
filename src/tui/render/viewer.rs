@@ -16,10 +16,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
+use super::ansi::ansi_content;
 use super::code::code_content;
 use super::diff::diff_content;
 use super::loading::{self, Ahead, Finished, Job, Loaded, Tools, Wake};
 use super::markdown_viewer::markdown_content;
+use super::patine_adapter::colours_on;
 use super::problem::Card;
 use super::source_file::{Unreadable, read_image};
 use super::theme;
@@ -803,6 +805,7 @@ fn viewer_for(
         ContextEntry::Code(code) => Box::new(code_content(code, home)),
         ContextEntry::Markdown(markdown) => Box::new(markdown_content(markdown, quote, home)),
         ContextEntry::Diff(diff) => Box::new(diff_content(diff, home)),
+        ContextEntry::Ansi(ansi) => Box::new(ansi_content(ansi, colours_on(quote), home)),
     }
 }
 
@@ -1187,6 +1190,62 @@ mod tests {
             );
             assert_eq!(viewer.failed(), failed, "{json}");
         }
+    }
+
+    #[test]
+    fn an_ansi_entry_draws_through_viewer_for() {
+        let inline = entry(r#"{"type": "ansi", "content": "\u001b[31mfailed\u001b[0m 3 tests"}"#);
+        let mut viewer = viewer_for(&inline, &Images::half_blocks(), COLOURED, None);
+        let buf = test_support::drawn(viewer.as_mut(), 40, 3, Offset::default());
+
+        assert_eq!(row(&buf, 0), "failed 3 tests");
+        assert_eq!(
+            buf[(0, 0)].fg,
+            ratatui::style::Color::Indexed(1),
+            "red, as the terminal's palette has it"
+        );
+        assert!(!viewer.failed());
+
+        let missing = entry(r#"{"type": "ansi", "path": "/nowhere/out.ansi"}"#);
+        let mut viewer = viewer_for(&missing, &Images::half_blocks(), COLOURED, None);
+        let buf = test_support::drawn(viewer.as_mut(), 40, 10, Offset::default());
+        assert!(
+            (0..10).any(|y| row(&buf, y).trim_start().starts_with('╭')),
+            "the card"
+        );
+        assert!(viewer.failed());
+    }
+
+    /// The screen builds every viewer with the quote style of its colour
+    /// setting, so an `ansi` entry built for `NO_COLOR` draws no colour at
+    /// all, RGB included, which the pass after drawing would keep.
+    #[test]
+    fn an_ansi_entry_built_for_no_color_has_no_colour() {
+        let coloured = entry(
+            r#"{"type": "ansi", "content": "\u001b[1;38;2;255;0;0;48;5;4mbold\u001b[0m \u001b[32mgreen"}"#,
+        );
+        let mut viewer = viewer_for(&coloured, &Images::half_blocks(), quote_style(true), None);
+
+        let buf = test_support::drawn(viewer.as_mut(), 20, 1, Offset::default());
+
+        assert_eq!(row(&buf, 0), "bold green");
+        for cell in &buf.content {
+            assert_eq!(
+                (cell.fg, cell.bg, cell.underline_color),
+                (
+                    ratatui::style::Color::Reset,
+                    ratatui::style::Color::Reset,
+                    ratatui::style::Color::Reset
+                ),
+                "at {:?}",
+                cell.symbol()
+            );
+        }
+        assert!(
+            buf[(0, 0)]
+                .modifier
+                .contains(ratatui::style::Modifier::BOLD)
+        );
     }
 
     /// The PTY tests make a debug build panic while it loads the image

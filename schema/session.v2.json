@@ -1,5 +1,54 @@
 {
   "$defs": {
+    "AnsiEntry": {
+      "description": "Text whose SGR escape sequences (`ESC [ … m`) set its colours and\nattributes, drawn cell by cell: the output of a command run with its\ncolours, or a mockup of a terminal screen. Named colours follow the\nterminal's theme. Every other escape sequence is dropped. Exactly one of\n`path` and `content` is given.",
+      "oneOf": [
+        {
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "properties": {
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "content"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "description": "The text itself, in place of a file. JSON writes the escape\ncharacter as `\\u001b`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "An absolute path to the file to show; `asqr ask` makes a relative\none absolute.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "A name for the entry, such as a file name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "Choice": {
       "description": "One option of a `single` or `multi` question.",
       "properties": {
@@ -142,6 +191,19 @@
           "properties": {
             "type": {
               "const": "diff",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/AnsiEntry",
+          "properties": {
+            "type": {
+              "const": "ansi",
               "type": "string"
             }
           },

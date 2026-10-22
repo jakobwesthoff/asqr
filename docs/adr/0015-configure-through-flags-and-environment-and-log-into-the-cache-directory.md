@@ -6,6 +6,8 @@ Date: 2026-10-16
 
 Accepted
 
+Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-with-ansi-colours-as-a-context-entry.md)
+
 ## Context
 
 asqr has few settings: the queue, notifications and the bell. The

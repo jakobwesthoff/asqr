@@ -37,6 +37,9 @@ Amended by [54. Set the context pane off from the question with a ledge](0054-se
 the header is a rule with the entry's name set into it, and the position
 moves into a bottom rule
 
+Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-with-ansi-colours-as-a-context-entry.md):
+an `ansi` entry without a title or a path is named by its kind
+
 ## Context
 
 The context area beside or below the question (ADR 30) shows entries of

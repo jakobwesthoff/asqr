@@ -26,12 +26,13 @@ pub enum ContextEntry {
     Code(CodeEntry),
     Markdown(MarkdownEntry),
     Diff(DiffEntry),
+    Ansi(AnsiEntry),
 }
 
 /// The `type` of each kind of entry as the file writes it, in the order of
 /// `ContextEntry`'s variants. Messages list them; a test checks them
 /// against the variants.
-pub const CONTEXT_ENTRY_TYPES: [&str; 4] = ["image", "code", "markdown", "diff"];
+pub const CONTEXT_ENTRY_TYPES: [&str; 5] = ["image", "code", "markdown", "diff", "ansi"];
 
 /// An image file. PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF,
 /// ICO, TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and
@@ -177,12 +178,41 @@ pub struct DiffSide {
     pub content: Option<String>,
 }
 
+/// Text whose SGR escape sequences (`ESC [ … m`) set its colours and
+/// attributes, drawn cell by cell: the output of a command run with its
+/// colours, or a mockup of a terminal screen. Named colours follow the
+/// terminal's theme. Every other escape sequence is dropped. Exactly one of
+/// `path` and `content` is given.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("oneOf" = [
+    {"required": ["path"], "properties": {"path": {"type": "string"}}},
+    {"required": ["content"], "properties": {"content": {"type": "string"}}},
+]))]
+pub struct AnsiEntry {
+    /// A name for the entry, such as a file name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+
+    /// An absolute path to the file to show; `asqr ask` makes a relative
+    /// one absolute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+
+    /// The text itself, in place of a file. JSON writes the escape
+    /// character as `\u001b`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
 impl ContextEntry {
     /// The path of an image entry; `o` and `z` act on it.
     pub fn image_path(&self) -> Option<&str> {
         match self {
             ContextEntry::Image(image) => Some(&image.path),
-            ContextEntry::Code(_) | ContextEntry::Markdown(_) | ContextEntry::Diff(_) => None,
+            ContextEntry::Code(_)
+            | ContextEntry::Markdown(_)
+            | ContextEntry::Diff(_)
+            | ContextEntry::Ansi(_) => None,
         }
     }
 
@@ -192,6 +222,7 @@ impl ContextEntry {
             ContextEntry::Code(code) => code.title.as_deref(),
             ContextEntry::Markdown(markdown) => markdown.title.as_deref(),
             ContextEntry::Diff(diff) => diff.title.as_deref(),
+            ContextEntry::Ansi(ansi) => ansi.title.as_deref(),
         }
     }
 }
@@ -335,6 +366,20 @@ mod tests {
                 entry
             );
         }
+    }
+
+    #[test]
+    fn an_ansi_entry_writes_back_the_fields_in_use() {
+        let entry = json!({"type": "ansi", "title": "git diff", "path": "/tmp/change.ansi"});
+
+        let parsed = parse(entry.clone());
+
+        assert_eq!(parsed.title(), Some("git diff"));
+        assert_eq!(parsed.image_path(), None);
+        assert_eq!(
+            serde_json::to_value(parsed).expect("entry serializes"),
+            entry
+        );
     }
 
     #[test]

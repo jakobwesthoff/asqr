@@ -850,6 +850,61 @@ fn no_color_takes_the_named_colours_and_keeps_modifiers_and_images() {
     assert!(coloured.red_image);
 }
 
+/// What a terminal shows of an `ansi` entry under `NO_COLOR` set to
+/// `no_color`: the cells of its two words, and all output.
+fn ansi_entry_under(no_color: &str) -> (vt100::Cell, vt100::Cell, String) {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let tui = Tui::start_with(
+        &sandbox,
+        &[
+            "--dir",
+            dir.to_str().expect("UTF-8"),
+            "--no-notify",
+            "--no-title",
+        ],
+        "off\t1\t",
+        &[("NO_COLOR", no_color)],
+    );
+    tui.wait_for("Nothing to answer");
+
+    // A window title, a cleared screen, then an RGB and a bold named
+    // colour. Only the colours may reach the terminal, as cells.
+    let session = SESSION.replace(
+        r#""kind": "single","#,
+        r#""kind": "single", "context": [{"type": "ansi", "content":
+            "\u001b]0;pwned\u0007\u001b[2J\u001b[38;2;255;0;0mzq-red\u001b[0m \u001b[1;34mzq-blue\u001b[0m"}],"#,
+    );
+    let file = sandbox.file("session.json", &session);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("zq-blue");
+
+    (tui.cell_of("zq-red"), tui.cell_of("zq-blue"), tui.output())
+}
+
+#[test]
+fn an_ansi_entry_reaches_the_terminal_as_cells_and_nothing_else() {
+    let (red, blue, output) = ansi_entry_under("");
+    assert_eq!(red.fgcolor(), vt100::Color::Rgb(255, 0, 0));
+    assert_eq!(blue.fgcolor(), vt100::Color::Idx(4));
+    assert!(blue.bold());
+    for written in ["\x1b]0;", "\x1b]2;", "pwned"] {
+        assert!(!output.contains(written), "{written:?} in {output:?}");
+    }
+
+    let (red, blue, output) = ansi_entry_under("1");
+    let default = (vt100::Color::Default, vt100::Color::Default);
+    assert_eq!((red.fgcolor(), red.bgcolor()), default);
+    assert_eq!((blue.fgcolor(), blue.bgcolor()), default);
+    assert!(blue.bold(), "the bold stays");
+    assert_eq!(colour_sequences(&output), Vec::<&str>::new());
+    assert!(!output.contains("pwned"), "{output:?}");
+}
+
 /// The parameters of every SGR sequence (`ESC [ … m`) in `output` that
 /// sets a colour other than the terminal's default: by 38 (foreground) or
 /// 48 (background), the forms that carry an indexed or an RGB colour, or

@@ -181,6 +181,11 @@ mod tests {
     }
 
     #[test]
+    fn an_ansi_entry_takes_exactly_one_of_path_and_content() {
+        assert_one_of_path_and_content(&session_schema(), "AnsiEntry");
+    }
+
+    #[test]
     fn a_diff_has_old_new_or_both() {
         let schema = session_schema();
         let definition = &schema["$defs"]["DiffEntry"];

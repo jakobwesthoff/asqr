@@ -272,7 +272,7 @@ fn refuses_an_unknown_entry_type_as_one_a_newer_asqr_may_support() {
     assert_eq!(
         stderr(&output),
         format!(
-            r#"error: questions[0].context[0].type: "video" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it
+            r#"error: questions[0].context[0].type: "video" is not supported by this asqr (version {}), which supports "image", "code", "markdown", "diff" and "ansi"; a newer asqr may support it
 "#,
             env!("CARGO_PKG_VERSION")
         )

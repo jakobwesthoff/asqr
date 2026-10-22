@@ -43,7 +43,8 @@ Design goals:
   optional options (each with optional context), optional context, and
   optional custom entry and note.
 - **Context**: material shown next to a question that helps to answer
-  it: an image, code, Markdown or a diff (section 3.3).
+  it: an image, code, Markdown, text in ANSI colours or a diff (section
+  3.3).
 - **Result**: the answer file for one session.
 - **Draft**: the answers to a session while it is being answered.
 - **Queue**: a directory with an inbox, an outbox, drafts and an archive,
@@ -170,6 +171,11 @@ such as a file name:
   by the asker is not understood: asqr diffs it like any other text and
   shows a diff of the diff. asqr shows the change as a unified diff
   (section 8.5).
+- `ansi`: text whose SGR escape sequences (`ESC [ … m`) set its colours
+  and attributes, such as the output of a command run with its colours
+  or a mockup of a terminal screen, from the file at `path` or inline in
+  `content`, exactly one of the two. asqr draws it cell by cell and drops
+  every other escape sequence (section 8.10).
 
 New entry types are added within format version 2, so an asqr can meet
 an entry whose type a newer asqr knows (section 3.4).
@@ -205,8 +211,8 @@ fields, these are validation errors:
 - `min` greater than `max`, or either outside `0..=options`
 - a reversed `target` range, or `warn` below the end of `target`
 - more than one context entry on a question or an option
-- a `code` or `markdown` entry or a side of a `diff` with neither or
-  both of `path` and `content`
+- a `code`, `markdown` or `ansi` entry or a side of a `diff` with
+  neither or both of `path` and `content`
 - a `diff` with neither `old` nor `new`, or with `path` or `content` on
   the entry itself: one error per entry, saying that a diff takes `old`
   and/or `new`, each `{"path": ...}` or `{"content": ...}`, the text
@@ -214,9 +220,9 @@ fields, these are validation errors:
   and does not read a unified diff. Such a `path` or `content` gets no
   unknown-field warning on top.
 - an entry whose `type` is a string other than `image`, `code`,
-  `markdown` and `diff`: the error names the type as not supported by
-  this asqr and its version, lists the four types, and says that a
-  newer asqr may support it. An entry of type `text` gets an error of
+  `markdown`, `diff` and `ansi`: the error names the type as not
+  supported by this asqr and its version, lists the five types, and says
+  that a newer asqr may support it. An entry of type `text` gets an error of
   its own that names `code` and `markdown`. Like the version, both are
   checked before the rest of the file, and every such entry is listed.
   A missing `type`, or one that is no string, leaves the file not shaped
@@ -258,8 +264,9 @@ add optional fields.
   line, as in prose about diffs, does not count. The warning says to
   give the text before and after the change as `old` and `new`, since
   asqr computes the diff.
-- about a `code`, `markdown` or `diff` entry above 1 MiB, from its file
-  or inline; for a diff, both sides count together. asqr still shows it.
+- about a `code`, `markdown`, `ansi` or `diff` entry above 1 MiB, from
+  its file or inline; for a diff, both sides count together, and for an
+  `ansi` entry its escape sequences count. asqr still shows it.
   Image entries get no such warning.
 - about fields of earlier format versions (section 3.6).
 
@@ -277,8 +284,9 @@ The repo ships the JSON Schema (`schema/session.v2.json`,
 `asqr schema --result` the result schema. Besides the shape, the schemas
 state the rules a schema can state directly: `asqr` is the constant `2`
 in both, a session holds at least one question, `context` holds at most
-one entry (an empty list and `null` are valid), a `code` or `markdown`
-entry or a side of a `diff` takes exactly one of `path` and `content`
+one entry (an empty list and `null` are valid), a `code`, `markdown` or
+`ansi` entry or a side of a `diff` takes exactly one of `path` and
+`content`
 (an empty `content` counts as given, a `null` as missing), and a `diff`
 takes `old`, `new` or both. The descriptions of `intro`, question `text`,
 option `label` and option `description` say that they are Markdown, that
@@ -866,15 +874,16 @@ has context (section 7.4, ADRs 30 and 31):
   rounded corners in the primary colour, a bold title, a dim footer and
   a blank column inside each side; the help's keys are bold in the
   primary colour.
-- Code and Markdown keep their highlighting colours. Marks, pointers,
-  text and the fills carry every meaning, so nothing depends on colour
-  alone.
+- Code and Markdown keep their highlighting colours, and an `ansi` entry
+  the colours its text sets. Marks, pointers, text and the fills carry
+  every meaning, so nothing depends on colour alone.
 - Under `NO_COLOR` (section 6.2) the TUI draws without colours. Text,
   marks, pointers, bold, dim and reversed stay, so the screen says the
   same as with colours. The bar of a Markdown quote is dim instead of
-  blue. Images keep their colours. Talqi on the empty queue is the
-  outline of asqr's emblem in the same glyphs, without any colour; cells
-  between its lines keep the background (section 7.5).
+  blue. Images keep their colours. An `ansi` entry shows without any
+  colour, RGB colours included; its attributes stay. Talqi on the empty
+  queue is the outline of asqr's emblem in the same glyphs, without any
+  colour; cells between its lines keep the background (section 7.5).
 
 ### 7.4 Size and layout
 
@@ -1002,7 +1011,7 @@ On an option row (vim style plus arrows):
   session, which it closes like any other key.
 - `o` opens the image shown (section 8.8) with the system's opener
   (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
-  started, a notice says why. On a code, Markdown or diff entry it
+  started, a notice says why. On a code, Markdown, ANSI or diff entry it
   opens nothing and says "o opens images only; z shows this entry full
   screen", in the full-screen view only "o opens images only", and
   where no entry shows it says "nothing to open here".
@@ -1345,8 +1354,8 @@ Context appears only when a question or one of its options has some
   Its keys are in section 7.6.
 - The pane stands on a ledge (ADR 54). Its first line is a dim rule
   with the entry's name set into it in bold: its `title`, or the file
-  name of its `path` (a diff's `name`), or its kind, `code`, `markdown`
-  or `diff`, when it has neither. Beside the question the rule reads
+  name of its `path` (a diff's `name`), or its kind, `code`, `markdown`,
+  `ansi` or `diff`, when it has neither. Beside the question the rule reads
   `╭─ name ─────` and turns down into a dim `│` along the pane's left
   edge, and the content starts two columns right of it. Below the
   question it reads `── name ─────`, without an edge, after a blank row.
@@ -1427,17 +1436,17 @@ Which files get a card:
   path that is not a regular file, such as a directory or a FIFO. A file
   that turns into a FIFO between asqr's check of its path and its
   opening shows the card of a path that is not a regular file.
-- Code, Markdown and diffs: a binary file (one with a NUL byte). For a
-  diff, the card shows for the first side that fails, its reason after
-  `old side: ` or `new side: `.
+- Code, Markdown, ANSI entries and diffs: a binary file (one with a NUL
+  byte). For a diff, the card shows for the first side that fails, its
+  reason after `old side: ` or `new side: `.
 - Images: a file that cannot be decoded, and an image file larger than
   64 MiB, which is not read; a file that grows past that while asqr
   reads it is refused the same way. A broken image never becomes an
   error result.
 
-For code, Markdown and diffs:
+For code, Markdown, ANSI entries and diffs:
 
-- Bytes that are not UTF-8 show as `�`. A code or Markdown entry
+- Bytes that are not UTF-8 show as `�`. A code, Markdown or ANSI entry
   without any text shows a dim "empty".
 - Of a file longer than 8 MiB, only the first 8 MiB are read. A dim
   "first 8 MiB shown" heads the content and a dim "… the rest is cut
@@ -1449,7 +1458,7 @@ For code, Markdown and diffs:
 
 ### 8.4 Lines of source
 
-Code entries and diffs show lines of source:
+Code entries, ANSI entries and diffs show lines of source:
 
 - Lines do not wrap. A line wider than the pane ends in a dim `›`, and
   the pane scrolls sideways (section 7.6) while the gutter (and in a
@@ -1540,8 +1549,8 @@ scrolling.
   the window (section 8.2): asqr keeps the file as it read it, not its
   decoded pixels, and decodes it again only when it is to show at
   another size in cells; a pane that changes size but leaves the
-  image's cells as they were decodes nothing. Code, Markdown and diff
-  entries keep what asqr derived from them (ADR 31).
+  image's cells as they were decodes nothing. Code, Markdown, ANSI and
+  diff entries keep what asqr derived from them (ADR 31).
 - asqr asks the terminal for focus reports (section 7.1). Under the
   Kitty protocol behind a tmux pane with `allow-passthrough on` (section
   8.9), asqr loads every image a frame showed again behind `loading…`
@@ -1607,6 +1616,42 @@ scrolling.
   or `all` while asqr runs, and asqr killed in that window leaves it so.
 - Talqi's glyphs inside tmux follow the client's terminal (section 7.5),
   and the terminal title goes to tmux plainly (section 7.9).
+
+### 8.10 Text with ANSI colours
+
+- An `ansi` entry (ADR 56) shows its text in the colours and attributes
+  its SGR sequences set: bold (`1`), dim (`2`), italic (`3`), underlined
+  (`4`, also `21` and the underline styles `4:1` to `4:5`, all drawn as
+  a single underline), reversed (`7`) and crossed out (`9`), each
+  switched off by `22` (bold and dim), `23`, `24`, `27` and `29`. The
+  named colours, `30` to `37` and `90` to `97` and the backgrounds `40`
+  to `47` and `100` to `107`, are the slots 0 to 15 of the terminal's
+  palette, so they follow the person's theme. `38` and `48` take `5;n`
+  for slot `n` of 256, where the slots 0 to 15 are those of the named
+  colours, and `2;r;g;b` for an RGB colour, written with `;` or `:`.
+  `0`, or no parameter, resets everything, `39` and `49` the colours. A
+  style holds until a sequence changes it, across line ends too.
+- Every other parameter is skipped: blink, hidden, fonts, overline, the
+  underline colour `58` with its arguments, and a parameter with
+  subparameters other than those above. A colour out of range or cut
+  short is skipped as well.
+- Every other escape sequence is dropped and leaves no mark, so an entry
+  cannot change the screen outside its text: cursor movement, erasing,
+  window titles, hyperlinks and every other OSC, DCS, SOS, PM and APC
+  string with its contents, and SGR sequences with a private marker,
+  such as `ESC [ > 4 ; 2 m`, an intermediate byte, or more than 32
+  numbers. A sequence ends at its final byte; a control character inside
+  an escape or a CSI sequence acts as outside it, a line end ending the
+  line, and a non-ASCII character inside a sequence is dropped. A string
+  runs to its terminator, as in a terminal, line ends included, so after
+  an unterminated one the text shows again after the next escape
+  sequence, or after a CAN or SUB. A
+  sequence cut short at the end of the text is dropped.
+- Lines do not wrap and scroll sideways (section 8.4); there is no
+  gutter. Tabs and control characters show as in section 8.4; a `\r` at
+  the end of a line does not show.
+- Under `NO_COLOR` the entry shows without any colour, RGB colours
+  included; its attributes stay.
 
 ## 9. Agents
 

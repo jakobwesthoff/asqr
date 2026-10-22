@@ -8,6 +8,8 @@ Accepted
 
 Amended by [35. Render the text fields as full Markdown through patine](0035-render-the-text-fields-as-full-markdown-through-patine.md)
 
+Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-with-ansi-colours-as-a-context-entry.md)
+
 ## Context
 
 The tool uses clap, anyhow and thiserror, and other crates where they

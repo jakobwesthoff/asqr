@@ -181,7 +181,9 @@ pub(crate) fn for_tone(tone: Tone) -> Style {
 /// picture in RGB, and the Kitty protocol names each image by the RGB
 /// foreground of its placeholder cells, so taking it would lose the image.
 /// Talqi's emblem draws in RGB too, but only with colours: under
-/// `NO_COLOR` it is an outline without any colour.
+/// `NO_COLOR` it is an outline without any colour. So does an `ansi`
+/// entry whose text sets RGB colours; its viewer is built without any
+/// colour under `NO_COLOR`, so none reaches this pass.
 pub(crate) fn strip_colours(buf: &mut Buffer) {
     let plain = |colour: Color| match colour {
         Color::Rgb(..) => colour,

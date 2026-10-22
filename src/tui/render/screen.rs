@@ -4551,10 +4551,12 @@ mod tests {
         assert_only_colours_gone(&coloured, &colourless);
     }
 
-    /// NO_COLOR keeps every RGB colour, since only images and Talqi draw
-    /// with them: no screen without an image has one, and on the empty
-    /// queue only Talqi's cells do. Under NO_COLOR, Talqi is an outline
-    /// without colours (`no_color_shows_talqi_as_the_colourless_outline`).
+    /// NO_COLOR keeps every RGB colour, since only images, Talqi and the
+    /// text of an `ansi` entry draw with them: no screen without an image
+    /// or an `ansi` entry has one, and on the empty queue only Talqi's
+    /// cells do. Under NO_COLOR, Talqi is an outline without colours
+    /// (`no_color_shows_talqi_as_the_colourless_outline`), and an `ansi`
+    /// entry has none (`no_color_takes_every_colour_of_an_ansi_entry`).
     #[test]
     fn only_images_draw_in_rgb() {
         let review = include_str!("../../../examples/sessions/retry-review.json");
@@ -4612,6 +4614,33 @@ mod tests {
                 .find(|colour| matches!(colour, Color::Rgb(..)));
             assert_eq!(rgb, None, "{what}:\n{backend}");
         }
+    }
+
+    /// An `ansi` entry drops its own colours under NO_COLOR, RGB ones
+    /// included, which the pass after drawing keeps for images.
+    #[test]
+    fn no_color_takes_every_colour_of_an_ansi_entry() {
+        const ANSI: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Ship it?",
+            "kind": "single", "options": [{"id": "a", "label": "Yes"}],
+            "context": [{"type": "ansi", "title": "Test run",
+                         "content": "\u001b[38;2;255;0;0mzq-red\u001b[0m \u001b[1;31mzq-bold\u001b[0m\n"}]}]}"#;
+        let app = app(&[("ansi", ANSI)]);
+
+        let (coloured, colourless) = with_and_without_colours(&app, 120, 30);
+
+        assert_eq!(
+            style_at(&coloured, "zq-red").fg,
+            Some(Color::Rgb(255, 0, 0))
+        );
+        assert_eq!(style_at(&coloured, "zq-bold").fg, Some(Color::Indexed(1)));
+        for cell in colourless.content() {
+            assert_eq!(colours(cell), [Color::Reset; 3], "at {:?}", cell.symbol());
+        }
+        assert!(
+            colourless[find(&colourless, "zq-bold")]
+                .modifier
+                .contains(Modifier::BOLD)
+        );
     }
 
     #[test]

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A context entry of type `ansi` shows text in the colours and
+  attributes its SGR escape sequences set, such as the output of
+  `git diff --color=always` or a mockup of a terminal screen, from
+  `path` or `content`. Named colours follow the terminal's theme; every
+  other escape sequence is dropped. Lines do not wrap and have no line
+  numbers. Under `NO_COLOR` the entry shows without any colour, RGB
+  colours included. `asqr validate` and `asqr ask` warn about an `ansi`
+  entry above 1 MiB, escape sequences included.
+
 ### Changed
 
 - A context entry of a `type` asqr does not know is refused with an

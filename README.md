@@ -28,10 +28,11 @@ like "talkie"), asqr's mascot.
   option labels and descriptions are Markdown, rendered with highlighted
   code blocks.
 - Context next to a question, or one per option to flip through
-  variants: an image, highlighted code, rendered Markdown or a diff that
-  asqr computes from the old and the new text. It shows in a pane of its
-  own beside or below the question, and you scroll it. Images show
-  inline in terminals that support it.
+  variants: an image, highlighted code, rendered Markdown, text in the
+  colours of its escape sequences or a diff that asqr computes from the
+  old and the new text. It shows in a pane of its own beside or below
+  the question, and you scroll it. Images show inline in terminals that
+  support it.
 - A tab per question and a review tab: move freely, then submit or
   reject the whole session.
 - A versioned JSON format, currently version 2, with a JSON Schema, so
@@ -69,8 +70,9 @@ last tab reviews everything before you submit or reject. `?` shows every
 key. `q` quits; your answers so far are kept as a draft.
 
 Questions keep to a width of 100 columns. Context the asker attached, an
-image, highlighted code, rendered Markdown or a diff, shows in a pane
-beside the question on a wide terminal and below it on a tall one;
+image, highlighted code, rendered Markdown, text in the colours of its
+escape sequences or a diff, shows in a pane beside the question on a
+wide terminal and below it on a tall one;
 `--layout beside` or `--layout below` (or `ASQR_LAYOUT`) fixes where it
 goes. `pgup`/`pgdn` scroll the pane by a page from anywhere and
 `ctrl-u`/`ctrl-d` by half a page, `tab` moves into it to scroll with

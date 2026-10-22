@@ -34,6 +34,12 @@ pub(crate) const fn quote_style(no_color: bool) -> QuoteStyle {
     }
 }
 
+/// Whether the screen draws colours, read off the quote style it asks
+/// for: the inverse of how [`quote_style`] is chosen.
+pub(crate) fn colours_on(quote: QuoteStyle) -> bool {
+    quote != quote_style(true)
+}
+
 /// What patine draws in place of a bullet for a task list item, open or
 /// done, and after the number of an ordered one.
 const TASK_BOXES: [&str; 2] = ["☐ ", "☑ "];
@@ -207,6 +213,12 @@ mod tests {
     use patine::{AnsiColor, StyledSpan};
 
     use super::*;
+
+    #[test]
+    fn colours_on_is_the_inverse_of_the_quote_style() {
+        assert!(colours_on(quote_style(false)));
+        assert!(!colours_on(quote_style(true)));
+    }
 
     fn text_style(change: impl FnOnce(&mut TextStyle)) -> TextStyle {
         let mut style = TextStyle::default();

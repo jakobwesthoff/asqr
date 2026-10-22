@@ -128,9 +128,28 @@ Once asked, asqr fits best when:
     the lines (a blank line starts a paragraph, a trailing backslash
     breaks the line), and raw HTML is left out, so put `<` into code
     spans, such as `` `Vec<String>` ``.
+  - `{ "type": "ansi", "path": "..." }` or `{ "type": "ansi",
+    "content": "..." }`: text in the colours its own escape sequences
+    set, such as the output of a command run with its colours or a
+    mockup of a terminal screen. asqr shows the colours, bold, dim,
+    italic, underline, reversed and crossed out that SGR sequences
+    (`ESC [ … m`) set, and drops every other escape sequence. Cursor
+    movement is dropped too: the output of a full-screen program, which
+    places its text by moving the cursor, does not show as on its
+    screen; capture a command that prints line by line. Ask your tool
+    for its colours, as `git diff --color=always` does. In JSON, write
+    the escape character as `\u001b`, as in
+    `"\u001b[31mfailed\u001b[0m"`; a file at `path` holds the raw bytes.
+    The named colours and the first 16 of the 256 (`30` to `37`, `90` to
+    `97`, `38;5;0` to `38;5;15`, and their backgrounds) follow the
+    person's terminal theme; colours 16 to 255 and RGB colours show as
+    given, so draw a mockup in the named colours. Under `NO_COLOR` the
+    person sees the text without any colour. Long lines do not wrap, and
+    there are no line numbers.
   - Choose by what the person should see: the text as written is
-    `code`, rendered prose is `markdown`. Neither is the place for your
-    explanation of the question; that goes into the question's `text`.
+    `code`, rendered prose is `markdown`, text in the colours you or your
+    tool chose is `ansi`. None of them is the place for your explanation
+    of the question; that goes into the question's `text`.
   - Inline text goes into `content` in every entry, the sides of a diff
     included. The key `text` belongs to questions only.
   - `{ "type": "diff", "old": {...}, "new": {...} }`: a change, which asqr
@@ -161,8 +180,9 @@ Once asked, asqr fits best when:
     long line of a code block wraps behind a `↪` marker. Name the
     language of a code block's fence so it is highlighted. A file asqr
     cannot read shows as an error card with the reason.
-  - Keep a code, Markdown or diff entry under 1 MiB (both sides of a diff
-    together); `validate` and `ask` warn above that. Show an excerpt
+  - Keep a code, Markdown, ANSI or diff entry under 1 MiB (both sides of
+    a diff together, escape sequences included); `validate` and `ask`
+    warn above that. Show an excerpt
     instead of a whole large file.
   - Paths are absolute. `asqr ask` turns relative paths into absolute
     ones, resolved against the session file. asqr reads a file when it

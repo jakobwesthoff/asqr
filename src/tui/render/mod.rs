@@ -4,6 +4,7 @@
 
 //! Drawing the TUI (spec section 7) from the state in [`super::App`].
 
+mod ansi;
 mod code;
 mod content;
 mod context;

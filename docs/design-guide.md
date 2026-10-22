@@ -149,6 +149,9 @@ terminal emblem drawn in text cells, each with its own RGB foreground
 and background. Under `NO_COLOR`, Talqi is the outline of the emblem,
 without any colour.
 
+An `ansi` context entry shows the colours its own text sets, RGB colours
+included; under `NO_COLOR` it shows none.
+
 | Role | Terminal colour | Where |
 |---|---|---|
 | Primary | cyan | the name `asqr` in the title line, the current tab and the line under it, the keys in the key bar, chosen marks, overlay borders, the submit button |
@@ -168,7 +171,8 @@ without any colour.
   has the focus, the question's current row keeps its pointer and bold
   text but loses its fill.
 - Code and Markdown keep the colours their highlighting gives them,
-  including yellow inline code. A Markdown quote's bar is blue, apart
+  including yellow inline code, and an `ansi` entry the colours its text
+  sets. A Markdown quote's bar is blue, apart
   from the primary cyan; without colours it is dim.
 - An answered question is not a status: its tab mark keeps the text
   colour, and an unanswered one is dim.

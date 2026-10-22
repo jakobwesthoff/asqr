@@ -669,7 +669,7 @@ mod tests {
         inbox.sync(&mut app).expect("synced");
 
         let message = format!(
-            r#"questions[0].context[0].type: "video" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it"#,
+            r#"questions[0].context[0].type: "video" is not supported by this asqr (version {}), which supports "image", "code", "markdown", "diff" and "ansi"; a newer asqr may support it"#,
             env!("CARGO_PKG_VERSION")
         );
         let newer = result(&location, "newer");

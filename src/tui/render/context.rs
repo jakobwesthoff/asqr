@@ -337,6 +337,12 @@ fn kind_and_name(entry: &ContextEntry) -> (&'static str, Option<String>) {
                 .or_else(|| markdown.path.as_deref().map(file_name)),
         ),
         ContextEntry::Diff(diff) => ("diff", diff.title.clone().or_else(|| diff.name.clone())),
+        ContextEntry::Ansi(ansi) => (
+            "ansi",
+            ansi.title
+                .clone()
+                .or_else(|| ansi.path.as_deref().map(file_name)),
+        ),
     }
 }
 
@@ -431,6 +437,24 @@ mod tests {
             "cut to the line"
         );
         assert_eq!(hint(None, 78), "", "a row without context leaves it empty");
+    }
+
+    #[test]
+    fn an_ansi_entry_is_named_by_title_file_name_or_kind() {
+        let hint = |json: &str| text(&context_hint(Some(&entry(json)), "z", 78));
+
+        assert_eq!(
+            hint(r#"{"type": "ansi", "title": "Test run", "path": "/logs/run.ansi"}"#),
+            "▸ ansi: Test run · z: full screen"
+        );
+        assert_eq!(
+            hint(r#"{"type": "ansi", "path": "/logs/run.ansi"}"#),
+            "▸ ansi: run.ansi · z: full screen"
+        );
+        assert_eq!(
+            hint(r#"{"type": "ansi", "content": "x"}"#),
+            "▸ ansi · z: full screen"
+        );
     }
 
     #[test]

@@ -545,7 +545,7 @@ mod tests {
     /// know, as a person reads it after the entry's path.
     fn video_unknown() -> String {
         format!(
-            r#""video" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it"#,
+            r#""video" is not supported by this asqr (version {}), which supports "image", "code", "markdown", "diff" and "ansi"; a newer asqr may support it"#,
             env!("CARGO_PKG_VERSION")
         )
     }
@@ -600,6 +600,17 @@ mod tests {
                 video_unknown()
             )
         );
+    }
+
+    #[test]
+    fn an_ansi_entry_is_a_known_type() {
+        let parsed = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                "context": [{"type": "ansi", "content": "\u001b[31mred\u001b[0m"}],
+                "options": [{"id": "a", "label": "A", "context": [{"type": "ansi", "path": "/out.ansi"}]}]}]}"#,
+        );
+
+        assert!(parsed.is_ok(), "{:?}", parsed.err());
     }
 
     #[test]

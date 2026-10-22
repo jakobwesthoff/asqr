@@ -40,8 +40,8 @@ pub enum WarningKind {
     /// text. asqr would diff it like any other text and show a diff of the
     /// diff.
     UnifiedDiff,
-    /// A code, Markdown or diff entry above 1 MiB. Carries its size in
-    /// bytes.
+    /// A code, Markdown, ANSI or diff entry above 1 MiB. Carries its size
+    /// in bytes, an ANSI entry's escape sequences included.
     LargeEntry(u64),
     /// The file exists but asqr has no decoder for it, or its header is
     /// broken. Carries the reason.
@@ -291,6 +291,10 @@ fn check_context(
                     source_size(&markdown.path, &markdown.content, &path, base_dir, found);
                 check_size(size, &path, found);
             }
+            ContextEntry::Ansi(ansi) => {
+                let (size, _) = source_size(&ansi.path, &ansi.content, &path, base_dir, found);
+                check_size(size, &path, found);
+            }
             ContextEntry::Diff(diff) => {
                 // The viewer works on both texts, so they count together.
                 let mut size = 0;
@@ -404,7 +408,7 @@ fn is_hunk_header(line: &str) -> bool {
     rest.is_some_and(|section| section.is_empty() || section.starts_with(' '))
 }
 
-/// Above this size a code, Markdown or diff entry gets a warning.
+/// Above this size a code, Markdown, ANSI or diff entry gets a warning.
 /// asqr still shows it. Images are exempt: screenshots above it are common,
 /// and the image viewer handles them.
 const LARGE_ENTRY_BYTES: u64 = 1024 * 1024;
@@ -693,6 +697,53 @@ mod tests {
             ),
             Vec::<String>::new(),
             "exactly 1 MiB is fine"
+        );
+    }
+
+    /// Text of exactly `bytes` bytes, mostly escape sequences: a red `x`
+    /// after another, padded with plain `x`.
+    fn coloured_text(bytes: usize) -> String {
+        const RED_X: &str = "\u{1b}[31mx\u{1b}[0m";
+        let mut text = RED_X.repeat(bytes / RED_X.len());
+        text.push_str(&"x".repeat(bytes - text.len()));
+        text
+    }
+
+    #[test]
+    fn warns_about_an_ansi_entry_above_1_mib_counting_its_escape_sequences() {
+        assert_eq!(
+            warn(
+                &with_context(
+                    &serde_json::json!({"type": "ansi", "content": coloured_text(MIB + 1)})
+                ),
+                None
+            ),
+            [
+                "questions[0].context[0]: 1.1 MiB, more than the 1 MiB an entry should stay under; asqr still shows it"
+            ]
+        );
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "ansi", "content": coloured_text(MIB)})),
+                None
+            ),
+            Vec::<String>::new(),
+            "exactly 1 MiB is fine"
+        );
+    }
+
+    #[test]
+    fn an_ansi_entry_takes_no_language_and_its_file_is_checked() {
+        let json = with_context(
+            &serde_json::json!({"type": "ansi", "path": "/nonexistent/out.ansi", "language": "rust"}),
+        );
+
+        assert_eq!(
+            warn(&json, None),
+            [
+                "questions[0].context[0].language: unknown field",
+                "questions[0].context[0].path: file not found: /nonexistent/out.ansi",
+            ]
         );
     }
 

@@ -131,7 +131,7 @@ pub enum Problem {
 }
 
 /// The entry types this asqr knows, written as a message lists them:
-/// `"image", "code", "markdown" and "diff"`.
+/// `"image", "code", "markdown", "diff" and "ansi"`.
 struct EntryTypeList;
 
 impl fmt::Display for EntryTypeList {
@@ -388,6 +388,9 @@ fn validate_context(
                     &path,
                     report,
                 );
+            }
+            ContextEntry::Ansi(ansi) => {
+                validate_source(ansi.path.is_some(), ansi.content.is_some(), &path, report);
             }
             ContextEntry::Diff(diff) => {
                 // One missing side is a new or a deleted file; with both
@@ -780,6 +783,36 @@ mod tests {
                 "{kind}"
             );
         }
+    }
+
+    #[test]
+    fn an_ansi_entry_needs_path_or_content_but_not_both() {
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "text", "context": [{"type": "ansi", "title": "Log"}]}"#
+            )),
+            ["questions[0].context[0]: needs path or content"]
+        );
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "text",
+                    "context": [{"type": "ansi", "path": "/out.ansi", "content": "ok"}]}"#
+            )),
+            ["questions[0].context[0]: takes path or content, not both"]
+        );
+    }
+
+    #[test]
+    fn an_ansi_entry_from_a_file_or_inline_is_valid() {
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "single",
+                    "context": [{"type": "ansi", "path": "/out.ansi"}],
+                    "options": [{"id": "a", "label": "A",
+                                 "context": [{"type": "ansi", "content": "\u001b[1mbold\u001b[0m"}]}]}"#
+            )),
+            Vec::<String>::new()
+        );
     }
 
     const DIFF_SIDES: &str = r#"a diff takes `old` and/or `new`, each {"path": ...} or {"content": ...}: the text before and after the change; asqr computes the diff itself and does not read a unified diff"#;

@@ -142,6 +142,7 @@ dependencies = [
 name = "asqr"
 version = "0.12.2"
 dependencies = [
+ "anstyle-parse",
  "anyhow",
  "assert_cmd",
  "clap",
