@@ -6,7 +6,7 @@
 # commit only lands when every step passes. Coverage is kept out of it:
 # the instrumented build compiles every dependency a second time, which
 # would slow down each commit after a new crate arrives.
-check: license-headers fmt clippy test
+check: license-headers fmt clippy doc test
 
 license-headers:
     scripts/check-license-headers.sh
@@ -16,6 +16,10 @@ fmt:
 
 clippy:
     cargo clippy --all-targets --all-features -- -D warnings
+
+# Rustdoc with warnings as errors, so a broken doc link fails the check.
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items
 
 # `--all-targets` leaves out doctests, so they run as a second step.
 test:

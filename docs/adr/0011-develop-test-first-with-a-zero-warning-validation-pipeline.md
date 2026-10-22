@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [50. Check the doc comments with rustdoc](0050-check-the-doc-comments-with-rustdoc.md)
+
 ## Context
 
 The tool is developed test driven from the first line, with no clippy

@@ -123,8 +123,8 @@ JSON Schemas are in [`schema/`](schema/), and example sessions are in
 ## Development
 
 Development is test first, and `just check` is the validation pipeline:
-license headers, `cargo fmt --check`, clippy with `-D warnings`, tests and
-doctests. `just coverage` reports test coverage; CI runs both on Ubuntu
+license headers, `cargo fmt --check`, clippy and rustdoc with
+`-D warnings`, tests and doctests. `just coverage` reports test coverage; CI runs both on Ubuntu
 and macOS. After cloning, run `just setup` once: it makes the pre-commit
 hook in `.githooks/` run the pipeline before every commit, and names any
 tool that is missing (`just`, `cargo-llvm-cov`, `llvm-tools-preview`).
