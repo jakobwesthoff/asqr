@@ -114,7 +114,7 @@ pub struct View<'a> {
     /// Whether the screen is drawn without colours (`NO_COLOR`).
     no_color: bool,
     /// asqr's name and version, such as `asqr 0.13.1`, which the empty
-    /// queue's key bar names.
+    /// queue's key bar and the help name.
     version: &'a str,
 }
 
@@ -413,7 +413,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // These overlays use the whole screen, key bar included, so they fit
     // the smallest one. Like every overlay, they open only over a session.
     match overlay.zip(app.active()) {
-        Some((Overlay::Help, state)) => draw_help(area, frame.buffer_mut(), state),
+        Some((Overlay::Help, state)) => draw_help(area, frame.buffer_mut(), state, view.version),
         Some((Overlay::SessionList(cursor), _)) => {
             draw_session_list(area, frame.buffer_mut(), app, cursor);
         }

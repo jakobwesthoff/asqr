@@ -1065,7 +1065,8 @@ The context pane:
 
 Overlays and dialogs:
 
-- Help closes on any key.
+- Help closes on any key. Its bottom edge shows asqr's version at the
+  left, such as `asqr 0.13.1`, dim, opposite `any key closes` (ADR 59).
 - `i` shows the session's whole intro in a frame over the question,
   rendered as in the header (section 7.10), with the key bar left free.
   An intro longer than the frame scrolls: `↑`/`↓` and `k`/`j` by line,

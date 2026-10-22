@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - While no session waits, the right end of the key bar shows asqr's
-  version, such as `asqr 0.13.1`, dim, where the hints leave room.
+  version, such as `asqr 0.13.1`, dim, where the hints leave room, and
+  the help shows it at the left of its bottom edge.
 
 ### Changed
 

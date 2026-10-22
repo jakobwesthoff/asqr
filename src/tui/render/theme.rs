@@ -144,7 +144,7 @@ pub(crate) fn error() -> Style {
 /// Text that explains or annotates rather than being the content itself:
 /// hints, line numbers, notes in place of content, markers of cut text,
 /// unanswered tabs, the descriptions in the key bar, asqr's version on the
-/// empty queue, the context pane's rules and its position.
+/// empty queue and in the help, the context pane's rules and its position.
 pub(crate) fn secondary() -> Style {
     Style::new().dim()
 }

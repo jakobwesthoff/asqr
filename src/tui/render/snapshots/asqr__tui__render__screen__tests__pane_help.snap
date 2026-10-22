@@ -19,7 +19,7 @@ expression: drawn(&mut app)
 "     │ tab/esc/q     back to the question                                 │     "
 "    1│ ctrl-c        quit, keeping the draft                              │     "
 "    1│ ?             this help                                            │     "
-"    1╰──────────────────────────────────────────────────── any key closes ╯     "
+"    1╰ asqr 0.0.0 ──────────────────────────────────────── any key closes ╯     "
 "    13 + line 13                                                                "
 "    14 + line 14                                                                "
 "    15 + line 15                                                                "

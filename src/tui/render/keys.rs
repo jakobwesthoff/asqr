@@ -67,8 +67,9 @@ const FULL_SCREEN_HELP: &[(&str, &str)] = &[
 ];
 
 /// The keys that work where the focus is: the full-screen view's, the
-/// pane's while it has the focus, every key otherwise.
-pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
+/// pane's while it has the focus, every key otherwise, with `version`,
+/// asqr's name and version, at the left of the frame's bottom edge.
+pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState, version: &str) {
     let (keys, title) = if state.full_screen() {
         (FULL_SCREEN_HELP, "Keys of the full-screen view")
     } else if state.pane_focused() {
@@ -111,9 +112,11 @@ pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
             ])
         })
         .collect();
+    let frame = overlay_block(title, Some("any key closes"))
+        .title_bottom(Line::styled(format!(" {version} "), theme::secondary()).left_aligned());
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(overlay_block(title, Some("any key closes")))
+        .block(frame)
         .render(area, buf);
 }
 
@@ -839,7 +842,7 @@ mod tests {
         );
         let area = Rect::new(0, 0, 74, 15);
         let mut buf = Buffer::empty(area);
-        draw_help(area, &mut buf, &state);
+        draw_help(area, &mut buf, &state, "asqr 0.0.0");
 
         assert_eq!(row(&buf, 0), format!("  ╭ Keys {}╮", "─".repeat(62)));
         assert_eq!(
@@ -848,7 +851,7 @@ mod tests {
         );
         assert_eq!(
             row(&buf, 14),
-            format!("  ╰{} any key closes ╯", "─".repeat(52))
+            format!("  ╰ asqr 0.0.0 {} any key closes ╯", "─".repeat(40))
         );
         assert_eq!(buf[find(&buf, "Keys")].modifier, Modifier::BOLD);
         assert_eq!(buf[find(&buf, "any key")].modifier, Modifier::DIM);
@@ -864,7 +867,7 @@ mod tests {
     fn smallest_help_lines(state: &SessionState) -> Vec<String> {
         let area = Rect::new(0, 0, 60, 15);
         let mut buf = Buffer::empty(area);
-        draw_help(area, &mut buf, state);
+        draw_help(area, &mut buf, state, "asqr 0.0.0");
         let rows = rows(&buf);
         let edge = |corner| {
             rows.iter()
@@ -875,6 +878,52 @@ mod tests {
             .iter()
             .map(|row| row.trim().trim_matches('│').trim().to_owned())
             .collect()
+    }
+
+    /// The bottom edge of the help's frame on the smallest screen, 60x15,
+    /// drawn with the version `asqr 0.0.0`, and the buffer it is in.
+    fn help_bottom(state: &SessionState) -> (String, Buffer) {
+        let area = Rect::new(0, 0, 60, 15);
+        let mut buf = Buffer::empty(area);
+        draw_help(area, &mut buf, state, "asqr 0.0.0");
+        let bottom = rows(&buf)
+            .into_iter()
+            .find(|row| row.contains('╰'))
+            .expect("the help is drawn in a frame");
+        (bottom, buf)
+    }
+
+    /// What the bottom edge of every help reads on 60 columns.
+    fn bottom_with_version() -> String {
+        format!("╰ asqr 0.0.0 {} any key closes ╯", "─".repeat(30))
+    }
+
+    #[test]
+    fn the_general_help_names_the_version_at_the_left_of_its_bottom_edge() {
+        let (bottom, buf) = help_bottom(&general_help_state());
+
+        assert_eq!(bottom.trim_end(), bottom_with_version());
+        // Dim on the border, in the border's colour, as the footer opposite.
+        assert_eq!(look_at(&buf, "asqr 0.0.0"), (Color::Cyan, Modifier::DIM));
+        assert_eq!(look_at(&buf, "asqr 0.0.0"), look_at(&buf, "any key closes"));
+    }
+
+    #[test]
+    fn the_pane_help_names_the_version_at_the_left_of_its_bottom_edge() {
+        let (mut state, _) = beside_code("single", 1);
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert!(state.pane_focused());
+
+        assert_eq!(help_bottom(&state).0.trim_end(), bottom_with_version());
+    }
+
+    #[test]
+    fn the_full_screen_help_names_the_version_at_the_left_of_its_bottom_edge() {
+        let (mut state, _) = beside_code("single", 1);
+        state.handle(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert!(state.full_screen());
+
+        assert_eq!(help_bottom(&state).0.trim_end(), bottom_with_version());
     }
 
     /// A state whose `?` shows the general help.
