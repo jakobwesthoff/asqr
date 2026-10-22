@@ -64,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   holds fell apart into one letter per line, and one that did not fit
   even at one letter per column wrapped row by row behind `↪`, its
   border read as a quote bar (patine 1.8.0).
+- The other dependencies are updated to their latest compatible
+  versions, among them crc32fast 1.5.3 and plist 1.10.3.
 
 ### Fixed
 
