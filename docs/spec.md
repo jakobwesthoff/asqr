@@ -842,9 +842,11 @@ has context (section 7.4, ADRs 30 and 31):
   secondary text.
 - The row under the cursor, a field's head under it while the field
   does not have the keys, the current entry of the session list and the
-  focused context pane's header show the focus fill: yellow reversed,
-  the whole row in one colour. One focus fill shows at a time. The
-  submit button is the only other fill (section 7.8).
+  focused context pane's name show the focus fill: yellow reversed, in
+  one colour over the whole row, or over the name and its blanks in the
+  pane's header rule. One focus fill shows at a time. The focused
+  context pane's rules and edge turn yellow (section 8.1). The submit
+  button is the only other fill (section 7.8).
 - The help, the whole intro and the session list show in a frame with
   rounded corners in the primary colour, a bold title, a dim footer and
   a blank column inside each side; the help's keys are bold in the
@@ -869,7 +871,9 @@ has context (section 7.4, ADRs 30 and 31):
   context, shares the tab's area with a context pane (section 8):
   - Beside: the question takes half of W after the blank separator
     column, at least 60 and at most 100 columns, and the context pane
-    takes the rest. Beside fits from W = 101, a terminal of 103 columns.
+    takes the rest. Its body is two columns narrower than the pane, 38
+    at the narrowest (section 8.1). Beside fits from W = 101, a terminal
+    of 103 columns.
   - Below: the question keeps its width and takes the rows the tallest
     question with context in the session needs, at most half of H, and
     the context pane takes the rest over the whole of W. So the pane
@@ -1000,11 +1004,12 @@ The context pane:
   keep their meaning and `ctrl-c` quits. `tab`, `shift-tab`, `esc` and `q` give the
   focus back to where it was, a field being typed in included, so a word
   typed after `tab` never quits asqr. Every other key does nothing.
-- While the pane has the focus, its header shows the focus fill, the
-  question's current row keeps its pointer and bold text but loses its
-  fill, a field's text cursor hides, and the key bar and the help show
-  the pane's keys, with `? help` and `tab/esc/q back`. A pane that goes
-  away, as after a resize down to the hint, gives the focus back.
+- While the pane has the focus, its name shows the focus fill and its
+  rules turn yellow (section 8.1), the question's current row keeps its
+  pointer and bold text but loses its fill, a field's text cursor hides,
+  and the key bar and the help show the pane's keys, with `? help` and
+  `tab/esc/q back`. A pane that goes away, as after a resize down to the
+  hint, gives the focus back.
 - `pgup`/`pgdn` scroll the context pane by a page and `ctrl-u`/`ctrl-d`
   by half a page from anywhere, also from inside a field, while a pane
   shows. A page is the height the pane, the full-screen view or the
@@ -1013,7 +1018,7 @@ The context pane:
   field, and `ctrl-u` and `ctrl-d` undo and delete there (section 7.7,
   ADR 31).
 - `z` shows the context pane of the entry shown over the question's
-  area, header included. It acts on every kind of entry (ADR 31). The
+  area, its ledge included. It acts on every kind of entry (ADR 31). The
   full-screen view reads like the focused pane: it takes every key, so
   `enter`, the digits, `n` and the others cannot act on the question
   hidden behind it. It scrolls with the pane's keys, `o` and `?` keep
@@ -1315,17 +1320,31 @@ Context appears only when a question or one of its options has some
 - The context pane goes beside or below the question, or shrinks to a
   one-line hint, by the terminal's size and `--layout` (section 7.4).
   Its keys are in section 7.6.
-- The pane's first line is a header that names the entry: its `title`,
-  or the file name of its `path` (a diff's `name`), or its kind, `code`,
-  `markdown` or `diff`, when it has neither. When the entry is taller
-  than the pane, the header's right end says which lines show, such as
+- The pane stands on a ledge (ADR 54). Its first line is a dim rule
+  with the entry's name set into it in bold: its `title`, or the file
+  name of its `path` (a diff's `name`), or its kind, `code`, `markdown`
+  or `diff`, when it has neither. Beside the question the rule reads
+  `╭─ name ─────` and turns down into a dim `│` along the pane's left
+  edge, and the content starts two columns right of it. Below the
+  question it reads `── name ─────`, without an edge, after a blank row.
+  Either way the rule runs on to the pane's right edge, and a name
+  longer than it leaves room for is cut with `…`.
+- The pane's last line is a dim bottom rule: `╰──── 1–31 of 58 · tab ─`
+  beside the question, `──── 1–31 of 58 · tab ──` below it. When the
+  entry is taller than the pane, it says which lines show, such as
   `4–15 of 120`. When the entry is taller or wider than the pane and the
-  pane does not have the focus, the right end also names `tab`, as in
+  pane does not have the focus, it also names `tab`, as in
   `1–10 of 31 · tab`, or `tab` alone for an entry that is only wider:
   on a narrow terminal the key bar leaves out its `tab` hint early
-  (section 7.2). Where the name would have to be cut for it, the `tab`
-  goes first. A row without context leaves the pane empty, header
-  included (ADR 31).
+  (section 7.2). Where the rule has no room for it, the `tab` goes
+  first. When the entry fits, the rule carries no text and runs solid to
+  the pane's right edge. A row without context leaves the pane empty,
+  its ledge included (ADR 31).
+- While the pane has the focus, its name shows the focus fill, its
+  blanks included, and its rules and edge turn yellow; the position
+  stays dim.
+- The full-screen view (`z`) shows the pane with the ledge it has beside
+  the question: `╭`, left edge and `╰`.
 - Below the header, a viewer shows the entry (sections 8.4 to 8.8).
 - Every entry keeps its scroll position while its session waits: moving
   to an option with another entry shows that entry where the person

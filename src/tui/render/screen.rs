@@ -17,7 +17,7 @@ use ratatui::widgets::{Paragraph, Widget, Wrap};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::content::{TabState, draw_tab};
-use super::context::{DrawnPane, draw_pane};
+use super::context::{DrawnPane, Ledge, draw_pane};
 use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
 use super::keys::{dialog_hints, draw_help, empty_queue_hints, intro_hints, key_hints, key_line};
@@ -336,6 +336,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                         state,
                         &mut view.tab.viewers,
                         quote,
+                        Ledge::Beside,
                     ),
                     None,
                 )
@@ -1697,7 +1698,7 @@ mod tests {
         let backend = screen_handing_on_pane(&mut app, &mut view, 80, 24);
         let (option, header) = (
             row_starting_with(&backend, "❯ ( ) 1. Yes"),
-            row_starting_with(&backend, "Thirty lines"),
+            row_containing(&backend, " Thirty lines "),
         );
         assert_eq!(filled(&backend, option), 12, "the option:\n{backend}");
         assert_eq!(filled(&backend, header), 0, "the header:\n{backend}");
@@ -1706,7 +1707,11 @@ mod tests {
         let backend = screen_handing_on_pane(&mut app, &mut view, 80, 24);
         assert_eq!(filled(&backend, option), 0, "the option:\n{backend}");
         assert!(row(backend.buffer(), option).contains("❯ ( ) 1. Yes"));
-        assert_eq!(filled(&backend, header), 78, "the header:\n{backend}");
+        assert_eq!(
+            filled(&backend, header),
+            " Thirty lines ".len(),
+            "the name and its blanks:\n{backend}"
+        );
     }
 
     #[test]
@@ -2184,10 +2189,11 @@ mod tests {
         let (columns, rows) = image_cells(&screen(&app, 140, 20));
 
         // The 138 columns inside the margins split into 68 for the
-        // question, the separator and the rest for the image.
+        // question, the separator and the rest for the pane, whose edge and
+        // the blank after it stand before the image.
         assert_eq!(
             *columns.start(),
-            70,
+            72,
             "right of the question text: {columns:?}"
         );
         // Without header text the header takes no row at this height, so
@@ -2204,7 +2210,11 @@ mod tests {
 
         let (columns, rows) = image_cells(&screen(&app, 140, 20));
 
-        assert_eq!(rows, 4..=17, "every row of the pane's body");
+        assert_eq!(
+            rows,
+            4..=16,
+            "every row of the pane's body, between its rules"
+        );
         assert!(columns.end() - columns.start() > 16, "{columns:?}");
     }
 
@@ -2266,7 +2276,7 @@ mod tests {
         let mut app = with_image_kept_small(file.path().to_str().expect("UTF-8 path"));
 
         let (columns, rows) = image_cells(&screen(&app, 140, 20));
-        assert_eq!((columns, rows), (70..=85, 4..=11), "in the pane");
+        assert_eq!((columns, rows), (72..=87, 4..=11), "in the pane");
 
         keys(&mut app, "z");
         let (columns, rows) = image_cells(&screen(&app, 140, 20));
@@ -2284,7 +2294,7 @@ mod tests {
 
         let (_, rows) = image_cells(&screen(&app, 140, 20));
 
-        assert_eq!(rows, 4..=17, "the pane's body, no more");
+        assert_eq!(rows, 4..=16, "the pane's body, no more");
     }
 
     /// A load that panics ends asqr on the next frame, also one that draws
@@ -2609,9 +2619,9 @@ mod tests {
     fn an_image_first_drawn_under_an_overlay_is_still_sent() {
         let file = png();
         let image = file.path().to_str().expect("UTF-8 path");
-        // At 20 rows the help covers the whole image, at 21 and 22 its
+        // At 22 rows the help covers the whole image, at 23 and 24 its
         // first cell and the rows below it, but not all of its cells.
-        for (width, height) in [(200, 20), (200, 21), (200, 22)] {
+        for (width, height) in [(200, 22), (200, 23), (200, 24)] {
             let what = format!("{width}×{height} under the help");
             let mut app = with_image(image);
             let whole = screen_in(&app, &mut kitty_beside(), width, height);
@@ -2630,7 +2640,7 @@ mod tests {
             );
             assert_eq!(sending(buf), 1, "{what}: the image is sent once");
             let shown = assert_kitty_cells_placed(buf, origin, &what);
-            assert_eq!(shown == 0, height == 20, "{what}: {shown} cells show");
+            assert_eq!(shown == 0, height == 22, "{what}: {shown} cells show");
 
             special(&mut app, KeyCode::Esc);
             draw_on(&mut terminal, &mut app, &mut view);
@@ -2648,8 +2658,8 @@ mod tests {
         let (_, rows) = image_cells(&screen(&app, 80, 24));
 
         // The question takes the six rows it needs, from row 4 on, and the
-        // pane's header the next one.
-        assert_eq!(*rows.start(), 11, "below the question text: {rows:?}");
+        // pane's blank row and header rule the next two.
+        assert_eq!(*rows.start(), 12, "below the question text: {rows:?}");
     }
 
     #[test]
@@ -2668,7 +2678,7 @@ mod tests {
         )]);
 
         let (columns, _) = image_cells(&screen(&app, 140, 20));
-        assert_eq!(*columns.start(), 70, "beside the options: {columns:?}");
+        assert_eq!(*columns.start(), 72, "beside the options: {columns:?}");
 
         keys(&mut app, "j");
         let backend = screen(&app, 140, 20);
@@ -2932,6 +2942,15 @@ mod tests {
         u16::try_from(row).expect("a short screen")
     }
 
+    /// The row of the screen that contains `text`.
+    fn row_containing(backend: &TestBackend, text: &str) -> u16 {
+        let row = test_support::rows(backend.buffer())
+            .iter()
+            .position(|line| line.contains(text))
+            .unwrap_or_else(|| panic!("no row contains {text}:\n{backend}"));
+        u16::try_from(row).expect("a short screen")
+    }
+
     #[test]
     fn the_focused_pane_scrolls_and_shows_its_keys() {
         let mut app = long_context();
@@ -2943,13 +2962,20 @@ mod tests {
         special(&mut app, KeyCode::PageDown);
         let backend = drawn(&mut app);
         insta::assert_snapshot!("pane_focused_scrolled", backend);
-        let header = row_starting_with(&backend, "Thirty lines");
+        // Below the question the header rule starts at the margin: `──`,
+        // then the name and its blanks in columns 3 to 16, then the rule.
+        let header = row_containing(&backend, " Thirty lines ");
         for x in 1..79 {
             let cell = &backend.buffer()[(x, header)];
+            let expected = if (3..=16).contains(&x) {
+                Modifier::REVERSED
+            } else {
+                Modifier::empty()
+            };
             assert_eq!(
                 (cell.fg, cell.modifier & !Modifier::BOLD),
-                (Color::Yellow, Modifier::REVERSED),
-                "the focused pane's header is filled to its end, column {x}:\n{backend}"
+                (Color::Yellow, expected),
+                "the focused pane fills its name and draws its rule yellow, column {x}:\n{backend}"
             );
         }
 
@@ -3055,13 +3081,14 @@ mod tests {
         insta::assert_snapshot!(screen_handing_on_pane(&mut app, &mut view, 80, 16));
 
         // The session has no header text, so at 16 rows the header takes no
-        // row and the pane shows 10 lines of a body 78 columns wide. The
+        // row and the tab's area is 78×11: between its rules and right of
+        // its edge the pane shows 9 lines of a body 76 columns wide. The
         // card there is 60 wide: its folder, `/nonexistent/` and six
         // `deeper/` on the first of its rows, then eight on each, takes 16
         // rows, so with the reason, the blank row, the name and the frame
         // the card has 21 lines.
         let text = screen_in(&app, &mut view, 80, 16).to_string();
-        assert!(text.contains("1–10 of 21"), "{text}");
+        assert!(text.contains("1–9 of 21"), "{text}");
         assert!(
             text.contains("│ ✗ No such file"),
             "the reason first: {text}"
@@ -3070,10 +3097,18 @@ mod tests {
         keys(&mut app, "G");
         let backend = screen_handing_on_pane(&mut app, &mut view, 80, 16);
         let buf = backend.buffer();
-        assert!(row(buf, 3).ends_with("12–21 of 21"), "{backend}");
-        assert!(row(buf, 13).trim_start().starts_with('╰'), "{backend}");
+        // The bottom rule on the tab's last row names the last lines, and
+        // the card's own frame ends on the body's last row, right of the
+        // pane's edge.
+        assert!(row(buf, 13).ends_with(" 13–21 of 21 ─"), "{backend}");
+        let card_end = row(buf, 12);
+        let card_end = card_end.trim_start().strip_prefix('│');
         assert!(
-            row(buf, 12)
+            card_end.is_some_and(|card| card.trim_start().starts_with('╰')),
+            "{backend}"
+        );
+        assert!(
+            row(buf, 11)
                 .trim_end_matches(['│', ' '])
                 .ends_with("deeper/"),
             "{backend}"
@@ -3169,10 +3204,11 @@ mod tests {
         ));
 
         // 160 columns leave 158 inside the margins: 78 for the question,
-        // the separator and 79 for the image.
+        // the separator and 79 for the pane, its edge and a blank before
+        // the image.
         let backend = screen(&with_context, 160, 30);
         let (columns, _) = image_cells(&backend);
-        assert_eq!(*columns.start(), 80, "{backend}");
+        assert_eq!(*columns.start(), 82, "{backend}");
         let text_columns = (4..28)
             .flat_map(|y| (0..79).map(move |x| (x, y)))
             .filter(|&position| backend.buffer()[position].symbol() != " ")
@@ -3241,7 +3277,7 @@ mod tests {
     }
 
     #[test]
-    fn at_80_columns_the_pane_header_offers_tab_where_the_key_bar_has_no_room() {
+    fn at_80_columns_the_bottom_rule_offers_tab_where_the_key_bar_has_no_room() {
         let lines: String = (1..=30).map(|line| format!("line {line}\\n")).collect();
         let app = app(&[(
             "long",
@@ -3257,8 +3293,35 @@ mod tests {
 
         let key_bar = rows.last().expect("a key bar");
         assert!(!key_bar.contains("tab"), "no room for tab: {key_bar}");
-        let header = &rows[usize::from(row_starting_with(&backend, "Thirty lines"))];
-        assert!(header.trim_end().ends_with(" · tab"), "{backend}");
+        // Above the status line and the key bar.
+        let bottom = &rows[rows.len() - 3];
+        assert!(bottom.trim_end().ends_with(" · tab ──"), "{backend}");
+    }
+
+    #[test]
+    fn the_smallest_ledge_beside_fits_a_15_row_terminal() {
+        let lines: String = (1..=30).map(|line| format!("line {line}\\n")).collect();
+        let app = app(&[(
+            "low",
+            &format!(
+                r#"{{"asqr": 2, "from": "code review", "intro": "One line of intro, and a second\nthat the low screen cuts.",
+                    "questions": [{{"id": "q", "text": "Merge it?", "kind": "single",
+                    "context": [{{"type": "code", "title": "Thirty lines", "content": "{lines}"}}],
+                    "options": [{{"id": "a", "label": "Yes"}}]}}]}}"#
+            ),
+        )]);
+
+        // 15 rows leave the tab 8 under the `from` line and one of the
+        // intro: the header rule, 6 rows of body and the bottom rule.
+        let backend = screen(&app, 120, 15);
+        let rows = test_support::rows(backend.buffer());
+        assert!(rows[5].contains("╭─ Thirty lines "), "{backend}");
+        assert!(rows[12].contains("╰─"), "{backend}");
+        assert!(
+            rows[12].trim_end().ends_with(" 1–6 of 30 · tab ─"),
+            "{backend}"
+        );
+        insta::assert_snapshot!("smallest_ledge_beside_120x15", backend);
     }
 
     #[test]
@@ -3276,13 +3339,14 @@ mod tests {
         let (columns, rows) = image_cells(&backend);
         assert_eq!(
             (*columns.start(), *rows.start()),
-            (1, 11),
-            "under the question's six rows and the header:\n{backend}"
+            (1, 12),
+            "under the question's six rows, the blank row and the header rule:\n{backend}"
         );
 
         // 110×70 is portrait, where auto puts the image below; 108 columns
-        // inside the margins give the question its 60 and the image the
-        // rest after the separator.
+        // inside the margins give the question its 60 and the pane the
+        // rest after the separator, the image after the pane's edge and a
+        // blank.
         let backend = screen_in(
             &app,
             &mut View::for_tests("q", PaneLayout::Beside, Images::half_blocks()),
@@ -3290,7 +3354,7 @@ mod tests {
             70,
         );
         let (columns, rows) = image_cells(&backend);
-        assert_eq!((*columns.start(), *rows.start()), (62, 5), "{backend}");
+        assert_eq!((*columns.start(), *rows.start()), (64, 5), "{backend}");
     }
 
     #[test]
@@ -3301,7 +3365,7 @@ mod tests {
         let (columns, rows) = image_cells(&screen(&app, 192, 106));
         assert_eq!(
             (*columns.start(), *rows.start()),
-            (1, 11),
+            (1, 12),
             "shown fresh, it is below"
         );
 
@@ -3310,7 +3374,7 @@ mod tests {
         let (columns, rows) = image_cells(&screen_in(&app, &mut view, 192, 106));
         assert_eq!(
             (*columns.start(), *rows.start()),
-            (96, 5),
+            (98, 5),
             "after beside, it stays beside"
         );
     }
@@ -3604,9 +3668,10 @@ mod tests {
         let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
 
         // A 60×40 terminal is portrait, so the context goes below. The
-        // tallest question takes 11 rows under the tab bar's 4.
+        // tallest question takes 11 rows under the tab bar's 4, and the
+        // pane's blank row comes before its header rule.
         let top = pane_row(&screen_in(&app, &mut view, 60, 40));
-        assert_eq!(top, 4 + 11);
+        assert_eq!(top, 4 + 11 + 1);
         for tab in 1..=2 {
             special(&mut app, KeyCode::Right);
             let backend = screen_in(&app, &mut view, 60, 40);
@@ -3666,13 +3731,13 @@ mod tests {
         for width in [60, 80] {
             let mut app = five_options();
             // The title, the intro and the tab bar leave the question rows
-            // 5 to 12, the context starting below them.
+            // 5 to 12, the context starting below them with its blank row.
             let backend = screen(&app, width, 24);
             insta::assert_snapshot!(format!("cut_below_{width}x24"), backend);
             // The marker ends at the right edge of the question's area,
             // which is the screen's but for the margin.
             let right = width - 1 - 6;
-            assert_eq!(find(backend.buffer(), "ctx.rs").1, 13, "{backend}");
+            assert_eq!(find(backend.buffer(), "ctx.rs").1, 14, "{backend}");
             assert_eq!(
                 find(backend.buffer(), "↓ more"),
                 (right, 12),

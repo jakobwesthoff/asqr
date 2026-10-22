@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shape of a submitted result. An untouched default is in it with
   `"defaulted": true`. Before, the result carried only the reason, and
   the notes and answers typed before rejecting were lost.
+- The context pane stands on a ledge apart from the question. Its header
+  is a dim rule with the entry's name set into it in bold, `╭─ name ─────`
+  beside the question and `── name ─────` below it. Beside the question
+  a dim edge runs down the pane's left side to a bottom rule, and the
+  content starts two columns right of it; below the question a blank row
+  stands above the header. The position, such as `1–31 of 58 · tab`,
+  moves from the header into the bottom rule, which runs solid without
+  text when the entry fits. The focused pane fills its name and turns its
+  rules yellow; before, its whole header row took the fill. The
+  full-screen view shows the pane with the ledge it has beside the
+  question.
 
 ## [0.12.2] - 2026-10-19
 

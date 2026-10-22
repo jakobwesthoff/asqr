@@ -19,7 +19,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Widget};
 
-use super::context::{DrawnPane, context_hint, draw_pane, pane_body};
+use super::context::{DrawnPane, Ledge, context_hint, draw_pane, pane_body};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
 use super::source_line::{columns, fitting};
@@ -265,13 +265,18 @@ pub(super) fn draw_tab(
     let (text_area, context_area) = panes::areas(area, arrangement, question_rows);
     let content = content_at(text_area.width);
 
+    let ledge = if arrangement == Some(Arrangement::Below) {
+        Ledge::Below
+    } else {
+        Ledge::Beside
+    };
     let pane = match context_area {
         Some(area) if arrangement == Some(Arrangement::Hint) => {
             let z = question_key(state, "z");
             context_hint(state.shown_context(), &z, area.width).render(area, buf);
             None
         }
-        Some(area) => draw_pane(area, buf, state, &mut tab.viewers, quote),
+        Some(area) => draw_pane(area, buf, state, &mut tab.viewers, quote, ledge),
         None => None,
     };
     // The viewers keep the window of the question shown, and load what it
@@ -281,7 +286,7 @@ pub(super) fn draw_tab(
         let body = context_area
             .filter(|_| arrangement != Some(Arrangement::Hint))
             .map(|area| {
-                let body = pane_body(area);
+                let body = pane_body(area, ledge);
                 (body.width, body.height)
             });
         tab.viewers

@@ -955,7 +955,7 @@ const LOADING: &str = "loading…";
 
 /// A dim `loading…` in the middle of the body, where the viewer goes once
 /// it is ready. It takes one line, so the pane neither scrolls nor names
-/// a position or `tab` in its header meanwhile.
+/// a position or `tab` in its bottom rule meanwhile.
 pub(super) struct LoadingNote;
 
 impl Viewer for LoadingNote {

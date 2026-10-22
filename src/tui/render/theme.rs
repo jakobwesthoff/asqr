@@ -64,10 +64,16 @@ pub(crate) fn strong() -> Style {
     Style::new().bold()
 }
 
-/// The colour of the focus, which [`focus_fill`] and [`focus_pointer`]
-/// draw with.
+/// The colour of the focus, which [`focus_fill`], [`focus_pointer`] and
+/// [`focus_rule`] draw with.
 pub(crate) fn focus() -> Style {
     Style::new().fg(Color::Yellow)
+}
+
+/// The focus as lines: the header rule, left edge and bottom rule of the
+/// focused context pane, whose name has the fill.
+pub(crate) fn focus_rule() -> Style {
+    focus()
 }
 
 /// The focus as text, where a fill would make a second focus: the pointer
@@ -76,7 +82,7 @@ pub(crate) fn focus_pointer() -> Style {
     focus().bold()
 }
 
-/// The row, head or header the cursor or the focus is on, the one focus
+/// The row, head or name the cursor or the focus is on, the one focus
 /// fill on the screen. The fill is reversed text in the focus colour
 /// rather than a background, so it stays a plain reversed fill where
 /// colours are off. It lifts dim, so text under it is one colour.
@@ -137,7 +143,8 @@ pub(crate) fn error() -> Style {
 
 /// Text that explains or annotates rather than being the content itself:
 /// hints, line numbers, notes in place of content, markers of cut text,
-/// unanswered tabs, the descriptions in the key bar.
+/// unanswered tabs, the descriptions in the key bar, the context pane's
+/// rules and its position.
 pub(crate) fn secondary() -> Style {
     Style::new().dim()
 }
@@ -225,6 +232,11 @@ mod tests {
         let bold = Style::new().add_modifier(Modifier::BOLD);
         assert_eq!(title(), bold);
         assert_eq!(strong(), bold);
+    }
+
+    #[test]
+    fn the_focused_pane_s_rules_are_yellow() {
+        assert_eq!(focus_rule(), Style::new().fg(Color::Yellow));
     }
 
     #[test]

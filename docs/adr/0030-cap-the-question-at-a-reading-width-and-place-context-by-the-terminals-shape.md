@@ -15,6 +15,10 @@ Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-
 Amended by [52. Scroll half a page with ctrl-u and ctrl-d](0052-scroll-half-a-page-with-ctrl-u-and-ctrl-d.md):
 `ctrl-u` and `ctrl-d` scroll the intro overlay by half a page
 
+Amended by [54. Set the context pane off from the question with a ledge](0054-set-the-context-pane-off-from-the-question-with-a-ledge.md):
+beside the question the pane has a left edge, and below it a blank row
+stands between question and pane
+
 ## Context
 
 Over the full width of a terminal of about 230 columns, question texts,

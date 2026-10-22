@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr  low                                                                                          default · 1 waiting "
+"       from code review                                                                                                 "
+"       One line of intro, and a second… i: more                                                                         "
+"   ☐ q  ✔ Review                                                                                                        "
+"──━━━━━─────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
+" Merge it?                                                    ╭─ Thirty lines ───────────────────────────────────────── "
+" pick one                                                     │  1 line 1                                               "
+"                                                              │  2 line 2                                               "
+" ❯ ( ) 1. Yes                                                 │  3 line 3                                               "
+"                                                              │  4 line 4                                               "
+" Notes: —                                                     │  5 line 5                                               "
+"                                                              │  6 line 6                                               "
+"                                                              ╰────────────────────────────────────── 1–6 of 30 · tab ─ "
+"                                                                                                                        "
+" ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ?  help   q  quit                                   "

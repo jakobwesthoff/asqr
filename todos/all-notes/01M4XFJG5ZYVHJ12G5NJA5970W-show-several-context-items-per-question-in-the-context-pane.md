@@ -37,8 +37,9 @@ switches between items quickly (user, round 1).
 
 ## Where the pane leaves it
 
-The context pane (ADR 31) shows one entry under a header line, which is
-where a tab strip can go. `SessionState` keeps a scroll position per
+The context pane (ADR 31) shows one entry under a header rule with the
+entry's name set into it (ADR 54), which is where a tab strip can go;
+the scroll position sits in a bottom rule. `SessionState` keeps a scroll position per
 `EntryKey` (question and option index); an item index in that key gives
 each item its own position. `Viewers` keeps one viewer per shown entry
 under the same key plus the session id.

@@ -33,6 +33,10 @@ a viewer's `draw` returns the Kitty image it drew
 Amended by [52. Scroll half a page with ctrl-u and ctrl-d](0052-scroll-half-a-page-with-ctrl-u-and-ctrl-d.md):
 `ctrl-u` and `ctrl-d` scroll by half a page
 
+Amended by [54. Set the context pane off from the question with a ledge](0054-set-the-context-pane-off-from-the-question-with-a-ledge.md):
+the header is a rule with the entry's name set into it, and the position
+moves into a bottom rule
+
 ## Context
 
 The context area beside or below the question (ADR 30) shows entries of

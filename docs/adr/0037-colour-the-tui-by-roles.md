@@ -13,6 +13,9 @@ Amended by [38. Give notices kinds and confirm a finished session](0038-give-not
 
 Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-title-in-the-title-bar.md)
 
+Amended by [54. Set the context pane off from the question with a ledge](0054-set-the-context-pane-off-from-the-question-with-a-ledge.md):
+the focused pane fills its name and turns its lines yellow
+
 ## Context
 
 A TUI that marks nearly everything the same way, with reversed video,
