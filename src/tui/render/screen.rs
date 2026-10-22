@@ -20,7 +20,10 @@ use super::content::{TabState, draw_tab};
 use super::context::{DrawnPane, Ledge, draw_pane};
 use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
-use super::keys::{dialog_hints, draw_help, empty_queue_hints, intro_hints, key_hints, key_line};
+use super::keys::{
+    dialog_hints, draw_help, empty_queue_hints, intro_hints, key_hints, key_line,
+    key_line_with_version,
+};
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{MIN_BELOW_HEIGHT, PaneLayout};
@@ -110,16 +113,23 @@ pub struct View<'a> {
     image_shown: bool,
     /// Whether the screen is drawn without colours (`NO_COLOR`).
     no_color: bool,
+    /// asqr's name and version, such as `asqr 0.13.1`, which the empty
+    /// queue's key bar names.
+    version: &'a str,
 }
 
 impl<'a> View<'a> {
     /// The view of `queue`, with the images of context entries made by
     /// `images`.
     pub fn new(queue: &'a str, layout: PaneLayout, images: Images) -> Self {
-        View::with_tab(queue, TabState::new(layout, images))
+        View::with_tab(
+            queue,
+            TabState::new(layout, images),
+            concat!("asqr ", env!("CARGO_PKG_VERSION")),
+        )
     }
 
-    fn with_tab(queue: &'a str, tab: TabState) -> Self {
+    fn with_tab(queue: &'a str, tab: TabState, version: &'a str) -> Self {
         View {
             queue,
             glyphs: Glyphs::Quadrant,
@@ -127,13 +137,16 @@ impl<'a> View<'a> {
             overlay_shown: false,
             image_shown: false,
             no_color: false,
+            version,
         }
     }
 
-    /// The view of `queue` as tests need it (see `Viewers::for_tests`).
+    /// The view of `queue` as tests need it (see `Viewers::for_tests`), and
+    /// with the version `asqr 0.0.0`, so no release changes what a test
+    /// draws.
     #[cfg(test)]
     pub(crate) fn for_tests(queue: &'a str, layout: PaneLayout, images: Images) -> Self {
-        View::with_tab(queue, TabState::for_tests(layout, images))
+        View::with_tab(queue, TabState::for_tests(layout, images), "asqr 0.0.0")
     }
 
     /// This view, drawn without colours when `no_color` is set.
@@ -391,7 +404,11 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     } else {
         hints
     };
-    frame.render_widget(key_line(&hints, keys.width), keys);
+    let key_bar = match app.active() {
+        None => key_line_with_version(&hints, keys.width, view.version),
+        Some(_) => key_line(&hints, keys.width),
+    };
+    frame.render_widget(key_bar, keys);
 
     // These overlays use the whole screen, key bar included, so they fit
     // the smallest one. Like every overlay, they open only over a session.
@@ -1787,12 +1804,16 @@ mod tests {
             "{backend}"
         );
         assert_eq!(style_at(buf, "broken").fg, Some(Color::Yellow));
-        assert_eq!(row(buf, 19), " q  quit", "{backend}");
+        assert_eq!(
+            row(buf, 19),
+            format!(" q  quit{}asqr 0.0.0", " ".repeat(61)),
+            "{backend}"
+        );
         assert_eq!(look_at(buf, "q  quit"), (Color::Cyan, Modifier::BOLD));
     }
 
     /// The view the terminal gets draws as a test's does; only how long
-    /// it waits for context entries differs.
+    /// it waits for context entries and the version it names differ.
     #[test]
     fn the_terminal_s_view_draws_the_empty_queue() {
         let mut view = View::new("default", PaneLayout::Auto, Images::half_blocks());
@@ -1803,6 +1824,22 @@ mod tests {
             title_line(&backend),
             " asqr · queue: default · 0 sessions waiting"
         );
+        // The package's own version, also on the smallest screen.
+        let version = format!("asqr {}", env!("CARGO_PKG_VERSION"));
+        assert!(row(backend.buffer(), 23).ends_with(&version), "{backend}");
+        let smallest = screen_in(&App::default(), &mut view, 60, 15);
+        assert!(row(smallest.buffer(), 14).ends_with(&version), "{smallest}");
+    }
+
+    #[test]
+    fn the_empty_queue_names_the_version_at_the_right_end_of_the_key_bar() {
+        let backend = screen(&App::default(), 60, 15);
+        let buf = backend.buffer();
+
+        assert!(row(buf, 14).starts_with(" q  quit"), "{backend}");
+        // One blank stands between the version and the right edge.
+        assert_eq!(find(buf, "asqr 0.0.0"), (49, 14), "{backend}");
+        assert_eq!(look_at(buf, "asqr 0.0.0"), (Color::Reset, Modifier::DIM));
     }
 
     #[test]
@@ -2210,6 +2247,18 @@ mod tests {
         let backend = screen(&app, 80, 24);
 
         assert_eq!(row(backend.buffer(), 23), " any key  close", "{backend}");
+    }
+
+    #[test]
+    fn the_version_shows_over_the_empty_queue_while_the_dialog_shows() {
+        let mut app = App::default();
+        app.report_invalid(invalid("broken", &ERRORS));
+
+        let backend = screen(&app, 80, 24);
+        let key_bar = row(backend.buffer(), 23);
+
+        assert!(key_bar.starts_with(" any key  close"), "{backend}");
+        assert!(key_bar.ends_with("asqr 0.0.0"), "{backend}");
     }
 
     #[test]

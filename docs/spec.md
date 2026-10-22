@@ -854,7 +854,9 @@ has context (section 7.4, ADRs 30 and 31):
   description dim, without a fill. Hints that do not fit its width are
   left out whole, never cut: first `ctrl-u/ctrl-d`, then `n`, then
   `tab`, then `←`/`→`, then the others from the right. `?` and `q` stay
-  longest, as the help lists every key (ADR 31, ADR 58).
+  longest, as the help lists every key (ADR 31, ADR 58). On the empty
+  queue its right end shows asqr's version in the space the hints leave
+  (section 7.5, ADR 59).
 
 ### 7.3 Colours
 
@@ -978,6 +980,10 @@ has context (section 7.4, ADRs 30 and 31):
   blocks. Inside tmux, the terminal of the client tmux draws for
   decides; inside GNU screen or Zellij, Talqi is drawn in quadrant
   blocks. There is no setting for it.
+- The key bar's right end shows asqr's version, such as `asqr 0.13.1`,
+  dim and one blank from the edge, also while the dialog of an invalid
+  session shows. It takes only the room the hints leave and does not
+  show where they leave none (ADR 59).
 
 ### 7.6 Keys
 

@@ -329,6 +329,27 @@ pub(super) fn key_line(hints: &[Hint], width: u16) -> Line<'static> {
     Line::from(spans)
 }
 
+/// The key bar of the empty queue: [`key_line`] in `width` columns, and
+/// `version`, asqr's name and version, dim at its right end, one blank
+/// from the edge. The version takes only the room the hints leave, with
+/// the two blanks after the last hint between them; where it does not fit
+/// there, the bar shows the hints alone.
+pub(super) fn key_line_with_version(hints: &[Hint], width: u16, version: &str) -> Line<'static> {
+    let mut line = key_line(hints, width);
+    // The hints' line counts the blanks after the last hint, which may run
+    // past the edge, so the room is measured by adding up, never by taking
+    // the hints away from `width`.
+    let used = line.width() + columns(version) + 1;
+    if used > usize::from(width) {
+        return line;
+    }
+    line.spans
+        .push(Span::raw(" ".repeat(usize::from(width) - used)));
+    line.spans
+        .push(Span::styled(format!("{version} "), theme::secondary()));
+    line
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -758,6 +779,37 @@ mod tests {
         assert_eq!(text(40), " ↑/↓  move   ?  help   q  quit");
         assert_eq!(text(20), " ?  help   q  quit");
         assert_eq!(text(5), "");
+    }
+
+    /// The bar of `↑/↓  move` and `q  quit`, 22 columns with the blanks
+    /// after `quit`, with the version `asqr 0.0.0` where `width` has room.
+    fn bar_with_version(width: u16) -> Line<'static> {
+        let hints = [hint("↑/↓", "move", Rank::Cursor), QUIT_HINT];
+        key_line_with_version(&hints, width, "asqr 0.0.0")
+    }
+
+    /// The same bar without the version.
+    fn bar_alone(width: u16) -> Line<'static> {
+        key_line(&[hint("↑/↓", "move", Rank::Cursor), QUIT_HINT], width)
+    }
+
+    #[test]
+    fn the_version_stands_one_blank_from_the_right_edge_where_there_is_room() {
+        // 22 columns of hints, the version's 10 and one blank.
+        let text = line_texts(&[bar_with_version(33)])[0].clone();
+
+        assert_eq!(text, " ↑/↓  move   q  quit  asqr 0.0.0 ");
+    }
+
+    #[test]
+    fn the_version_leaves_out_where_the_hints_leave_no_room_for_it() {
+        assert_eq!(bar_with_version(32), bar_alone(32));
+    }
+
+    #[test]
+    fn the_version_leaves_out_where_the_hints_run_past_the_edge() {
+        // The blanks after `quit` run 2 columns past an edge at 20.
+        assert_eq!(bar_with_version(20), bar_alone(20));
     }
 
     #[test]

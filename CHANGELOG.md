@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- While no session waits, the right end of the key bar shows asqr's
+  version, such as `asqr 0.13.1`, dim, where the hints leave room.
+
 ### Changed
 
 - The general help names how far `ctrl-u` and `ctrl-d` scroll: its

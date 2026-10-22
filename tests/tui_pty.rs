@@ -333,6 +333,8 @@ fn answers_a_session_that_arrives_while_it_runs() {
         "off\t1\t",
     );
     tui.wait_for("Nothing to answer");
+    // The empty queue's key bar names the asqr that runs.
+    tui.wait_for(concat!("asqr ", env!("CARGO_PKG_VERSION")));
 
     let file = sandbox.file("session.json", SESSION);
     sandbox
