@@ -42,7 +42,8 @@ an `ansi` entry without a title or a path is named by its kind
 
 Amended by [58. Name ctrl-u and ctrl-d in the general help and the key bar](0058-name-ctrl-u-and-ctrl-d-in-the-general-help-and-the-key-bar.md):
 the general help's key column leaves its longest description one line on
-the smallest screen
+the smallest screen, and the key bar names `ctrl-u/ctrl-d` and leaves it
+out before `n`
 
 ## Context
 

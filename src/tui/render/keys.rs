@@ -130,10 +130,12 @@ pub(super) struct Hint {
 /// rank stays longer. The help stays longest, as it names every other
 /// key, then the ways out, as quitting or going back is what a lost
 /// person looks for. The keys that act where the cursor is come next,
-/// then `←/→`, then the context pane's `tab`, and a note last, which is
-/// optional on every question.
+/// then `←/→`, then the context pane's `tab`, then a note, which is
+/// optional on every question, and `ctrl-u`/`ctrl-d` last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Rank {
+    /// `ctrl-u`/`ctrl-d`, beside the page keys and after `tab`.
+    HalfPage,
     Note,
     Context,
     /// Switching questions, or scrolling the context pane sideways.
@@ -155,10 +157,12 @@ const CONTEXT_HINT: Hint = hint("tab", "context", Rank::Context);
 const QUESTION_HINT: Hint = hint("←/→", "question", Rank::LeftRight);
 const HELP_HINT: Hint = hint("?", "help", Rank::Help);
 const QUIT_HINT: Hint = hint("q", "quit", Rank::Leave);
+const HALF_PAGE_HINT: Hint = hint("ctrl-u/ctrl-d", "half page", Rank::HalfPage);
 
 /// The keys worth showing right now, without `n` where no note is taken.
 /// `pane` is what the context pane showed in this draw: where one shows,
-/// `tab` leads into it, and while it has the focus its own keys show.
+/// `tab` leads into it and `ctrl-u`/`ctrl-d` scroll it, and while it has
+/// the focus its own keys show.
 pub(super) fn key_hints(state: &SessionState, list: bool, pane: Option<Page>) -> Vec<Hint> {
     if let Some(page) = pane.filter(|_| state.pane_focused() && !list && !state.help()) {
         return pane_key_hints(state, page);
@@ -168,12 +172,13 @@ pub(super) fn key_hints(state: &SessionState, list: bool, pane: Option<Page>) ->
         hints.retain(|hint| hint.rank != Rank::Note);
     }
     if pane.is_some() && !list && !state.help() {
-        // Before the help, or last in a field, whose keys have no help.
+        // `tab` and the half-page keys: before the help, or last in a
+        // field, whose keys have no help.
         let at = hints
             .iter()
             .position(|hint| hint.rank == Rank::Help)
             .unwrap_or(hints.len());
-        hints.insert(at, CONTEXT_HINT);
+        hints.splice(at..at, [CONTEXT_HINT, HALF_PAGE_HINT]);
     }
     hints
 }
@@ -213,6 +218,7 @@ fn pane_key_hints(state: &SessionState, page: Page) -> Vec<Hint> {
         hints.push(hint("←/→", "sideways", Rank::LeftRight));
     }
     hints.push(hint("pgup/pgdn", "page", Rank::Cursor));
+    hints.push(HALF_PAGE_HINT);
     if !state.full_screen() {
         hints.push(hint("z", "full screen", Rank::Cursor));
     }
@@ -358,11 +364,28 @@ mod tests {
 
         assert_eq!(
             keys_of(key_hints(&state, false, Some(page(20)))),
-            ["↑/↓", "pgup/pgdn", "z", "o", "?", "tab/esc/q"]
+            [
+                "↑/↓",
+                "pgup/pgdn",
+                "ctrl-u/ctrl-d",
+                "z",
+                "o",
+                "?",
+                "tab/esc/q"
+            ]
         );
         assert_eq!(
             keys_of(key_hints(&state, false, Some(page(50)))),
-            ["↑/↓", "←/→", "pgup/pgdn", "z", "o", "?", "tab/esc/q"]
+            [
+                "↑/↓",
+                "←/→",
+                "pgup/pgdn",
+                "ctrl-u/ctrl-d",
+                "z",
+                "o",
+                "?",
+                "tab/esc/q"
+            ]
         );
         let bar = |width: u16| {
             let hints = key_hints(&state, false, Some(page(50)));
@@ -373,7 +396,7 @@ mod tests {
         assert_eq!(
             bar(90),
             " ↑/↓  scroll   pgup/pgdn  page   z  full screen   o  open   ?  help   tab/esc/q  back",
-            "sideways goes first"
+            "the half-page keys go first, then sideways"
         );
         assert_eq!(
             bar(60),
@@ -386,6 +409,7 @@ mod tests {
             [
                 ("↑/↓", "scroll"),
                 ("pgup/pgdn", "page"),
+                ("ctrl-u/ctrl-d", "half page"),
                 ("o", "open"),
                 ("?", "help"),
                 ("z/esc/q", "back")
@@ -401,7 +425,7 @@ mod tests {
         state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(
             keys_of(key_hints(&state, false, Some(page(20)))),
-            ["↑/↓", "pgup/pgdn", "z", "?", "tab/esc/q"],
+            ["↑/↓", "pgup/pgdn", "ctrl-u/ctrl-d", "z", "?", "tab/esc/q"],
             "o opens images only"
         );
     }
@@ -409,6 +433,198 @@ mod tests {
     /// The keys and descriptions of `hints`, in order.
     fn pairs(hints: &[Hint]) -> Vec<(&'static str, &'static str)> {
         hints.iter().map(|hint| (hint.key, hint.what)).collect()
+    }
+
+    // -----------------------------------------------------------------
+    // ctrl-u and ctrl-d in the key bar
+    // -----------------------------------------------------------------
+
+    /// A `kind` question that takes a note, whose code entry of `lines`
+    /// lines shows in a pane 10 rows high, and that pane's page.
+    fn beside_code(kind: &str, lines: usize) -> (SessionState, Page) {
+        let content: String = (1..=lines).map(|line| format!("line {line}\\n")).collect();
+        let options = if kind == "text" {
+            ""
+        } else {
+            r#", "options": [{"id": "a", "label": "A"}]"#
+        };
+        let json = format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "{kind}",
+                "context": [{{"type": "code", "content": "{content}"}}]{options}}}]}}"#
+        );
+        let mut state =
+            SessionState::new("beside", serde_json::from_str(&json).expect("parses"), None);
+        let page = Page {
+            rows: Extent {
+                shown: 10,
+                total: lines,
+            },
+            columns: Extent {
+                shown: 20,
+                total: 20,
+            },
+        };
+        state.set_pane_page(Some(crate::tui::PanePage::shown(page)));
+        (state, page)
+    }
+
+    /// The key bar of `state` beside a pane showing `page`, in `width`
+    /// columns.
+    fn bar_of(state: &SessionState, page: Page, width: u16) -> String {
+        let hints = key_hints(state, false, Some(page));
+        line_texts(&[key_line(&hints, width)])[0]
+            .trim_end()
+            .to_owned()
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn the_focused_pane_names_ctrl_u_and_ctrl_d_beside_the_page_keys() {
+        let (mut state, page) = beside_code("single", 1);
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, Some(page))),
+            [
+                ("↑/↓", "scroll"),
+                ("pgup/pgdn", "page"),
+                ("ctrl-u/ctrl-d", "half page"),
+                ("z", "full screen"),
+                ("?", "help"),
+                ("tab/esc/q", "back")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_full_screen_view_names_ctrl_u_and_ctrl_d_beside_the_page_keys() {
+        let (mut state, page) = beside_code("single", 1);
+        state.handle(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert!(state.full_screen());
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, Some(page))),
+            [
+                ("↑/↓", "scroll"),
+                ("pgup/pgdn", "page"),
+                ("ctrl-u/ctrl-d", "half page"),
+                ("?", "help"),
+                ("z/esc/q", "back")
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unfocused_pane_names_ctrl_u_and_ctrl_d_after_tab() {
+        let (state, page) = beside_code("single", 1);
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, Some(page))),
+            [
+                ("↑/↓", "move"),
+                ("enter", "pick"),
+                ("←/→", "question"),
+                ("n", "note"),
+                ("tab", "context"),
+                ("ctrl-u/ctrl-d", "half page"),
+                ("?", "help"),
+                ("q", "quit")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_field_beside_a_pane_names_ctrl_u_and_ctrl_d_last() {
+        let (state, page) = beside_code("text", 1);
+        assert_eq!(state.focus(), Focus::Field);
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, Some(page))),
+            [
+                ("ctrl-j", "new line"),
+                ("enter", "next"),
+                ("esc", "stop typing"),
+                ("tab", "context"),
+                ("ctrl-u/ctrl-d", "half page")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_half_page_hint_leaves_a_narrow_question_bar_before_the_note() {
+        let (state, page) = beside_code("single", 1);
+
+        assert_eq!(
+            bar_of(&state, page, 100),
+            " ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ?  help   q  quit"
+        );
+    }
+
+    #[test]
+    fn the_half_page_hint_leaves_a_narrow_pane_bar_before_full_screen() {
+        let (mut state, page) = beside_code("single", 1);
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+        assert_eq!(
+            bar_of(&state, page, 100),
+            " ↑/↓  scroll   pgup/pgdn  page   z  full screen   ?  help   tab/esc/q  back"
+        );
+    }
+
+    #[test]
+    fn ctrl_u_and_ctrl_d_show_in_a_wide_key_bar() {
+        let (state, page) = beside_code("single", 1);
+
+        assert_eq!(
+            bar_of(&state, page, 120),
+            " ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ctrl-u/ctrl-d  half page   ?  help   q  quit"
+        );
+    }
+
+    #[test]
+    fn the_unfocused_bar_names_ctrl_u_and_ctrl_d_where_they_scroll_the_pane() {
+        let half_page = ("ctrl-u/ctrl-d", "half page");
+        // A text question's field has the focus from the start.
+        let in_field = || beside_code("text", 40);
+        let on_question = || {
+            let (mut state, page) = in_field();
+            state.handle(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            (state, page)
+        };
+        let in_note = || {
+            let (mut state, page) = on_question();
+            state.handle(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+            (state, page)
+        };
+
+        for (beside, focus) in [
+            (on_question(), Focus::None),
+            (in_field(), Focus::Field),
+            (in_note(), Focus::Note),
+        ] {
+            let (mut state, page) = beside;
+            assert_eq!(state.focus(), focus);
+            assert!(
+                pairs(&key_hints(&state, false, Some(page))).contains(&half_page),
+                "{focus:?}"
+            );
+            state.handle(ctrl('d'));
+            assert_eq!(state.pane_offset().top, 5, "{focus:?}");
+        }
+
+        // Without a pane the field keeps `ctrl-d`, and the bar does not
+        // name it.
+        let (mut state, _) = in_field();
+        state.set_pane_page(None);
+        for c in ['a', 'b'] {
+            state.handle(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        state.handle(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert!(!pairs(&key_hints(&state, false, None)).contains(&half_page));
+        assert_eq!(state.handle(ctrl('d')), crate::tui::Effect::DraftChanged);
     }
 
     #[test]
@@ -440,6 +656,7 @@ mod tests {
                 ("enter", "pick"),
                 ("←/→", "question"),
                 ("tab", "context"),
+                ("ctrl-u/ctrl-d", "half page"),
                 ("?", "help"),
                 ("q", "quit")
             ],
@@ -453,9 +670,10 @@ mod tests {
                 ("ctrl-j", "new line"),
                 ("enter", "next"),
                 ("esc", "stop typing"),
-                ("tab", "context")
+                ("tab", "context"),
+                ("ctrl-u/ctrl-d", "half page")
             ],
-            "a field's keys have no help, so tab goes last"
+            "a field's keys have no help, so tab and the half-page keys go last"
         );
         assert_eq!(
             pairs(&key_hints(&session(true, "single"), true, Some(page))),

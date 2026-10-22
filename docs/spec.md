@@ -852,9 +852,9 @@ has context (section 7.4, ADRs 30 and 31):
 - The key bar shows the keys that work where the cursor is; they change
   inside a field. Each key is bold in the primary colour and its
   description dim, without a fill. Hints that do not fit its width are
-  left out whole, never cut: first `n`, then `tab`, then `←`/`→`, then
-  the others from the right. `?` and `q` stay longest, as the help lists
-  every key (ADR 31).
+  left out whole, never cut: first `ctrl-u/ctrl-d`, then `n`, then
+  `tab`, then `←`/`→`, then the others from the right. `?` and `q` stay
+  longest, as the help lists every key (ADR 31, ADR 58).
 
 ### 7.3 Colours
 
@@ -1040,7 +1040,10 @@ The context pane:
   intro shows, and half a page is half of it, rounded down, and at least
   one line (ADR 52). Without a pane, `pgup`/`pgdn` do nothing inside a
   field, and `ctrl-u` and `ctrl-d` undo and delete there (section 7.7,
-  ADR 31). The general help's line reads
+  ADR 31). Where the key bar has room for them (section 7.2), it names
+  `ctrl-u/ctrl-d  half page` after `pgup/pgdn  page` while the pane or
+  the full-screen view has the focus, and after `tab  context` while a
+  pane shows without it. The general help's line reads
   `pgup/pgdn, ctrl-u/ctrl-d  scroll by page; by half a page` (ADR 58).
 - `z` shows the context pane of the entry shown over the question's
   area, its ledge included. It acts on every kind of entry (ADR 31). The

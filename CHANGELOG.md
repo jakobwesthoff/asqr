@@ -12,7 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The general help names how far `ctrl-u` and `ctrl-d` scroll: its
   line reads `pgup/pgdn, ctrl-u/ctrl-d  scroll by page; by half a page`.
   Before, it read `pgup/pgdn  scroll the context pane, also
-  ctrl-u/ctrl-d`.
+  ctrl-u/ctrl-d`. The key bar names `ctrl-u/ctrl-d  half page` after
+  `pgup/pgdn  page` while the pane or the full-screen view has the
+  focus, and after `tab  context` while a pane shows without it. It is
+  the first hint a narrow key bar leaves out.
 
 ## [0.13.0] - 2026-10-22
 

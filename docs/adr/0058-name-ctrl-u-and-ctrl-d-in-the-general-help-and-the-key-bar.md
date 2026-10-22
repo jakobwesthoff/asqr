@@ -38,5 +38,19 @@ takes 45 of them after a key column of 11.
   general help's column stays at 11, and its scroll line's key runs past
   it; the helps of the pane and of the full-screen view keep their
   column of 14.
-- In ADR 52 this replaces the general help's line `pgup/pgdn  scroll the
-  context pane, also ctrl-u/ctrl-d`.
+- **Key bar:** `ctrl-u/ctrl-d  half page` follows `pgup/pgdn  page`
+  while the pane or the full-screen view has the focus, and follows
+  `tab  context` while a pane shows without the focus, in a field and a
+  note too.
+- **Rank:** the hint ranks below `n`, so a key bar too narrow for every
+  hint leaves it out first.
+- In ADR 31 this changes the key bar's order of leaving out hints, which
+  starts with `ctrl-u`/`ctrl-d`, before `n`. In ADR 52 it replaces the
+  general help's line `pgup/pgdn  scroll the context pane, also
+  ctrl-u/ctrl-d`.
+
+## Consequences
+
+- On 120 columns the key bar of a `single` question with a note beside
+  a pane shows `ctrl-u/ctrl-d  half page`; on 100 columns it leaves it
+  out and keeps `n  note`.

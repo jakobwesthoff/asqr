@@ -16,4 +16,4 @@ expression: backend
 "                                                              │  6 line 6                                               "
 "                                                              ╰────────────────────────────────────── 1–6 of 30 · tab ─ "
 "                                                                                                                        "
-" ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ?  help   q  quit                                   "
+" ↑/↓  move   enter  pick   ←/→  question   n  note   tab  context   ctrl-u/ctrl-d  half page   ?  help   q  quit        "
