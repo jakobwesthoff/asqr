@@ -1040,7 +1040,8 @@ The context pane:
   intro shows, and half a page is half of it, rounded down, and at least
   one line (ADR 52). Without a pane, `pgup`/`pgdn` do nothing inside a
   field, and `ctrl-u` and `ctrl-d` undo and delete there (section 7.7,
-  ADR 31).
+  ADR 31). The general help's line reads
+  `pgup/pgdn, ctrl-u/ctrl-d  scroll by page; by half a page` (ADR 58).
 - `z` shows the context pane of the entry shown over the question's
   area, its ledge included. It acts on every kind of entry (ADR 31). The
   full-screen view reads like the focused pane: it takes every key, so

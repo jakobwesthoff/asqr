@@ -40,6 +40,10 @@ moves into a bottom rule
 Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-with-ansi-colours-as-a-context-entry.md):
 an `ansi` entry without a title or a path is named by its kind
 
+Amended by [58. Name ctrl-u and ctrl-d in the general help and the key bar](0058-name-ctrl-u-and-ctrl-d-in-the-general-help-and-the-key-bar.md):
+the general help's key column leaves its longest description one line on
+the smallest screen
+
 ## Context
 
 The context area beside or below the question (ADR 30) shows entries of

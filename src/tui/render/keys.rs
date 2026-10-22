@@ -12,6 +12,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 
 use super::overlay::{overlay_block, popup};
+use super::screen::MIN_WIDTH;
 use super::source_line::columns;
 use super::theme;
 use crate::format::Kind;
@@ -30,7 +31,7 @@ const HELP: &[(&str, &str)] = &[
     ("n, ctrl-j", "write a note; a new line in any field"),
     ("esc", "stop typing in a field"),
     ("tab", "move into the context pane and back"),
-    ("pgup/pgdn", "scroll the context pane, also ctrl-u/ctrl-d"),
+    ("pgup/pgdn, ctrl-u/ctrl-d", "scroll by page; by half a page"),
     ("o, z", "open the image; show the context full screen"),
     ("L", "the list of waiting sessions"),
     ("q, ctrl-c", "quit, keeping the draft"),
@@ -79,18 +80,33 @@ pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState) {
     // Narrower than 70 columns, the help takes the whole width.
     let area = popup(area, 70, height, buf);
     // `format!` pads by characters, and every key is one column per
-    // character, so the longest key plus one blank sets the column.
+    // character, so the longest key plus one blank sets the column. The
+    // frame's height is fixed before the lines wrap, so a wrapped line
+    // would push the last one out of it: the column is never wider than
+    // leaves the longest description its line on the smallest screen. A
+    // key longer than the column is followed by one blank and pushes its
+    // description along.
+    let inner = overlay_block(title, None)
+        .inner(Rect::new(0, 0, MIN_WIDTH, height))
+        .width;
+    let longest_what = keys
+        .iter()
+        .map(|(_, what)| columns(what))
+        .max()
+        .unwrap_or_default();
     let key_column = keys
         .iter()
         .map(|(keys, _)| keys.chars().count() + 1)
         .max()
         .unwrap_or_default()
-        .max(11);
+        .max(11)
+        .min(usize::from(inner).saturating_sub(longest_what));
+    let pad = key_column.saturating_sub(1);
     let lines: Vec<Line> = keys
         .iter()
         .map(|(keys, what)| {
             Line::from(vec![
-                Span::styled(format!("{keys:<key_column$}"), theme::key()),
+                Span::styled(format!("{keys:<pad$} "), theme::key()),
                 Span::from(*what),
             ])
         })
@@ -556,6 +572,41 @@ mod tests {
             .iter()
             .map(|row| row.trim().trim_matches('│').trim().to_owned())
             .collect()
+    }
+
+    /// A state whose `?` shows the general help.
+    fn general_help_state() -> SessionState {
+        SessionState::new(
+            "batch",
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+            )
+            .expect("parses"),
+            None,
+        )
+    }
+
+    #[test]
+    fn the_general_help_names_both_scroll_distances_on_one_line() {
+        let lines = smallest_help_lines(&general_help_state());
+
+        assert_eq!(
+            lines.iter().find(|line| line.starts_with("pgup/pgdn")),
+            Some(&"pgup/pgdn, ctrl-u/ctrl-d scroll by page; by half a page".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_general_help_keeps_its_13_lines_whole_on_the_smallest_screen() {
+        let lines = smallest_help_lines(&general_help_state());
+
+        // Every line in a key column of 11, and a key longer than that
+        // followed by one blank.
+        let whole: Vec<String> = HELP
+            .iter()
+            .map(|(key, what)| format!("{key:<10} {what}").trim().to_owned())
+            .collect();
+        assert_eq!(lines, whole);
     }
 
     #[test]

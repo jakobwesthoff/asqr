@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The general help names how far `ctrl-u` and `ctrl-d` scroll: its
+  line reads `pgup/pgdn, ctrl-u/ctrl-d  scroll by page; by half a page`.
+  Before, it read `pgup/pgdn  scroll the context pane, also
+  ctrl-u/ctrl-d`.
+
 ## [0.13.0] - 2026-10-22
 
 ### Added

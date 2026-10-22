@@ -10,6 +10,9 @@ Amends [30. Cap the question at a reading width and place context by the termina
 
 Amends [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md)
 
+Amended by [58. Name ctrl-u and ctrl-d in the general help and the key bar](0058-name-ctrl-u-and-ctrl-d-in-the-general-help-and-the-key-bar.md):
+the general help names how far `ctrl-u` and `ctrl-d` scroll
+
 ## Context
 
 `ctrl-u` and `ctrl-d` scrolled the context pane, the full-screen view
