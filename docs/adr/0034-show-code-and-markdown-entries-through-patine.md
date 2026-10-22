@@ -10,6 +10,8 @@ Amends [31. Make the context area a pane with a header, focus and scrolling](003
 
 Amended by [49. Present problems through one component in three forms](0049-present-problems-through-one-component-in-three-forms.md)
 
+Amended by [57. Show a Markdown table that does not fit as records](0057-show-a-markdown-table-that-does-not-fit-as-records.md)
+
 ## Context
 
 A `code` entry is shown exactly as written and highlighted, and a

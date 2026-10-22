@@ -87,13 +87,12 @@ pub fn source_line(line: &StyledLine) -> SourceLine {
 
 /// The rows that show Markdown rendered by patine in `width` columns.
 ///
-/// patine wraps prose, but leaves some lines wider: code blocks and
-/// frontmatter, a word or URL in running text longer than the width, a
-/// table whose columns do not fit even at one character each. Any line is
-/// also wider here than patine measured it where it holds a halfwidth
-/// sound mark such as `ﾞ`, which unicode-width counts as no column and
-/// [`columns`] as one; a table row then no longer fits either. Such a
-/// line wraps here: each further row repeats the line's indent, the
+/// patine wraps prose and lays out a table that does not fit as records,
+/// but leaves some lines wider: code blocks and frontmatter, a word or URL
+/// in running text longer than the width, a record's line where one
+/// grapheme, such as a wide character, is wider than the room it gets,
+/// and any line where quote bars and indents leave no room. Such a line
+/// wraps here: each further row repeats the line's indent, the
 /// blanks and blockquote bars it starts with and a list item's marker as
 /// blanks (see [`indent`]), so a code block's lines stay inside the block
 /// and an item's text inside the item, then a dim `↪` and the next part.
@@ -308,6 +307,37 @@ mod tests {
             ]
         );
         assert_eq!(line.width(), 9);
+    }
+
+    /// Asserts that asqr measures `text` as patine laid it out: through
+    /// [`columns`], and as the [`SourceLine`] of a patine line, which is
+    /// what [`markdown_rows`] compares with the width.
+    fn assert_measured_alike(text: &str) {
+        let span = StyledSpan::new(text, TextStyle::default());
+        assert_eq!(columns(text), span.width(), "columns");
+        let line = StyledLine::new(vec![span]);
+        assert_eq!(source_line(&line).width(), line.width(), "a source line");
+    }
+
+    /// `ل` and `ا` are graphemes of their own, each drawn in a column.
+    #[test]
+    fn widths_agree_with_patine_for_a_ligature() {
+        assert_measured_alike("لا");
+    }
+
+    #[test]
+    fn widths_agree_with_patine_for_a_halfwidth_sound_mark() {
+        assert_measured_alike("ｶﾞ");
+    }
+
+    /// [`columns`] counts no column for an escape, as ratatui draws none,
+    /// but a source line shows it as its picture `␛` in the one column
+    /// patine counts.
+    #[test]
+    fn a_control_character_measures_alike_in_patine_and_a_source_line() {
+        let line = StyledLine::new(vec![StyledSpan::new("\u{1b}", TextStyle::default())]);
+
+        assert_eq!(source_line(&line).width(), line.width());
     }
 
     /// The rows of one patine line of plain spans at `width` columns.

@@ -12,6 +12,8 @@ Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-
 
 Amended by [55. Wrap option labels and render them as Markdown](0055-wrap-option-labels-and-render-them-as-markdown.md)
 
+Amended by [57. Show a Markdown table that does not fit as records](0057-show-a-markdown-table-that-does-not-fit-as-records.md)
+
 ## Context
 
 The session's text fields are the intro, question texts and option

@@ -7,7 +7,7 @@
 //! area starts at the origin, so a cell's column and row index the buffer
 //! directly. Tests of lines not yet drawn read their text here too. Also
 //! the paths that every loader of a file must refuse, and a Markdown table
-//! that the Markdown viewer and the text fields must both fit.
+//! that the Markdown viewer and the text fields both show as records.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -23,24 +23,28 @@ use super::viewer::Viewer;
 use crate::tui::Offset;
 
 // ---------------------------------------------------------------------
-// A table with a word wider than its column
+// Tables that do not fit as a box
 // ---------------------------------------------------------------------
+
+/// A Markdown table of twelve one-letter columns, which take 49 columns
+/// at one character each.
+pub(super) const TWELVE_COLUMNS: &str = "|a|a|a|a|a|a|a|a|a|a|a|a|\n\
+    |-|-|-|-|-|-|-|-|-|-|-|-|\n\
+    |b|b|b|b|b|b|b|b|b|b|b|b|\n";
 
 /// A Markdown table whose cell holds a link with a long URL, which the
 /// Markdown viewer and the text fields both render.
 pub(super) const LONG_LINK_TABLE: &str = "| step | doc |\n|--|--|\n\
     | retry | see [the policy](https://example.com/handbook/operations/retry-policy) |\n";
 
-/// [`LONG_LINK_TABLE`] at a width of 40, where its URL cannot fit its
-/// column: the URL breaks inside its cell, and the table fits the width.
-pub(super) const LONG_LINK_TABLE_AT_40: [&str; 7] = [
-    "┌───────┬──────────────────────────────┐",
-    "│ step  │             doc              │",
-    "├───────┼──────────────────────────────┤",
-    "│ retry │ see the policy               │",
-    "│       │ (https://example.com/handboo │",
-    "│       │ k/operations/retry-policy)   │",
-    "└───────┴──────────────────────────────┘",
+/// [`LONG_LINK_TABLE`] at a width of 40, where a box would have to break
+/// its URL: the table shows as a record, each column's name beside its
+/// value, and the URL breaks in the room beside the names.
+pub(super) const LONG_LINK_RECORDS_AT_40: [&str; 4] = [
+    "step  retry",
+    "doc   see the policy",
+    "      (https://example.com/handbook/oper",
+    "      ations/retry-policy)",
 ];
 
 // ---------------------------------------------------------------------

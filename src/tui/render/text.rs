@@ -58,7 +58,7 @@ pub fn field_source_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<
 mod tests {
     use super::super::patine_adapter::quote_style;
     use super::super::source_line::columns;
-    use super::super::test_support::{LONG_LINK_TABLE, LONG_LINK_TABLE_AT_40};
+    use super::super::test_support::{LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS};
     use ratatui::style::{Color, Modifier, Style};
 
     use super::*;
@@ -159,12 +159,27 @@ mod tests {
         );
     }
 
-    /// The text fields render a table as a Markdown entry does: a word
-    /// wider than its column, here a link's URL, continues inside its cell,
-    /// and the table fits the width.
+    /// The text fields render a table as a Markdown entry does: a table
+    /// whose box would have to break a word, here a link's URL, shows as
+    /// a record, each column's name beside its value.
     #[test]
-    fn a_long_url_in_a_table_cell_breaks_inside_its_cell() {
-        assert_eq!(texts(&lines(LONG_LINK_TABLE, 40)), LONG_LINK_TABLE_AT_40);
+    fn a_table_that_would_break_a_word_shows_as_records() {
+        assert_eq!(texts(&lines(LONG_LINK_TABLE, 40)), LONG_LINK_RECORDS_AT_40);
+    }
+
+    /// A table with more columns than fit at one character each shows as
+    /// records too, and no row wraps behind a `↪`.
+    #[test]
+    fn a_table_with_more_columns_than_fit_shows_as_records() {
+        assert_eq!(texts(&lines(TWELVE_COLUMNS, 20)), vec!["a  b"; 12]);
+    }
+
+    /// patine counts a halfwidth sound mark as the column it takes on
+    /// screen, so it wraps such text between its words, and no word breaks
+    /// behind a `↪`.
+    #[test]
+    fn a_halfwidth_sound_mark_in_running_text_wraps_between_words() {
+        assert_eq!(texts(&lines("ｶﾞｶﾞ ｶﾞｶﾞ ｶﾞｶﾞ ｶﾞｶﾞ", 12)), ["ｶﾞｶﾞ ｶﾞｶﾞ", "ｶﾞｶﾞ ｶﾞｶﾞ"]);
     }
 
     #[test]

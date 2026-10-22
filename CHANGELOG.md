@@ -53,6 +53,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   descriptions: inline code, emphasis and the rest render in the option
   row and in the review's summary. A label of more than one line moves
   the question's descriptions below the labels.
+- A Markdown table that does not fit its width shows as records, one
+  for each data row: each column on a line of its own, its name from
+  the header row in bold and dim and then the cell's text, with a rule
+  across the width between two records. The values stand beside the
+  names, or, where that room would break a word, every value stands
+  under its name, two columns in. A table shows as records as soon as
+  a column would have to break a word, a URL included. Before, the
+  word broke inside its cell, a table with more columns than the width
+  holds fell apart into one letter per line, and one that did not fit
+  even at one letter per column wrapped row by row behind `↪`, its
+  border read as a quote bar (patine 1.8.0).
 
 ### Fixed
 
@@ -67,6 +78,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Markdown line that wraps behind a `↪` with one column left after
   it, such as a line nested deep in a Markdown entry, no longer runs a
   wide character past the edge of its space.
+- A halfwidth sound mark such as `ﾞ` in Markdown counts as the column
+  it takes on screen, and so does each letter of a ligature such as
+  Lam-Alef `لا`, so a table's borders line up with its rows. Before, a
+  cell of `ｶﾞ` three times put its row's right border three columns
+  past the box, and a line of running text holding such text came out
+  wider than the width and broke behind `↪` in the middle of a word,
+  where patine now wraps it between words. A word that breaks in a
+  record keeps each character whole, a flag emoji included; before, a
+  flag in a table cell could be cut into its two letters
+  (patine 1.8.0).
 
 ## [0.12.2] - 2026-10-19
 

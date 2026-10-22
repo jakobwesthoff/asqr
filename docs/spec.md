@@ -1281,17 +1281,15 @@ keeps the session and shows its own notice instead.
 
 The intro, question texts, option labels and option descriptions
 (section 3.1) and Markdown entries (section 8.7) render the same way
-(ADRs 34, 35 and 55):
+(ADRs 34, 35, 55 and 57):
 headings bold
 (level one also italic and underlined, level two underlined), emphasis,
 inline code in yellow, lists with bullets, task lists with `☐` for an
 open task and `☑` for a done one, which is dim apart from the items
 nested under it, quotes in the style of the text around them behind a
 blue bar, links underlined with their URL dimmed, tables whose cells
-keep the styles of running text and whose columns follow the alignment
-of the delimiter row, a column without one with its header centred and
-its data left-aligned, rules, and code blocks highlighted when the
-fence names a language.
+keep the styles of running text, rules, and code blocks highlighted
+when the fence names a language.
 
 - Each text renders at the width it gets: a question text at the
   question's width, which stops at the reading width; the intro at the
@@ -1301,16 +1299,26 @@ fence names a language.
   description in the columns from where it starts to the end of the
   line, beside its label or below it (section 7.2); a Markdown entry at
   the pane's width.
-- A table fits the width it gets: a word wider than its column, such as
-  a long URL, breaks between characters and continues on the next line
-  of its cell in its own style, so a link's URL stays dim, and words
-  that fit their column stay whole. A table whose columns do not fit
-  even at one character each wraps as below.
+- A table that fits the width it gets shows in a box whose columns
+  follow the alignment of the delimiter row, a column without one with
+  its header centred and its data left-aligned. No word breaks inside
+  the box. A table that would have to break a word to fit, a long URL
+  included, or that does not fit at all, shows as records instead: one
+  for each data row, or one of the names alone for a table without any,
+  with a line for each column that holds the column's name from the
+  header row in bold and dim and then the row's cell, and a rule across
+  the width between two records. The values stand beside the names,
+  padded to the widest name, a long value wrapping with its further
+  lines under its first; where that would break a word that fits under
+  a name, every value of the table stands under its name instead, two
+  columns in. A word wider than its room breaks between characters, a
+  character and the marks on it, such as `ﾞ`, kept together, and each
+  piece keeps its style, so a link's URL stays dim.
 - A line wider than the width the text gets, such as a line of a code
-  block, a long URL in running text, a table whose columns do not fit
-  even at one character each, or any line with a halfwidth sound mark
-  such as `ﾞ`, which counts as no column, wraps: each further row
-  repeats the blanks and quote bars the line starts with, then blanks in
+  block, a long URL in running text, or a line of a record where a
+  single wide character gets less room than it takes, wraps: each
+  further row repeats the blanks and quote bars the line starts with,
+  then blanks in
   place of a list item's `•`, `☐` or `☑`, or its number with the box
   after it, then a dim `↪`, then the rest. Where that leaves no room for
   a wide character after the `↪`, the further rows start with the `↪`

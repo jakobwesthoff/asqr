@@ -140,8 +140,10 @@ mod tests {
 
     use ratatui::style::{Color, Modifier};
 
-    use super::super::patine_adapter::{quote_style, source_line};
-    use super::super::test_support::{LONG_LINK_TABLE, LONG_LINK_TABLE_AT_40, drawn, row, shown};
+    use super::super::patine_adapter::quote_style;
+    use super::super::test_support::{
+        LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS, drawn, row, shown,
+    };
     use super::*;
 
     /// The viewer of the entry `json`, as drawn with colours.
@@ -328,65 +330,133 @@ mod tests {
         assert!(at("https").contains(Modifier::DIM), "{buf:?}");
     }
 
-    /// A word wider than its table column, here a link's URL, continues
-    /// on the next line inside its cell, so the table fits the pane and no
-    /// row wraps behind a `↪`. The URL stays dim on each of its lines.
-    #[test]
-    fn a_long_url_in_a_table_cell_breaks_inside_its_cell() {
-        let mut viewer = inline(LONG_LINK_TABLE);
-
-        assert_eq!(
-            shown(&mut viewer, 40, 0),
-            LONG_LINK_TABLE_AT_40
-                .map(|row| format!("\"{row}\""))
-                .join("\n")
-        );
-        let buf = drawn(&mut viewer, 40, 7, Offset::default());
-        assert!(buf[(11, 4)].modifier.contains(Modifier::DIM), "the URL");
-        assert!(buf[(10, 5)].modifier.contains(Modifier::DIM), "its rest");
+    /// Every row of `viewer` laid out for `width` columns, without the
+    /// blanks after its text.
+    fn all_rows(viewer: &mut Content<Markdown>, width: u16) -> Vec<String> {
+        let height = u16::try_from(viewer.lay_out(width, 1).lines).expect("a short test");
+        let buf = drawn(viewer, width, height, Offset::default());
+        (0..height).map(|y| row(&buf, y)).collect()
     }
 
-    /// patine breaks a long word in a table cell, so a table fits its
-    /// width. Its rows still come out wider where not even one character
-    /// per column fits, and where patine counts a character narrower than
-    /// asqr draws it. They wrap behind a `↪` like any other wide line.
+    /// A table whose box would have to break a word, here a link's URL,
+    /// shows as a record: each column's name, bold and dim, beside its
+    /// value. The URL breaks in the room beside the names and stays dim on
+    /// each of its lines.
     #[test]
-    fn a_table_row_patine_leaves_wider_still_wraps() {
-        // The lines patine renders `markdown` into for the viewer, and the
-        // rows the viewer shows of them.
-        let rendered = |markdown: &str, width: u16| {
-            let options = RenderOptions::new().with_quote_style(quote_style(false));
-            let lines = patine::render_lines_with(markdown, usize::from(width), &options);
-            (lines, shown(&mut inline(markdown), width, 0))
+    fn a_table_that_would_break_a_word_shows_as_records() {
+        let mut viewer = inline(LONG_LINK_TABLE);
+
+        assert_eq!(all_rows(&mut viewer, 40), LONG_LINK_RECORDS_AT_40);
+        let buf = drawn(&mut viewer, 40, 4, Offset::default());
+        for y in [0, 1] {
+            let name = buf[(0, y)].modifier;
+            assert!(
+                name.contains(Modifier::BOLD | Modifier::DIM),
+                "{y}: {name:?}"
+            );
+        }
+        assert!(!buf[(6, 0)].modifier.contains(Modifier::DIM), "a value");
+        assert!(buf[(6, 2)].modifier.contains(Modifier::DIM), "the URL");
+        assert!(buf[(6, 3)].modifier.contains(Modifier::DIM), "its rest");
+    }
+
+    /// Twelve columns take 49 at one character each, so at 20 the table
+    /// shows as a record of twelve lines, and no row wraps behind a `↪`
+    /// with the table's border read as a quote bar.
+    #[test]
+    fn a_table_with_more_columns_than_fit_shows_as_records() {
+        let mut viewer = inline(TWELVE_COLUMNS);
+
+        assert_eq!(all_rows(&mut viewer, 20), vec!["a  b"; 12]);
+    }
+
+    /// The rows of a one-row table whose second cell holds `cell`, at 20
+    /// columns.
+    fn boxed(cell: &str) -> Vec<String> {
+        all_rows(
+            &mut inline(&format!("| a | b |\n|--|--|\n| x | {cell} |\n")),
+            20,
+        )
+    }
+
+    /// patine counts a halfwidth sound mark as the column it takes on
+    /// screen, so the box is as wide as the row it holds.
+    #[test]
+    fn a_halfwidth_sound_mark_lines_up_in_a_table() {
+        assert_eq!(
+            boxed("ｶﾞｶﾞｶﾞ"),
+            [
+                "┌───┬────────┐",
+                "│ a │   b    │",
+                "├───┼────────┤",
+                "│ x │ ｶﾞｶﾞｶﾞ │",
+                "└───┴────────┘"
+            ]
+        );
+    }
+
+    /// patine gives each letter of a ligature such as Lam-Alef `لا` the
+    /// column it is drawn in, so the box is as wide as the row it holds.
+    #[test]
+    fn a_ligature_lines_up_in_a_table() {
+        assert_eq!(
+            boxed("لالالا"),
+            [
+                "┌───┬────────┐",
+                "│ a │   b    │",
+                "├───┼────────┤",
+                "│ x │ لالالا │",
+                "└───┴────────┘"
+            ]
+        );
+    }
+
+    /// A table in a quote shows its records behind the quote's bar. Beside
+    /// the names `operations` would break, so every value of the table
+    /// stands under its name, and a plain rule separates the two records.
+    #[test]
+    fn a_table_in_a_quote_shows_as_records_behind_its_bar() {
+        let mut viewer = inline(
+            "> | step | owner |\n> |--|--|\n> | retrying | operations |\n> | waiting | queue |\n",
+        );
+
+        assert_eq!(
+            all_rows(&mut viewer, 14),
+            [
+                "│ step",
+                "│   retrying",
+                "│ owner",
+                "│   operations",
+                "│ ────────────",
+                "│ step",
+                "│   waiting",
+                "│ owner",
+                "│   queue"
+            ]
+        );
+        let buf = drawn(&mut viewer, 14, 9, Offset::default());
+        for y in 0..9 {
+            assert_eq!(buf[(0, y)].fg, Color::Indexed(4), "the bar of row {y}");
+        }
+        let rule = &buf[(2, 4)];
+        assert_eq!((rule.fg, rule.modifier), (Color::Reset, Modifier::empty()));
+    }
+
+    /// A word that breaks in a record keeps each character whole, and a
+    /// flag is one character made of two regional indicators.
+    #[test]
+    fn a_flag_in_a_record_is_never_cut() {
+        let mut viewer = inline(&format!("| a | b |\n|--|--|\n| x | {} |\n", "🇩🇪".repeat(4)));
+
+        let rows = all_rows(&mut viewer, 9);
+
+        let indicators = |row: &String| {
+            row.chars()
+                .filter(|c| ('\u{1F1E6}'..='\u{1F1FF}').contains(c))
+                .count()
         };
-
-        // Twelve columns take 49 at one character each.
-        let twelve_columns = format!(
-            "|{}\n|{}\n|{}\n",
-            "a|".repeat(12),
-            "-|".repeat(12),
-            "b|".repeat(12)
-        );
-        let (lines, rows) = rendered(&twelve_columns, 20);
-        assert!(
-            lines.iter().any(|line| line.width() > 20),
-            "patine overflows"
-        );
-        assert!(rows.contains('↪'), "{rows}");
-
-        // The halfwidth sound mark of `ｶﾞ` takes no column for patine and
-        // one for asqr.
-        let sound_marks = format!("| a | b |\n|--|--|\n| x | {} |\n", "ｶﾞ".repeat(6));
-        let (lines, rows) = rendered(&sound_marks, 12);
-        assert!(
-            lines.iter().all(|line| line.width() <= 12),
-            "patine fits it"
-        );
-        assert!(
-            lines.iter().any(|line| source_line(line).width() > 12),
-            "asqr does not"
-        );
-        assert!(rows.contains('↪'), "{rows}");
+        assert!(rows.iter().all(|row| indicators(row) % 2 == 0), "{rows:?}");
+        assert_eq!(rows, ["a  x", "b  🇩🇪🇩🇪🇩🇪", "   🇩🇪"]);
     }
 
     #[test]

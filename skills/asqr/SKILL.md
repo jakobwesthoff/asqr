@@ -175,9 +175,10 @@ Once asked, asqr fits best when:
   - asqr shows a code entry highlighted, with line numbers in a gutter.
     Long lines do not wrap; the person scrolls sideways. A Markdown entry
     is rendered and wrapped to the pane: headings, emphasis, lists, task
-    lists, quotes, tables and highlighted code blocks. A table fits the
-    pane, a word too long for its column continuing inside its cell; a
-    long line of a code block wraps behind a `↪` marker. Name the
+    lists, quotes, tables and highlighted code blocks. A table too wide
+    for the pane, or one that would have to break a word to fit, shows as
+    records: a block of lines for each row, each column's name before its
+    value. A long line of a code block wraps behind a `↪` marker. Name the
     language of a code block's fence so it is highlighted. A file asqr
     cannot read shows as an error card with the reason.
   - Keep a code, Markdown, ANSI or diff entry under 1 MiB (both sides of
@@ -193,8 +194,10 @@ Once asked, asqr fits best when:
   Markdown and show rendered: headings, emphasis, inline code, lists, task lists
   (`- [ ]`, `- [x]`), quotes, links, tables, rules and code blocks. Name the language of a code block's
   fence so it is highlighted. A line wider than the space, such as a
-  long line of code, wraps behind a `↪` marker. A table fits the space,
-  with a long word continuing inside its cell. A single newline
+  long line of code, wraps behind a `↪` marker. A table that does not
+  fit the space, or would have to break a word in it, shows as records,
+  as in a Markdown entry: a block of lines for each row, each column's
+  name before its value. A single newline
   breaks the line, and a blank line starts a new paragraph. `<` shows as
   written, so `Vec<String>` needs no backticks, and HTML tags show as
   their source instead of formatting the text. Keep option descriptions
