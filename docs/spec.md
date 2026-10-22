@@ -106,8 +106,8 @@ Session fields:
   id (section 7.2). asqr does not count or match carried-over questions.
 - `questions` (required, at least one).
 
-Text fields (`intro`, question `text`, option `description`) are
-Markdown, rendered in full (section 7.10).
+Text fields (`intro`, question `text`, option `label` and option
+`description`) are Markdown, rendered in full (section 7.10).
 
 ### 3.2 Question fields
 
@@ -117,8 +117,10 @@ Markdown, rendered in full (section 7.10).
   and `max`) or `text` (typed answer, no options). Format version 2 has
   no other kinds.
 - `options` (required for `single` and `multi`, not allowed for `text`):
-  each option has an `id` (unique within the question), a `label`, an
-  optional `description` of any length shown in full and wrapped, an
+  each option has an `id` (unique within the question), a `label`, the
+  short handle the person picks the option by, shown in full and
+  wrapped, an optional `description` of any length shown in full and
+  wrapped, an
   optional `default: true`, and optional `context`, shown in place of
   the question's context while the cursor is on the option (section
   8.1).
@@ -278,9 +280,12 @@ in both, a session holds at least one question, `context` holds at most
 one entry (an empty list and `null` are valid), a `code` or `markdown`
 entry or a side of a `diff` takes exactly one of `path` and `content`
 (an empty `content` counts as given, a `null` as missing), and a `diff`
-takes `old`, `new` or both. The descriptions of `intro`, question `text`
-and option `description` say that they are Markdown, that a single
-newline breaks the line and that raw HTML shows as written. The other
+takes `old`, `new` or both. The descriptions of `intro`, question `text`,
+option `label` and option `description` say that they are Markdown, that
+a single newline breaks the line and that raw HTML shows as written. The
+description of `label` also calls it the short handle the person picks
+the option by and sends longer text to `description` or `context`. The
+other
 rules are validation's alone.
 
 ### 3.6 Earlier format versions
@@ -814,9 +819,19 @@ has context (section 7.4, ADRs 30 and 31):
   answer (ADR 8).
 - Options show `( )`/`(•)` in a `single` and `[ ]`/`[x]` in a `multi`,
   a chosen mark bold in the primary colour and the option's number dim.
+  The label follows the number in bold and wraps under its own start; it
+  is never cut across the width, and a word wider than its room
+  continues behind a dim `↪` (section 7.10). In a pane so narrow that
+  the number leaves the label less than 20 columns, the whole label goes
+  on the lines below the option's row, from column 6, or from column 0
+  in a pane narrower than 8 columns. Under the cursor, the focus fill
+  covers the pointer, the mark, the number and every line of the label.
   Option descriptions start after the widest label and wrap under
-  themselves; where that leaves less than 30 columns, they go below the
-  label.
+  themselves; where that leaves less than 30 columns, or a label takes
+  more than one line, every description of the question goes below its
+  label, from column 6. An option whose label and description take more
+  lines than the question's area shows from its start, like any row
+  taller than the area (section 7.4).
 - The own-answer row is the last row of a question with `custom`; its
   mark shows whether the typed text counts, and when it counts it is
   bold in the primary colour like a chosen option's mark (ADR 37). A
@@ -1254,8 +1269,9 @@ keeps the session and shows its own notice instead.
 
 ### 7.10 Markdown
 
-The intro, question texts and option descriptions (section 3.1) and
-Markdown entries (section 8.7) render the same way (ADRs 34 and 35):
+The intro, question texts, option labels and option descriptions
+(section 3.1) and Markdown entries (section 8.7) render the same way
+(ADRs 34, 35 and 55):
 headings bold
 (level one also italic and underlined, level two underlined), emphasis,
 inline code in yellow, lists with bullets, task lists with `☐` for an
@@ -1269,9 +1285,10 @@ fence names a language.
 
 - Each text renders at the width it gets: a question text at the
   question's width, which stops at the reading width; the intro at the
-  header's width; an option description in the columns from where it
-  starts to the end of the line, beside its label or below it (section
-  7.2); a Markdown entry at the pane's width.
+  header's width; an option label in the columns after its number, or
+  below it in a very narrow pane (section 7.2); an option description in
+  the columns from where it starts to the end of the line, beside its
+  label or below it (section 7.2); a Markdown entry at the pane's width.
 - A table fits the width it gets: a word wider than its column, such as
   a long URL, breaks between characters and continues on the next line
   of its cell in its own style, so a link's URL stays dim, and words

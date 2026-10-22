@@ -22,6 +22,7 @@ use ratatui::widgets::{Clear, Paragraph, Widget};
 use super::context::{DrawnPane, Ledge, context_hint, draw_pane, pane_body};
 use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
+use super::patine_adapter::WIDEST_GRAPHEME;
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::theme;
@@ -36,8 +37,14 @@ use crate::tui::{Focus, Row, SessionState, has_context};
 /// least this much room; otherwise they move to their own lines.
 const MIN_DESCRIPTION_WIDTH: usize = 30;
 
-/// Where descriptions start that go on the lines below their label.
+/// Where descriptions start that go on the lines below their label, and
+/// labels that go on the lines below their number.
 const DESCRIPTION_INDENT: usize = 6;
+
+/// Labels start on their option's row after the number only while that
+/// leaves them at least this many columns; otherwise the whole label goes
+/// on the lines below the option's row.
+const MIN_LABEL_WIDTH: usize = 20;
 
 /// Lines of a tab and where the row under the cursor sits among them.
 struct Content {
@@ -466,15 +473,24 @@ fn question_content(
     content.lines.push(Line::default());
 
     let answer = &state.answers()[index];
-    // Descriptions line up in one column after the widest label.
-    let label_column = question
+    let labels: Vec<LabelRows> = question
         .options
         .iter()
         .flatten()
         .enumerate()
-        .map(|(index, option)| option_head_width(index, &option.label))
-        .max()
-        .unwrap_or(0);
+        .map(|(index, option)| label_rows(&option.label, option_prefix_width(index), width, quote))
+        .collect();
+    // Descriptions line up in one column after the widest label while
+    // every label takes a single line beside its number and the column
+    // leaves the descriptions enough room; otherwise each goes below its
+    // label.
+    let description_column = labels
+        .iter()
+        .map(LabelRows::beside_width)
+        .collect::<Option<Vec<_>>>()
+        .and_then(|widths| widths.into_iter().max())
+        .map(|widest| widest + 2)
+        .filter(|column| width.saturating_sub(*column) >= MIN_DESCRIPTION_WIDTH);
     for (row_index, row) in state.rows_of(index).iter().enumerate() {
         let current = live && row_index == state.row();
         // One focus fill shows at a time: while the context pane has the
@@ -493,11 +509,11 @@ fn question_content(
                     pointer(current),
                     mark(question.kind, chosen),
                     Span::styled(format!(" {}. ", option_index + 1), theme::secondary()),
-                    Span::styled(option.label.clone(), theme::strong()),
                 ];
                 let lines = option_lines(
                     head,
-                    label_column,
+                    &labels[option_index],
+                    description_column,
                     option.description.as_deref(),
                     width,
                     filled,
@@ -580,60 +596,135 @@ fn question_content(
     content
 }
 
-/// The width of an option's pointer, mark, number and label.
-fn option_head_width(index: usize, label: &str) -> usize {
-    columns(POINTER) + columns(&format!("( ) {}. ", index + 1)) + columns(label)
+/// The width of an option's pointer, mark and number.
+fn option_prefix_width(index: usize) -> usize {
+    columns(POINTER) + columns(&format!("( ) {}. ", index + 1))
 }
 
-/// An option: pointer, mark, number and label, under the focus fill where
-/// `filled`, then the description from `label_column` on, rendered for the
-/// columns from there to the end and so wrapped under its own start. When
-/// that leaves too little room, the descriptions go on the lines below
-/// instead, from `DESCRIPTION_INDENT` on. The description's quotes show in
-/// `quote`.
+/// An option's label rendered for its option, in bold over its Markdown
+/// styles.
+struct LabelRows {
+    /// The label's lines, without blanks at their ends. An empty or blank
+    /// label has none.
+    rows: Vec<Line<'static>>,
+    /// Whether the first line follows the number on the option's row.
+    beside: bool,
+    /// The column the label's lines start in, the first one's too when it
+    /// is beside the number.
+    indent: usize,
+}
+
+impl LabelRows {
+    /// The columns from the start of the option's row to the end of its
+    /// label, when the label takes at most the one line beside its number;
+    /// a label without lines ends where the number does.
+    fn beside_width(&self) -> Option<usize> {
+        match self.rows.as_slice() {
+            _ if !self.beside => None,
+            [] => Some(self.indent),
+            [row] => Some(self.indent + line_columns(row)),
+            _ => None,
+        }
+    }
+}
+
+/// `label` rendered as the label of an option whose pointer, mark and
+/// number take `prefix` of `width` columns, with Markdown quotes in
+/// `quote`. It follows the number and wraps under its own start while that
+/// leaves it `MIN_LABEL_WIDTH` columns; otherwise the whole label goes on
+/// the lines below, from `DESCRIPTION_INDENT`, or from the left edge
+/// where not even a wide character would fit after that indent.
+fn label_rows(label: &str, prefix: usize, width: usize, quote: QuoteStyle) -> LabelRows {
+    let (beside, indent) = if width.saturating_sub(prefix) >= MIN_LABEL_WIDTH {
+        (true, prefix)
+    } else if width >= DESCRIPTION_INDENT + WIDEST_GRAPHEME {
+        (false, DESCRIPTION_INDENT)
+    } else {
+        (false, 0)
+    };
+    let rows = field_lines(label, width - indent, quote)
+        .into_iter()
+        .map(|row| {
+            let spans = trim_end(row.spans)
+                .into_iter()
+                .map(|span| span.patch_style(theme::strong()))
+                .collect::<Vec<_>>();
+            Line::from(spans)
+        })
+        .collect();
+    LabelRows {
+        rows,
+        beside,
+        indent,
+    }
+}
+
+/// `spans` without the blanks at their end, which some Markdown lines,
+/// such as a table's or a code block's, are padded with.
+fn trim_end(mut spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
+    while let Some(last) = spans.pop() {
+        let kept = last.content.trim_end();
+        if !kept.is_empty() {
+            let kept = kept.to_owned();
+            spans.push(Span::styled(kept, last.style));
+            break;
+        }
+    }
+    spans
+}
+
+/// The columns `line` takes.
+fn line_columns(line: &Line) -> usize {
+    line.spans.iter().map(|span| columns(&span.content)).sum()
+}
+
+/// An option: `head`, its pointer, mark and number, then `label`, all of
+/// it under the focus fill where `filled`, then the description. With a
+/// `description_column`, the description starts there on the option's row,
+/// rendered for the columns from there to the end and so wrapped under its
+/// own start; without one, it goes on the lines below the label's, from
+/// `DESCRIPTION_INDENT` on. The description's quotes show in `quote`.
 fn option_lines(
     head: Vec<Span<'static>>,
-    label_column: usize,
+    label: &LabelRows,
+    description_column: Option<usize>,
     description: Option<&str>,
     width: usize,
     filled: bool,
     quote: QuoteStyle,
 ) -> Vec<Line<'static>> {
-    let head_width: usize = head.iter().map(|span| columns(&span.content)).sum();
-    let head = if filled {
-        head.into_iter().map(theme::focus_span).collect()
-    } else {
-        head
+    let fill = |spans: Vec<Span<'static>>| -> Vec<Span<'static>> {
+        if filled {
+            spans.into_iter().map(theme::focus_span).collect()
+        } else {
+            spans
+        }
     };
-    let beside = width.saturating_sub(label_column + 2) >= MIN_DESCRIPTION_WIDTH;
-    let indent = if beside {
-        label_column + 2
-    } else {
-        DESCRIPTION_INDENT
-    };
-    let mut rows = description
+    let mut label_lines = label.rows.iter().map(|row| fill(row.spans.clone()));
+    let mut first = fill(head);
+    if label.beside {
+        first.extend(label_lines.next().unwrap_or_default());
+    }
+
+    let indent = description_column.unwrap_or(DESCRIPTION_INDENT);
+    // An empty or blank description renders to no lines at all.
+    let mut descriptions = description
         .map(|description| field_lines(description, width.saturating_sub(indent), quote))
         .unwrap_or_default()
         .into_iter();
-    let mut lines = Vec::new();
-    match rows.next() {
-        // An empty or blank description renders to no lines at all, and
-        // the head stands alone.
-        None => lines.push(Line::from(head)),
-        // The first row starts after the label, padded to the description
-        // column.
-        Some(first) if beside => {
-            let mut spans = head;
-            spans.push(Span::from(" ".repeat(indent - head_width)));
-            spans.extend(first.spans);
-            lines.push(Line::from(spans));
-        }
-        Some(first) => {
-            lines.push(Line::from(head));
-            lines.push(indented(first, indent));
-        }
+    // A description beside its label starts on the option's row, padded
+    // to the description column.
+    if let Some(column) = description_column
+        && let Some(row) = descriptions.next()
+    {
+        let used: usize = first.iter().map(|span| columns(&span.content)).sum();
+        first.push(Span::from(" ".repeat(column - used)));
+        first.extend(row.spans);
     }
-    lines.extend(rows.map(|row| indented(row, indent)));
+
+    let mut lines = vec![Line::from(first)];
+    lines.extend(label_lines.map(|spans| indented(Line::from(spans), label.indent)));
+    lines.extend(descriptions.map(|row| indented(row, indent)));
     lines
 }
 
@@ -1425,6 +1516,212 @@ mod tests {
                 option: Some(1)
             }],
             "b loads ahead"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Option labels
+    // -----------------------------------------------------------------
+
+    /// A single question without a note whose options carry `options`,
+    /// a JSON list.
+    fn labelled(options: &str) -> SessionState {
+        let json = format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "single",
+                "note": false, "options": {options}}}]}}"#
+        );
+        SessionState::new("labels", serde_json::from_str(&json).expect("parses"), None)
+    }
+
+    /// The lines of the question of `state` from its first option's row
+    /// on, `width` columns wide, counted without a cursor.
+    fn option_rows(state: &SessionState, width: usize) -> Vec<Line<'static>> {
+        let lines = question_content(state, 0, width, Pass::Counted, quote_style(false)).lines;
+        let first = lines
+            .iter()
+            .position(|line| {
+                test_support::line_texts(std::slice::from_ref(line))[0].starts_with("  ( ) 1.")
+            })
+            .expect("the first option shows");
+        lines[first..].to_vec()
+    }
+
+    #[test]
+    fn a_label_without_room_beside_its_number_goes_below_it() {
+        // The number takes 9 columns, which leaves 16 of 25.
+        let state = labelled(r#"[{"id": "a", "label": "Rewrite the parser from scratch"}]"#);
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 25)),
+            [
+                "  ( ) 1. ",
+                "      Rewrite the parser",
+                "      from scratch"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_label_in_a_pane_narrower_than_its_indent_starts_at_the_left_edge() {
+        let state = labelled(r#"[{"id": "a", "label": "Rewrite the parser"}]"#);
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 7)),
+            ["  ( ) 1. ", "Rewrite", "the", "parser"]
+        );
+    }
+
+    #[test]
+    fn a_label_is_never_cut_at_any_width() {
+        let token = "x".repeat(60);
+        let label = format!("Keep `retry` and {token} 日本語の説明 🎉");
+        let state = labelled(&serde_json::json!([{"id": "a", "label": label}]).to_string());
+        let expected = format!("Keepretryand{token}日本語の説明🎉");
+
+        for width in 2..=60 {
+            let rows = option_rows(&state, width);
+            let mut shown = String::new();
+            for (index, row) in rows.iter().enumerate() {
+                // The option's row starts with the pointer, the mark and
+                // the number; a label beside them fits the width as well.
+                let label_spans = if index == 0 {
+                    &row.spans[3..]
+                } else {
+                    &row.spans[..]
+                };
+                if label_spans
+                    .iter()
+                    .any(|span| !span.content.trim().is_empty())
+                {
+                    let row_width: usize =
+                        row.spans.iter().map(|span| columns(&span.content)).sum();
+                    assert!(row_width <= width, "row {index} at {width}: {row:?}");
+                }
+                for span in label_spans {
+                    // A word wider than the room goes on behind a dim marker.
+                    let text = match span.content.strip_prefix("↪ ") {
+                        Some(rest) if span.style.add_modifier.contains(Modifier::DIM) => rest,
+                        _ => &span.content,
+                    };
+                    shown.extend(text.chars().filter(|c| !c.is_whitespace()));
+                }
+            }
+            assert_eq!(shown, expected, "at {width}");
+        }
+    }
+
+    #[test]
+    fn a_filled_option_fills_every_line_of_its_label() {
+        let state =
+            labelled(r#"[{"id": "a", "label": "A label long enough to wrap onto a second line"}]"#);
+        let (_, buf) = tab_of(&state);
+
+        let (_, y) = test_support::find(&buf, "❯ ( ) 1. A label");
+        assert!(
+            y + 1 < buf.area.height,
+            "the label takes a second line: {:?}",
+            test_support::rows(&buf)
+        );
+        let second = test_support::row(&buf, y + 1);
+        assert!(second.contains("line"), "{:?}", test_support::rows(&buf));
+        for x in 0..40 {
+            let cell = &buf[(x, y + 1)];
+            if cell.symbol() != " " {
+                assert_eq!(
+                    (cell.fg, cell.modifier & !Modifier::BOLD),
+                    FILLED,
+                    "column {x} of {second:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn descriptions_stand_beside_short_labels_and_below_long_ones() {
+        let short = labelled(
+            r#"[{"id": "a", "label": "Alpha", "description": "First."},
+                {"id": "b", "label": "", "description": "Second."},
+                {"id": "c", "label": "Gamma", "description": "Third."}]"#,
+        );
+        assert_eq!(
+            test_support::line_texts(&option_rows(&short, 80)),
+            [
+                "  ( ) 1. Alpha  First.",
+                "  ( ) 2.        Second.",
+                "  ( ) 3. Gamma  Third."
+            ]
+        );
+
+        // 9 columns of number and 45 of label leave 24 beside it.
+        let long = labelled(
+            r#"[{"id": "a", "label": "Alpha", "description": "First."},
+                {"id": "b", "label": "A label of forty-five columns, too wide here", "description": "Second."}]"#,
+        );
+        assert_eq!(
+            test_support::line_texts(&option_rows(&long, 80)),
+            [
+                "  ( ) 1. Alpha",
+                "      First.",
+                "  ( ) 2. A label of forty-five columns, too wide here",
+                "      Second."
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_label_keeps_its_head_and_description_where_they_are() {
+        let state = labelled(r#"[{"id": "a", "label": "", "description": "Described."}]"#);
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 60)),
+            ["  ( ) 1.   Described."]
+        );
+    }
+
+    #[test]
+    fn a_blank_label_takes_no_columns() {
+        let state = labelled(r#"[{"id": "a", "label": "   ", "description": "Described."}]"#);
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 60)),
+            ["  ( ) 1.   Described."]
+        );
+    }
+
+    #[test]
+    fn a_label_line_loses_the_blanks_at_its_end_whatever_their_style() {
+        let spans = vec![Span::from("ab "), Span::from("  ").bold()];
+
+        assert_eq!(trim_end(spans), [Span::from("ab")]);
+        assert_eq!(trim_end(vec![Span::from("   ")]), []);
+    }
+
+    #[test]
+    fn a_wrapped_label_counts_the_lines_it_draws() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "context": [{"type": "code", "content": "x"}],
+            "options": [{"id": "a", "label": "A label long enough to wrap onto a second line and a third one too"},
+                        {"id": "b", "label": "B"}]}]}"#;
+        let mut state =
+            SessionState::new("count", serde_json::from_str(json).expect("parses"), None);
+        let count = |state: &SessionState, pass| {
+            question_content(state, 0, 40, pass, quote_style(false))
+                .lines
+                .len()
+        };
+
+        assert_eq!(
+            count(&state, Pass::Live),
+            count(&state, Pass::Counted),
+            "on the label"
+        );
+        state.handle(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(
+            count(&state, Pass::Live),
+            count(&state, Pass::Counted),
+            "off it"
         );
     }
 

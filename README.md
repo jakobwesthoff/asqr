@@ -24,8 +24,9 @@ like "talkie"), asqr's mascot.
 - Single and multiple choice, typed answers, your own answer instead of
   the given options, a note on every question and one on the whole
   session.
-- Descriptions, defaults and length hints. The intro, question texts
-  and descriptions are Markdown, rendered with highlighted code blocks.
+- Descriptions, defaults and length hints. The intro, question texts,
+  option labels and descriptions are Markdown, rendered with highlighted
+  code blocks.
 - Context next to a question, or one per option to flip through
   variants: an image, highlighted code, rendered Markdown or a diff that
   asqr computes from the old and the new text. It shows in a pane of its

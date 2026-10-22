@@ -197,6 +197,7 @@ mod tests {
             &schema["properties"]["intro"]["description"],
             &schema["$defs"]["Question"]["properties"]["text"]["description"],
             &schema["$defs"]["Choice"]["properties"]["description"]["description"],
+            &schema["$defs"]["Choice"]["properties"]["label"]["description"],
         ] {
             // The doc comment's line breaks carry over into the schema.
             let description = description
@@ -208,6 +209,21 @@ mod tests {
             assert!(description.contains("Markdown"), "{description}");
             assert!(description.contains("single newline"), "{description}");
             assert!(description.contains("HTML"), "{description}");
+        }
+    }
+
+    #[test]
+    fn the_label_says_it_is_a_short_handle() {
+        let schema = session_schema();
+        let description = schema["$defs"]["Choice"]["properties"]["label"]["description"]
+            .as_str()
+            .expect("the label has a description")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        for wanted in ["short handle", "`description`", "`context`"] {
+            assert!(description.contains(wanted), "{wanted}: {description}");
         }
     }
 }

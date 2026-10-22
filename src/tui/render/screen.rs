@@ -1195,6 +1195,131 @@ mod tests {
         insta::assert_snapshot!("newlines_and_html_80x24", screen(&app, 80, 24));
     }
 
+    // -----------------------------------------------------------------
+    // Option labels
+    // -----------------------------------------------------------------
+
+    /// A label as long as a review remark, which the fields' Markdown
+    /// wraps at every width asqr supports.
+    const LONG_LABEL: &str = "The retry loop in fetch never gives up after a timeout, \
+        so a server that stops answering keeps the whole queue waiting until someone \
+        kills the process by hand, and the log only says that a request was sent again.";
+
+    /// A single question without a note: "Short" and then `label`, both
+    /// with a description.
+    fn long_label_app(label: &str) -> App {
+        let json = serde_json::json!({
+            "asqr": 2,
+            "questions": [{"id": "q", "text": "Which remark do you agree with?", "kind": "single",
+                "note": false, "options": [
+                    {"id": "a", "label": "Short", "description": "A short one."},
+                    {"id": "b", "label": label, "description": "The long one."}
+                ]}]
+        });
+        app(&[("labels", &json.to_string())])
+    }
+
+    /// The text of `backend` with every run of blanks and line ends made
+    /// one blank, so wrapped text reads as one line.
+    fn flowing(backend: &TestBackend) -> String {
+        test_support::rows(backend.buffer())
+            .join(" ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn a_long_label_wraps_under_its_start_and_shows_in_full() {
+        let mut app = long_label_app(LONG_LABEL);
+        special(&mut app, KeyCode::Down);
+
+        for (width, height) in [(80, 24), (60, 15)] {
+            let backend = screen(&app, width, height);
+            assert!(
+                flowing(&backend).contains(&format!("2. {LONG_LABEL} The long one.")),
+                "{width}x{height}:\n{backend}"
+            );
+            let (_, label) = find(backend.buffer(), "( ) 2.");
+            let next = row(backend.buffer(), label + 1);
+            assert_eq!(
+                next.len() - next.trim_start().len(),
+                10,
+                "the label's next line starts under its start, {width}x{height}:\n{backend}"
+            );
+            let (x, described) = find(backend.buffer(), "The long one.");
+            assert_eq!(x, 7, "{width}x{height}:\n{backend}");
+            assert!(
+                row(backend.buffer(), described - 1).ends_with("again."),
+                "the description follows the label's last line, {width}x{height}:\n{backend}"
+            );
+            insta::assert_snapshot!(format!("long_label_{width}x{height}"), backend);
+        }
+    }
+
+    #[test]
+    fn a_label_renders_its_markdown() {
+        let mut app = long_label_app("Keep `retry` as *is*");
+        let backend = screen(&app, 80, 24);
+        let buffer = backend.buffer();
+
+        let text = backend.to_string();
+        assert!(!text.contains('`') && !text.contains('*'), "{backend}");
+        let retry = &buffer[find(buffer, "retry")];
+        assert_eq!(retry.fg, Color::Indexed(3), "inline code in yellow");
+        assert!(retry.modifier.contains(Modifier::BOLD), "{backend}");
+        let (x, y) = find(buffer, "as is");
+        assert_eq!(
+            buffer[(x + 3, y)].modifier,
+            Modifier::ITALIC | Modifier::BOLD,
+            "emphasis inside the bold label"
+        );
+        insta::assert_snapshot!("markdown_label_80x24", backend);
+
+        special(&mut app, KeyCode::Down);
+        let backend = screen(&app, 80, 24);
+        assert_eq!(
+            look_at(backend.buffer(), "retry"),
+            (Color::Yellow, Modifier::REVERSED | Modifier::BOLD),
+            "under the fill the code is one colour with the row"
+        );
+    }
+
+    #[test]
+    fn a_label_of_two_lines_moves_the_descriptions_below() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Which one?", "kind": "single",
+            "note": false, "options": [
+                {"id": "a", "label": "Short\nsecond line"},
+                {"id": "b", "label": "Beta", "description": "Described here."}]}]}"#;
+        let backend = screen(&app(&[("lines", json)]), 80, 24);
+
+        let (_, beta) = find(backend.buffer(), "( ) 2. Beta");
+        assert_eq!(
+            find(backend.buffer(), "Described here."),
+            (7, beta + 1),
+            "{backend}"
+        );
+    }
+
+    #[test]
+    fn a_label_taller_than_the_question_shows_from_its_start() {
+        let label = [LONG_LABEL; 3].join(" ");
+        let json = serde_json::json!({
+            "asqr": 2,
+            "questions": [{"id": "q", "text": "Which one?", "kind": "single", "note": false,
+                "options": [{"id": "a", "label": label}]}]
+        });
+        let backend = screen(&app(&[("tall", &json.to_string())]), 60, 15);
+
+        let (_, start) = find(backend.buffer(), "❯ ( ) 1. The retry loop");
+        assert!(
+            row(backend.buffer(), 12).ends_with("↓ more"),
+            "the rest of the label lies below the area:\n{backend}"
+        );
+        assert!(start < 12, "{backend}");
+        insta::assert_snapshot!("tall_label_60x15", backend);
+    }
+
     #[test]
     fn a_question_with_an_image_placeholder_at_60_columns() {
         insta::assert_snapshot!(screen(&app(&[("batch", EXAMPLE)]), 60, 24));
@@ -4293,23 +4418,31 @@ mod tests {
     }
 
     /// A quote in each place that renders Markdown: the intro, the question
-    /// text, an option's description and a Markdown entry in the pane.
+    /// text, an option's label and description and a Markdown entry in the
+    /// pane.
     const QUOTED: &str = r#"{"asqr": 2, "title": "Quotes", "intro": "> intro q",
         "questions": [{"id": "q", "text": "> text q", "kind": "single",
             "options": [{"id": "a", "label": "Alpha", "description": "> described"},
-                        {"id": "b", "label": "Beta"}],
+                        {"id": "b", "label": "> quoted label"}],
             "context": [{"type": "markdown", "content": "> context q"}]}]}"#;
 
     /// Checks the quote bar where `quoted` starts in `buf`, from row `from`
     /// on: blue, or dim without colours, and the text after it upright and
-    /// not dim either way. Returns the row it is on.
-    fn assert_quote_bar(buf: &Buffer, from: u16, quoted: &str, no_color: bool) -> u16 {
+    /// not dim either way. Both carry `around` too, the modifiers of the
+    /// text the quote stands in. Returns the row it is on.
+    fn assert_quote_bar(
+        buf: &Buffer,
+        from: u16,
+        quoted: &str,
+        no_color: bool,
+        around: Modifier,
+    ) -> u16 {
         let (x, y) = find_from(buf, from, quoted);
         let bar = &buf[(x, y)];
         let expected = if no_color {
-            (Color::Reset, Modifier::DIM)
+            (Color::Reset, Modifier::DIM | around)
         } else {
-            (Color::Indexed(4), Modifier::empty())
+            (Color::Indexed(4), around)
         };
         assert_eq!(
             (bar.fg, bar.modifier),
@@ -4318,7 +4451,7 @@ mod tests {
         );
         assert_eq!(
             buf[(x + 2, y)].modifier,
-            Modifier::empty(),
+            around,
             "{quoted} (no_color {no_color})"
         );
         y
@@ -4330,8 +4463,10 @@ mod tests {
         let (coloured, colourless) = with_and_without_colours(&app, 120, 40);
         for (buf, no_color) in [(&coloured, false), (&colourless, true)] {
             for quoted in ["│ intro q", "│ text q", "│ described", "│ context q"] {
-                assert_quote_bar(buf, 0, quoted, no_color);
+                assert_quote_bar(buf, 0, quoted, no_color, Modifier::empty());
             }
+            // A label is bold, its quote bar included.
+            assert_quote_bar(buf, 0, "│ quoted label", no_color, Modifier::BOLD);
         }
 
         keys(&mut app, "i");
@@ -4341,7 +4476,7 @@ mod tests {
             // The header keeps its copy of the intro above the frame, so
             // the frame's copy is the first one under its title.
             let title = find(buf, "Intro").1;
-            let framed = assert_quote_bar(buf, title, "│ intro q", no_color);
+            let framed = assert_quote_bar(buf, title, "│ intro q", no_color, Modifier::empty());
             assert!(framed > header, "the frame's intro, not the header's");
         }
     }

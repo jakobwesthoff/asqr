@@ -2,8 +2,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The Markdown of the intro, question texts and option descriptions (spec
-//! section 7.10, ADR 35): rendered by patine for the width the text gets,
+//! The Markdown of the intro, question texts, option labels and option
+//! descriptions (spec section 7.10, ADRs 35 and 55): rendered by patine
+//! for the width the text gets,
 //! with every newline a line break and raw HTML as written, laid out by
 //! the adapter's one rule for Markdown, so a line patine leaves wider
 //! wraps behind a dim `↪`.

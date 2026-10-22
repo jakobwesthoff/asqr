@@ -278,6 +278,10 @@ pub enum Kind {
 pub struct Choice {
     pub id: String,
 
+    /// The short handle the person picks the option by, shown in full and
+    /// wrapped. Markdown: a single newline breaks the line, and raw HTML
+    /// shows as written. Longer text goes into `description`, or into
+    /// `context`.
     pub label: String,
 
     /// Shown in full and wrapped, however long it is. Markdown: a single

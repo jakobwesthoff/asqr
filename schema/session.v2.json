@@ -29,6 +29,7 @@
           "type": "string"
         },
         "label": {
+          "description": "The short handle the person picks the option by, shown in full and\nwrapped. Markdown: a single newline breaks the line, and raw HTML\nshows as written. Longer text goes into `description`, or into\n`context`.",
           "type": "string"
         }
       },

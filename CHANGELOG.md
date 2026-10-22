@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rules yellow; before, its whole header row took the fill. The
   full-screen view shows the pane with the ledge it has beside the
   question.
+- Option labels are Markdown like the intro, question texts and
+  descriptions: inline code, emphasis and the rest render in the option
+  row. A label of more than one line moves the question's descriptions
+  below the labels.
 
 ### Fixed
 
@@ -45,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `text` on a line of its own, as it lists the other errors. Before,
   all such entries stood on one line, joined with `; `. The error result
   and the log still join them.
+- An option label too long for its row wraps under its own start
+  instead of ending at the edge of the question, where it was cut off
+  without a mark. An option taller than the question's area shows from
+  its start, as a long description does.
 - A Markdown line that wraps behind a `↪` with one column left after
   it, such as a line nested deep in a Markdown entry, no longer runs a
   wide character past the edge of its space.

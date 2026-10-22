@@ -10,6 +10,8 @@ Amends [9. Crate choices](0009-crate-choices.md)
 
 Amended by [47. Put the session's title in the title bar](0047-put-the-sessions-title-in-the-title-bar.md)
 
+Amended by [55. Wrap option labels and render them as Markdown](0055-wrap-option-labels-and-render-them-as-markdown.md)
+
 ## Context
 
 The session's text fields are the intro, question texts and option

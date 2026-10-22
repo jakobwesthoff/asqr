@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr  tall                             default · 1 waiting "
+"   ☐ q  ✔ Review                                            "
+"──━━━━━─────────────────────────────────────────────────────"
+" ❯ ( ) 1. The retry loop in fetch never gives up aft ↑ more "
+"          timeout, so a server that stops answering keeps   "
+"          the whole queue waiting until someone kills the   "
+"          process by hand, and the log only says that a     "
+"          request was sent again. The retry loop in fetch   "
+"          never gives up after a timeout, so a server that  "
+"          stops answering keeps the whole queue waiting     "
+"          until someone kills the process by hand, and the  "
+"          log only says that a request was sent again. The  "
+"          retry loop in fetch never gives up after a ↓ more "
+"                                                            "
+" ↑/↓  move   enter  pick   ←/→  question   ?  help   q  quit"

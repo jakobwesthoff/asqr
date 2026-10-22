@@ -86,6 +86,10 @@ Once asked, asqr fits best when:
 - `min` and `max` count the picked options; the own answer of a `multi`
   comes on top of them.
 - `default: true` on an option preselects it.
+- An option's `label` is the short handle the person picks the option
+  by, such as `Publish now`. It wraps and is never cut. Keep it to a few
+  words, and put longer text into the option's `description`, or into
+  its `context` when it is material to read.
 - `context` holds material that helps to decide: a list with one entry,
   since asqr shows one per question or option. The person sees it in a
   pane of its own, beside the question on a wide terminal and below it
@@ -165,8 +169,8 @@ Once asked, asqr fits best when:
     shows it, so leave it in place until the person has answered.
   - Questions and options have no `image` field. A file that still uses
     one gets a warning, and the image does not show.
-- `intro`, question `text` and option `description` are Markdown and
-  show rendered: headings, emphasis, inline code, lists, task lists
+- `intro`, question `text`, option `label` and option `description` are
+  Markdown and show rendered: headings, emphasis, inline code, lists, task lists
   (`- [ ]`, `- [x]`), quotes, links, tables, rules and code blocks. Name the language of a code block's
   fence so it is highlighted. A line wider than the space, such as a
   long line of code, wraps behind a `↪` marker. A table fits the space,
