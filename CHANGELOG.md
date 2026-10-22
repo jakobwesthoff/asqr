@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `text` on a line of its own, as it lists the other errors. Before,
   all such entries stood on one line, joined with `; `. The error result
   and the log still join them.
+- A Markdown line that wraps behind a `↪` with one column left after
+  it, such as a line nested deep in a Markdown entry, no longer runs a
+  wide character past the edge of its space.
 
 ## [0.12.2] - 2026-10-19
 

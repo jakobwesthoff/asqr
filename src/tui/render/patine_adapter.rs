@@ -17,6 +17,10 @@ use super::theme;
 /// What starts a row that continues a line too wide for its space.
 const CONTINUATION: &str = "↪ ";
 
+/// The most columns one grapheme takes, as a CJK character or most emoji
+/// do.
+pub(super) const WIDEST_GRAPHEME: usize = 2;
+
 /// How Markdown quotes look wherever asqr renders Markdown: a blue bar,
 /// apart from the cyan that marks what can be acted on, and a dim one
 /// under `NO_COLOR`. The colours come off the finished screen there and
@@ -87,8 +91,10 @@ pub fn source_line(line: &StyledLine) -> SourceLine {
 /// blanks and blockquote bars it starts with and a list item's marker as
 /// blanks (see [`indent`]), so a code block's lines stay inside the block
 /// and an item's text inside the item, then a dim `↪` and the next part.
-/// Where the indent leaves no room, the rows start with the marker alone,
-/// and where not even that fits, the line breaks without one.
+/// Where the indent leaves no room for a wide character after the marker,
+/// the rows start with the marker alone, and where not even that fits,
+/// the line breaks without one. So every row fits `width` from 2 columns
+/// on.
 pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
     let marker = theme::secondary();
     let marker_width = 2;
@@ -100,9 +106,12 @@ pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
             continue;
         }
         let (indent, indent_width) = indent(&line);
-        let (indent, prefix_width) = if indent_width + marker_width < width {
+        // A row behind the prefix holds at least one grapheme, so a
+        // prefix leaving less than a wide character's columns would push
+        // that character past the edge.
+        let (indent, prefix_width) = if indent_width + marker_width + WIDEST_GRAPHEME <= width {
             (indent, indent_width + marker_width)
-        } else if marker_width < width {
+        } else if marker_width + WIDEST_GRAPHEME <= width {
             (Vec::new(), marker_width)
         } else {
             rows.extend(line.wrap(width, width));
@@ -479,6 +488,33 @@ mod tests {
             rows[1].pieces().next(),
             Some(("│ ", Style::new().fg(Color::Indexed(4))))
         );
+    }
+
+    /// Asserts that the rows of one patine line of plain `spans` stay
+    /// within each of `widths`.
+    fn assert_within(spans: &[&str], widths: std::ops::RangeInclusive<usize>) {
+        let spans: Vec<_> = spans
+            .iter()
+            .map(|text| (*text, TextStyle::default()))
+            .collect();
+        for width in widths {
+            let rows = markdown_rows(&[line(&spans)], width);
+            assert!(
+                rows.iter().all(|row| row.width() <= width),
+                "at {width}: {:?}",
+                texts(&rows)
+            );
+        }
+    }
+
+    #[test]
+    fn a_wide_character_after_the_marker_stays_within_the_width() {
+        assert_within(&["日本語の説明"], 2..=8);
+    }
+
+    #[test]
+    fn a_wide_character_after_the_indent_and_the_marker_stays_within_the_width() {
+        assert_within(&["  • ", "日本語の説明"], 2..=10);
     }
 
     #[test]

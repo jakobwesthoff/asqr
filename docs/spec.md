@@ -1283,7 +1283,10 @@ fence names a language.
   such as `ﾞ`, which counts as no column, wraps: each further row
   repeats the blanks and quote bars the line starts with, then blanks in
   place of a list item's `•`, `☐` or `☑`, or its number with the box
-  after it, then a dim `↪`, then the rest. A number counts as an item's
+  after it, then a dim `↪`, then the rest. Where that leaves no room for
+  a wide character after the `↪`, the further rows start with the `↪`
+  alone, and where not even that fits, the line breaks without one. A
+  number counts as an item's
   only at the start of the line, after quote bars, so a line of code
   such as `1. x` in a code block stays code. A wide character that would
   cross the end of a row starts the next one. Nothing is cut, and
