@@ -254,6 +254,33 @@ fn refuses_a_session_of_format_version_1_and_points_to_the_skill() {
 }
 
 #[test]
+fn refuses_an_unknown_entry_type_as_one_a_newer_asqr_may_support() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "ansi.json",
+        r#"{"asqr": 2, "id": "ansi", "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "ansi", "content": "x"}]}]}"#,
+    );
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(11));
+    assert_eq!(
+        stderr(&output),
+        format!(
+            r#"error: questions[0].context[0].type: "ansi" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it
+"#,
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+    assert!(!sandbox.queue_dir().join("inbox").join("ansi.json").exists());
+}
+
+#[test]
 fn refuses_an_invalid_session() {
     let sandbox = Sandbox::new();
     let file = sandbox.file("bad.json", r#"{"asqr": 3, "id": "bad", "questions": []}"#);

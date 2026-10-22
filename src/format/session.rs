@@ -15,8 +15,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use super::{
-    ContextEntry, FORMAT_VERSION, FieldPath, MAX_CONTEXT_ENTRIES, Problem, ValidationError,
-    version_problem,
+    CONTEXT_ENTRY_TYPES, ContextEntry, FORMAT_VERSION, FieldPath, MAX_CONTEXT_ENTRIES, Problem,
+    ValidationError, version_problem,
 };
 
 /// Why a file could not be read as a session.
@@ -24,7 +24,8 @@ use super::{
 pub enum ParseError {
     /// The file names a format version other than this asqr's, or has
     /// entries whose `type` the parser would only report as unknown. Each
-    /// error says what to write instead.
+    /// error says what to write instead, or that a newer asqr may know the
+    /// type.
     #[error("{}", .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
     Refused(Vec<ValidationError>),
 
@@ -82,9 +83,11 @@ impl std::fmt::Display for ShapeError {
 /// format version has the rules of that version, so its shape errors would
 /// only mislead. An entry of `type: "text"`, a natural guess for an agent
 /// that wants to show text, would only be an unknown variant, while the
-/// error here says which of the two text types to pick. A version that is
-/// no unsigned integer, such as `2.0` or `"2"`, would only be a type error
-/// of the parser.
+/// error here says which of the two text types to pick. An entry of any
+/// other type this asqr does not know would be an unknown variant too,
+/// while the error here says that a newer asqr may support it. A version
+/// that is no unsigned integer, such as `2.0` or `"2"`, would only be a
+/// type error of the parser.
 pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
     let raw: Value = serde_json::from_slice(bytes).map_err(ParseError::NotASession)?;
     // serde reads a struct from an array of its fields as well, so a
@@ -110,9 +113,9 @@ pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
             problem,
         }]));
     }
-    let text_entries = text_entries(&raw);
-    if !text_entries.is_empty() {
-        return Err(ParseError::Refused(text_entries));
+    let refused_entries = refused_entries(&raw);
+    if !refused_entries.is_empty() {
+        return Err(ParseError::Refused(refused_entries));
     }
     let session = serde_path_to_error::deserialize(raw.clone()).map_err(|error| {
         ParseError::Shape(ShapeError {
@@ -123,19 +126,28 @@ pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
     Ok((raw, session))
 }
 
-/// An error for every context entry of `type: "text"`, on questions and
-/// options alike.
-fn text_entries(raw: &Value) -> Vec<ValidationError> {
+/// An error for every context entry whose `type` is `"text"` or another
+/// string this asqr does not know, on questions and options alike:
+/// question by question, the question's context before its options'.
+///
+/// A missing `type`, one that is no string, and a `context` that is no
+/// list are left to the parser, as none of them names a type.
+fn refused_entries(raw: &Value) -> Vec<ValidationError> {
     let mut found = Vec::new();
     let mut check = |holder: &Value, path: FieldPath| {
         let entries = holder["context"].as_array().into_iter().flatten();
         for (index, entry) in entries.enumerate() {
-            if entry["type"] == "text" {
-                found.push(ValidationError {
-                    path: path.field("context").index(index).field("type"),
-                    problem: Problem::TextEntryType,
-                });
-            }
+            let problem = match entry["type"].as_str() {
+                Some("text") => Problem::TextEntryType,
+                Some(name) if !CONTEXT_ENTRY_TYPES.contains(&name) => {
+                    Problem::UnknownEntryType(name.to_owned())
+                }
+                _ => continue,
+            };
+            found.push(ValidationError {
+                path: path.field("context").index(index).field("type"),
+                problem,
+            });
         }
     };
     let questions = raw["questions"].as_array().into_iter().flatten();
@@ -523,6 +535,84 @@ mod tests {
                 "questions[0].context[0].type: {replaced}; questions[0].options[1].context[0].type: {replaced}"
             )
         );
+    }
+
+    /// The error for an entry of type `ansi`, which this asqr does not
+    /// know, as a person reads it after the entry's path.
+    fn ansi_unknown() -> String {
+        format!(
+            r#""ansi" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it"#,
+            env!("CARGO_PKG_VERSION")
+        )
+    }
+
+    #[test]
+    fn an_unknown_entry_type_is_refused_as_one_a_newer_asqr_may_support() {
+        let error = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+                "context": [{"type": "ansi", "content": "x"}]}]}"#,
+        )
+        .expect_err("the unknown type is refused");
+
+        assert_eq!(
+            error.to_string(),
+            format!("questions[0].context[0].type: {}", ansi_unknown())
+        );
+    }
+
+    #[test]
+    fn an_unknown_entry_type_on_an_option_is_refused_the_same_way() {
+        let error = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                "options": [{"id": "a", "label": "A"},
+                            {"id": "b", "label": "B", "context": [{"type": "ansi", "content": "x"}]}]}]}"#,
+        )
+        .expect_err("the unknown type is refused");
+
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "questions[0].options[1].context[0].type: {}",
+                ansi_unknown()
+            )
+        );
+    }
+
+    #[test]
+    fn text_and_unknown_entries_are_listed_together() {
+        let error = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                "context": [{"type": "text", "content": "notes"}],
+                "options": [{"id": "a", "label": "A", "context": [{"type": "ansi", "content": "x"}]},
+                            {"id": "b", "label": "B", "context": [{"type": "text", "path": "/b.md"}]}]}]}"#,
+        )
+        .expect_err("both kinds of entry are refused");
+
+        let replaced = r#""text" is no entry type; use "code" for text shown as written (source, a log, a Markdown file's source) or "markdown" for Markdown to render, with "path" or "content""#;
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "questions[0].context[0].type: {replaced}; questions[0].options[0].context[0].type: {}; questions[0].options[1].context[0].type: {replaced}",
+                ansi_unknown()
+            )
+        );
+    }
+
+    #[test]
+    fn a_missing_type_or_one_that_is_no_string_is_left_to_the_parser() {
+        // Neither names a type a newer asqr could know.
+        for entry in [r#"{"content": "x"}"#, r#"{"type": 3, "content": "x"}"#] {
+            let file = format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "text", "context": [{entry}]}}]}}"#
+            );
+
+            let error = parse_session(file.as_bytes()).expect_err("the entry is refused");
+
+            assert!(
+                error.to_string().starts_with("not a session file: "),
+                "{entry}: {error}"
+            );
+        }
     }
 
     #[test]

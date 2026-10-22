@@ -169,6 +169,9 @@ such as a file name:
   shows a diff of the diff. asqr shows the change as a unified diff
   (section 8.5).
 
+New entry types are added within format version 2, so an asqr can meet
+an entry whose type a newer asqr knows (section 3.4).
+
 For "exactly one of `path` and `content`", an empty `content` counts as
 given, and a `null` counts as missing.
 
@@ -208,11 +211,14 @@ fields, these are validation errors:
   before and after the change, and that asqr computes the diff itself
   and does not read a unified diff. Such a `path` or `content` gets no
   unknown-field warning on top.
-- an entry whose `type` is not `image`, `code`, `markdown` or `diff`
-  (the file is not shaped like a session). An entry of type `text` gets
-  an error of its own that names `code` and `markdown`. Like the
-  version, it is checked before the rest of the file, and every such
-  entry is listed.
+- an entry whose `type` is a string other than `image`, `code`,
+  `markdown` and `diff`: the error names the type as not supported by
+  this asqr and its version, lists the four types, and says that a
+  newer asqr may support it. An entry of type `text` gets an error of
+  its own that names `code` and `markdown`. Like the version, both are
+  checked before the rest of the file, and every such entry is listed.
+  A missing `type`, or one that is no string, leaves the file not shaped
+  like a session.
 - in the inbox: an `id` that differs from the file stem
 
 A file that is not JSON, or not shaped like a session, gets the message
@@ -583,6 +589,12 @@ is reported with a notice.
 
 A session of an earlier format version is invalid in the same way
 (section 3.6).
+
+So is a session with a context entry of a type this asqr does not know.
+The asqr that shows a queue runs as a long-lived process: when asqr is
+updated while it runs, the new `asqr ask` accepts a session with a type
+the running asqr does not know, and its error result says that a newer
+asqr may support the type.
 
 ### 5.9 Cleaning up
 
@@ -1567,9 +1579,10 @@ The skill teaches:
   exit code is not 12
 - as a variant for agents that run commands in the background: `asqr ask
   --wait` in the background
-- the exit codes, the "no asqr is watching" warning, which the agent
-  should pass on to the person, and `asqr status --json` to find sessions
-  it lost track of
+- the exit codes, the "no asqr is watching" warning and an error naming
+  a context type the skill describes as not supported, both of which the
+  agent should pass on to the person, and `asqr status --json` to find
+  sessions it lost track of
 - longer sessions: batches, follow-up rounds with `follows`, and keeping
   a record of the answers
 

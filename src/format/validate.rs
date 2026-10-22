@@ -13,8 +13,8 @@ use std::fmt;
 use thiserror::Error;
 
 use super::{
-    ContextEntry, DiffSide, Kind, Length, MAX_SESSION_ID_BYTES, Question, Session,
-    is_valid_session_id, same_session_id,
+    CONTEXT_ENTRY_TYPES, ContextEntry, DiffSide, Kind, Length, MAX_SESSION_ID_BYTES, Question,
+    Session, is_valid_session_id, same_session_id,
 };
 
 /// The only format version this asqr reads and writes.
@@ -110,6 +110,16 @@ pub enum Problem {
     )]
     TextEntryType,
 
+    /// A context entry of a type this asqr does not know. New types are
+    /// added within format version 2 (ADR 51), so the type may be one a
+    /// newer asqr shows.
+    #[error(
+        "{0:?} is not supported by this asqr (version {version}), which supports {types}; a newer asqr may support it",
+        version = env!("CARGO_PKG_VERSION"),
+        types = EntryTypeList
+    )]
+    UnknownEntryType(String),
+
     /// A diff without sides, or with `path` or `content` on the entry
     /// itself. Both come from an agent that has not learned that asqr
     /// diffs two texts, often one holding a unified diff, so the message
@@ -118,6 +128,25 @@ pub enum Problem {
         r#"a diff takes `old` and/or `new`, each {{"path": ...}} or {{"content": ...}}: the text before and after the change; asqr computes the diff itself and does not read a unified diff"#
     )]
     DiffSides,
+}
+
+/// The entry types this asqr knows, written as a message lists them:
+/// `"image", "code", "markdown" and "diff"`.
+struct EntryTypeList;
+
+impl fmt::Display for EntryTypeList {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let last = CONTEXT_ENTRY_TYPES.len() - 1;
+        for (index, name) in CONTEXT_ENTRY_TYPES.iter().enumerate() {
+            let separator = match index {
+                0 => "",
+                _ if index == last => " and ",
+                _ => ", ",
+            };
+            write!(formatter, "{separator}{name:?}")?;
+        }
+        Ok(())
+    }
 }
 
 /// The problem with format version `version`, if it is not the one this

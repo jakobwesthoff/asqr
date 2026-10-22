@@ -613,6 +613,32 @@ mod tests {
     }
 
     #[test]
+    fn a_session_with_an_unknown_entry_type_gets_an_error_result_that_says_so() {
+        // An asqr updated while this one runs accepts types this one does
+        // not know, and its asker learns from the result why the session
+        // came back.
+        let (_scratch, location) = queue();
+        put(
+            &location,
+            "newer.json",
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+                "context": [{"type": "ansi", "content": "x"}]}]}"#,
+        );
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        let message = format!(
+            r#"questions[0].context[0].type: "ansi" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it"#,
+            env!("CARGO_PKG_VERSION")
+        );
+        let newer = result(&location, "newer");
+        assert_eq!(newer.status, Status::Error);
+        assert_eq!(newer.error.as_deref(), Some(message.as_str()));
+        assert_eq!(app.invalid_shown().expect("a dialog").errors, [message]);
+    }
+
+    #[test]
     fn a_session_that_becomes_invalid_leaves_the_app() {
         let (_scratch, location) = queue();
         let path = put(&location, "batch.json", SESSION);

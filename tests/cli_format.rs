@@ -196,6 +196,33 @@ fn validate_lists_each_text_entry_with_the_types_that_replace_it() {
 }
 
 #[test]
+fn validate_refuses_an_unknown_entry_type_as_one_a_newer_asqr_may_support() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "ansi.json",
+        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "ansi", "content": "x"}]}]}"#,
+    );
+
+    let output = sandbox
+        .asqr()
+        .arg("validate")
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(11));
+    assert_eq!(
+        stderr(&output),
+        format!(
+            r#"error: questions[0].context[0].type: "ansi" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it
+"#,
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+}
+
+#[test]
 fn validate_warns_without_failing() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(

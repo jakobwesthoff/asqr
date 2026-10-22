@@ -10,6 +10,8 @@ Amended by [29. Let the person add a note to the whole session](0029-let-the-per
 
 Amended by [32. Let an image entry opt out of enlarging](0032-let-an-image-entry-opt-out-of-enlarging.md)
 
+Amended by [51. Add context entry types within format version 2](0051-add-context-entry-types-within-format-version-2.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

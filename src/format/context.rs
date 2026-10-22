@@ -28,6 +28,11 @@ pub enum ContextEntry {
     Diff(DiffEntry),
 }
 
+/// The `type` of each kind of entry as the file writes it, in the order of
+/// `ContextEntry`'s variants. Messages list them; a test checks them
+/// against the variants.
+pub const CONTEXT_ENTRY_TYPES: [&str; 4] = ["image", "code", "markdown", "diff"];
+
 /// An image file. PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF,
 /// ICO, TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and
 /// AVIF are not.
@@ -299,6 +304,23 @@ mod tests {
 
             assert!(parsed.is_err(), "{kind}");
         }
+    }
+
+    #[test]
+    fn the_entry_types_are_those_the_parser_knows() {
+        // serde lists every variant it knows, in their order, for a tag it
+        // does not know.
+        let error = serde_json::from_value::<ContextEntry>(json!({"type": ""}))
+            .expect_err("an empty type is no variant");
+        let listed: Vec<String> = CONTEXT_ENTRY_TYPES
+            .iter()
+            .map(|name| format!("`{name}`"))
+            .collect();
+
+        assert_eq!(
+            error.to_string(),
+            format!("unknown variant ``, expected one of {}", listed.join(", "))
+        );
     }
 
     #[test]

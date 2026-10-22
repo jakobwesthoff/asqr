@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- A context entry of a `type` asqr does not know is refused with an
+  error that names the type as not supported by this asqr and its
+  version, lists the supported types, and says that a newer asqr may
+  support it. New entry types are added within format version 2, so an
+  asqr that runs while a newer one is installed can meet one.
+  `asqr validate` and `asqr ask` print it, and the dialog and the error
+  result of an invalid session in the queue carry it. Before, the
+  message was the parser's `unknown variant`.
+
 ## [0.12.2] - 2026-10-19
 
 ### Changed

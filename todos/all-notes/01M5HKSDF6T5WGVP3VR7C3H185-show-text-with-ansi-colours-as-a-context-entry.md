@@ -2,7 +2,6 @@
 title: "Show text with ANSI colours as a context entry"
 kind: feature
 component: tui
-status: blocked
 origin: discussion
 tags: [ux]
 ---
@@ -29,10 +28,14 @@ sequence, such as cursor movement, is dropped, so an entry cannot change
 the screen outside its text. Lines do not wrap and scroll sideways, as
 in a `code` entry.
 
-The new type belongs to format version 2. An older asqr refuses a
-session with a context entry of a type it does not know
-(`an_unknown_type_is_no_context_entry` in `src/format/context.rs`), so
-its message has to say first that a newer asqr may support the type.
+The new type belongs to format version 2 (ADR 51). An older asqr
+refuses a session with a context entry of a type it does not know, with
+an error that names the type as not supported by its version, lists the
+types it supports and says that a newer asqr may support it
+(`refused_entries` in `src/format/session.rs`). The new type goes into
+`CONTEXT_ENTRY_TYPES` in `src/format/context.rs` too, which that error
+lists; `the_entry_types_are_those_the_parser_knows` checks the list
+against the variants.
 
 ## Open questions
 
@@ -50,7 +53,3 @@ its message has to say first that a newer asqr may support the type.
 - 2026-10-22, user: no gutter with line numbers.
 - 2026-10-22, user: the 1 MiB warning for `code`, `markdown` and `diff`
   entries applies, counted with the escape sequences.
-
-## Relations
-
-- Depends on: [Explain that an unknown context type may need a newer asqr](01M5HKZWDPH20QX3841GES7K8P-explain-that-an-unknown-context-type-may-need-a-newer-asqr.md)
