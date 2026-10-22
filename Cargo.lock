@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "asqr"
-version = "0.12.2"
+version = "0.13.0"
 dependencies = [
  "anstyle-parse",
  "anyhow",
