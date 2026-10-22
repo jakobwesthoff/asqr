@@ -12,7 +12,8 @@
 use patine::{Html, QuoteStyle, RenderOptions, SoftBreaks};
 use ratatui::text::{Line, Span};
 
-use super::patine_adapter::markdown_rows;
+use super::patine_adapter::{markdown_rows, source_line};
+use super::source_line::SourceLine;
 
 /// How the text fields differ from Markdown documents (ADR 35): a single
 /// newline breaks the line, and raw HTML shows as written. Quotes take
@@ -41,6 +42,16 @@ pub fn field_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<Line<'s
         )
     })
     .collect()
+}
+
+/// `source` rendered for `width` columns as patine lays it out, with
+/// quotes in `quote`: each line whole, also where patine leaves it wider,
+/// for a text shown on one line that a cut ends.
+pub fn field_source_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<SourceLine> {
+    patine::render_lines_with(source, width, &field_options(quote))
+        .iter()
+        .map(source_line)
+        .collect()
 }
 
 #[cfg(test)]

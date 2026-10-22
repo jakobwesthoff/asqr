@@ -1,0 +1,19 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr  labels                           default · 1 waiting "
+"   ☒ q  ✔ Review                                            "
+"───────━━━━━━━━━━───────────────────────────────────────────"
+" Review your answers, then submit or reject.                "
+"                                                            "
+"   ☒ q  Keep retry as is, and more and more and more and m… "
+"                                                            "
+" answered 1 · skipped 0 · defaulted 0                       "
+"                                                            "
+" ❯ [ Submit ]                                               "
+"   ✎ Note to the asker (optional): —                        "
+"   ✗ Reject, reason (optional): —                           "
+"                                                            "
+"                                                            "
+" ↑/↓  move   enter  open/submit   ?  help   q  quit         "

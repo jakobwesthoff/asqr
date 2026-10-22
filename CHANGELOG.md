@@ -40,8 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   question.
 - Option labels are Markdown like the intro, question texts and
   descriptions: inline code, emphasis and the rest render in the option
-  row. A label of more than one line moves the question's descriptions
-  below the labels.
+  row and in the review's summary. A label of more than one line moves
+  the question's descriptions below the labels.
 
 ### Fixed
 

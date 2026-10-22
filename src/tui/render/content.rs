@@ -27,7 +27,7 @@ use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::theme;
 use super::viewer::Viewers;
-use super::wrap::{cut, indented, wrap};
+use super::wrap::{cut_spans, indented, trim_end, wrap};
 use crate::format::{Kind, Length, has_text};
 use crate::graphics::Images;
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
@@ -263,7 +263,7 @@ pub(super) fn draw_tab(
 
     let content_at = |width: u16| match state.question() {
         Some(_) => question_content(state, state.tab(), usize::from(width), Pass::Live, quote),
-        None => review_content(state, usize::from(width)),
+        None => review_content(state, usize::from(width), quote),
     };
     let question_rows = match arrangement {
         Some(Arrangement::Below) => tab.question_height.need(state, area, quote),
@@ -659,20 +659,6 @@ fn label_rows(label: &str, prefix: usize, width: usize, quote: QuoteStyle) -> La
     }
 }
 
-/// `spans` without the blanks at their end, which some Markdown lines,
-/// such as a table's or a code block's, are padded with.
-fn trim_end(mut spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
-    while let Some(last) = spans.pop() {
-        let kept = last.content.trim_end();
-        if !kept.is_empty() {
-            let kept = kept.to_owned();
-            spans.push(Span::styled(kept, last.style));
-            break;
-        }
-    }
-    spans
-}
-
 /// The columns `line` takes.
 fn line_columns(line: &Line) -> usize {
     line.spans.iter().map(|span| columns(&span.content)).sum()
@@ -788,7 +774,7 @@ fn field_cursor(field: &TextField, shape: &FieldShape, shown: bool) -> TextCurso
     }
 }
 
-fn review_content(state: &SessionState, width: usize) -> Content {
+fn review_content(state: &SessionState, width: usize, quote: QuoteStyle) -> Content {
     let mut content = Content {
         lines: vec![
             Line::styled(
@@ -841,9 +827,13 @@ fn review_content(state: &SessionState, width: usize) -> Content {
                 // the width and ends in `…` when it is longer.
                 let lead_width: usize = lead.iter().map(|span| columns(&span.content)).sum();
                 let room = width.saturating_sub(lead_width);
-                let summary = cut(&answer_summary(question, &answers[question_index]), room);
+                let summary = cut_spans(
+                    answer_summary(question, &answers[question_index], room, quote),
+                    room,
+                    theme::secondary(),
+                );
                 let mut spans = lead;
-                spans.push(Span::styled(summary, theme::secondary()));
+                spans.extend(summary);
                 let line = Line::from(spans);
                 let line = if filled { theme::focus_row(line) } else { line };
                 (vec![line], None)
@@ -998,7 +988,7 @@ mod tests {
     fn tab_of(state: &SessionState) -> (Content, Buffer) {
         let content = match state.question() {
             Some(_) => question_content(state, state.tab(), 40, Pass::Live, quote_style(false)),
-            None => review_content(state, 40),
+            None => review_content(state, 40, quote_style(false)),
         };
         let height = u16::try_from(content.lines.len()).expect("a short tab");
         let area = Rect::new(0, 0, 40, height);
@@ -1686,14 +1676,6 @@ mod tests {
             test_support::line_texts(&option_rows(&state, 60)),
             ["  ( ) 1.   Described."]
         );
-    }
-
-    #[test]
-    fn a_label_line_loses_the_blanks_at_its_end_whatever_their_style() {
-        let spans = vec![Span::from("ab "), Span::from("  ").bold()];
-
-        assert_eq!(trim_end(spans), [Span::from("ab")]);
-        assert_eq!(trim_end(vec![Span::from("   ")]), []);
     }
 
     #[test]

@@ -1286,6 +1286,26 @@ mod tests {
     }
 
     #[test]
+    fn the_review_renders_a_labels_markdown_and_cuts_it_to_the_line() {
+        let label = format!("Keep `retry` as *is*, {}", "and more ".repeat(8));
+        let mut app = long_label_app(&label);
+        special(&mut app, KeyCode::Down);
+        special(&mut app, KeyCode::Enter);
+        let backend = screen(&app, 60, 15);
+        let buffer = backend.buffer();
+
+        let (_, y) = find(buffer, "☒ q  Keep retry as is, and more");
+        assert!(row(buffer, y).ends_with('…'), "{backend}");
+        assert!(!backend.to_string().contains('`'), "{backend}");
+        assert_eq!(
+            look_at(buffer, "retry"),
+            (Color::Indexed(3), Modifier::DIM),
+            "the code's yellow, dim like the summary"
+        );
+        insta::assert_snapshot!("review_markdown_label_60x15", backend);
+    }
+
+    #[test]
     fn a_label_of_two_lines_moves_the_descriptions_below() {
         let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Which one?", "kind": "single",
             "note": false, "options": [
@@ -4467,6 +4487,16 @@ mod tests {
             }
             // A label is bold, its quote bar included.
             assert_quote_bar(buf, 0, "│ quoted label", no_color, Modifier::BOLD);
+        }
+
+        // The label in the review's summary is dim, like the summary. The
+        // review opens on the submit button, so no fill covers the label.
+        special(&mut app, KeyCode::Down);
+        special(&mut app, KeyCode::Enter);
+        let (coloured, colourless) = with_and_without_colours(&app, 120, 40);
+        for (buf, no_color) in [(&coloured, false), (&colourless, true)] {
+            let review = find(buf, "Review your answers").1;
+            assert_quote_bar(buf, review, "│ quoted label", no_color, Modifier::DIM);
         }
 
         keys(&mut app, "i");

@@ -47,6 +47,13 @@ be short.
 - **Height:** an option taller than the question's area shows from its
   start, as any row does (spec section 7.4). Its later lines may lie out of reach;
   long text belongs in the description or the context.
+- **The review:** the result carries option ids only, so the review's
+  one-line summary is the only other place a label shows. There a label
+  renders its Markdown for the room the summary's line leaves, its lines
+  joined by a blank, and shows its Markdown styles over the summary's
+  dim, not bold. A line Markdown leaves wider than that room stays
+  whole, without a `↪`, and the summary's cut ends it with `…`, dim as
+  the summary is.
 - **The agent skill** calls a label the short handle the person picks
   the option by, and sends longer text to the option's `description`, or
   to its `context` when it is material to read. The schema's description

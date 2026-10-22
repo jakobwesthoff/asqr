@@ -5,9 +5,12 @@
 //! Texts the screen is built from, kept apart from the layout so they can
 //! be tested on their own.
 
+use patine::QuoteStyle;
 use ratatui::text::Span;
 
+use super::text::field_source_lines;
 use super::theme;
+use super::wrap::{trim_end, trim_start};
 use crate::format::{Answer, Kind, Question, is_answered};
 use crate::tui::{AnswerState, Focus, SessionState};
 
@@ -32,39 +35,80 @@ pub fn answer_mark(state: AnswerState) -> Span<'static> {
     }
 }
 
-/// What the review shows for an answer: the chosen options by label, own
-/// text in quotes, a text answer as typed on one line, `-` for a skipped
-/// question, and marks for a default and a note.
-pub fn answer_summary(question: &Question, answer: &Answer) -> String {
+/// What the review shows for an answer, dim: the chosen options by label,
+/// own text in quotes, a text answer as typed on one line, `-` for a
+/// skipped question, and marks for a default and a note. A label shows its
+/// Markdown on one line, rendered for the `room` the summary gets, with
+/// quotes in `quote`.
+pub fn answer_summary(
+    question: &Question,
+    answer: &Answer,
+    room: usize,
+    quote: QuoteStyle,
+) -> Vec<Span<'static>> {
+    let dim = |text: String| Span::styled(text, theme::secondary());
     let own = answer
         .custom
         .as_deref()
         .filter(|text| !text.trim().is_empty())
         .map(|text| format!("\"{}\"", text.lines().collect::<Vec<_>>().join(" ⏎ ")));
-    let mut summary = if !is_answered(question, answer) {
-        "-".to_owned()
+    let mut summary = Vec::new();
+    if !is_answered(question, answer) {
+        summary.push(dim("-".to_owned()));
     } else {
         let options = question.options.as_deref().unwrap_or_default();
-        let mut parts: Vec<String> = answer
+        let mut parts: Vec<Vec<Span<'static>>> = answer
             .selected
             .iter()
             .map(|id| {
-                options
-                    .iter()
-                    .find(|option| &option.id == id)
-                    .map_or_else(|| id.clone(), |option| option.label.clone())
+                options.iter().find(|option| &option.id == id).map_or_else(
+                    || vec![dim(id.clone())],
+                    |option| label_line(&option.label, room, quote),
+                )
             })
             .collect();
-        parts.extend(own);
-        parts.join(", ")
-    };
+        parts.extend(own.map(|own| vec![dim(own)]));
+        for (index, part) in parts.into_iter().enumerate() {
+            if index > 0 {
+                summary.push(dim(", ".to_owned()));
+            }
+            summary.extend(part);
+        }
+    }
     if answer.defaulted {
-        summary.push_str(" (default)");
+        summary.push(dim(" (default)".to_owned()));
     }
     if answer.note.is_some() {
-        summary.push_str(" +note");
+        summary.push(dim(" +note".to_owned()));
     }
     summary
+}
+
+/// An option's `label` on one line of the summary: rendered for `room`
+/// columns with quotes in `quote`, in the summary's dim under its Markdown
+/// styles. Its lines join with a blank, each without the blanks at its
+/// ends, and a line patine leaves wider than `room` stays whole, so the
+/// cut of the summary ends it.
+fn label_line(label: &str, room: usize, quote: QuoteStyle) -> Vec<Span<'static>> {
+    let lines = field_source_lines(label, room, quote)
+        .into_iter()
+        .map(|line| {
+            let spans = line
+                .pieces()
+                .map(|(text, style)| Span::styled(text.to_owned(), theme::secondary().patch(style)))
+                .collect();
+            trim_start(trim_end(spans))
+        })
+        .filter(|spans| !spans.is_empty());
+
+    let mut joined = Vec::new();
+    for (index, spans) in lines.enumerate() {
+        if index > 0 {
+            joined.push(Span::styled(" ", theme::secondary()));
+        }
+        joined.extend(spans);
+    }
+    joined
 }
 
 /// One line under the question text on how to answer it.
@@ -106,11 +150,97 @@ pub fn question_key(state: &SessionState, key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::style::{Color, Modifier, Style};
+
+    use super::super::patine_adapter::quote_style;
     use super::*;
     use crate::format::{Answer, Question};
 
     fn question(json: &str) -> Question {
         serde_json::from_str(json).expect("test question parses")
+    }
+
+    /// The text of the review's summary of `answer`.
+    fn summary_text(question: &Question, answer: &Answer) -> String {
+        answer_summary(question, answer, 100, quote_style(false))
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    /// The summary of a `single` question whose option `a`, labelled
+    /// `label`, is chosen, rendered for `room` columns.
+    fn summary_of_label(label: &str, room: usize) -> Vec<Span<'static>> {
+        let single = question(
+            &serde_json::json!({"id": "s", "text": "?", "kind": "single",
+                "options": [{"id": "a", "label": label}]})
+            .to_string(),
+        );
+        let chosen = Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("s")
+        };
+        answer_summary(&single, &chosen, room, quote_style(false))
+    }
+
+    /// The text of `spans`.
+    fn text_of(spans: &[Span]) -> String {
+        spans.iter().map(|span| span.content.as_ref()).collect()
+    }
+
+    /// The style of the span holding `text` in `spans`.
+    fn style_of(spans: &[Span], text: &str) -> Style {
+        spans
+            .iter()
+            .find(|span| span.content.contains(text))
+            .unwrap_or_else(|| panic!("{text:?} is not in {spans:?}"))
+            .style
+    }
+
+    #[test]
+    fn a_label_in_the_summary_renders_its_inline_markdown() {
+        let spans = summary_of_label("Keep `retry` **now**", 100);
+
+        assert_eq!(text_of(&spans), "Keep retry now");
+        assert_eq!(
+            style_of(&spans, "retry"),
+            Style::new().dim().fg(Color::Indexed(3)),
+            "code in yellow, dim like the summary"
+        );
+        assert_eq!(
+            style_of(&spans, "now"),
+            Style::new().add_modifier(Modifier::DIM | Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn a_chosen_id_without_its_option_shows_as_written() {
+        let single = question(
+            r#"{"id": "s", "text": "?", "kind": "single", "options": [{"id": "a", "label": "A"}]}"#,
+        );
+        let gone = Answer {
+            selected: vec!["`gone`".into()],
+            ..Answer::new("s")
+        };
+
+        assert_eq!(summary_text(&single, &gone), "`gone`");
+    }
+
+    #[test]
+    fn a_label_of_several_lines_shows_on_one_line_in_the_summary() {
+        assert_eq!(
+            text_of(&summary_of_label("First\nsecond", 100)),
+            "First second"
+        );
+    }
+
+    #[test]
+    fn a_label_wider_than_the_summary_shows_no_continuation_marker() {
+        let label = "```\nlet total = first + second + third;\n```";
+
+        let text = text_of(&summary_of_label(label, 20));
+        assert!(!text.contains('↪'), "{text:?}");
+        assert!(!text.contains('`'), "{text:?}");
     }
 
     #[test]
@@ -155,10 +285,10 @@ mod tests {
             ..Answer::new("m")
         };
 
-        assert_eq!(answer_summary(&multi, &chosen), "Extra, Yes");
-        assert_eq!(answer_summary(&multi, &typed), "\"own\" +note");
-        assert_eq!(answer_summary(&multi, &defaulted), "Extra (default)");
-        assert_eq!(answer_summary(&multi, &Answer::new("m")), "-");
+        assert_eq!(summary_text(&multi, &chosen), "Extra, Yes");
+        assert_eq!(summary_text(&multi, &typed), "\"own\" +note");
+        assert_eq!(summary_text(&multi, &defaulted), "Extra (default)");
+        assert_eq!(summary_text(&multi, &Answer::new("m")), "-");
     }
 
     #[test]
@@ -172,7 +302,7 @@ mod tests {
             ..Answer::new("m")
         };
 
-        assert_eq!(answer_summary(&multi, &both), "X, \"more\"");
+        assert_eq!(summary_text(&multi, &both), "X, \"more\"");
     }
 
     #[test]
@@ -183,7 +313,7 @@ mod tests {
             ..Answer::new("t")
         };
 
-        assert_eq!(answer_summary(&text, &typed), "\"done ⏎ and dusted\"");
+        assert_eq!(summary_text(&text, &typed), "\"done ⏎ and dusted\"");
     }
 
     #[test]

@@ -219,6 +219,67 @@ pub(super) fn cut(text: &str, room: usize) -> String {
     format!("{}…", fitting(text, room - 1))
 }
 
+/// `spans` without the blanks at their end, whichever spans hold them, as
+/// some Markdown lines, such as a table's or a code block's, are padded
+/// with blanks.
+pub(super) fn trim_end(mut spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
+    while let Some(last) = spans.pop() {
+        let kept = last.content.trim_end();
+        if !kept.is_empty() {
+            let kept = kept.to_owned();
+            spans.push(Span::styled(kept, last.style));
+            break;
+        }
+    }
+    spans
+}
+
+/// `spans` without the blanks at their start, whichever spans hold them.
+pub(super) fn trim_start(spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
+    let mut spans = spans
+        .into_iter()
+        .skip_while(|span| span.content.trim_start().is_empty());
+    let first = spans
+        .next()
+        .map(|span| Span::styled(span.content.trim_start().to_owned(), span.style));
+    first.into_iter().chain(spans).collect()
+}
+
+/// `spans` in at most `room` columns, ending in `…` in `ellipsis` when they
+/// had to be cut.
+pub(super) fn cut_spans(
+    spans: Vec<Span<'static>>,
+    room: usize,
+    ellipsis: Style,
+) -> Vec<Span<'static>> {
+    let total: usize = spans.iter().map(|span| columns(&span.content)).sum();
+    if total <= room {
+        return spans;
+    }
+    if room == 0 {
+        return Vec::new();
+    }
+    // The spans before the cut stay whole; the one the cut falls in keeps
+    // its start, and `…` takes the column left after them.
+    let mut left = room - 1;
+    let mut kept = Vec::new();
+    for span in spans {
+        let width = columns(&span.content);
+        if width <= left {
+            left -= width;
+            kept.push(span);
+            continue;
+        }
+        let start = fitting(&span.content, left);
+        if !start.is_empty() {
+            kept.push(Span::styled(start.to_owned(), span.style));
+        }
+        break;
+    }
+    kept.push(Span::styled("…", ellipsis));
+    kept
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::style::{Modifier, Stylize};
@@ -373,5 +434,108 @@ mod tests {
             "説 would cross into it"
         );
         assert_eq!(cut("🎉🎉🎉", 4), "🎉…");
+    }
+
+    #[test]
+    fn trimming_drops_the_blanks_at_an_end_whatever_spans_hold_them() {
+        let padded = || {
+            vec![
+                Span::from(" "),
+                Span::from(" ab ").yellow(),
+                Span::from("cd "),
+                Span::from("  ").bold(),
+            ]
+        };
+
+        assert_eq!(
+            trim_end(padded()),
+            [
+                Span::from(" "),
+                Span::from(" ab ").yellow(),
+                Span::from("cd")
+            ]
+        );
+        assert_eq!(
+            trim_start(padded()),
+            [
+                Span::from("ab ").yellow(),
+                Span::from("cd "),
+                Span::from("  ").bold()
+            ]
+        );
+        assert_eq!(trim_end(vec![Span::from("   ")]), []);
+        assert_eq!(trim_start(vec![Span::from("   ")]), []);
+    }
+
+    /// `Changelog` plain, then `, ` and `Blog` in code's yellow.
+    fn styled_spans() -> Vec<Span<'static>> {
+        vec![
+            Span::from("Changelog"),
+            Span::from(", "),
+            Span::from("Blog").yellow(),
+        ]
+    }
+
+    #[test]
+    fn cutting_spans_that_fit_keeps_them() {
+        assert_eq!(
+            cut_spans(styled_spans(), 15, Style::new().dim()),
+            styled_spans()
+        );
+    }
+
+    #[test]
+    fn cutting_spans_keeps_their_styles_and_ends_in_the_ellipsis_style() {
+        assert_eq!(
+            cut_spans(styled_spans(), 14, Style::new().dim()),
+            [
+                Span::from("Changelog"),
+                Span::from(", "),
+                Span::from("Bl").yellow(),
+                Span::from("…").dim(),
+            ]
+        );
+    }
+
+    #[test]
+    fn cutting_spans_at_a_span_boundary_ends_in_the_ellipsis_style() {
+        assert_eq!(
+            cut_spans(styled_spans(), 10, Style::new().dim()),
+            [Span::from("Changelog"), Span::from("…").dim()]
+        );
+    }
+
+    #[test]
+    fn cutting_spans_without_room_leaves_the_ellipsis_or_nothing() {
+        assert_eq!(
+            cut_spans(styled_spans(), 1, Style::new().dim()),
+            [Span::from("…").dim()]
+        );
+        assert_eq!(cut_spans(styled_spans(), 0, Style::new().dim()), []);
+    }
+
+    #[test]
+    fn cutting_spans_counts_columns_and_keeps_wide_characters_whole() {
+        let wide = || vec![Span::from("日本語"), Span::from("の説明").bold()];
+        let dim = Style::new().dim();
+
+        assert_eq!(
+            cut_spans(wide(), 11, dim),
+            [
+                Span::from("日本語"),
+                Span::from("の説").bold(),
+                Span::from("…").dim()
+            ],
+            "説 ends where `…` starts"
+        );
+        assert_eq!(
+            cut_spans(wide(), 10, dim),
+            [
+                Span::from("日本語"),
+                Span::from("の").bold(),
+                Span::from("…").dim()
+            ],
+            "説 would cross into it"
+        );
     }
 }

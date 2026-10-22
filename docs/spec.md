@@ -1163,11 +1163,12 @@ refused.
 
 ### 7.8 The review tab
 
-The last tab lists every question with its answer on one line: the
+The last tab lists every question with its answer on one line, dim: the
 chosen options by label, own text and a text answer in quotes (line
 breaks shown as `⏎`), `(default)` after an untouched default, `-`
-for a skipped question and `+note` for a note. A line longer than the
-screen is cut with `…`. Below the list, the counts of answered, skipped
+for a skipped question and `+note` for a note. A label shows its
+Markdown styles over the dim, not bold, its lines joined by a blank. A
+line longer than the screen is cut with `…`. Below the list, the counts of answered, skipped
 and defaulted questions, the numbers bold and the words dim, then:
 
 - **Submit**: `[ Submit ]`, always filled in the primary colour and
@@ -1286,9 +1287,11 @@ fence names a language.
 - Each text renders at the width it gets: a question text at the
   question's width, which stops at the reading width; the intro at the
   header's width; an option label in the columns after its number, or
-  below it in a very narrow pane (section 7.2); an option description in
-  the columns from where it starts to the end of the line, beside its
-  label or below it (section 7.2); a Markdown entry at the pane's width.
+  below it in a very narrow pane (section 7.2), and in the review for
+  the room its line leaves, on one line (section 7.8); an option
+  description in the columns from where it starts to the end of the
+  line, beside its label or below it (section 7.2); a Markdown entry at
+  the pane's width.
 - A table fits the width it gets: a word wider than its column, such as
   a long URL, breaks between characters and continues on the next line
   of its cell in its own style, so a link's URL stays dim, and words
