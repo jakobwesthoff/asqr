@@ -47,6 +47,10 @@ by its first 80 characters is guessing.
   room there is.
 - 2026-10-21, user: the skill describes what a label is for and points
   agents to the option's `description` or `context` for longer text.
+- 2026-10-22, user: the result carries option ids only, so labels show
+  outside the option rows only in the review tab's one-line summary
+  (`answer_summary` in `src/tui/render/parts.rs`). There a label
+  renders its inline Markdown as in the option row.
 
 ## Suggested fix
 
@@ -63,9 +67,6 @@ by its first 80 characters is guessing.
 
 ## Open questions
 
-- What the result carries for a chosen option's label: the raw Markdown
-  source or plain text. The review tab and the result (spec section on
-  the result's chosen options) should agree.
 - Where the switch from beside to below happens for descriptions when
   labels wrap.
 

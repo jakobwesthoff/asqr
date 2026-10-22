@@ -99,26 +99,24 @@ Neither caller needs to change.
      `pgup`/`pgdn`, `ctrl-u`/`ctrl-d` (around line 953), the focused
      pane's keys (around line 980), the page keys from anywhere (around
      line 990) and the intro overlay (around line 1012).
-   - ADR 31, the *Page keys* decision and the line "a page is the
-     pane's height" in the shared scroll conventions. Since `6c08877`
-     each ADR holds the one current decision, so edit the decision in
-     place instead of adding an amendment. Give the reason: the keys
-     come from Vim and `less`, where they move half a page.
-   - ADR 30, the intro overlay's keys (around line 52).
+   - A new ADR that amends ADR 31 (the *Page keys* decision and the
+     line "a page is the pane's height" in the shared scroll
+     conventions) and ADR 30 (the intro overlay's keys, around line
+     52); both gain an "Amended by" line. Give the reason: the keys come
+     from Vim and `less`, where they move half a page.
    - `README.md` around line 74, which names `ctrl-u`/`ctrl-d` as the
      alternative to `pgup`/`pgdn`.
    - `CHANGELOG.md`: an `Unreleased` section with a *Changed* entry.
-     Today the newest section is `[0.12.1] - 2026-10-16`.
+     On 2026-10-22 the newest section is `[0.12.2] - 2026-10-19`.
 
-## Open questions
+## Decisions
 
-- `pgdn` jumps exactly one view height, so the last line shown becomes
-  invisible and the reader has no line to hold on to. Vim's `ctrl-f`
-  keeps two lines of overlap. That is a separate change; decide during
-  this work whether to file it as its own todo.
-- `ctrl-f` and `ctrl-b` for a whole page would complete the Vim set,
-  but in a field they move the text cursor (spec section 7.7). Leave
-  them out unless the user asks.
+- 2026-10-22, user: ADR 30 and ADR 31 are amended by a new ADR, not
+  edited in place.
+- 2026-10-22, user: `pgdn` keeps jumping exactly one view height here;
+  an overlap of a few lines is a todo of its own.
+- 2026-10-22, user: no `ctrl-f` and `ctrl-b`, as they move the text
+  cursor in a field (spec section 7.7).
 
 ## Done when
 
@@ -127,5 +125,5 @@ Neither caller needs to change.
   and `pgup`/`pgdn` still move by a whole page.
 - The tests above cover an even height, an odd height and a one-row
   view, and `just check` passes.
-- The help, the spec, ADR 30, ADR 31, the README and the changelog say
+- The help, the spec, the new ADR, the README and the changelog say
   half a page for `ctrl-u`/`ctrl-d`.

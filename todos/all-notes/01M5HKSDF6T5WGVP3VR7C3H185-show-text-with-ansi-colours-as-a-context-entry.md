@@ -36,21 +36,20 @@ its message has to say first that a newer asqr may support the type.
 
 ## Open questions
 
-- `NO_COLOR`: `strip_colours` in `src/tui/render/theme.rs` resets named
-  and indexed colours but keeps RGB ones, which images need. RGB
-  colours of the new entry would then survive `NO_COLOR`.
-- The type's name, such as `ansi` or `terminal`.
 - Which SGR attributes count, and whether a dropped sequence leaves a
   mark.
-- Whether the entry has a gutter with line numbers, as a `code` entry
-  does.
-- Whether the 1 MiB warning for `code`, `markdown` and `diff` entries
-  applies, counted with or without the escape sequences.
 
 ## Decisions
 
 - 2026-10-22, user: the new type goes into format version 2, and an
   older asqr refuses it with a message that a newer asqr may support it.
+- 2026-10-22, user: the type is named `ansi`.
+- 2026-10-22, user: under `NO_COLOR` an `ansi` entry loses its RGB
+  colours too. `strip_colours` in `src/tui/render/theme.rs` keeps RGB
+  colours for images, so the entry needs a way of its own to drop them.
+- 2026-10-22, user: no gutter with line numbers.
+- 2026-10-22, user: the 1 MiB warning for `code`, `markdown` and `diff`
+  entries applies, counted with the escape sequences.
 
 ## Relations
 

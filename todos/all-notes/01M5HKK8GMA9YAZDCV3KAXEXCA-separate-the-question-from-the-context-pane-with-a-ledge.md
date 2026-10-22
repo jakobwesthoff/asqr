@@ -87,13 +87,6 @@ One under the other:
 
 ## Open questions
 
-- The bottom rule when the content fits and the header shows no
-  position today: a rule without text, or no bottom rule.
-- The full-screen view (`z`) draws the pane over the whole tab area,
-  header included (ADR 0031): whether it takes the ledge too.
-- Whether `MIN_CONTEXT_WIDTH` should count the edge, so the body keeps
-  at least 40 columns, which would raise the narrowest tab area that
-  holds both side by side (`MIN_BESIDE_WIDTH`, 101 columns).
 - Where the red `✗` of an entry asqr cannot show sits in the ruled
   header (design guide, Error row: the `✗` before its name in the pane's
   header).
@@ -113,6 +106,14 @@ One under the other:
   text under an open edge, right or left.
 - 2026-10-22, user: one under the other, a header rule only, without
   the `╭` and the left edge.
+- 2026-10-22, user: when the content fits and there is no position to
+  show, the bottom rule stays, without text, so the pane keeps its shape
+  and its body the same height from entry to entry.
+- 2026-10-22, user: the full-screen view (`z`) takes the ledge too.
+- 2026-10-22, user: `MIN_CONTEXT_WIDTH` and `MIN_BESIDE_WIDTH` stay as
+  they are; at the narrowest the body is 38 columns wide.
+- 2026-10-22, user: the changed decisions go into a new ADR that amends
+  ADR 0030, ADR 0031 and ADR 0037, which each gain an "Amended by" line.
 
 ## Relations
 

@@ -26,5 +26,12 @@ picked up patine 1.7.2 and reproduced by hand.
 ## Suggested fix
 
 Fix the four comments: state the private item's fact in words or make
-the link target visible, and put `<DIR>` in backticks. Whether
-`just check` should run rustdoc with `-D warnings` from then on is open.
+the link target visible, and put `<DIR>` in backticks. Then add
+`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items`
+to `just check`, so a broken doc link fails the check.
+
+Still failing on main `f9c5b86` (2026-10-22).
+
+## Decisions
+
+- 2026-10-22, user: `just check` runs rustdoc with `-D warnings`.

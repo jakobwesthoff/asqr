@@ -2,7 +2,6 @@
 title: "Keep notes and answers in the result of a rejected session"
 kind: improvement
 component: format
-status: needs-discussion
 impact: high
 origin: incident
 tags: [ux]
@@ -34,19 +33,25 @@ to type it again in a second session, and nothing told them it was lost.
 
 ## Proposal
 
-Two directions, not decided:
+A `cancelled` result keeps what was entered: the session's `note` when
+there is one, and `answers` for the questions that have an answer or a
+note, in the same shape as in a submitted result. `status: cancelled`
+already tells the agent that nothing was submitted, so there is no extra
+flag. Rejecting stays one step, without a warning.
 
-- A `cancelled` result also carries what was entered so far: the session
-  `note` and `answers` for the questions that have an answer or a note,
-  marked so the agent cannot mistake them for a submission (for example
-  a `partial: true` flag, or answers only where something was entered).
-  This changes the result format and the skill text that says a
-  rejected result has `reason` and no `note`.
-- The TUI warns on reject when notes or answers exist, offering to submit
-  instead or to carry them into the reason.
+- `docs/spec.md` (around line 335) says "For `cancelled` and `error`,
+  `answers` is empty", and `skills/asqr/SKILL.md` (around line 270)
+  says "A rejected result has `reason` and no `note`". Both say instead
+  that a rejected result may carry the note and the answers entered so
+  far, which were not submitted.
+- Tests first: a session with a note and one answered question,
+  rejected, gives a result with the reason, the note and that one
+  answer.
 
-## Open questions
+## Decisions
 
-- Is a partial answer list in a `cancelled` result a format version
-  change for agents that read results strictly?
-- Should the warning exist in addition to keeping the data?
+- 2026-10-22, user: keep what was entered in the `cancelled` result,
+  without a warning on reject.
+- 2026-10-22, user: the session's `note` and `answers` only for the
+  questions with an answer or a note, without a `partial` flag.
+- 2026-10-22, user: the change stays in format version 2.
