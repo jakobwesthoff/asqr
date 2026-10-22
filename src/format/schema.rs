@@ -145,32 +145,38 @@ mod tests {
             .count()
     }
 
+    /// Checks that the definition `name` of `schema` takes exactly one of
+    /// `path` and `content`, as validation does.
+    fn assert_one_of_path_and_content(schema: &serde_json::Value, name: &str) {
+        let definition = &schema["$defs"][name];
+        let matches = |object| matching_branches(definition, "oneOf", &object);
+        assert_eq!(matches(json!({"path": "/a.rs"})), 1, "{name}");
+        // A key counts by being there, so an empty `content` names an
+        // empty text, as validation sees it.
+        assert_eq!(matches(json!({"content": ""})), 1, "{name}");
+        // `null` is how serde reads a missing value, so validation accepts
+        // it next to the other key, and so must the schema.
+        assert_eq!(matches(json!({"path": null, "content": "x"})), 1, "{name}");
+        assert_eq!(
+            matches(json!({"path": "/a.rs", "content": null})),
+            1,
+            "{name}"
+        );
+        assert_eq!(matches(json!({})), 0, "{name}");
+        assert_eq!(matches(json!({"path": null, "content": null})), 0, "{name}");
+        assert_eq!(
+            matches(json!({"path": "/a.rs", "content": "x"})),
+            2,
+            "{name}: both match, so oneOf fails"
+        );
+    }
+
     #[test]
     fn code_markdown_and_diff_sides_take_exactly_one_of_path_and_content() {
         let schema = session_schema();
 
         for name in ["CodeEntry", "MarkdownEntry", "DiffSide"] {
-            let definition = &schema["$defs"][name];
-            let matches = |object| matching_branches(definition, "oneOf", &object);
-            assert_eq!(matches(json!({"path": "/a.rs"})), 1, "{name}");
-            // A key counts by being there, so an empty `content` names
-            // an empty text, as validation sees it.
-            assert_eq!(matches(json!({"content": ""})), 1, "{name}");
-            // `null` is how serde reads a missing value, so validation
-            // accepts it next to the other key, and so must the schema.
-            assert_eq!(matches(json!({"path": null, "content": "x"})), 1, "{name}");
-            assert_eq!(
-                matches(json!({"path": "/a.rs", "content": null})),
-                1,
-                "{name}"
-            );
-            assert_eq!(matches(json!({})), 0, "{name}");
-            assert_eq!(matches(json!({"path": null, "content": null})), 0, "{name}");
-            assert_eq!(
-                matches(json!({"path": "/a.rs", "content": "x"})),
-                2,
-                "{name}: both match, so oneOf fails"
-            );
+            assert_one_of_path_and_content(&schema, name);
         }
     }
 

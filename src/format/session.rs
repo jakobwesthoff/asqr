@@ -541,11 +541,11 @@ mod tests {
         );
     }
 
-    /// The error for an entry of type `ansi`, which this asqr does not
+    /// The error for an entry of type `video`, which this asqr does not
     /// know, as a person reads it after the entry's path.
-    fn ansi_unknown() -> String {
+    fn video_unknown() -> String {
         format!(
-            r#""ansi" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it"#,
+            r#""video" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it"#,
             env!("CARGO_PKG_VERSION")
         )
     }
@@ -554,13 +554,13 @@ mod tests {
     fn an_unknown_entry_type_is_refused_as_one_a_newer_asqr_may_support() {
         let error = parse_session(
             br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
-                "context": [{"type": "ansi", "content": "x"}]}]}"#,
+                "context": [{"type": "video", "content": "x"}]}]}"#,
         )
         .expect_err("the unknown type is refused");
 
         assert_eq!(
             error.to_string(),
-            format!("questions[0].context[0].type: {}", ansi_unknown())
+            format!("questions[0].context[0].type: {}", video_unknown())
         );
     }
 
@@ -569,7 +569,7 @@ mod tests {
         let error = parse_session(
             br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
                 "options": [{"id": "a", "label": "A"},
-                            {"id": "b", "label": "B", "context": [{"type": "ansi", "content": "x"}]}]}]}"#,
+                            {"id": "b", "label": "B", "context": [{"type": "video", "content": "x"}]}]}]}"#,
         )
         .expect_err("the unknown type is refused");
 
@@ -577,7 +577,7 @@ mod tests {
             error.to_string(),
             format!(
                 "questions[0].options[1].context[0].type: {}",
-                ansi_unknown()
+                video_unknown()
             )
         );
     }
@@ -587,7 +587,7 @@ mod tests {
         let error = parse_session(
             br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
                 "context": [{"type": "text", "content": "notes"}],
-                "options": [{"id": "a", "label": "A", "context": [{"type": "ansi", "content": "x"}]},
+                "options": [{"id": "a", "label": "A", "context": [{"type": "video", "content": "x"}]},
                             {"id": "b", "label": "B", "context": [{"type": "text", "path": "/b.md"}]}]}]}"#,
         )
         .expect_err("both kinds of entry are refused");
@@ -597,7 +597,7 @@ mod tests {
             error.to_string(),
             format!(
                 "questions[0].context[0].type: {replaced}; questions[0].options[0].context[0].type: {}; questions[0].options[1].context[0].type: {replaced}",
-                ansi_unknown()
+                video_unknown()
             )
         );
     }

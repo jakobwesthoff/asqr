@@ -662,14 +662,14 @@ mod tests {
             &location,
             "newer.json",
             r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
-                "context": [{"type": "ansi", "content": "x"}]}]}"#,
+                "context": [{"type": "video", "content": "x"}]}]}"#,
         );
         let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
 
         inbox.sync(&mut app).expect("synced");
 
         let message = format!(
-            r#"questions[0].context[0].type: "ansi" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it"#,
+            r#"questions[0].context[0].type: "video" is not supported by this asqr (version {}), which supports "image", "code", "markdown" and "diff"; a newer asqr may support it"#,
             env!("CARGO_PKG_VERSION")
         );
         let newer = result(&location, "newer");
