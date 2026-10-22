@@ -16,7 +16,8 @@ use std::path::PathBuf;
 
 use super::{App, AppEffect, Invalid, Notice, Outcome, SessionState, Tone};
 use crate::format::{
-    SessionResult, is_valid_session_id, now_rfc3339, parse_session, same_session_id, validate,
+    ParseError, SessionResult, is_valid_session_id, now_rfc3339, parse_session, same_session_id,
+    validate,
 };
 use crate::queue::{
     QueueLocation, Recovery, Rejected, Waiting, archive_invalid_stem, archived_title, finish,
@@ -170,7 +171,10 @@ impl Inbox {
         // Each error stays apart up to the dialog, which lists them; the
         // result and the log join them.
         let session = parse_session(&bytes)
-            .map_err(|error| vec![error.to_string()])
+            .map_err(|error| match error {
+                ParseError::Refused(errors) => errors.iter().map(ToString::to_string).collect(),
+                other => vec![other.to_string()],
+            })
             .and_then(|(_, session)| match validate(&session, Some(&waiting.id)) {
                 Ok(()) => Ok(session),
                 Err(errors) => Err(errors.iter().map(ToString::to_string).collect()),
@@ -581,6 +585,40 @@ mod tests {
 
         let errors = &app.invalid_shown().expect("a dialog").errors;
         assert!(errors.len() >= 2, "{errors:?}");
+        assert_eq!(
+            result(&location, "broken").error.as_deref(),
+            Some(errors.join("; ").as_str()),
+            "the result joins them"
+        );
+    }
+
+    #[test]
+    fn every_refused_entry_of_an_invalid_session_stays_apart() {
+        // The messages are compared by their start, as the unknown type's
+        // message goes on to list the types this asqr supports.
+        let (_scratch, location) = queue();
+        put(
+            &location,
+            "broken.json",
+            r#"{"asqr": 2, "questions": [
+                {"id": "q", "text": "?", "kind": "text",
+                 "context": [{"type": "text", "content": "notes"}]},
+                {"id": "r", "text": "?", "kind": "text",
+                 "context": [{"type": "video", "content": "x"}]}]}"#,
+        );
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        let errors = &app.invalid_shown().expect("a dialog").errors;
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(
+            errors[0].starts_with(r#"questions[0].context[0].type: "text" is no entry type"#)
+                && errors[1].starts_with(
+                    r#"questions[1].context[0].type: "video" is not supported by this asqr"#
+                ),
+            "{errors:?}"
+        );
         assert_eq!(
             result(&location, "broken").error.as_deref(),
             Some(errors.join("; ").as_str()),

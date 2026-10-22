@@ -111,7 +111,8 @@ impl Notice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invalid {
     pub id: String,
-    /// Each problem the file has, apart, as validation found them.
+    /// Each problem the file has, apart, as parsing and validation found
+    /// them.
     pub errors: Vec<String>,
 }
 

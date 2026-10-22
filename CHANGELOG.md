@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full-screen view shows the pane with the ledge it has beside the
   question.
 
+### Fixed
+
+- The dialog of an invalid session lists each context entry of type
+  `text` on a line of its own, as it lists the other errors. Before,
+  all such entries stood on one line, joined with `; `. The error result
+  and the log still join them.
+
 ## [0.12.2] - 2026-10-19
 
 ### Changed
