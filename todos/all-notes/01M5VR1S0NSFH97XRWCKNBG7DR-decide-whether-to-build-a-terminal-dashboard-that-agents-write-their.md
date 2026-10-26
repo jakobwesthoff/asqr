@@ -27,8 +27,8 @@ separate sessions, into one view. How that works is open.
 ## Options
 
 - A separate project next to asqr. Mark suggested a name that starts
-  with a B, derived from "dashboard", to pair with the A of asqr. The
-  dictated working name was "Border"; the actual name is still open.
+  with a B, derived from "dashboard", to pair with the A of asqr.
+  Spellings floated so far: boarder, boardr, boadr. None is settled.
 - A feature inside asqr.
 
 ## Open questions
