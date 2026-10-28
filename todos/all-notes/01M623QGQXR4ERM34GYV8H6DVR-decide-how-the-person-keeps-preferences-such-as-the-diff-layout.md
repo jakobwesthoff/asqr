@@ -23,7 +23,12 @@ would have to remember, so it needs a way to store such settings.
 - Whether asqr remembers a choice made in the TUI (pressing the key)
   or the person sets it only in a file.
 - Which other settings would join: the reading width (todo
-  01M4Z8K98ZS0BR0FTJ4TDYSEQ7), the update check, and others.
+  01M4Z8K98ZS0BR0FTJ4TDYSEQ7), whether asqr looks for updates on its own
+  (todo 01M5J41K58B5CF23DN61PWM6MC, which the user sees as depending on
+  this one, with a question on the first start), and others.
+- What a settings interface in the TUI looks like and what it offers,
+  for example a fixed set of choices per setting rather than free
+  values (user, 2026-10-28).
 
 ## Revisit when
 

@@ -36,6 +36,23 @@ To be worked out; none is decided.
 - What to say about updating, since the command depends on how asqr was
   installed (`brew upgrade`, `cargo install`, a downloaded archive).
 
+## Discussed on 2026-10-28
+
+The user's direction, not final:
+
+- The automatic check belongs together with user preferences (todo
+  01M623QGQXR4ERM34GYV8H6DVR, Decide how the person keeps preferences
+  such as the diff layout), which it needs: on the first start asqr
+  would ask whether it may look for updates automatically, at start and
+  at intervals while it runs for a long time, as torchsnap does.
+- A possible first step before the preferences exist: the check itself,
+  run on request through a command or a flag. Which command or flag is
+  open; `asqr version --check` was only a first proposal.
+- Then the preferences, then the automatic check, which reuses the
+  routines of the first step.
+- Open as well: how asqr presents a newer version, how it offers the
+  update, and what it suggests.
+
 ## Open questions
 
 - Whether asqr should reach the network at all without being asked, and

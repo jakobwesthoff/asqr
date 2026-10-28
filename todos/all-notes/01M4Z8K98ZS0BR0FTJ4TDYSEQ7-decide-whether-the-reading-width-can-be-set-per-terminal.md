@@ -41,3 +41,12 @@ use.
   terminal's width?
 - Does a changed reading width move the point where context goes
   beside the question (ADR 0030), and should it?
+
+## Discussed on 2026-10-28
+
+The user sees the reading width as a candidate for the user preferences
+(todo 01M623QGQXR4ERM34GYV8H6DVR, Decide how the person keeps
+preferences such as the diff layout), not as a flag of its own now.
+Still open: whether a setting makes sense at all and is wanted, and if
+so whether it offers a few fixed widths to pick from rather than any
+number.
