@@ -21,7 +21,7 @@ use ratatui::widgets::Widget;
 use super::problem::Severity;
 use super::source_line::columns;
 use super::theme;
-use super::viewer::Viewers;
+use super::viewer::{Shape, Viewers};
 use super::wrap::cut;
 use crate::format::ContextEntry;
 use crate::graphics::PlacedImage;
@@ -67,12 +67,20 @@ pub fn draw_pane(
     let body = parts.body;
 
     // The full-screen view reached from a pane shows an image without its
-    // caption, which the pane showed (ADR 69).
-    let (viewer, size) = if state.full_screen_alone() {
-        viewers.laid_out_alone(state.id(), key, entry, body.width, body.height, quote)
-    } else {
-        viewers.laid_out(state.id(), key, entry, body.width, body.height, quote)
+    // caption, which the pane showed (ADR 69), and a diff shows side by
+    // side while the person switched it so (ADR 70).
+    let shape = Shape {
+        alone: state.full_screen_alone(),
+        side_by_side: state.side_by_side(),
     };
+    let (viewer, size) = viewers.laid_out_shaped(
+        state.id(),
+        key,
+        entry,
+        (body.width, body.height),
+        shape,
+        quote,
+    );
     // Content reports lines wider than the body only where it cuts them, so
     // its size alone says whether the pane scrolls sideways.
     let page = Page {

@@ -16,7 +16,7 @@ use super::screen::MIN_WIDTH;
 use super::source_line::columns;
 use super::theme;
 use crate::format::Kind;
-use crate::tui::{Extent, Focus, Page, Row, SessionState};
+use crate::tui::{DrawnDiff, Extent, Focus, Page, Row, SessionState};
 
 /// Every key, in the 13 lines the help has on the smallest screen.
 const HELP: &[(&str, &str)] = &[
@@ -32,7 +32,7 @@ const HELP: &[(&str, &str)] = &[
     ("esc", "stop typing in a field"),
     ("tab", "move into the context pane and back"),
     ("pgup/pgdn, ctrl-u/ctrl-d", "scroll by page; by half a page"),
-    ("o, z", "open the image; show the context full screen"),
+    ("o, z, s", "open an image; full screen; diff side by side"),
     ("L", "the list of waiting sessions"),
     ("q, ctrl-c", "quit, keeping the draft"),
     ("?, i", "this help; the whole intro"),
@@ -46,6 +46,7 @@ const PANE_HELP: &[(&str, &str)] = &[
     ("ctrl-u/ctrl-d", "scroll by half a page"),
     ("g/G", "to the top and the bottom, also home/end"),
     ("z", "show the context full screen and back"),
+    ("s", "a diff side by side or unified"),
     ("o", "open an image in the system viewer"),
     ("tab/esc/q", "back to the question"),
     ("ctrl-c", "quit, keeping the draft"),
@@ -61,6 +62,7 @@ const FULL_SCREEN_HELP: &[(&str, &str)] = &[
     ("ctrl-u/ctrl-d", "scroll by half a page"),
     ("g/G", "to the top and the bottom, also home/end"),
     ("o", "open an image in the system viewer"),
+    ("s", "a diff side by side or unified"),
     ("z/tab/esc/q", "leave the full screen"),
     ("ctrl-c", "quit, keeping the draft"),
     ("?", "this help"),
@@ -254,6 +256,34 @@ fn pane_key_hints(state: &SessionState, page: Page) -> Vec<Hint> {
     } else {
         hints.push(hint("tab/esc/q", "back", Rank::Leave));
     }
+    hints
+}
+
+/// `hints` with `s` added where the focused pane or the full-screen view
+/// shows a diff, as `diff` says the draw showed it.
+pub(super) fn with_diff_hint(
+    hints: Vec<Hint>,
+    state: &SessionState,
+    diff: Option<DrawnDiff>,
+) -> Vec<Hint> {
+    // Beside a card or `loading…` there is nothing to switch, and a body
+    // too narrow for two columns refuses side by side; the way back to
+    // unified always works. Over the help any key only closes it.
+    let switches = diff.is_some_and(|diff| diff.fits_side_by_side || state.side_by_side());
+    if !(state.pane_focused() && switches) || state.help() {
+        return hints;
+    }
+    let what = if state.side_by_side() {
+        "unified"
+    } else {
+        "side by side"
+    };
+    let mut hints = hints;
+    let at = hints
+        .iter()
+        .position(|hint| hint.rank == Rank::Help)
+        .unwrap_or(hints.len());
+    hints.insert(at, hint("s", what, Rank::Context));
     hints
 }
 
@@ -531,6 +561,120 @@ mod tests {
 
     fn ctrl(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    /// A question whose context is a diff, its pane focused.
+    fn focused_diff() -> SessionState {
+        let text = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "context": [{"type": "diff", "old": {"content": "a\n"}, "new": {"content": "b\n"}}],
+            "options": [{"id": "a", "label": "A"}]}]}"#;
+        let mut state =
+            SessionState::new("diff", serde_json::from_str(text).expect("parses"), None);
+        state.set_pane_page(Some(crate::tui::PanePage {
+            diff: unified(true),
+            ..crate::tui::PanePage::shown(Page::default())
+        }));
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        state
+    }
+
+    /// A diff drawn unified, with room for two columns where `fits`.
+    fn unified(fits: bool) -> Option<DrawnDiff> {
+        Some(DrawnDiff {
+            layout: crate::tui::DiffLayout::Unified,
+            fits_side_by_side: fits,
+            translated: None,
+        })
+    }
+
+    /// The key bar's hints for `state`, whose pane drew `diff`.
+    fn diff_hints(
+        state: &SessionState,
+        diff: Option<DrawnDiff>,
+    ) -> Vec<(&'static str, &'static str)> {
+        pairs(&with_diff_hint(
+            key_hints(state, false, Some(Page::default())),
+            state,
+            diff,
+        ))
+    }
+
+    #[test]
+    fn the_focused_pane_names_s_before_the_help_on_a_diff() {
+        let mut state = focused_diff();
+
+        assert_eq!(
+            diff_hints(&state, unified(true)),
+            [
+                ("↑/↓", "scroll"),
+                ("pgup/pgdn", "page"),
+                ("ctrl-u/ctrl-d", "half page"),
+                ("z", "full screen"),
+                ("s", "side by side"),
+                ("?", "help"),
+                ("tab/esc/q", "back")
+            ]
+        );
+        state.handle(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert!(
+            diff_hints(&state, unified(true)).contains(&("s", "unified")),
+            "{:?}",
+            diff_hints(&state, unified(true))
+        );
+    }
+
+    #[test]
+    fn the_key_bar_names_s_only_where_it_switches() {
+        let state = focused_diff();
+
+        let has_s = |diff| diff_hints(&state, diff).iter().any(|(key, _)| *key == "s");
+        assert!(has_s(unified(true)), "a diff with room for two columns");
+        assert!(!has_s(None), "a card or loading");
+        assert!(!has_s(unified(false)), "two columns do not fit");
+        let mut help = focused_diff();
+        help.handle(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        assert_eq!(
+            diff_hints(&help, unified(true)),
+            [("any key", "close")],
+            "over the help"
+        );
+        let mut question = focused_diff();
+        question.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert!(
+            !diff_hints(&question, unified(true))
+                .iter()
+                .any(|(key, _)| *key == "s"),
+            "the question's rows"
+        );
+    }
+
+    #[test]
+    fn the_pane_and_full_screen_helps_list_s_after_z_and_o() {
+        let mut state = focused_diff();
+        let pane = smallest_help_lines(&state);
+        state.handle(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        let full_screen = smallest_help_lines(&state);
+
+        let after = |lines: &[String], key: &str| {
+            let at = lines
+                .iter()
+                .position(|line| line.starts_with(key))
+                .expect("the line of the key");
+            lines[at + 1].clone()
+        };
+        let s = "s             a diff side by side or unified";
+        assert_eq!(after(&pane, "z "), s);
+        assert_eq!(after(&full_screen, "o "), s);
+    }
+
+    #[test]
+    fn the_general_help_names_s_with_o_and_z() {
+        let lines = smallest_help_lines(&general_help_state());
+
+        assert_eq!(
+            lines.iter().find(|line| line.starts_with("o, z")),
+            Some(&"o, z, s    open an image; full screen; diff side by side".to_owned())
+        );
     }
 
     #[test]

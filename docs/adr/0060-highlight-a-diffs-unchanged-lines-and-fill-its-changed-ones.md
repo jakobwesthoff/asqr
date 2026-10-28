@@ -16,6 +16,9 @@ Amends [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md):
 the fills of changed diff lines, and the success and error rows for added
 and removed diff lines
 
+Amended by [70. Show a diff side by side on a key](0070-show-a-diff-side-by-side-on-a-key.md):
+side by side, a changed line fills its column
+
 ## Context
 
 Code entries are highlighted in their language (ADR 34); diffs show

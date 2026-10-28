@@ -159,7 +159,7 @@ included; under `NO_COLOR` it shows none.
 | Warning | yellow | a length counter near or past its limit, a key that was refused, the frame of the dialog of an invalid session |
 | Success | green | a length counter in range, a submitted session, the fill of an added diff line |
 | Error | red | a failure, such as an inbox that cannot be read; the frame, mark and reason of a context entry asqr cannot show, and the `✗` before its name in the pane's header; the fill of a removed diff line |
-| Secondary | dim | hints, unanswered tabs, the mark of an info item, the descriptions in the key bar, asqr's version on the empty queue's key bar and the help's bottom edge, the queue and the count in the title line, the `from` and `follows` line under a session's title, the context pane's rules and its position |
+| Secondary | dim | hints, unanswered tabs, the mark of an info item, the descriptions in the key bar, asqr's version on the empty queue's key bar and the help's bottom edge, the queue and the count in the title line, the `from` and `follows` line under a session's title, the context pane's rules and its position, the line between the two sides of a diff shown side by side |
 
 - Only the focus, the submit button and the changed lines of a diff are
   filled areas. The button is always filled in the primary colour and
@@ -177,7 +177,8 @@ included; under `NO_COLOR` it shows none.
   from the primary cyan; without colours it is dim.
 - A diff's unchanged lines keep the colours their highlighting gives
   them. Its changed lines are a red or green fill with the text in the
-  theme's background colour, without syntax colours. Without colours a
+  theme's background colour, without syntax colours; side by side, each
+  fills its own column and leaves the line between the columns dim. Without colours a
   changed line stays a reversed row, apart from the focus fill by its
   line numbers and its `-` or `+`; the focus fill never falls on a row
   of an entry's body.

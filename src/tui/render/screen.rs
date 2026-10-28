@@ -22,7 +22,7 @@ use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
 use super::keys::{
     dialog_hints, draw_help, empty_queue_hints, intro_hints, key_hints, key_line,
-    key_line_with_version,
+    key_line_with_version, with_diff_hint,
 };
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
@@ -406,7 +406,11 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 ),
                 Some(Overlay::Help) | None => (
                     Extent::default(),
-                    key_hints(state, false, pane_page.map(|shown| shown.page)),
+                    with_diff_hint(
+                        key_hints(state, false, pane_page.map(|shown| shown.page)),
+                        state,
+                        pane_page.and_then(|shown| shown.diff),
+                    ),
                 ),
             };
             let drawn = Drawn {
@@ -5267,5 +5271,178 @@ mod tests {
             assert!(!plain.is_empty(), "help: {help}");
             assert_eq!(held, plain, "help: {help}");
         }
+    }
+
+    // -----------------------------------------------------------------
+    // A diff side by side
+    // -----------------------------------------------------------------
+
+    /// A single question whose options `a` and `b` show the same diff: a
+    /// line of context, then 30 lines `o01` to `o30` replaced by `n01` to
+    /// `n30`. Unified, `n03` is row 33; side by side, row 3 holds `o03`
+    /// beside `n03`.
+    fn long_replace() -> App {
+        let side = |prefix: char| {
+            let lines: String = (1..=30).map(|n| format!("{prefix}{n:02}\\n")).collect();
+            format!("ctx\\n{lines}")
+        };
+        let diff = format!(
+            r#"[{{"type": "diff", "title": "Thirty lines", "old": {{"content": "{}"}}, "new": {{"content": "{}"}}}}]"#,
+            side('o'),
+            side('n')
+        );
+        let json = format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Keep it?", "kind": "single",
+                "options": [{{"id": "a", "label": "A", "context": {diff}}},
+                            {{"id": "b", "label": "B", "context": {diff}}}]}}]}}"#
+        );
+        app(&[("replace", &json)])
+    }
+
+    /// The first row of the body of the pane `backend` shows, under its
+    /// header rule.
+    fn first_body_row(backend: &TestBackend) -> String {
+        let buf = backend.buffer();
+        let header = find(buf, " Thirty lines ").1;
+        row(buf, header + 1)
+    }
+
+    /// `app` after each of `keys`, drawn at 120×30 after each as the run
+    /// loop draws, handing the pane on.
+    fn after(app: &mut App, view: &mut View, keys: &[KeyCode]) -> TestBackend {
+        let mut backend = screen_handing_on_pane(app, view, 120, 30);
+        for key in keys {
+            special(app, *key);
+            backend = screen_handing_on_pane(app, view, 120, 30);
+        }
+        backend
+    }
+
+    /// The keys that focus the pane and scroll it to `n03`, unified row 33.
+    fn to_n03() -> Vec<KeyCode> {
+        let mut keys = vec![KeyCode::Tab];
+        keys.extend(std::iter::repeat_n(KeyCode::Char('j'), 33));
+        keys
+    }
+
+    fn view() -> View<'static> {
+        View::for_tests("q", PaneLayout::Auto, Images::half_blocks())
+    }
+
+    #[test]
+    fn s_keeps_the_line_at_the_top() {
+        let (mut app, mut view) = (long_replace(), view());
+        let scrolled = after(&mut app, &mut view, &to_n03());
+        assert!(first_body_row(&scrolled).contains("+ n03"), "{scrolled}");
+
+        let side_by_side = after(&mut app, &mut view, &[KeyCode::Char('s')]);
+
+        let first = first_body_row(&side_by_side);
+        assert!(
+            first.contains("- o03") && first.contains("+ n03"),
+            "{side_by_side}"
+        );
+    }
+
+    #[test]
+    fn s_twice_comes_back_to_the_same_line() {
+        let (mut app, mut view) = (long_replace(), view());
+        after(&mut app, &mut view, &to_n03());
+        let side_by_side = after(&mut app, &mut view, &[KeyCode::Char('s')]);
+        assert!(
+            first_body_row(&side_by_side).contains("- o03"),
+            "{side_by_side}"
+        );
+
+        let unified = after(&mut app, &mut view, &[KeyCode::Char('s')]);
+
+        let first = first_body_row(&unified);
+        assert!(
+            first.contains("+ n03") && !first.contains("o03"),
+            "{unified}"
+        );
+    }
+
+    /// The pane drawn with a key waiting behind the draw, which shows
+    /// `loading…` for an entry laid out again, as a key held down does.
+    fn with_input_pending(app: &mut App, view: &mut View) -> TestBackend {
+        view.set_input_pending(true);
+        let backend = screen_handing_on_pane(app, view, 120, 30);
+        view.set_input_pending(false);
+        backend
+    }
+
+    /// `long_replace` scrolled to `n03`, switched with `s` and drawn
+    /// while it loads, in a view that does not wait for it then.
+    fn switched_while_loading() -> (App, View<'static>) {
+        let (mut app, mut view) = (long_replace(), view().skipping_waits_for_input());
+        after(&mut app, &mut view, &to_n03());
+        special(&mut app, KeyCode::Char('s'));
+        let loading = with_input_pending(&mut app, &mut view);
+        assert!(loading.to_string().contains("loading…"), "{loading}");
+        (app, view)
+    }
+
+    #[test]
+    fn s_twice_around_a_loading_draw_keeps_the_top_line() {
+        let (mut app, mut view) = switched_while_loading();
+
+        special(&mut app, KeyCode::Char('s'));
+        let unified = screen_handing_on_pane(&mut app, &mut view, 120, 30);
+
+        assert!(first_body_row(&unified).contains("+ n03"), "{unified}");
+    }
+
+    #[test]
+    fn a_key_while_the_switch_loads_moves_nothing_and_the_top_line_stays() {
+        let (mut app, mut view) = switched_while_loading();
+
+        special(&mut app, KeyCode::Char('j'));
+        let side_by_side = screen_handing_on_pane(&mut app, &mut view, 120, 30);
+
+        let first = first_body_row(&side_by_side);
+        assert!(
+            first.contains("- o03") && first.contains("+ n03"),
+            "{side_by_side}"
+        );
+    }
+
+    #[test]
+    fn a_diff_left_side_by_side_shows_its_line_unified_on_return() {
+        let (mut app, mut view) = (long_replace(), view());
+        let mut keys = to_n03();
+        // Back to the question's rows and switched there.
+        keys.extend([KeyCode::Tab, KeyCode::Char('s')]);
+        let switched = after(&mut app, &mut view, &keys);
+        assert!(first_body_row(&switched).contains("- o03"), "{switched}");
+
+        // To option B and back to option A.
+        let back = after(
+            &mut app,
+            &mut view,
+            &[KeyCode::Char('j'), KeyCode::Char('k')],
+        );
+
+        let first = first_body_row(&back);
+        assert!(first.contains("+ n03") && !first.contains("o03"), "{back}");
+    }
+
+    #[test]
+    fn s_in_the_full_screen_view_shows_the_diff_side_by_side() {
+        let (mut app, mut view) = (long_replace(), view());
+
+        let side_by_side = after(
+            &mut app,
+            &mut view,
+            &[KeyCode::Char('z'), KeyCode::Char('s')],
+        );
+
+        assert!(
+            first_body_row(&side_by_side).contains("│ 1   ctx"),
+            "{side_by_side}"
+        );
+        insta::assert_snapshot!("diff_side_by_side_full_screen_120x30", side_by_side);
+        let unified = after(&mut app, &mut view, &[KeyCode::Char('s')]);
+        insta::assert_snapshot!("diff_unified_full_screen_120x30", unified);
     }
 }

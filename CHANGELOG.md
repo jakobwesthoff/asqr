@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `s` shows a `diff` entry side by side: the old text on the left, the
+  new text on the right, each removed line next to an added one and
+  blank rows where one side has more. `s` again shows it unified, which
+  stays the default. It works in the focused context pane, in the
+  full-screen view and on the question's rows, and holds for the entry
+  while it shows. Switching keeps the line at the top in view. A pane
+  without room for two columns of at least 8 characters each keeps the
+  diff unified and says so.
 - The unchanged lines of a `diff` entry are highlighted in its language,
   like a `code` entry: the extension of `name` picks it, and an optional
   `language`, such as `tsx`, overrides it. The new text is highlighted

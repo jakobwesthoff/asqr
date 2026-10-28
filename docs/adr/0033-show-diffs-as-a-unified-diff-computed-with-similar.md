@@ -12,6 +12,9 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 
 Amended by [60. Highlight a diff's unchanged lines and fill its changed ones](0060-highlight-a-diffs-unchanged-lines-and-fill-its-changed-ones.md)
 
+Amended by [70. Show a diff side by side on a key](0070-show-a-diff-side-by-side-on-a-key.md):
+a diff also shows side by side
+
 ## Context
 
 A diff entry carries the old and the new text, each inline or from a

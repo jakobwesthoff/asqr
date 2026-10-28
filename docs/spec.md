@@ -193,8 +193,8 @@ such as a file name:
   whole name when it has none, and failing that they show plain
   (section 8.5). A unified diff written
   by the asker is not understood: asqr diffs it like any other text and
-  shows a diff of the diff. asqr shows the change as a unified diff
-  (section 8.5).
+  shows a diff of the diff. asqr shows the change as a unified diff,
+  or side by side on a key (section 8.5).
 - `ansi`: text whose SGR escape sequences (`ESC [ … m`) set its colours
   and attributes, such as the output of a command run with its colours
   or a mockup of a terminal screen, from the file at `path` or inline in
@@ -1210,7 +1210,7 @@ On an option row (vim style plus arrows):
 | `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
 | `i` | the whole intro |
-| `o`, `z` | open the image shown in the system viewer; show the context shown full screen |
+| `o`, `z`, `s` | open the image shown in the system viewer; show the context shown full screen; show a diff side by side or unified (section 8.5) |
 | `tab`, `shift-tab` | move into the context pane; `tab`, `shift-tab`, `esc` or `q` move back |
 | `pgup`/`pgdn` | scroll the context pane by a page, also while typing in a field |
 | `ctrl-u`/`ctrl-d` | scroll the context pane by half a page, also while typing in a field |
@@ -1239,8 +1239,8 @@ The context pane:
 - The focused pane takes every key: `↑`/`↓` and `k`/`j` scroll by line,
   `←`/`→` and `h`/`l` by 4 columns sideways where the entry's lines are
   cut at the pane's edge, `pgup`/`pgdn` by a page, `ctrl-u`/`ctrl-d` by
-  half a page, `g`/`G` and `home`/`end` to the ends. `z`, `o` and `?`
-  keep their meaning and `ctrl-c` quits. `tab`, `shift-tab`, `esc` and `q` give the
+  half a page, `g`/`G` and `home`/`end` to the ends. `z`, `o`, `s` and
+  `?` act as on the question's rows and `ctrl-c` quits. `tab`, `shift-tab`, `esc` and `q` give the
   focus back to where it was, a field being typed in included, so a word
   typed after `tab` never quits asqr. Every other key does nothing.
 - While the pane has the focus, its name shows the focus fill and its
@@ -1264,12 +1264,12 @@ The context pane:
   area, its ledge included. It acts on every kind of entry (ADR 31). The
   full-screen view reads like the focused pane: it takes every key, so
   `enter`, the digits, `n` and the others cannot act on the question
-  hidden behind it. It scrolls with the pane's keys, `o` and `?` keep
-  their meaning, and `z`, `esc`, `tab` and `q` leave it for where the
+  hidden behind it. It scrolls with the pane's keys, `o`, `s` and `?`
+  act as in the pane, and `z`, `esc`, `tab` and `q` leave it for where the
   focus was before: the question, a field being typed in, or the
   focused pane. The key bar shows the pane's keys with `z/esc/q back`.
   The help is titled "Keys of the full-screen view" and lists the
-  pane's scroll keys, `o`, `ctrl-c`, `?` and `z/tab/esc/q  leave the
+  pane's scroll keys, `o`, `s`, `ctrl-c`, `?` and `z/tab/esc/q  leave the
   full screen`. An image entry with a caption shows its image alone
   there when `z` came from a pane, which showed the caption. Where only
   the one-line hint shows (section 7.4), `z` shows image and caption by
@@ -1662,7 +1662,8 @@ Context appears only when a question or one of its options has some
   takes longer shows
   a dim `loading…` in the middle of the pane, below the header that
   names it, until it is ready. A new size of the pane, also the `z` view,
-  lays the entry out again the same way. While a key, a paste, a resize
+  lays the entry out again the same way, and so does switching a diff
+  between unified and side by side. While a key, a paste, a resize
   or a quit waits to be handled, the pane does not wait and shows
   `loading…` at once, so holding a key moves over slow entries without
   stopping on each. While the pane shows `loading…`, its scroll keys
@@ -1743,12 +1744,13 @@ Code entries, ANSI entries and diffs show lines of source:
 ### 8.5 Diffs
 
 - asqr computes the diff from the old and the new text, line by line
-  (ADR 33), and shows it unified: hunks with 3 unchanged lines of context around
+  (ADR 33), and shows it unified by default: hunks with 3 unchanged lines of context around
   each change, and a dim line of `┈` between two hunks. A dim gutter
   holds the old and the new line number, followed by the sign: `-` for
   a removed line, `+` for an added one, a blank for an unchanged one.
 - A removed line shows in a red fill and an added line in a green fill,
-  across the pane's width with its numbers and sign: reversed video of
+  across the pane's width with its numbers and sign, side by side
+  across its column: reversed video of
   the terminal's red and green, so its theme decides the shades. A
   changed line shows as its old version removed and its new version
   added, each whole in its fill, with nothing marked inside the line and
@@ -1774,6 +1776,47 @@ Code entries, ANSI entries and diffs show lines of source:
   one. A new or deleted file, all of whose lines are changed, shows no
   syntax colours. A diff whose two sides together are longer than 1 MiB
   shows without highlighting.
+- `s` shows the diff side by side, and `s` again unified (ADR 70). It
+  works in the focused pane, in the full-screen view and on the
+  question's rows, not while a field or a note takes the keys, where it
+  types. Whether side by side reads better is not settled, so unified is
+  what shows first. The switch holds for that entry while it shows, as
+  the full-screen view does: once another entry shows, it ends, and the
+  diff shows unified when it comes back. A replaced session file keeps
+  it while the same entry shows. asqr does not keep it when it quits.
+- Side by side, the old text shows in the left column and the new text
+  in the right one, with a dim `│` between them; of an odd width, the
+  left column takes the smaller half. Each column has its own gutter:
+  its side's line number and the sign. An unchanged line shows on both
+  sides, its old number left and its new number right, highlighted on
+  both as in the unified diff. In a run of changed lines, the first
+  removed line faces the first added one, the second the second, and
+  where one side has more lines, blank rows face the rest. "no newline
+  at end of file" takes a row of its own under its line, in that line's
+  column, facing a blank. The separator between hunks and every other
+  note run across both columns.
+- Both columns scroll sideways together, as far as the line that runs
+  furthest past its column needs, and each column marks its cut lines
+  with its own `‹` and `›`.
+- Switching keeps the line at the top of the pane at the top: a removed
+  or added line that faces another shows from the row of the two, and
+  switching back before scrolling shows the line the switch started
+  from.
+- Side by side needs room for two columns, each with its gutter and at
+  least 8 columns of text, and the divider. In a narrower body the diff
+  shows unified, and `s` says "too narrow for side by side; z shows it
+  full screen", in the full-screen view "too narrow for side by side";
+  `s` back to unified always works. On an entry that is no diff, `s`
+  says "only a diff shows side by side", on a diff that cannot be read
+  "this diff cannot be shown side by side", and where no entry shows
+  "nothing to show side by side here". Beside the one-line hint
+  (section 7.4), `s` switches the diff and says "side by side shows with
+  z".
+- While the focused pane or the full-screen view shows a diff that `s`
+  can switch, the key bar names `s  side by side`, or `s  unified`
+  while it shows side by side, before `?  help`. The help of the pane
+  and of the full-screen view lists `s  a diff side by side or
+  unified`.
 - The pane shows the hunks only, never the whole file.
 - Computing a diff may take up to a second. Past that, asqr shows a
   diff that is still correct but may mark more lines as changed than
@@ -2001,7 +2044,6 @@ The skill teaches:
 - Partial submits.
 - Question kinds beyond `single`, `multi`, `text` and `info`.
 - A tmux passthrough hint in the TUI.
-- Diffs side by side in a wide pane.
 - Editing a field in `$EDITOR` with `ctrl-g`.
 - Windows support (it may work, but it is not tested).
 - Formats other than JSON.

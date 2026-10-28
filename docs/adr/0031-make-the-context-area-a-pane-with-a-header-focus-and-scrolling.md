@@ -49,6 +49,9 @@ Amended by [69. Show a Markdown caption with an image entry](0069-show-a-markdow
 the full-screen view shows a captioned image alone, and from the
 one-line hint first with its caption
 
+Amended by [70. Show a diff side by side on a key](0070-show-a-diff-side-by-side-on-a-key.md):
+the focused pane, the full-screen view and the question's rows take `s`
+
 ## Context
 
 The context area beside or below the question (ADR 30) shows entries of

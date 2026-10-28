@@ -215,7 +215,12 @@ Once asked, asqr fits best when:
     lines around each change, a separator between such hunks, the old
     and the new line number of every line, removed lines in a red fill
     and added lines in a green fill across the pane, and the unchanged
-    lines highlighted in the diff's language. A diff whose two versions
+    lines highlighted in the diff's language. The person can switch a
+    diff to side by side, the old version on the left and the new one on
+    the right with each removed line next to an added one; each side
+    keeps its own line numbers, removed and added lines keep their red
+    and green fill within their column, and unchanged lines their
+    highlighting. A diff whose two versions
     together exceed 1 MiB shows without highlighting. A long line does
     not wrap; the person scrolls sideways. Identical versions show "no
     changes".

@@ -322,18 +322,10 @@ impl Viewers {
         self.tools.wake = wake;
     }
 
-    /// The viewer of `entry`, which session `session` shows as `key`, with
-    /// Markdown quotes in `quote`, laid out for a body of `width`×`height`
-    /// cells, and the size its content takes there. A viewer is built when
-    /// its key shows an entry for the first time, another entry than
-    /// before, as a replaced session file can, or the entry with quotes in
-    /// another style.
-    ///
-    /// Building and laying out run on a thread of their own. The call
-    /// waits for that job up to [`LOAD_WAIT`], once per job; a job that
-    /// takes longer leaves the placeholder in the viewer's place until a
-    /// later draw finds it done.
-    pub fn laid_out(
+    /// [`Self::laid_out_shaped`] in a pane's body, where everything shows
+    /// as it is.
+    #[cfg(test)]
+    pub(super) fn laid_out(
         &mut self,
         session: &str,
         key: EntryKey,
@@ -346,28 +338,21 @@ impl Viewers {
         self.laid_out_in(session, key, entry, room, quote)
     }
 
-    /// [`Self::laid_out`] for the full-screen view reached from a pane,
-    /// which shows an image without its caption (ADR 69). The viewer is the
-    /// same one, laid out again, so the file is not read again.
-    pub fn laid_out_alone(
-        &mut self,
-        session: &str,
-        key: EntryKey,
-        entry: &ContextEntry,
-        width: u16,
-        height: u16,
-        quote: QuoteStyle,
-    ) -> (&mut dyn Viewer, ContentSize) {
-        let shape = Shape {
-            alone: true,
-            side_by_side: false,
-        };
-        self.laid_out_shaped(session, key, entry, (width, height), shape, quote)
-    }
-
-    /// [`Self::laid_out`] for an entry shown as `shape` asks in a body of
-    /// `size`, width and height: alone in the full-screen view reached
-    /// from a pane, and a diff side by side.
+    /// The viewer of `entry`, which session `session` shows as `key`, with
+    /// Markdown quotes in `quote`, laid out for a body of `size`, its width
+    /// and height, as `shape` asks, and the size its content takes there.
+    /// The full-screen view reached from a pane shows an image alone,
+    /// without its caption (ADR 69), and a diff the person switched shows
+    /// side by side (ADR 70); the viewer is the same one, laid out again,
+    /// so its file is not read again. A viewer is built when its key shows
+    /// an entry for the first time, another entry than before, as a
+    /// replaced session file can, or the entry with quotes in another
+    /// style.
+    ///
+    /// Building and laying out run on a thread of their own. The call
+    /// waits for that job up to [`LOAD_WAIT`], once per job; a job that
+    /// takes longer leaves the placeholder in the viewer's place until a
+    /// later draw finds it done.
     pub(super) fn laid_out_shaped(
         &mut self,
         session: &str,
