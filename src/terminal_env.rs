@@ -114,6 +114,48 @@ pub fn passthrough(sequence: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------
+// Versions
+// ---------------------------------------------------------------------
+
+/// Whether the terminal version `version` is `floor` or later. A version
+/// that cannot be read counts as earlier, so a feature that needs a
+/// known version stays off for it.
+pub fn version_at_least(version: &str, floor: &[u32]) -> bool {
+    version_numbers(version).is_some_and(|numbers| !below(&numbers, floor))
+}
+
+/// The numbers at the start of `version`, such as `[3, 6, 7]` for
+/// `3.6.7beta2` and `[20240203]` for `20240203-110809-5046fc22`: the
+/// digits of each part between dots, up to the first part that goes on
+/// with something else. That counts a pre-release as its release.
+/// `None` when `version` does not start with a digit.
+fn version_numbers(version: &str) -> Option<Vec<u32>> {
+    let mut numbers = Vec::new();
+    for part in version.split('.') {
+        let digits = part.len() - part.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        let Ok(number) = part[..digits].parse() else {
+            break;
+        };
+        numbers.push(number);
+        if digits < part.len() {
+            break;
+        }
+    }
+    (!numbers.is_empty()).then_some(numbers)
+}
+
+/// Whether `numbers` come before `floor`, a missing number counting as 0.
+fn below(numbers: &[u32], floor: &[u32]) -> bool {
+    let length = numbers.len().max(floor.len());
+    let padded = |of: &[u32]| {
+        let mut padded = of.to_vec();
+        padded.resize(length, 0);
+        padded
+    };
+    padded(numbers) < padded(floor)
+}
+
+// ---------------------------------------------------------------------
 // What tmux says about the pane
 // ---------------------------------------------------------------------
 
