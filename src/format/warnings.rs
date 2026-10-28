@@ -12,11 +12,14 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{ContextEntry, FieldPath, Session, session_schema};
+use super::{
+    ContextEntry, FieldPath, LineBreaks, MAX_BYTES, MAX_LINES, Session, line_cut, session_schema,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Warning {
@@ -46,6 +49,9 @@ pub enum WarningKind {
     /// A code, Markdown, ANSI or diff entry above 1 MiB. Carries its size
     /// in bytes, an ANSI entry's escape sequences included.
     LargeEntry(u64),
+    /// A code, Markdown or ANSI entry, a side of a diff or an image's
+    /// caption of more than [`MAX_LINES`] lines, which its viewer cuts.
+    ManyLines,
     /// The file exists but asqr has no decoder for it, or its header is
     /// broken. Carries the reason.
     ImageNotDecodable(String),
@@ -81,6 +87,8 @@ impl fmt::Display for Warning {
                     tenths % 10
                 )
             }
+            WarningKind::ManyLines => formatter
+                .write_str("more than 500,000 lines; asqr shows only the first 500,000"),
             WarningKind::ImageNotDecodable(reason) => write!(formatter, "cannot be shown: {reason}"),
         }
     }
@@ -305,25 +313,37 @@ fn check_context(
                 // The image file gets no size warning, its caption does: it
                 // is text the pane renders like a Markdown entry.
                 if let Some(caption) = &image.caption {
-                    check_size(caption.len() as u64, &path.field("caption"), found);
+                    let caption_path = path.field("caption");
+                    check_size(caption.len() as u64, &caption_path, found);
+                    let text = Some(caption.as_str());
+                    check_lines(text, None, LineBreaks::Any, &caption_path, found);
                 }
             }
             ContextEntry::Code(code) => {
-                let (size, _) = source_size(&code.path, &code.content, &path, base_dir, found);
+                let (size, file) = source_size(&code.path, &code.content, &path, base_dir, found);
                 check_size(size, &path, found);
+                let text = code.content.as_deref();
+                check_lines(text, file.as_deref(), LineBreaks::Any, &path, found);
             }
             ContextEntry::Markdown(markdown) => {
-                let (size, _) =
+                let (size, file) =
                     source_size(&markdown.path, &markdown.content, &path, base_dir, found);
                 check_size(size, &path, found);
+                let text = markdown.content.as_deref();
+                check_lines(text, file.as_deref(), LineBreaks::Any, &path, found);
             }
             ContextEntry::Ansi(ansi) => {
-                let (size, _) = source_size(&ansi.path, &ansi.content, &path, base_dir, found);
+                let (size, file) = source_size(&ansi.path, &ansi.content, &path, base_dir, found);
                 check_size(size, &path, found);
+                let text = ansi.content.as_deref();
+                check_lines(text, file.as_deref(), LineBreaks::Newline, &path, found);
             }
             ContextEntry::Diff(diff) => {
                 // The viewer works on both texts, so they count together.
                 let mut size = 0;
+                // Each side is cut by lines on its own, so its warning
+                // names the side.
+                let mut texts = Vec::new();
                 let sides = [("old", &diff.old), ("new", &diff.new)];
                 for (field, side) in sides {
                     let Some(side) = side else { continue };
@@ -331,9 +351,14 @@ fn check_context(
                     let (side_size, file) =
                         source_size(&side.path, &side.content, &side_path, base_dir, found);
                     size += side_size;
-                    check_unified_diff(side.content.as_deref(), file.as_deref(), side_path, found);
+                    let content = side.content.as_deref();
+                    check_unified_diff(content, file.as_deref(), side_path.clone(), found);
+                    texts.push((side_path, content, file));
                 }
                 check_size(size, &path, found);
+                for (side_path, content, file) in texts {
+                    check_lines(content, file.as_deref(), LineBreaks::Any, &side_path, found);
+                }
             }
         }
     }
@@ -446,6 +471,43 @@ fn check_size(size: u64, path: &FieldPath, found: &mut Vec<Warning>) {
             kind: WarningKind::LargeEntry(size),
         });
     }
+}
+
+/// Warns when a viewer would cut a text at the line limit: `content`, or
+/// else the file `file`, whose lines end at `breaks`.
+fn check_lines(
+    content: Option<&str>,
+    file: Option<&Path>,
+    breaks: LineBreaks,
+    path: &FieldPath,
+    found: &mut Vec<Warning>,
+) {
+    let cut = match content {
+        Some(content) => line_cut(content.as_bytes(), MAX_LINES, breaks).is_some(),
+        None => file.is_some_and(|file| file_cut_by_lines(file, breaks)),
+    };
+    if cut {
+        found.push(Warning {
+            path: path.clone(),
+            kind: WarningKind::ManyLines,
+        });
+    }
+}
+
+/// Whether a viewer would cut the file at `file`, whose lines end at
+/// `breaks`, at the line limit. It counts what a viewer reads, the first
+/// [`MAX_BYTES`], and a binary file, which a viewer does not show, counts
+/// as not cut. A file of no more bytes than [`MAX_LINES`] cannot hold more
+/// lines, so it is not read; a larger one takes a read of at most 8 MiB.
+fn file_cut_by_lines(file: &Path, breaks: LineBreaks) -> bool {
+    let size = std::fs::metadata(file).map_or(0, |metadata| metadata.len());
+    if size <= MAX_LINES as u64 {
+        return false;
+    }
+    let mut bytes = Vec::new();
+    let read =
+        std::fs::File::open(file).and_then(|opened| opened.take(MAX_BYTES).read_to_end(&mut bytes));
+    read.is_ok() && !bytes.contains(&0) && line_cut(&bytes, MAX_LINES, breaks).is_some()
 }
 
 /// Warns about a relative or missing file, or a path that names no regular
@@ -836,6 +898,164 @@ mod tests {
                 None
             ),
             Vec::<String>::new()
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // The line limit
+    // -----------------------------------------------------------------
+
+    const MANY_LINES: &str = "more than 500,000 lines; asqr shows only the first 500,000";
+
+    /// `count` lines of `x`, each ended by `\n`: under 1 MiB up to the
+    /// line limit and one more, so only the line warning applies.
+    fn lines_of_x(count: usize) -> String {
+        "x\n".repeat(count)
+    }
+
+    #[test]
+    fn warns_about_a_code_entry_above_the_line_limit() {
+        assert_eq!(
+            warn(
+                &with_context(
+                    &serde_json::json!({"type": "code", "content": lines_of_x(MAX_LINES + 1)})
+                ),
+                None
+            ),
+            [format!("questions[0].context[0]: {MANY_LINES}")]
+        );
+    }
+
+    #[test]
+    fn a_code_entry_at_the_line_limit_gets_no_line_warning() {
+        assert_eq!(
+            warn(
+                &with_context(
+                    &serde_json::json!({"type": "code", "content": lines_of_x(MAX_LINES)})
+                ),
+                None
+            ),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn warns_about_a_markdown_file_above_the_line_limit() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let notes = directory.path().join("notes.md");
+        std::fs::write(&notes, lines_of_x(MAX_LINES + 1)).expect("file is writable");
+
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "markdown", "path": notes})),
+                None
+            ),
+            [format!("questions[0].context[0]: {MANY_LINES}")]
+        );
+    }
+
+    #[test]
+    fn warns_about_an_ansi_entry_above_the_line_limit() {
+        assert_eq!(
+            warn(
+                &with_context(
+                    &serde_json::json!({"type": "ansi", "content": lines_of_x(MAX_LINES + 1)})
+                ),
+                None
+            ),
+            [format!("questions[0].context[0]: {MANY_LINES}")]
+        );
+    }
+
+    /// An ANSI entry keeps a lone `\r` in its line, as progress output
+    /// writes it.
+    #[test]
+    fn an_ansi_entry_counts_only_newlines_for_the_line_limit() {
+        assert_eq!(
+            warn(
+                &with_context(
+                    &serde_json::json!({"type": "ansi", "content": "x\r".repeat(MAX_LINES + 1)})
+                ),
+                None
+            ),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_diff_side_above_the_line_limit_gets_the_warning() {
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "diff",
+                    "old": {"content": "x\n"}, "new": {"content": lines_of_x(MAX_LINES + 1)}})),
+                None
+            ),
+            [format!("questions[0].context[0].new: {MANY_LINES}")]
+        );
+    }
+
+    #[test]
+    fn a_caption_above_the_line_limit_gets_the_warning() {
+        assert_eq!(
+            caption_warnings(&serde_json::json!(
+                {"type": "image", "path": "/a.png", "caption": lines_of_x(MAX_LINES + 1)})),
+            [format!("questions[0].context[0].caption: {MANY_LINES}")]
+        );
+    }
+
+    /// A viewer reads the first 8 MiB of a file, so lines after them are
+    /// never shown and do not count.
+    #[test]
+    fn lines_past_the_first_8_mib_of_a_file_do_not_count() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let log = directory.path().join("build.log");
+        let limit = usize::try_from(MAX_BYTES).expect("8 MiB fit");
+        let mut text = "x".repeat(limit);
+        text.push_str(&"\n".repeat(600_000));
+        std::fs::write(&log, text).expect("log is writable");
+
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "code", "path": log})),
+                None
+            ),
+            [
+                "questions[0].context[0]: 8.6 MiB, more than the 1 MiB an entry should stay under; asqr still shows it"
+            ]
+        );
+    }
+
+    /// A file with a NUL byte shows as "binary file", not as lines.
+    #[test]
+    fn a_binary_file_gets_no_line_warning() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let dump = directory.path().join("dump.bin");
+        let mut bytes = vec![0];
+        bytes.extend(lines_of_x(MAX_LINES + 1).bytes());
+        std::fs::write(&dump, bytes).expect("file is writable");
+
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "code", "path": dump})),
+                None
+            ),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn an_entry_above_both_limits_gets_both_warnings() {
+        let text = "xx\n".repeat(600_000);
+
+        assert_eq!(
+            warn(
+                &with_context(&serde_json::json!({"type": "code", "content": text})),
+                None
+            ),
+            [
+                "questions[0].context[0]: 1.8 MiB, more than the 1 MiB an entry should stay under; asqr still shows it".to_owned(),
+                format!("questions[0].context[0]: {MANY_LINES}"),
+            ]
         );
     }
 

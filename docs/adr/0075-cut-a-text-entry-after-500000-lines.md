@@ -6,6 +6,9 @@ Date: 2026-10-28
 
 Accepted
 
+Amends [28. Session and result format version 2](0028-session-and-result-format-version-2.md):
+`validate` and `ask` warn about a text entry of more than 500,000 lines
+
 Amends [33. Show diffs as a unified diff computed with similar](0033-show-diffs-as-a-unified-diff-computed-with-similar.md):
 each side of a diff is cut after 500,000 lines as well as after 8 MiB
 
@@ -87,6 +90,15 @@ a caption is cut after 500,000 lines
 - **Memory of the cut:** a file's bytes are cut before they are
   decoded, and inline text copies only the lines kept, so a cut text
   holds no memory for the rest.
+- **The warning:** `asqr validate` and `asqr ask` warn about a text
+  entry, a side of a diff or a caption of more than 500,000 lines, as
+  they warn above 1 MiB: `more than 500,000 lines; asqr shows only the
+  first 500,000`, at the side's or the caption's path for those. They
+  count lines as the viewer does: inline text whole, a file in its
+  first 8 MiB, and a file with a NUL byte, which the viewer does not
+  show, not at all. A file of no more than 500,000 bytes cannot hold
+  more lines and is not read. An entry above both limits gets both
+  warnings, the 1 MiB one first, which keeps its text.
 - Lines are not made leaner in memory.
 
 ## Consequences
@@ -94,6 +106,9 @@ a caption is cut after 500,000 lines
 - After the change, 8 MiB of line breaks takes 64.1 MB in the code
   viewer, 46.7 MB in the ANSI viewer, 118.7 MB in the diff of a new
   file and 13.9 MB in the Markdown viewer.
+- `asqr validate` of a session whose code entry is a file of 8 MiB of
+  real Rust took 0.01 s and a peak of 13.7 MB, the read for the line
+  count included.
 - The limit bounds memory, not time: a code entry under 1 MiB is still
   highlighted, and 500,000 lines of `x` in Rust took 4.47 s.
 - Markdown's cost grows with its bytes rather than its lines: 8 MiB of

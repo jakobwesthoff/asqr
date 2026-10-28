@@ -237,8 +237,11 @@ Once asked, asqr fits best when:
     cannot read shows as an error card with the reason.
   - Keep a code, Markdown, ANSI or diff entry, and an image's caption,
     under 1 MiB (both sides of a diff together, escape sequences
-    included); `validate` and `ask` warn above that. Show an excerpt
-    instead of a whole large file.
+    included); `validate` and `ask` warn above that. asqr shows at most
+    the first 8 MiB of a file and the first 500,000 lines of each text,
+    each side of a diff on its own, with a note where it cuts, and
+    `validate` and `ask` warn about more lines. Show an excerpt instead
+    of a whole large file.
   - Paths are absolute. `asqr ask` turns relative paths into absolute
     ones, resolved against the session file. asqr reads a file when it
     shows it, so leave it in place until the person has answered.

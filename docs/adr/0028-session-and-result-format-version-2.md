@@ -28,6 +28,8 @@ Amended by [69. Show a Markdown caption with an image entry](0069-show-a-markdow
 
 Amended by [71. Let backspace clear the pick of a single question](0071-let-backspace-clear-the-pick-of-a-single-question.md)
 
+Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

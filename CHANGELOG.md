@@ -115,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "first 500,000 lines shown" and above a dim "… the rest is cut after
   500,000 lines", from a file or inline; each side of a diff counts on
   its own. 8 MiB of empty lines took 828 MB in a code entry and takes
-  64 MB now.
+  64 MB now. `asqr validate` and `asqr ask` warn about such an entry.
 
 ### Fixed
 

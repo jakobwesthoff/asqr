@@ -303,6 +303,11 @@ add optional fields.
   `ansi` entry its escape sequences count. asqr still shows it.
   Image files get no such warning; an image entry's `caption` above
   1 MiB does.
+- about a `code`, `markdown` or `ansi` entry, a side of a `diff` or an
+  image entry's `caption` of more than 500,000 lines, inline or in the
+  first 8 MiB of its file, which asqr cuts (section 8.3). A file that
+  holds a NUL byte, which asqr does not show, gets no such warning. An
+  entry can get both this and the 1 MiB warning.
 - about fields of earlier format versions (section 3.6).
 - about `"note": false` on a question or an info item, which is ignored,
   as every question takes a note (section 3.2).
