@@ -42,6 +42,10 @@ with it, and no step-by-step description of setting it up with an agent.
   documentation (2026-10-15). The README's logo is the terminal emblem
   (`assets/emblem/talqi-terminal.svg`), and the README only links the
   picture where it explains Talqi's name.
+- Whether the guide, a website and the skill share one list of task
+  patterns. The skill suggests what a session can hold for common kinds
+  of task under "Patterns for common tasks", and the guide or a website
+  would show the same patterns.
 
 ## Relations
 

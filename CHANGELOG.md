@@ -52,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the one-line hint it shows image and caption first, then the
   image alone. `asqr validate` and `asqr ask` warn about a caption above
   1 MiB.
+- The agent skill suggests patterns for common kinds of task, such as
+  comparing image variants, deciding before implementing and going
+  through review findings. Each pattern names what a session can hold,
+  as a starting point an agent adapts or leaves aside.
 
 ### Changed
 

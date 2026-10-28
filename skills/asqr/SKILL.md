@@ -484,3 +484,56 @@ enough. `asqr paths --json` shows where the queue's files are.
 - **Queues.** Everything goes to the default queue unless `--queue
   <name>` or `ASQR_QUEUE` names another one. Use the queue the person's
   `asqr` watches.
+
+## Patterns for common tasks
+
+Once the user has asked you to use asqr, these patterns suggest what a
+session can hold for a kind of task. They are a starting point. Adapt or
+extend one for the task at hand, combine them, or leave them aside where
+something else fits better. They never make a task a reason to use asqr
+without that request.
+
+- **Compare visual variants.** One question per thing to decide, such as
+  each icon. Each variant is an option with a short label such as
+  `Draft 3`, its image as `context` and a one-line `caption` on what
+  sets it apart. Ask for a `single` pick, or a `multi` pick of keepers.
+- **Decide before implementing.** Start with an `info` item on what you
+  settled, then ask one question per open point: the recommended option
+  first and as the `default`, a short trade-off in each `description`,
+  and the current state or each option's own `diff` as `context`.
+- **Review findings.** One question per finding. Its `text` gives before
+  and after in two sentences and the risk, its `context` the fix as a
+  `diff` with a `name`, which highlights the unchanged lines. Options
+  such as post as a review comment, fix, or drop.
+- **Pick candidates inside a pipeline.** Ask for the candidates of one
+  step as a `multi` pick, each option with its own `context` where the
+  person needs to see the candidate, and `max` when the next step takes
+  at most so many.
+- **Debug walk-through.** Start with an `info` item on what you found,
+  with the log or trace as its `context`. Then ask one question with
+  each candidate fix as an option whose `context` is its `diff`, and one
+  `multi` pick of the tests you would add.
+- **Triage a backlog** of bug reports, todos or updates. One question
+  per item, with its strongest evidence as `context`, such as a
+  screenshot or a log, your take and fix idea in the `text`, options
+  such as pursue, defer or close, and your recommendation as `default`.
+- **Restructure a document.** One question per section, with the
+  section's own text as a `markdown` entry in its `context`, the places
+  it could go as options with the reason in each `description`, and an
+  own answer for somewhere else.
+- **Rating grid.** One `single` question per candidate and aspect, such
+  as length with too long, right and too short, tone or humour. Each has
+  the candidate as `context` and a `header` such as `B tone`. Ask the
+  next round, built from the ratings, with `follows`.
+
+Habits that run through them: one question per item, your
+recommendation first, before and after spelled out, a change to existing
+text shown as a `diff`, and each option's own `context` where the person
+compares. Results so far go into an `info` item, not a question with an
+option like "OK". A `single` with a `default` comes back answered, with
+the default unless the person picks another option or an own answer, so
+add an option such as "not yet" where they may want to leave it open.
+Read every note, on info items too. For what came up, ask a follow-up
+round with `follows`. When the person answers the questions another way,
+such as in the chat, withdraw the session. Ask one you rebuilt under a
+new id with `--replaces`, which withdraws the old one.

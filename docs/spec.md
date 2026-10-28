@@ -1984,6 +1984,9 @@ The skill teaches:
   of the new id without it
 - longer sessions: batches, follow-up rounds with `follows`, and keeping
   a record of the answers
+- patterns for common kinds of task, such as comparing image variants
+  or deciding before implementing, as a starting point the agent adapts
+  or leaves aside, and that they never make a task a reason to use asqr
 
 ## 10. Not in asqr yet
 
