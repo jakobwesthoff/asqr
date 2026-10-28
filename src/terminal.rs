@@ -15,7 +15,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use asqr::cli::{Exit, Watch};
@@ -29,8 +29,8 @@ use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
-    Alerts, Event, Host, KeepAlive, ProgressTerminal, SleepClock, alert, progress_sequence,
-    progress_terminal, run, start, watch_inbox,
+    Alerts, Event, EventSource, Host, KeepAlive, KeyReader, ProgressTerminal, SleepClock, alert,
+    progress_sequence, progress_terminal, run, start, watch_inbox,
 };
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -167,25 +167,9 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
 
     let loaded = sender.clone();
     let ticks = sender.clone();
-    // The thread blocks in `read` for the life of the process; it ends
-    // with it.
-    std::thread::spawn(move || {
-        while let Ok(terminal_event) = event::read() {
-            let event = match terminal_event {
-                TerminalEvent::Key(key) => Event::Key(key),
-                TerminalEvent::Resize(..) => {
-                    log_window_size();
-                    Event::Resize
-                }
-                TerminalEvent::FocusGained => Event::FocusGained,
-                TerminalEvent::Paste(text) => Event::Paste(text),
-                _ => continue,
-            };
-            if sender.send(event).is_err() {
-                break;
-            }
-        }
-    });
+    // The thread reads for the life of the process and ends with it; it
+    // pauses while another program has the terminal.
+    let _keys = KeyReader::spawn(CrosstermEvents, sender);
 
     let queue = match location.name() {
         Some(name) => name.to_owned(),
@@ -518,6 +502,23 @@ fn forward_quit_signals(sender: mpsc::Sender<Event>) {
             let _ = sender.send(Event::Quit);
         }
     });
+}
+
+/// The terminal's events as crossterm reads them, for the [`KeyReader`].
+struct CrosstermEvents;
+
+impl EventSource for CrosstermEvents {
+    fn poll(&mut self, timeout: Duration) -> io::Result<bool> {
+        event::poll(timeout)
+    }
+
+    fn read(&mut self) -> io::Result<TerminalEvent> {
+        let event = event::read()?;
+        if let TerminalEvent::Resize(..) = event {
+            log_window_size();
+        }
+        Ok(event)
+    }
 }
 
 /// Logs the terminal's size in cells and pixels, and the cell size they

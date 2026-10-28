@@ -9,6 +9,7 @@
 mod alert;
 mod app;
 mod inbox;
+mod key_reader;
 mod progress;
 pub mod render;
 mod run;
@@ -20,6 +21,7 @@ mod watch;
 pub use alert::*;
 pub use app::*;
 pub use inbox::*;
+pub use key_reader::*;
 pub use progress::*;
 pub use run::*;
 pub use scroll::{Extent, Offset, Page};
