@@ -1579,8 +1579,17 @@ mod tests {
     #[test]
     fn a_withdrawn_session_leaves_with_a_notice() {
         let (_scratch, location) = queue();
-        put(&location, "release.json", RELEASE);
+        let release = put(&location, "release.json", RELEASE);
         put(&location, "next.json", SESSION);
+        // Only the session on screen gets the notice, so `release` has to
+        // come first. Two files written in a row can share their mtime,
+        // and the id then puts `next` first.
+        fs::File::options()
+            .write(true)
+            .open(&release)
+            .expect("opened")
+            .set_modified(std::time::SystemTime::UNIX_EPOCH)
+            .expect("touched");
         let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
         inbox.sync(&mut app).expect("synced");
         shown(&mut app);
