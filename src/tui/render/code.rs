@@ -14,7 +14,7 @@ use ratatui::text::Line;
 use ratatui::widgets::Widget;
 
 use super::patine_adapter::source_line;
-use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
+use super::source_file::{Cut, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
@@ -112,8 +112,9 @@ enum Row {
 }
 
 impl Lines {
-    /// `lines`, the whole text or, when `cut`, the start of a longer file.
-    fn new(lines: Vec<SourceLine>, cut: bool) -> Self {
+    /// `lines`, the whole text or the start of a longer one that the limit
+    /// `cut` ended.
+    fn new(lines: Vec<SourceLine>, cut: Option<Cut>) -> Self {
         let digits = lines.len().to_string().len();
         let numbered = (1..)
             .zip(lines)
@@ -400,7 +401,7 @@ mod tests {
     fn the_start_of_a_file_too_long_to_read_whole_says_so_above_and_below_its_lines() {
         let source = Ok(Source {
             text: "one\ntwo\n".into(),
-            cut: true,
+            cut: Some(Cut::Bytes),
         });
         let mut viewer = content_of(
             &entry(r#"{"type": "code", "path": "/var/log/big.log"}"#),

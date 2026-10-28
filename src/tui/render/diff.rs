@@ -21,7 +21,7 @@ use similar::{Algorithm, Change, ChangeTag, DiffOp, DiffTag, TextDiff};
 
 use super::code::{HIGHLIGHT_LIMIT, kind_of_file};
 use super::patine_adapter::source_line;
-use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
+use super::source_file::{Cut, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
 use super::viewer::{Content, ContentSize, DiffShape, Viewer};
@@ -52,11 +52,14 @@ pub(super) fn diff_content(entry: &DiffEntry, home: Option<&Path>) -> Content<Ro
         read("old", entry.old.as_ref()).and_then(|old| Ok((old, read("new", entry.new.as_ref())?)));
     match sides {
         Ok((old, new)) => {
-            let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
+            let cuts = [&old, &new]
+                .into_iter()
+                .flatten()
+                .filter_map(|side| side.cut);
             Content::Body(Rows::of(
                 text_of(old.as_ref()),
                 text_of(new.as_ref()),
-                cut,
+                cuts,
                 language(entry).as_deref(),
             ))
         }
@@ -169,12 +172,18 @@ enum Half {
 
 impl Rows {
     /// The rows that show the change from `old` to `new`; a side left out
-    /// is a file that did not exist before or no longer does. `cut` says
-    /// that a side is only the start of a longer file, so the diff shows
-    /// the rest of the other side as removed or added. Whether the file is
-    /// new or deleted comes first, then the change between the notes of a
-    /// cut file. Unchanged lines are highlighted in `language`.
-    fn of(old: Option<&str>, new: Option<&str>, cut: bool, language: Option<&str>) -> Rows {
+    /// is a file that did not exist before or no longer does. `cuts` are
+    /// the limits that left a side only the start of a longer text, so the
+    /// diff shows the rest of the other side as removed or added. Whether
+    /// the file is new or deleted comes first, then the change between the
+    /// notes of those limits. Unchanged lines are highlighted in
+    /// `language`.
+    fn of(
+        old: Option<&str>,
+        new: Option<&str>,
+        cuts: impl IntoIterator<Item = Cut>,
+        language: Option<&str>,
+    ) -> Rows {
         let created_or_deleted = match (old, new) {
             (None, Some(_)) => Some(Note::new("new file")),
             (Some(_), None) => Some(Note::new("deleted file")),
@@ -185,7 +194,7 @@ impl Rows {
         let rows: Vec<Row> = created_or_deleted
             .map(Row::Note)
             .into_iter()
-            .chain(between_cut_notes(cut, change, Row::Note))
+            .chain(between_cut_notes(cuts, change, Row::Note))
             .collect();
         let SideBySide {
             pairs,
@@ -839,10 +848,10 @@ mod tests {
         )
     }
 
-    /// The viewer of the rows of `old` and `new`, where `cut` says a side
-    /// is only the start of a longer file.
-    fn of_rows(old: &str, new: &str, cut: bool) -> Content<Rows> {
-        Content::Body(Rows::of(Some(old), Some(new), cut, None))
+    /// The viewer of the rows of `old` and `new`, where `cuts` are the
+    /// limits that left a side only the start of a longer text.
+    fn of_rows(old: &str, new: &str, cuts: impl IntoIterator<Item = Cut>) -> Content<Rows> {
+        Content::Body(Rows::of(Some(old), Some(new), cuts, None))
     }
 
     fn file(path: &str) -> Option<DiffSide> {
@@ -1561,7 +1570,7 @@ impl Fetcher {
 
     #[test]
     fn a_side_too_long_to_read_whole_says_so_above_and_below_the_hunks() {
-        let mut viewer = of_rows("a\n", "b\n", true);
+        let mut viewer = of_rows("a\n", "b\n", [Cut::Bytes]);
 
         let buf = drawn(&mut viewer, 30, 4, Offset::default());
 
@@ -1598,7 +1607,7 @@ impl Fetcher {
 
     #[test]
     fn sides_cut_alike_say_so_after_no_changes() {
-        let mut viewer = of_rows("a\n", "a\n", true);
+        let mut viewer = of_rows("a\n", "a\n", [Cut::Bytes]);
 
         let buf = drawn(&mut viewer, 30, 3, Offset::default());
 
@@ -1897,7 +1906,7 @@ impl Fetcher {
 
     #[test]
     fn the_cut_notes_span_both_columns() {
-        let mut viewer = of_rows("a\n", "b\n", true);
+        let mut viewer = of_rows("a\n", "b\n", [Cut::Bytes]);
 
         let buf = drawn_side_by_side(&mut viewer, 40, 3, Offset::default());
 

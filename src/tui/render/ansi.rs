@@ -17,7 +17,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
+use super::source_file::{Cut, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{Note, SourceLine, rows_from};
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
 use crate::format::AnsiEntry;
@@ -364,8 +364,9 @@ enum Row {
 }
 
 impl Painted {
-    /// `lines`, the whole text or, when `cut`, the start of a longer file.
-    fn new(lines: Vec<SourceLine>, cut: bool) -> Self {
+    /// `lines`, the whole text or the start of a longer one that the limit
+    /// `cut` ended.
+    fn new(lines: Vec<SourceLine>, cut: Option<Cut>) -> Self {
         Painted {
             rows: between_cut_notes(cut, lines.into_iter().map(Row::Line), Row::Note).collect(),
         }
@@ -988,7 +989,7 @@ mod tests {
     fn a_file_too_long_to_read_whole_shows_its_cut_notes() {
         let source = Ok(Source {
             text: "one\n\x1b[31mtwo\n".into(),
-            cut: true,
+            cut: Some(Cut::Bytes),
         });
         let mut viewer = content_of(source, true, None);
 

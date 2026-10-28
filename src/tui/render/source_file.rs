@@ -19,36 +19,58 @@ use super::problem::Card;
 use super::source_line::Note;
 pub use crate::format::MAX_BYTES;
 
-/// What a viewer shows above the text when it got only the first
-/// [`MAX_BYTES`] of a file.
-const CUT_NOTE: Note = Note::new("first 8 MiB shown");
+/// The limit that ended the text of a source, which the notes around the
+/// text name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Cut {
+    /// The file is longer than [`MAX_BYTES`], and the text holds its
+    /// first `MAX_BYTES` bytes, or one fewer where the limit falls inside
+    /// a `\r\n`.
+    Bytes,
+}
 
-/// What follows the text of such a file, so its end does not look like
-/// the end of the file.
-const END_NOTE: Note = Note::new("… the rest is cut after 8 MiB");
+impl Cut {
+    /// What a viewer shows above a text this limit cut.
+    fn head(self) -> Note {
+        match self {
+            Cut::Bytes => Note::new("first 8 MiB shown"),
+        }
+    }
+
+    /// What follows such a text, so its end does not look like the end of
+    /// the file.
+    fn end(self) -> Note {
+        match self {
+            Cut::Bytes => Note::new("… the rest is cut after 8 MiB"),
+        }
+    }
+}
 
 /// The rows of `body`, the text of a source or what a viewer made of it,
-/// between the notes of a `cut` source: the first comes before the text,
-/// so it shows before the person scrolls to where the text stops, and the
-/// last ends it. `note` makes a row of a note, which every viewer draws
-/// as a [`Note`], one row cut at the body's edge.
+/// between the notes of the limits in `cuts`: the first of each comes
+/// before the text, so it shows before the person scrolls to where the
+/// text stops, and the last ends it. The two sides of a diff can be cut
+/// by different limits, so each limit's notes show once, in the order of
+/// [`Cut`]. `note` makes a row of a note, which every viewer draws as a
+/// [`Note`], one row cut at the body's edge.
 pub fn between_cut_notes<T>(
-    cut: bool,
+    cuts: impl IntoIterator<Item = Cut>,
     body: impl IntoIterator<Item = T>,
     note: impl Fn(Note) -> T,
 ) -> impl Iterator<Item = T> {
-    let row = |text| cut.then(|| note(text));
-    row(CUT_NOTE).into_iter().chain(body).chain(row(END_NOTE))
+    let mut cuts: Vec<Cut> = cuts.into_iter().collect();
+    cuts.sort();
+    cuts.dedup();
+    let heads: Vec<T> = cuts.iter().map(|cut| note(cut.head())).collect();
+    let ends: Vec<T> = cuts.iter().map(|cut| note(cut.end())).collect();
+    heads.into_iter().chain(body).chain(ends)
 }
 
-/// The text of a source, and whether it is only the start of its file.
+/// The text of a source, and the limit that cut it, if any.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Source {
     pub text: String,
-    /// The file is longer than [`MAX_BYTES`], and `text` holds its first
-    /// `MAX_BYTES` bytes, or one fewer where the limit falls inside a
-    /// `\r\n`.
-    pub cut: bool,
+    pub cut: Option<Cut>,
 }
 
 /// What the image decoder's `error` is, for the log: the kind of error,
@@ -265,7 +287,7 @@ fn bytes_within(path: &str, reader: impl Read, limit: u64) -> Result<Vec<u8>, Un
 /// never reaches the pane, and would show as empty. Inline content is
 /// taken whole, as it already sits in memory with the session.
 pub fn read_source(path: Option<&str>, content: Option<&str>) -> Result<Source, Unreadable> {
-    let whole = |text: String| Source { text, cut: false };
+    let whole = |text: String| Source { text, cut: None };
     if let Some(content) = content {
         return Ok(whole(content.to_owned()));
     }
@@ -307,7 +329,7 @@ fn text_within(path: &str, reader: impl Read, limit: u64) -> Result<Source, Unre
     // of the file readable. So does a character the limit cut in two.
     Ok(Source {
         text: String::from_utf8_lossy(&bytes).into_owned(),
-        cut,
+        cut: cut.then_some(Cut::Bytes),
     })
 }
 
@@ -328,7 +350,7 @@ mod tests {
     fn whole(text: &str) -> Result<Source, Unreadable> {
         Ok(Source {
             text: text.to_owned(),
-            cut: false,
+            cut: None,
         })
     }
 
@@ -364,7 +386,7 @@ mod tests {
 
         let source = read_source(Some(&path), None).expect("readable");
 
-        assert!(source.cut);
+        assert_eq!(source.cut, Some(Cut::Bytes));
         assert_eq!(source.text.len(), limit);
     }
 
@@ -375,7 +397,7 @@ mod tests {
 
         let source = read_source(Some(&path), None).expect("readable");
 
-        assert!(!source.cut);
+        assert_eq!(source.cut, None);
         assert_eq!(source.text.len(), limit);
     }
 
@@ -386,12 +408,12 @@ mod tests {
     #[test]
     fn a_cut_inside_a_crlf_leaves_its_cr_out() {
         for (bytes, limit, text, cut) in [
-            (&b"ab\r\ncd"[..], 3, "ab", true),
-            (b"ab\rcd", 3, "ab\r", true),
-            (b"a\r\nb", 3, "a\r\n", true),
-            (b"ab\r\n", 4, "ab\r\n", false),
+            (&b"ab\r\ncd"[..], 3, "ab", Some(Cut::Bytes)),
+            (b"ab\rcd", 3, "ab\r", Some(Cut::Bytes)),
+            (b"a\r\nb", 3, "a\r\n", Some(Cut::Bytes)),
+            (b"ab\r\n", 4, "ab\r\n", None),
             // The blank line whose end the limit cuts is left out too.
-            (b"a\r\n\r\nb", 4, "a\r\n", true),
+            (b"a\r\n\r\nb", 4, "a\r\n", Some(Cut::Bytes)),
         ] {
             assert_eq!(
                 text_within("/a.txt", bytes, limit),
@@ -421,15 +443,17 @@ mod tests {
 
     #[test]
     fn the_notes_of_a_cut_source_come_before_and_after_its_text() {
-        let rows = |cut| {
-            between_cut_notes(cut, ["one", "two"].map(String::from), |note| {
-                note.text().to_owned()
-            })
+        let rows = |cuts: &[Cut]| {
+            between_cut_notes(
+                cuts.iter().copied(),
+                ["one", "two"].map(String::from),
+                |note| note.text().to_owned(),
+            )
             .collect::<Vec<_>>()
         };
 
         assert_eq!(
-            rows(true),
+            rows(&[Cut::Bytes]),
             [
                 "first 8 MiB shown",
                 "one",
@@ -437,7 +461,7 @@ mod tests {
                 "… the rest is cut after 8 MiB"
             ]
         );
-        assert_eq!(rows(false), ["one", "two"], "a whole source has none");
+        assert_eq!(rows(&[]), ["one", "two"], "a whole source has none");
     }
 
     // -----------------------------------------------------------------

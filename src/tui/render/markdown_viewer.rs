@@ -15,7 +15,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
 
 use super::patine_adapter::markdown_rows;
-use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
+use super::source_file::{Cut, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{Note, SourceLine, rows_from};
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
 use crate::format::MarkdownEntry;
@@ -37,7 +37,7 @@ pub(super) fn markdown_content(
 /// The caption of an image entry, `text`, rendered as a Markdown entry's
 /// content is, with quotes in `quote`.
 pub(super) fn caption(text: &str, quote: QuoteStyle) -> Markdown {
-    document(text.to_owned(), false, quote)
+    document(text.to_owned(), None, quote)
 }
 
 /// What the viewer shows of `source`, as read for its entry: its
@@ -57,9 +57,9 @@ fn content_of(
     }
 }
 
-/// The Markdown `source`, the start of a longer file where `cut`, with
-/// quotes in `quote`, not laid out yet.
-fn document(source: String, cut: bool, quote: QuoteStyle) -> Markdown {
+/// The Markdown `source`, the start of a longer text where the limit `cut`
+/// ended it, with quotes in `quote`, not laid out yet.
+fn document(source: String, cut: Option<Cut>, quote: QuoteStyle) -> Markdown {
     Markdown {
         source,
         cut,
@@ -77,8 +77,8 @@ fn document(source: String, cut: bool, quote: QuoteStyle) -> Markdown {
 /// The Markdown of an entry with the rows it was last laid out into.
 pub(super) struct Markdown {
     source: String,
-    /// `source` is only the start of a longer file.
-    cut: bool,
+    /// The limit that ended `source`, the start of a longer text.
+    cut: Option<Cut>,
     /// How patine renders `source`.
     options: RenderOptions,
     rows: Vec<Row>,
@@ -498,7 +498,7 @@ mod tests {
         let mut viewer = content_of(
             Ok(Source {
                 text: "**Plan**\n".into(),
-                cut: true,
+                cut: Some(Cut::Bytes),
             }),
             quote_style(false),
             None,
