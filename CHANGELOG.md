@@ -157,11 +157,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line before the cursor moves to the next or previous row, and moving
   up onto it shows its last lines; the line above and the line below it
   frame it, so `↑ more` and `↓ more` no longer cover the end of its first
-  or last line. Any other key that acts on the question brings the row
-  under the cursor back into view first. Before, a long question text
-  was cut off at its start, a tall option showed from its start and its
-  later lines only once the cursor was on a later row, and those of the
-  last option never.
+  or last line. Any other key that acts on the question, such as `n`, a
+  digit or `enter`, brings the row under the cursor back into view
+  first; `?`, `L`, `i`, `o`, `z`, `s` and `q` leave the view where it
+  is. Before, a long question text was cut off at its start, a tall
+  option showed from its start and its later lines only once the cursor
+  was on a later row, and those of the last option never.
 - The character U+10EEEE, which the Kitty graphics protocol reserves for
   placing images, shows as `�` wherever text puts it on the screen, such
   as in a code or `ansi` entry, so no text can make the terminal draw an

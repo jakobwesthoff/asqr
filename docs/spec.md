@@ -1184,11 +1184,12 @@ has context (section 7.4, ADRs 30 and 31):
   (and `ctrl-p`/`ctrl-n`) at its first and last row; while the area is
   scrolled away from it, they scroll back toward it, and any other key or
   paste the field takes shows the field again at once. Every other key
-  that acts on the question, such as `n`, `space`, a digit or `enter`,
-  and a paste first scroll the area back to where the row under the
-  cursor shows; the keys the context pane takes leave it. While a
-  question's note has the keys, the area keeps the note's text cursor in
-  view.
+  that acts on the question, such as `n`, `space`, a digit, `enter` or
+  `backspace`, and a paste first scroll the area back to where the row
+  under the cursor shows. `?`, `L`, `i`, `o`, `z`, `s` and `q` act on no
+  row and leave the area where it is, as do the keys the context pane
+  takes. While a question's note has the keys, the area keeps the note's
+  text cursor in view.
 - A row other than a field that does not fit the area together with the
   line above it and the line below it, such as an option with a long
   label or description, shows part of them at a time. Moving up onto it

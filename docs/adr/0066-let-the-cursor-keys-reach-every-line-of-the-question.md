@@ -54,11 +54,12 @@ question.
   it again at once. Fields keep their own view otherwise: a field never
   scrolls through its rows by this rule, and one left with `esc` shows
   its start as before.
-- Only these keys keep the area where it was moved to. Every other key
-  that acts on the question, and a paste, first put it back where the
-  row under the cursor shows. The keys the context pane takes leave it.
-  While a question's note has the keys, the area keeps the note's text
-  cursor in view.
+- Only these keys move the area. Every other key that acts on the
+  question, such as `n`, `space`, a digit, `enter` or `backspace`, and a
+  paste, first put it back where the row under the cursor shows. `?`,
+  `L`, `i`, `o`, `z`, `s` and `q` act on no row and leave it where it
+  is, as do the keys the context pane takes. While a question's note has
+  the keys, the area keeps the note's text cursor in view.
 
 In ADR 36, "The question scrolls so that the whole row stays in view"
 holds except while the lines above the first row or below the last row

@@ -1253,11 +1253,14 @@ impl SessionState {
             return Effect::None;
         }
         // Only the keys that move the cursor move the view through the
-        // row's range; every other key acts on the question, so the row it
-        // acts on comes back into view first.
-        if !matches!(
+        // row's range. The keys that act on the row under the cursor bring
+        // it back into view first, so the person sees what they did to it;
+        // switching questions does so in `go_to_tab`. `?`, `L`, `i`, `o`,
+        // `z`, `s` and `q` act on no row, and the keys bound to nothing do
+        // nothing, so they leave the view where the person scrolled it.
+        if matches!(
             key.code,
-            KeyCode::Char('k' | 'j') | KeyCode::Up | KeyCode::Down
+            KeyCode::Enter | KeyCode::Backspace | KeyCode::Char(' ' | 'n' | '1'..='9')
         ) {
             self.reset_view();
         }
@@ -5046,24 +5049,80 @@ mod tests {
         assert_eq!(state.row_top(), RowTop::Line(1), "up goes back first");
     }
 
+    /// `state` with the question's area scrolled a line up from where the
+    /// row under the cursor rests.
+    fn scrolled_up(state: &mut SessionState) {
+        state.set_row_cut(cut(2, 0, 2));
+        state.handle(code(KeyCode::Up));
+        assert_eq!(state.row_top(), RowTop::Line(1));
+    }
+
+    #[test]
+    fn keys_that_do_not_act_on_the_question_keep_its_view() {
+        // The image question, where `z` shows the image full screen and
+        // `o` opens it, so each key does what it is for.
+        let moved: Vec<char> = ['?', 'o', 'z', 's', 'L', 'q']
+            .into_iter()
+            .filter(|&key| {
+                let mut state = state();
+                go_to_tab(&mut state, 3);
+                scrolled_up(&mut state);
+                press(&mut state, &key.to_string());
+                state.row_top() != RowTop::Line(1)
+            })
+            .collect();
+
+        assert_eq!(moved, [], "these keys moved the view");
+    }
+
     #[test]
     fn keys_that_act_on_the_question_put_the_view_back() {
-        let mut state = state();
+        // On the multi question `n`, `space` and `1` on the first row
+        // leave the cursor on its row, so the view it shows is the one
+        // the key left.
         for key in [
-            code(KeyCode::Char('?')),
             code(KeyCode::Char('n')),
             code(KeyCode::Char(' ')),
-            code(KeyCode::Char('o')),
+            code(KeyCode::Char('1')),
         ] {
-            state.set_row_cut(cut(2, 0, 2));
-            state.handle(code(KeyCode::Up));
-            assert_eq!(state.row_top(), RowTop::Line(1), "{key:?}");
+            let mut state = state();
+            go_to_tab(&mut state, 1);
+            scrolled_up(&mut state);
             state.handle(key);
-            assert_eq!(state.row_top(), RowTop::Start, "{key:?}");
-            state.handle(code(KeyCode::Esc));
+            assert_eq!(
+                (state.row(), state.row_top()),
+                (0, RowTop::Start),
+                "{key:?}"
+            );
         }
 
-        // The keys the context pane takes leave the view as it is.
+        // `enter` on the review's Submit stays there.
+        let mut review = state();
+        go_to_tab(&mut review, 4);
+        let submit = review.row();
+        scrolled_up(&mut review);
+        review.handle(code(KeyCode::Enter));
+        assert_eq!(
+            (review.row(), review.row_top()),
+            (submit, RowTop::Start),
+            "enter"
+        );
+
+        // `backspace` on the default the single question starts with.
+        let mut single = state();
+        press(&mut single, "j");
+        assert!(single.on_pick());
+        scrolled_up(&mut single);
+        single.handle(code(KeyCode::Backspace));
+        assert_eq!(
+            (single.row(), single.row_top()),
+            (1, RowTop::Start),
+            "backspace"
+        );
+    }
+
+    #[test]
+    fn keys_the_context_pane_takes_keep_the_questions_view() {
         let mut state = with_pane();
         state.set_row_cut(cut(2, 0, 2));
         state.handle(code(KeyCode::Up));
