@@ -8,6 +8,8 @@ Accepted
 
 Amends [35. Render the text fields as full Markdown through patine](0035-render-the-text-fields-as-full-markdown-through-patine.md)
 
+Amended by [66. Let the cursor keys reach every line of the question](0066-let-the-cursor-keys-reach-every-line-of-the-question.md)
+
 ## Context
 
 An option's label was one line of plain text after the option's

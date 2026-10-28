@@ -73,6 +73,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reloaded", which would tell them nothing. Before, the message came
   along and stayed hidden under the confirmation of the session finished
   before it, and the next key cleared both.
+- Every line of the question's area can be read on a small terminal. On
+  the first row, `↑`/`k` scroll up through a question text that does not
+  fit, and `↓`/`j` scroll back before the cursor moves; on the last row,
+  `↓`/`j` reach the lines below it, such as a long note. An option whose
+  label and description do not fit the area scrolls through them line by
+  line before the cursor moves to the next or previous row, and moving
+  up onto it shows its last lines; the line above and the line below it
+  frame it, so `↑ more` and `↓ more` no longer cover the end of its first
+  or last line. Any other key that acts on the question brings the row
+  under the cursor back into view first. Before, a long question text
+  was cut off at its start, a tall option showed from its start and its
+  later lines only once the cursor was on a later row, and those of the
+  last option never.
 
 ## [0.13.1] - 2026-10-22
 

@@ -79,7 +79,7 @@ pub enum Row {
 
 impl Row {
     /// Rows that are text fields, focused when the cursor lands on them.
-    fn is_field(self) -> bool {
+    pub(crate) fn is_field(self) -> bool {
         matches!(self, Row::Own | Row::Answer | Row::Note | Row::Reject)
     }
 }
@@ -173,6 +173,46 @@ impl PanePage {
     }
 }
 
+// ---------------------------------------------------------------------
+// The view of the question's area
+// ---------------------------------------------------------------------
+//
+// Every line of the question's area can be reached with the keys that move
+// the cursor (spec section 7.4). For the row under the cursor the area can
+// show a range of positions: on the first row up to the question's first
+// line, on the last row down to its last line, and through a row other
+// than a field that does not fit the area with the line above and below
+// it. The keys move the view through that range a line at a time before
+// they move the cursor. Only the draw knows the range, so it hands it back
+// as a `RowCut`, as it hands back what the context pane showed.
+
+/// What the last draw showed of the range of positions the question's area
+/// can take for the row under the cursor, when the range holds more than
+/// one: how many lines of it lie above and below the view, and how far
+/// from its upper end the place is the row returns to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowCut {
+    pub above: usize,
+    pub below: usize,
+    pub home: usize,
+}
+
+/// Where the question's area stands in the range of the row under the
+/// cursor (see [`RowCut`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RowTop {
+    /// Where the row shows as the cursor reaches it: for a row other than
+    /// a field that does not fit, the line above it and its first lines,
+    /// else the whole row, or a field's text cursor, at rest.
+    #[default]
+    Start,
+    /// For a row other than a field that does not fit, its last lines and
+    /// the line below it, as the cursor moving up onto it shows them.
+    End,
+    /// This many lines from the upper end of the range.
+    Line(usize),
+}
+
 #[derive(Debug, Clone)]
 pub struct SessionState {
     id: String,
@@ -208,6 +248,13 @@ pub struct SessionState {
     follows_title: Option<String>,
     /// See [`Self::seen`].
     seen: bool,
+    /// Where the question's area stands for the row under the cursor, with
+    /// the tab and row it was set for (see [`Self::row_top`]).
+    row_top: Option<(usize, usize, RowTop)>,
+    /// What the last draw showed of the range of the row under the cursor,
+    /// with the tab and row it was drawn for, so a cut of another row is
+    /// never used.
+    row_cut: Option<(usize, usize, RowCut)>,
 }
 
 /// Whether `question` or any of its options has context.
@@ -283,6 +330,8 @@ impl SessionState {
             revision: 0,
             follows_title: None,
             seen: false,
+            row_top: None,
+            row_cut: None,
         };
         state.arrive();
         state
@@ -331,6 +380,11 @@ impl SessionState {
             Some(row) => {
                 replaced.row = row;
                 replaced.keep_focus(self);
+                // The draw clamps the view to the row's new range.
+                replaced.row_top = self
+                    .row_top
+                    .filter(|&(tab, old, _)| (tab, old) == (self.tab, self.row))
+                    .map(|(_, _, top)| (replaced.tab, row, top));
             }
             None => {
                 if same_tab {
@@ -379,6 +433,66 @@ impl SessionState {
     /// Notes that a frame showed the session (see [`Self::seen`]).
     pub fn mark_seen(&mut self) {
         self.seen = true;
+    }
+
+    /// Where the question's area stands for the row under the cursor; a
+    /// row the cursor just reached starts at [`RowTop::Start`].
+    pub fn row_top(&self) -> RowTop {
+        match self.row_top {
+            Some((tab, row, top)) if (tab, row) == (self.tab, self.row) => top,
+            _ => RowTop::Start,
+        }
+    }
+
+    /// Takes what the last draw showed of the range of the row under the
+    /// cursor, which is how far the keys can move the view through it.
+    pub fn set_row_cut(&mut self, cut: Option<RowCut>) {
+        self.row_cut = cut.map(|cut| (self.tab, self.row, cut));
+    }
+
+    /// The cut of the row under the cursor, if the last draw left one.
+    fn row_cut(&self) -> Option<RowCut> {
+        self.row_cut
+            .filter(|&(tab, row, _)| (tab, row) == (self.tab, self.row))
+            .map(|(_, _, cut)| cut)
+    }
+
+    fn set_row_top(&mut self, top: RowTop) {
+        self.row_top = Some((self.tab, self.row, top));
+    }
+
+    /// Puts the question's area back where the row under the cursor shows,
+    /// before a key acts on the question, so the row and what the key does
+    /// to it are in view.
+    fn reset_view(&mut self) {
+        self.row_top = None;
+        self.row_cut = None;
+    }
+
+    /// Moves the view through the range of the row under the cursor by a
+    /// line, down for `down`, and says whether it could.
+    fn scroll_row(&mut self, down: bool) -> bool {
+        let Some(cut) = self.row_cut() else {
+            return false;
+        };
+        let line = match down {
+            true if cut.below > 0 => cut.above + 1,
+            false if cut.above > 0 => cut.above - 1,
+            _ => return false,
+        };
+        self.set_row_top(RowTop::Line(line));
+        // The next draw measures the cut again; until then it follows the
+        // view, so a key handled before that draw goes on from here.
+        self.row_cut = Some((
+            self.tab,
+            self.row,
+            RowCut {
+                above: line,
+                below: (cut.above + cut.below) - line,
+                ..cut
+            },
+        ));
+        true
     }
 
     /// Takes over the focus of `old`, the state this one replaces, on the
@@ -916,6 +1030,15 @@ impl SessionState {
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             return Effect::None;
         }
+        // Only the keys that move the cursor move the view through the
+        // row's range; every other key acts on the question, so the row it
+        // acts on comes back into view first.
+        if !matches!(
+            key.code,
+            KeyCode::Char('k' | 'j') | KeyCode::Up | KeyCode::Down
+        ) {
+            self.reset_view();
+        }
         match key.code {
             KeyCode::Char('k') | KeyCode::Up => self.move_row(-1),
             KeyCode::Char('j') | KeyCode::Down => self.move_row(1),
@@ -974,6 +1097,10 @@ impl SessionState {
     }
 
     fn move_row(&mut self, delta: isize) -> Effect {
+        // The view goes through the row's range before the cursor moves.
+        if self.scroll_row(delta > 0) {
+            return Effect::None;
+        }
         let last = self.rows().len().saturating_sub(1);
         let row = self.row.saturating_add_signed(delta).min(last);
         // Landing on a row focuses its field; a field left with esc is
@@ -981,9 +1108,21 @@ impl SessionState {
         // with its single row. A field below the row left is entered at
         // its first row.
         if row != self.row || self.focus == Focus::None {
-            let from_above = row > self.row;
+            let (from_above, moved) = (row > self.row, row != self.row);
             self.row = row;
             self.arrive_from(from_above);
+            // A row other than a field that does not fit the area shows
+            // the end the cursor came from, as a field does (ADR 36).
+            if moved {
+                self.reset_view();
+                if !self.current_row().is_some_and(Row::is_field) {
+                    self.set_row_top(if from_above {
+                        RowTop::Start
+                    } else {
+                        RowTop::End
+                    });
+                }
+            }
         }
         Effect::None
     }
@@ -992,6 +1131,7 @@ impl SessionState {
         if tab >= self.tab_count() {
             return Effect::None;
         }
+        self.reset_view();
         self.tab = tab;
         // The review opens on Submit, the usual next step; questions start
         // on their first row.
@@ -1138,11 +1278,34 @@ impl SessionState {
     /// where the field is.
     fn typing(&mut self, key: KeyEvent) -> Effect {
         let note = self.focus == Focus::Note;
+        // A field scrolled away from where it shows, into the lines above
+        // the first row or below the last, goes back a line at a time with
+        // the keys that move its text cursor, before they move it. The note
+        // of a question belongs to no row, and the area keeps its text
+        // cursor in view.
+        if !note
+            && let Some(cut) = self.row_cut()
+            && let Some(down) = vertical(key)
+            && (if down {
+                cut.above < cut.home
+            } else {
+                cut.above > cut.home
+            })
+        {
+            self.scroll_row(down);
+            return Effect::None;
+        }
         let field = self
             .field
             .as_mut()
             .expect("a focused field or note always has its editor");
-        match field.key(key) {
+        let result = field.key(key);
+        // Leaving the field upwards or downwards may scroll on through the
+        // row's range; any other key shows the field again first.
+        if !matches!(result, FieldKey::Leave(Leave::Up | Leave::Down)) {
+            self.reset_view();
+        }
+        match result {
             FieldKey::Changed => self.store_edit(),
             FieldKey::Unchanged => Effect::None,
             // A question's note is opened with `n` from a row and belongs
@@ -1213,6 +1376,8 @@ impl SessionState {
             }
             self.arrive();
         }
+        // The pasted text shows where it goes.
+        self.reset_view();
         let field = self
             .field
             .as_mut()
@@ -1241,6 +1406,20 @@ impl SessionState {
             }
         }
         Effect::DraftChanged
+    }
+}
+
+/// Whether `key` moves a field's text cursor down (`true`) or up
+/// (`false`), as [`TextField::key`] reads it, or neither.
+fn vertical(key: KeyEvent) -> Option<bool> {
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    match key.code {
+        KeyCode::Down => Some(true),
+        KeyCode::Up => Some(false),
+        KeyCode::Char('n') if control && !alt => Some(true),
+        KeyCode::Char('p') if control && !alt => Some(false),
+        _ => None,
     }
 }
 
@@ -3816,5 +3995,159 @@ mod tests {
         press(&mut state, "nx");
         assert_eq!(state.note_text().as_deref(), Some("x"));
         assert_eq!(state.field_cursor(), Some((0, 1)));
+    }
+
+    // ---------------------------------------------------------------
+    // The view of the question's area
+    // ---------------------------------------------------------------
+
+    /// A draw that left `above` and `below` lines of the row's range
+    /// around the view, the row at rest `home` lines from its upper end.
+    fn cut(above: usize, below: usize, home: usize) -> Option<RowCut> {
+        Some(RowCut { above, below, home })
+    }
+
+    #[test]
+    fn down_and_up_scroll_through_a_tall_option_before_moving() {
+        let mut state = state();
+        state.set_row_cut(cut(0, 2, 0));
+
+        press(&mut state, "j");
+        assert_eq!((state.row(), state.row_top()), (0, RowTop::Line(1)));
+        press(&mut state, "j");
+        assert_eq!((state.row(), state.row_top()), (0, RowTop::Line(2)));
+        press(&mut state, "j");
+        assert_eq!(
+            (state.row(), state.row_top()),
+            (1, RowTop::Start),
+            "the end of the range moves the cursor on"
+        );
+
+        press(&mut state, "k");
+        assert_eq!(
+            (state.row(), state.row_top()),
+            (0, RowTop::End),
+            "moving up shows the end"
+        );
+        state.set_row_cut(cut(2, 0, 0));
+        state.handle(code(KeyCode::Up));
+        state.handle(code(KeyCode::Up));
+        assert_eq!((state.row(), state.row_top()), (0, RowTop::Line(0)));
+        press(&mut state, "k");
+        assert_eq!(
+            (state.row(), state.row_top()),
+            (0, RowTop::Line(0)),
+            "nothing is above the first row's range"
+        );
+    }
+
+    #[test]
+    fn the_view_starts_afresh_on_every_other_way_onto_a_row() {
+        let mut state = state();
+        state.set_row_cut(cut(0, 2, 0));
+        press(&mut state, "j");
+        press(&mut state, "lh");
+        assert_eq!((state.row(), state.row_top()), (0, RowTop::Start));
+
+        // In a multi question the digits toggle and move the cursor; the
+        // last `1` toggles the row the cursor is on.
+        press(&mut state, "l");
+        for (digit, row) in [("2", 1), ("1", 0), ("1", 0)] {
+            state.set_row_cut(cut(0, 2, 0));
+            press(&mut state, "j");
+            assert_eq!(state.row_top(), RowTop::Line(1), "{digit}");
+            press(&mut state, digit);
+            assert_eq!((state.row(), state.row_top()), (row, RowTop::Start));
+        }
+    }
+
+    #[test]
+    fn a_field_scrolled_away_scrolls_back_before_its_cursor_moves() {
+        // The answer of the text question is its first and last row; at
+        // rest the area stands 3 lines into its range.
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+        press(&mut state, "ab");
+        state.set_row_cut(cut(3, 0, 3));
+
+        state.handle(code(KeyCode::Up));
+        state.handle(ctrl('p'));
+        assert_eq!(state.row_top(), RowTop::Line(1));
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.row_top(), RowTop::Line(2));
+        assert_eq!(
+            (state.focus(), state.field_cursor()),
+            (Focus::Field, Some((0, 2))),
+            "the text cursor stays"
+        );
+        press(&mut state, "c");
+        assert_eq!(state.row_top(), RowTop::Start, "typing shows the field");
+        assert_eq!(state.field_text().as_deref(), Some("abc"));
+
+        state.set_row_cut(cut(3, 0, 3));
+        state.handle(code(KeyCode::Up));
+        state.paste("d");
+        assert_eq!(state.row_top(), RowTop::Start, "a paste shows the field");
+
+        // Scrolled below the field, as on a last row with lines under it.
+        state.set_row_cut(cut(0, 2, 0));
+        state.handle(code(KeyCode::Down));
+        assert_eq!(state.row_top(), RowTop::Line(1));
+        state.handle(ctrl('n'));
+        state.handle(code(KeyCode::Up));
+        assert_eq!(state.row_top(), RowTop::Line(1), "up goes back first");
+    }
+
+    #[test]
+    fn keys_that_act_on_the_question_put_the_view_back() {
+        let mut state = state();
+        for key in [
+            code(KeyCode::Char('?')),
+            code(KeyCode::Char('n')),
+            code(KeyCode::Char(' ')),
+            code(KeyCode::Char('o')),
+        ] {
+            state.set_row_cut(cut(2, 0, 2));
+            state.handle(code(KeyCode::Up));
+            assert_eq!(state.row_top(), RowTop::Line(1), "{key:?}");
+            state.handle(key);
+            assert_eq!(state.row_top(), RowTop::Start, "{key:?}");
+            state.handle(code(KeyCode::Esc));
+        }
+
+        // The keys the context pane takes leave the view as it is.
+        let mut state = with_pane();
+        state.set_row_cut(cut(2, 0, 2));
+        state.handle(code(KeyCode::Up));
+        state.handle(code(KeyCode::PageDown));
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(state.row_top(), RowTop::Line(1));
+    }
+
+    #[test]
+    fn moving_onto_a_field_stores_no_view() {
+        let mut state = state();
+        press(&mut state, "jj");
+        assert_eq!(state.current_row(), Some(Row::Own));
+        assert_eq!(state.row_top, None);
+    }
+
+    #[test]
+    fn a_replaced_session_keeps_the_view_of_its_row() {
+        let mut state = state();
+        state.set_row_cut(cut(0, 2, 0));
+        press(&mut state, "j");
+
+        state.replace_session(serde_json::from_str(SESSION).expect("parses"));
+        assert_eq!((state.row(), state.row_top()), (0, RowTop::Line(1)));
+
+        // With the row gone, its view goes too.
+        press(&mut state, "l");
+        press(&mut state, "jj");
+        state.set_row_cut(cut(0, 2, 0));
+        press(&mut state, "j");
+        let fewer = SESSION.replace(r#", {"id": "z", "label": "Z"}"#, "");
+        state.replace_session(serde_json::from_str(&fewer).expect("parses"));
+        assert_eq!(state.row_top(), RowTop::Start);
     }
 }

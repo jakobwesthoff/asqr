@@ -230,7 +230,10 @@ Once asked, asqr fits best when:
   breaks the line, and a blank line starts a new paragraph. `<` shows as
   written, so `Vec<String>` needs no backticks, and HTML tags show as
   their source instead of formatting the text. Keep option descriptions
-  short. Long code belongs in a `code` entry of the `context`, which
+  short: on a small terminal an option whose label and description take
+  more lines than the question's area shows a few of them at a time, and
+  the person scrolls through it before reaching the next option. Long
+  code belongs in a `code` entry of the `context`, which
   shows it with line numbers, not in a question text.
 - `intro` shows under the title in at most two lines of the reading
   width, fewer on a low terminal. Anything longer
@@ -240,7 +243,10 @@ Once asked, asqr fits best when:
   is. Everything the person needs to answer a question goes into that
   question's `text` or its `context`: the text wraps instead of being
   cut and takes the Markdown above, and a little context there makes
-  the decision easier, while longer material goes into `context`.
+  the decision easier, while longer material goes into `context`. On a
+  small terminal a long `text` scrolls, and the person reaches its start
+  with `↑` from the first row; longer material still belongs in
+  `context`, which has a pane of its own.
 - Leave the session's `id` out: `asqr ask` assigns one and prints it.
   Questions and options always need their own `id`.
 

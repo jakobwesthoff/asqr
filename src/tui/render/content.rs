@@ -31,7 +31,7 @@ use super::wrap::{cut_spans, indented, trim_end, wrap};
 use crate::format::{Kind, Length, has_text};
 use crate::graphics::Images;
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
-use crate::tui::{Focus, Row, SessionState, has_context};
+use crate::tui::{Focus, Row, RowCut, RowTop, SessionState, has_context};
 
 /// Descriptions start on the label's line only while that leaves them at
 /// least this much room; otherwise they move to their own lines.
@@ -244,15 +244,16 @@ impl QuestionHeight {
 /// Draws the current tab into `area`: the question, or the review, at no
 /// more than the reading width, and the context pane where
 /// [`panes::choose`] puts it, with Markdown quotes in `quote`. Says what
-/// the pane showed, if one did, and where the field or note that has the
-/// keys was drawn, if one was.
+/// the pane showed, if one did, where the field or note that has the keys
+/// was drawn, if one was, and what the area showed of the range of the row
+/// under the cursor, if it has one.
 pub(super) fn draw_tab(
     area: Rect,
     buf: &mut Buffer,
     state: &SessionState,
     tab: &mut TabState,
     quote: QuoteStyle,
-) -> (Option<DrawnPane>, Option<FieldShape>) {
+) -> (Option<DrawnPane>, Option<FieldShape>, Option<RowCut>) {
     let arrangement = state.has_context_area().then(|| {
         let arrangement = panes::choose(area.width, area.height, tab.layout, tab.shown);
         if arrangement != Arrangement::Hint {
@@ -300,16 +301,17 @@ pub(super) fn draw_tab(
             .load_window(state.id(), &state.window(), body, quote);
     }
 
-    // Scroll so the whole current row is visible. A row taller than the
+    // At rest the area shows the whole current row. A row taller than the
     // area shows its start, unless it holds the text cursor: then the
     // cursor's line stays in view, on the area's last row while the start
     // of the row is further up, so `↑` scrolls back to it row by row. On
     // the text's last line, the row's end, a counter under it included,
     // takes the area's last row instead, so the length shows while the
-    // person types at the end; the cursor wins where both do not fit.
+    // person types at the end; the cursor wins where both do not fit. The
+    // keys that move the cursor move the area from there (`row_view`).
     let height = text_area.height as usize;
     let (start, end) = content.cursor;
-    let scroll = match &content.text_cursor {
+    let at_rest = match &content.text_cursor {
         Some(cursor) if end - start >= height => {
             let kept = if cursor.last_line { end } else { cursor.line };
             kept.saturating_sub(height.saturating_sub(1))
@@ -319,6 +321,7 @@ pub(super) fn draw_tab(
         _ => end.saturating_sub(height.saturating_sub(1)).min(start),
     };
     let total = content.lines.len();
+    let (scroll, row_cut) = row_view(state, content.cursor, total, height, at_rest);
     Paragraph::new(content.lines)
         .scroll((scroll as u16, 0))
         .render(text_area, buf);
@@ -347,7 +350,66 @@ pub(super) fn draw_tab(
             mark_cut(text_area, buf, height - 1, "↓ more", cursor_on(height - 1));
         }
     }
-    (pane, content.shape)
+    (pane, content.shape, row_cut)
+}
+
+/// Where the question's area of `height` rows starts among the `total`
+/// lines of its tab, and what that leaves of the range of the row under
+/// the cursor, whose lines are `start` to `end` (spec section 7.4).
+/// `at_rest` is where the area shows the row without the person moving
+/// the view: the row whole with its end on the area's last row, a row
+/// taller than the area from its start, and a field taller than it with
+/// its text cursor in view.
+///
+/// The keys reach every line of the area through the range: on the first
+/// row it runs up to the area's first line, on the last row down to its
+/// last line. A row other than a field that does not fit the area with the
+/// line above it and the line below it scrolls through all of them, so the
+/// markers on the area's first and last rows cover those neighbours rather
+/// than the ends of its own first and last lines.
+fn row_view(
+    state: &SessionState,
+    (start, end): (usize, usize),
+    total: usize,
+    height: usize,
+    at_rest: usize,
+) -> (usize, Option<RowCut>) {
+    // While a question's note has the keys, its lines are the ones the
+    // cursor marks, and the area keeps its text cursor in view.
+    let rows = state.rows();
+    let row = rows.get(state.row());
+    if state.focus() == Focus::Note || height == 0 || row.is_none() {
+        return (at_rest, None);
+    }
+
+    let above = start.saturating_sub(1);
+    let below = (end + 1).min(total.saturating_sub(1));
+    let tall = row.is_some_and(|row| !row.is_field()) && below - above + 1 > height;
+    // Where the row starts as the cursor reaches it, where it ends as the
+    // cursor moving up reaches it, and the row's own range between them.
+    let (first_view, last_view) = if tall {
+        (above, below + 1 - height)
+    } else {
+        (at_rest, at_rest)
+    };
+    let low = if state.row() == 0 { 0 } else { first_view };
+    let high = if state.row() + 1 == rows.len() {
+        total.saturating_sub(height).max(last_view)
+    } else {
+        last_view
+    };
+
+    let scroll = match state.row_top() {
+        RowTop::Start => first_view,
+        RowTop::End => last_view,
+        RowTop::Line(line) => (low + line).min(high),
+    };
+    let cut = (high > low).then(|| RowCut {
+        above: scroll - low,
+        below: high - scroll,
+        home: first_view - low,
+    });
+    (scroll, cut)
 }
 
 /// Draws `marker` dim over row `row` of `area`, which takes no row of its
@@ -1762,5 +1824,136 @@ mod tests {
             ["↓ more  "],
             "the other end"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // The view of the area for the row under the cursor
+    // -----------------------------------------------------------------
+
+    /// `state` drawn as its tab into an area of 30×6 without context: its
+    /// rows, each cut to its text, and the cut of the row under the cursor.
+    fn viewed(state: &SessionState) -> (Vec<String>, Option<RowCut>) {
+        let area = Rect::new(0, 0, 30, 6);
+        let mut buf = Buffer::empty(area);
+        let mut tab = TabState::for_tests(PaneLayout::Auto, Images::half_blocks());
+        let (_, _, cut) = draw_tab(area, &mut buf, state, &mut tab, quote_style(false));
+        let rows = (0..6).map(|y| test_support::row(&buf, y)).collect();
+        (rows, cut)
+    }
+
+    /// `count` words of three letters from `a01` on, which take 21
+    /// columns, five words, to a row beside an option's number.
+    fn three_letter_words(count: usize) -> String {
+        (1..=count)
+            .map(|n| format!("a{n:02}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn key(state: &mut SessionState, code: ratatui::crossterm::event::KeyCode) {
+        use ratatui::crossterm::event::{KeyEvent, KeyModifiers};
+
+        state.handle(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+
+    #[test]
+    fn the_view_of_a_tall_option_runs_from_the_line_above_it_to_the_line_below_it() {
+        use ratatui::crossterm::event::KeyCode;
+
+        // The text, the hint and a blank take lines 0 to 2, the tall option
+        // lines 3 to 10 and the short one line 11.
+        let mut state = labelled(&format!(
+            r#"[{{"id": "a", "label": "{}"}}, {{"id": "b", "label": "Other"}}]"#,
+            three_letter_words(40)
+        ));
+
+        let (rows, cut) = viewed(&state);
+        assert_eq!(
+            cut,
+            Some(RowCut {
+                above: 2,
+                below: 4,
+                home: 2
+            }),
+            "on the first row the range reaches the text: {rows:#?}"
+        );
+        assert!(rows[0].ends_with("↑ more"), "{rows:#?}");
+        assert_eq!(rows[1], "❯ ( ) 1. a01 a02 a03 a04 a05");
+
+        state.set_row_cut(cut);
+        for _ in 0..4 {
+            key(&mut state, KeyCode::Down);
+        }
+        let (rows, cut) = viewed(&state);
+        assert_eq!(state.row(), 0);
+        assert_eq!(rows[4], "         a36 a37 a38 a39 a40");
+        assert!(rows[5].starts_with("  ( ) 2. Other"), "{rows:#?}");
+        assert_eq!(cut.map(|cut| cut.below), Some(0));
+
+        state.set_row_cut(cut);
+        key(&mut state, KeyCode::Down);
+        assert_eq!(state.row(), 1, "the end of the range moves on");
+        key(&mut state, KeyCode::Up);
+        let (rows, _) = viewed(&state);
+        assert_eq!(
+            rows[4], "         a36 a37 a38 a39 a40",
+            "moving up shows the end: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn an_option_as_tall_as_the_area_or_one_line_less_scrolls_too() {
+        // The middle option of 6 lines, or of 5, does not fit 6 rows with
+        // the lines around it; one of 4 does.
+        for (words, tall) in [(30, true), (25, true), (20, false)] {
+            let mut state = labelled(&format!(
+                r#"[{{"id": "a", "label": "A"}}, {{"id": "b", "label": "{}"}},
+                    {{"id": "c", "label": "C"}}]"#,
+                three_letter_words(words)
+            ));
+            key(&mut state, ratatui::crossterm::event::KeyCode::Down);
+
+            let (rows, cut) = viewed(&state);
+            assert_eq!(cut.is_some(), tall, "{words} words: {rows:#?}");
+            if tall {
+                assert_eq!(rows[1], "❯ ( ) 2. a01 a02 a03 a04 a05", "{words}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_first_and_last_rows_reach_the_ends_of_the_question() {
+        use ratatui::crossterm::event::KeyCode;
+
+        // A text of 8 lines above two options and a note of 3 lines below.
+        let json = format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "{}", "kind": "single",
+                "options": [{{"id": "a", "label": "A"}}, {{"id": "b", "label": "B"}}]}}]}}"#,
+            three_letter_words(56)
+        );
+        let draft = crate::format::SessionResult::draft(
+            "ends",
+            "q",
+            vec![crate::format::Answer {
+                note: Some("n1\nn2\nn3".into()),
+                ..crate::format::Answer::new("q")
+            }],
+        );
+        let mut state = SessionState::new(
+            "ends",
+            serde_json::from_str(&json).expect("parses"),
+            Some(&draft),
+        );
+
+        let (rows, cut) = viewed(&state);
+        assert!(rows[5].contains("( ) 1. A"), "{rows:#?}");
+        let cut = cut.expect("the text above can be reached");
+        assert_eq!((cut.below, cut.above), (0, cut.home));
+
+        key(&mut state, KeyCode::Down);
+        let (rows, cut) = viewed(&state);
+        let cut = cut.expect("the note below can be reached");
+        assert_eq!((cut.above, cut.home), (0, 0), "{rows:#?}");
+        assert!(cut.below > 0, "{rows:#?}");
     }
 }

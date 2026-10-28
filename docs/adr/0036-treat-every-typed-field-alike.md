@@ -11,6 +11,8 @@ Amends [8. TUI interaction model](0008-tui-interaction-model.md)
 Amends [29. Let the person add a note to the whole session](0029-let-the-person-add-a-note-to-the-whole-session.md):
 the session note takes several lines
 
+Amended by [66. Let the cursor keys reach every line of the question](0066-let-the-cursor-keys-reach-every-line-of-the-question.md)
+
 ## Context
 
 asqr has five typed fields: the own answer, the answer of a `text`

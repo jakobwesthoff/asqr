@@ -35,7 +35,7 @@ use super::theme;
 use crate::format::ContextEntry;
 use crate::graphics::{Images, KittyBook};
 use crate::tui::text_field::FieldShape;
-use crate::tui::{App, Extent, Invalid, Notice, Overlay, PanePage, SessionState, Tone};
+use crate::tui::{App, Extent, Invalid, Notice, Overlay, PanePage, RowCut, SessionState, Tone};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -92,6 +92,12 @@ pub struct Drawn {
     /// Where the field or note that has the keys was drawn, for
     /// [`App::set_field_shape`].
     pub field_shape: Option<FieldShape>,
+    /// What the question's area showed of the range of the row under the
+    /// cursor, for [`App::set_row_cut`]: `Some(None)` where there is no
+    /// range to move through, also from a frame too small to draw, whose
+    /// keys still reach the question. `None` from a frame that drew no
+    /// question, as the full-screen view, whose keys never reach it.
+    pub row_cut: Option<Option<RowCut>>,
     /// Whether the frame showed the dialog of an invalid session, for
     /// [`App::set_dialog_shown`]: only a dialog the person saw takes the
     /// next key.
@@ -287,7 +293,10 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             area.width, area.height
         );
         frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
-        return Drawn::default();
+        return Drawn {
+            row_cut: Some(None),
+            ..Drawn::default()
+        };
     }
 
     // Every place that renders Markdown draws its quotes in this style, the
@@ -344,21 +353,22 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             frame.render_widget(tab_bar(state), tabs);
 
             let main = main.inner(ratatui::layout::Margin::new(1, 0));
-            let (pane, field_shape) = if state.full_screen() && state.shown_context().is_some() {
-                (
-                    draw_pane(
+            let (pane, field_shape, row_cut) =
+                if state.full_screen() && state.shown_context().is_some() {
+                    let pane = draw_pane(
                         main,
                         frame.buffer_mut(),
                         state,
                         &mut view.tab.viewers,
                         quote,
                         Ledge::Beside,
-                    ),
-                    None,
-                )
-            } else {
-                draw_tab(main, frame.buffer_mut(), state, &mut view.tab, quote)
-            };
+                    );
+                    (pane, None, None)
+                } else {
+                    let (pane, shape, cut) =
+                        draw_tab(main, frame.buffer_mut(), state, &mut view.tab, quote);
+                    (pane, shape, Some(cut))
+                };
             let (pane_page, image) = match pane {
                 Some(DrawnPane {
                     page,
@@ -395,6 +405,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 intro_page: Some(intro_page),
                 pane_page: Some(pane_page),
                 field_shape,
+                row_cut,
                 invalid_dialog: false,
                 session_shown: overlay.is_none(),
             };
@@ -859,6 +870,9 @@ mod tests {
         let (backend, drawn) = measured_in(app, view, width, height);
         if let Some(page) = drawn.intro_page {
             app.set_intro_page(page);
+        }
+        if let Some(cut) = drawn.row_cut {
+            app.set_row_cut(cut);
         }
         app.set_field_shape(drawn.field_shape);
         backend
@@ -1374,7 +1388,7 @@ mod tests {
     }
 
     #[test]
-    fn a_label_taller_than_the_question_shows_from_its_start() {
+    fn a_label_taller_than_the_question_shows_its_first_line_whole() {
         let label = [LONG_LABEL; 3].join(" ");
         let json = serde_json::json!({
             "asqr": 2,
@@ -1385,11 +1399,112 @@ mod tests {
 
         let (_, start) = find(backend.buffer(), "❯ ( ) 1. The retry loop");
         assert!(
-            row(backend.buffer(), 12).ends_with("↓ more"),
+            row(backend.buffer(), start).ends_with("gives up after a"),
+            "no marker covers the end of the label's first line:\n{backend}"
+        );
+        assert!(
+            row(backend.buffer(), 12).contains("↓ more"),
             "the rest of the label lies below the area:\n{backend}"
         );
-        assert!(start < 12, "{backend}");
+        assert_eq!(
+            start, 4,
+            "the line above the option tops the area:\n{backend}"
+        );
         insta::assert_snapshot!("tall_label_60x15", backend);
+    }
+
+    /// One question at 60×15: `text` above two options, the first of them
+    /// labelled `label`, with a note when `note`.
+    fn small_question(text: &str, label: &str, note: bool) -> App {
+        let json = serde_json::json!({
+            "asqr": 2,
+            "questions": [{"id": "q", "text": text, "kind": "single", "note": note,
+                "options": [{"id": "a", "label": label}, {"id": "b", "label": "Other"}]}]
+        });
+        app(&[("tall", &json.to_string())])
+    }
+
+    /// Presses `code` `times` times on `app`, drawing at 60×15 before each
+    /// key as the running app does, and returns the screen after the last.
+    fn pressed(app: &mut App, view: &mut View, code: KeyCode, times: usize) -> TestBackend {
+        for _ in 0..times {
+            drawn(app, view, 60, 15);
+            special(app, code);
+        }
+        drawn(app, view, 60, 15)
+    }
+
+    #[test]
+    fn a_tall_label_scrolls_line_by_line() {
+        let mut app = small_question("Which one?", &[LONG_LABEL; 3].join(" "), false);
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+
+        let backend = pressed(&mut app, &mut view, KeyCode::Down, 2);
+
+        assert_eq!(app.active().expect("waiting").row(), 0, "{backend}");
+        insta::assert_snapshot!("tall_label_scrolled_60x15", backend);
+    }
+
+    #[test]
+    fn a_long_question_text_scrolls_back_to_its_start() {
+        let text = format!("Start of the text. {}", LONG_LABEL.repeat(4));
+        let mut app = small_question(&text, "Short", false);
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+        let at_rest = drawn(&mut app, &mut view, 60, 15);
+        assert!(
+            !at_rest.to_string().contains("Start of the text"),
+            "{at_rest}"
+        );
+
+        let backend = pressed(&mut app, &mut view, KeyCode::Up, 20);
+
+        assert!(
+            row(backend.buffer(), 3).starts_with(" Start of the text"),
+            "{backend}"
+        );
+        insta::assert_snapshot!("long_question_text_scrolled_60x15", backend);
+    }
+
+    #[test]
+    fn opening_the_note_after_scrolling_into_the_text_shows_the_note() {
+        let text = format!("Start of the text. {}", LONG_LABEL.repeat(4));
+        let mut app = small_question(&text, "Short", true);
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+        pressed(&mut app, &mut view, KeyCode::Up, 20);
+
+        keys(&mut app, "n");
+        let backend = drawn(&mut app, &mut view, 60, 15);
+
+        assert!(backend.to_string().contains("Notes:"), "{backend}");
+    }
+
+    #[test]
+    fn a_note_taller_than_the_area_keeps_its_cursor_in_view_on_a_tall_option() {
+        let mut app = small_question("Which one?", &[LONG_LABEL; 3].join(" "), true);
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+        keys(&mut app, "n");
+        type_lines(&mut app, &mut view, 60, 15, 20);
+
+        let backend = drawn(&mut app, &mut view, 60, 15);
+        let (_, y) = find(backend.buffer(), "line 20");
+        assert!((3..13).contains(&y), "{backend}");
+    }
+
+    #[test]
+    fn an_escaped_review_note_reached_from_below_shows_its_start() {
+        let mut app = small_question("Which one?", "Short", false);
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+        keys(&mut app, "l");
+        special(&mut app, KeyCode::Down);
+        type_lines(&mut app, &mut view, 60, 15, 20);
+        special(&mut app, KeyCode::Down);
+        drawn(&mut app, &mut view, 60, 15);
+        special(&mut app, KeyCode::Up);
+        drawn(&mut app, &mut view, 60, 15);
+        special(&mut app, KeyCode::Esc);
+
+        let backend = drawn(&mut app, &mut view, 60, 15);
+        assert!(backend.to_string().contains("line 1 "), "{backend}");
     }
 
     #[test]
@@ -2785,6 +2900,9 @@ mod tests {
             .expect("draws");
         if let Some(page) = drawn.pane_page {
             app.set_pane_page(page);
+        }
+        if let Some(cut) = drawn.row_cut {
+            app.set_row_cut(cut);
         }
         app.set_dialog_shown(drawn.invalid_dialog);
         app.set_session_shown(drawn.session_shown);

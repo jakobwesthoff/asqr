@@ -999,9 +999,9 @@ has context (section 7.4, ADRs 30 and 31):
   Option descriptions start after the widest label and wrap under
   themselves; where that leaves less than 30 columns, or a label takes
   more than one line, every description of the question goes below its
-  label, from column 6. An option whose label and description take more
-  lines than the question's area shows from its start, like any row
-  taller than the area (section 7.4).
+  label, from column 6. An option whose label and description do not fit
+  the question's area scrolls through their lines with `↑`/`↓` (section
+  7.4).
 - The own-answer row is the last row of a question with `custom`; its
   mark shows whether the typed text counts, and when it counts it is
   bold in the primary colour like a chosen option's mark (ADR 37). A
@@ -1106,7 +1106,9 @@ has context (section 7.4, ADRs 30 and 31):
     reading width, so its text reflows when moving to a question with
     context beside.
 - Everything adapts to the terminal: the question scrolls so the row
-  under the cursor stays visible, dialogs never exceed the screen, and
+  under the cursor stays visible, unless the person scrolled the lines
+  above the first row or below the last row into view (below), dialogs
+  never exceed the screen, and
   below 60×15 asqr shows "asqr needs at least 60×15; this terminal is
   W×H." instead of the layout. Back at a larger size, the context
   pane's focus and the full-screen view are as they were.
@@ -1119,13 +1121,42 @@ has context (section 7.4, ADRs 30 and 31):
   visible. A marker never covers the text cursor: where the end chosen
   holds it, the marker goes over the other end, and where both do, that
   row shows no marker.
-- A field or a note taller than the question's area keeps its text
-  cursor in view instead of showing its start: the cursor's line stays
-  on the area's last row while the field's start lies further up, so
-  `↑` scrolls back to the start row by row. On the text's last line, the
-  counter of a field with a length takes the area's last row and the
-  cursor's line the row above it; where the area has no room for both,
-  the cursor's line shows.
+- Every line of the question's area can be read with the keys that move
+  the cursor. They first scroll the area by a line while it has lines in
+  that direction for the row under the cursor, and only then move the
+  cursor as before: on the first row, `↑` and `k` scroll up through the
+  question text until its start shows, and `↓` and `j` scroll back before
+  the cursor moves on; on the last row, `↓` and `j` scroll down to the
+  last line below it, such as the end of the note, and `↑` and `k` scroll
+  back first. A field on such a row scrolls the same way with `↑` and `↓`
+  (and `ctrl-p`/`ctrl-n`) at its first and last row; while the area is
+  scrolled away from it, they scroll back toward it, and any other key or
+  paste the field takes shows the field again at once. Every other key
+  that acts on the question, such as `n`, `space`, a digit or `enter`,
+  and a paste first scroll the area back to where the row under the
+  cursor shows; the keys the context pane takes leave it. While a
+  question's note has the keys, the area keeps the note's text cursor in
+  view.
+- A row other than a field that does not fit the area together with the
+  line above it and the line below it, such as an option with a long
+  label or description, shows part of them at a time. Moving up onto it
+  shows its last lines and the line below it, and any other way onto it,
+  such as moving down, a switch between questions or a digit, the line
+  above it and its first lines. On it, `↓` and `j` scroll down by a line
+  until the line below it shows, and `↑` and `k` scroll up until the line
+  above it shows, before the cursor moves. So every line of a tall
+  option can be read, the last option's included, also where `↑ more`
+  and `↓ more` cover the end of a line.
+- A field or a note taller than the question's area shows its text
+  cursor's line instead of its start: the cursor's line stays on the
+  area's last row while the field's start lies further up, so `↑` scrolls
+  back to the start row by row. On the text's last line, the counter of a
+  field with a length takes the area's last row and the cursor's line the
+  row above it; where the area has no room for both, the cursor's line
+  shows. A field on the first or last row leaves its text cursor out of
+  view only while `↑`/`↓` (or `ctrl-p`/`ctrl-n`) at its first or last row
+  scrolled the area into the lines above or below it; any other key or
+  paste the field takes shows it again.
 
 ### 7.5 The empty queue
 
@@ -1160,7 +1191,7 @@ On an option row (vim style plus arrows):
 
 | Key | Action |
 |---|---|
-| `↑`/`↓`, `k`/`j` | move between the rows |
+| `↑`/`↓`, `k`/`j` | move between the rows; first scroll through an option that does not fit the question's area, and on the first and last row through the lines above or below it (section 7.4) |
 | `←`/`→`, `h`/`l` | previous and next question; the review tab is the last one |
 | `enter` | `single`: pick the option and move on to the next question. `multi` and an info item: move on |
 | `space` | `multi`: toggle the option |
@@ -1422,7 +1453,8 @@ keeps the session and shows its own notice instead.
   id, or the review; the row with its focus, so a field left with `esc`
   stays without the keys, a field typed in keeps its text cursor, and an
   open note stays open while the question still takes notes (otherwise
-  the row takes the keys as after the note); the context pane's focus
+  the row takes the keys as after the note); the part of the question's
+  area scrolled to for that row (section 7.4); the context pane's focus
   and the full-screen view while the same entry shows; and the scroll
   position of every entry that reads as before (section 8.1). A row
   that is gone, such as an own answer turned off, gives way to the row

@@ -146,12 +146,18 @@ where
         // on where its rows break. A frame without a tab, as below the
         // minimum size, says nothing about the intro or the pane: handing
         // it on would end the pane's focus and the full-screen view, and the
-        // session shown at the next tab may be another one.
+        // session shown at the next tab may be another one. How far the
+        // keys move the question's area for the row under the cursor is
+        // known from a frame that drew the tab; one below the minimum size
+        // drops it, as the keys still reach the question there.
         if let Some(page) = drawn.intro_page {
             app.set_intro_page(page);
         }
         if let Some(page) = drawn.pane_page {
             app.set_pane_page(page);
+        }
+        if let Some(cut) = drawn.row_cut {
+            app.set_row_cut(cut);
         }
         app.set_dialog_shown(drawn.invalid_dialog);
         app.set_session_shown(drawn.session_shown);
@@ -419,6 +425,232 @@ mod tests {
             .expect("runs");
         assert_eq!(app.sessions()[1].session().questions[0].text, "Pick later");
         assert_eq!(app.sessions()[1].message(), None);
+    }
+
+    // -----------------------------------------------------------------
+    // A question taller than the area on a small terminal
+    // -----------------------------------------------------------------
+
+    /// A harness on a terminal of 60×15, the smallest asqr draws, with
+    /// `session` waiting and the app started on it. Without header text
+    /// the question's area has 10 rows there.
+    fn small_with(session: &serde_json::Value) -> (Harness, App, Inbox) {
+        let mut harness = Harness::new();
+        harness.terminal = Terminal::new(TestBackend::new(60, 15)).expect("test terminal");
+        let path = harness.location.inbox().join("tall.json");
+        fs::write(path, session.to_string()).expect("written");
+        let (app, inbox) = start(harness.location.clone()).expect("started");
+        (harness, app, inbox)
+    }
+
+    /// `count` words `<prefix>001`, `<prefix>002` and so on, each of which
+    /// shows whole or not at all, so a word cut by the area's edge or
+    /// covered by a marker counts as not shown.
+    fn words(prefix: char, count: usize) -> String {
+        (1..=count)
+            .map(|n| format!("{prefix}{n:03}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// The words of [`words`] with `prefix` that `screen` shows whole.
+    fn shown_words(screen: &str, prefix: char) -> BTreeSet<String> {
+        screen
+            .split_whitespace()
+            .filter(|word| {
+                word.len() == 4
+                    && word.starts_with(prefix)
+                    && word[1..].chars().all(|c| c.is_ascii_digit())
+            })
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// One question whose options are `options`, a JSON list, below the
+    /// text `text`.
+    fn question(text: &str, options: serde_json::Value, note: bool) -> serde_json::Value {
+        serde_json::json!({"asqr": 2, "questions": [
+            {"id": "q", "text": text, "kind": "single", "note": note, "options": options}]})
+    }
+
+    /// Presses `code` once and returns the screen drawn after it.
+    fn press(harness: &mut Harness, app: &mut App, inbox: &mut Inbox, code: KeyCode) -> String {
+        harness
+            .run_started(app, inbox, vec![key(code)])
+            .expect("runs");
+        harness.screen()
+    }
+
+    #[test]
+    fn down_reaches_the_tail_of_the_last_option_taller_than_the_area() {
+        let options = serde_json::json!([{"id": "a", "label": words('w', 300)}]);
+        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options, false));
+
+        let mut screen = String::new();
+        for _ in 0..60 {
+            screen = press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
+        }
+
+        assert!(
+            shown_words(&screen, 'w').contains("w300"),
+            "the label's last word shows:\n{screen}"
+        );
+        assert!(!screen.contains("↓ more"), "{screen}");
+    }
+
+    /// Keys still reach the question while the terminal is too small to
+    /// draw it, so what the last drawn frame measured goes with it.
+    #[test]
+    fn a_frame_too_small_drops_the_view_of_a_tall_option() {
+        let options = serde_json::json!([
+            {"id": "a", "label": words('w', 300)},
+            {"id": "b", "label": "Other"}]);
+        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options, false));
+        press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
+        assert_eq!(app.active().expect("waiting").row(), 0, "j scrolled");
+
+        harness.terminal = Terminal::new(TestBackend::new(40, 10)).expect("test terminal");
+        press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
+
+        assert_eq!(app.active().expect("waiting").row(), 1);
+    }
+
+    #[test]
+    fn down_shows_every_line_of_a_tall_option_before_the_next_one() {
+        let options = serde_json::json!([
+            {"id": "a", "label": words('w', 300)},
+            {"id": "b", "label": "Other"}]);
+        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options, false));
+        harness
+            .run_started(&mut app, &mut inbox, vec![])
+            .expect("runs");
+
+        let mut seen = shown_words(&harness.screen(), 'w');
+        for _ in 0..60 {
+            let screen = press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
+            if app.active().expect("waiting").row() == 1 {
+                break;
+            }
+            seen.extend(shown_words(&screen, 'w'));
+        }
+
+        let missing: Vec<String> = shown_words(&words('w', 300), 'w')
+            .difference(&seen)
+            .cloned()
+            .collect();
+        assert_eq!(missing, Vec::<String>::new(), "words never shown whole");
+    }
+
+    #[test]
+    fn up_onto_a_tall_option_shows_its_end_and_goes_back_through_it() {
+        let options = serde_json::json!([
+            {"id": "a", "label": words('w', 300)},
+            {"id": "b", "label": "Other"}]);
+        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options, false));
+        for _ in 0..60 {
+            press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
+        }
+        assert_eq!(app.active().expect("waiting").row(), 1);
+
+        let screen = press(&mut harness, &mut app, &mut inbox, KeyCode::Char('k'));
+        assert_eq!(app.active().expect("waiting").row(), 0);
+        assert!(
+            shown_words(&screen, 'w').contains("w300"),
+            "moving up shows the option's end:\n{screen}"
+        );
+
+        let mut screen = screen;
+        for _ in 0..60 {
+            screen = press(&mut harness, &mut app, &mut inbox, KeyCode::Char('k'));
+        }
+        assert!(
+            shown_words(&screen, 'w').contains("w001"),
+            "up goes back to the option's start:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn up_on_the_first_option_reaches_the_start_of_a_long_question_text() {
+        let options = serde_json::json!([{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]);
+        let (mut harness, mut app, mut inbox) =
+            small_with(&question(&words('t', 200), options, false));
+
+        let mut screen = String::new();
+        for _ in 0..40 {
+            screen = press(&mut harness, &mut app, &mut inbox, KeyCode::Up);
+        }
+
+        assert!(
+            shown_words(&screen, 't').contains("t001"),
+            "the text's first word shows:\n{screen}"
+        );
+        assert_eq!(app.active().expect("waiting").row(), 0);
+    }
+
+    #[test]
+    fn down_scrolls_back_through_the_question_text_before_moving_on() {
+        let options = serde_json::json!([{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]);
+        let (mut harness, mut app, mut inbox) =
+            small_with(&question(&words('t', 200), options, false));
+        for _ in 0..40 {
+            press(&mut harness, &mut app, &mut inbox, KeyCode::Char('k'));
+        }
+
+        press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
+
+        assert_eq!(
+            app.active().expect("waiting").row(),
+            0,
+            "the first `j` scrolls back instead of moving on"
+        );
+    }
+
+    #[test]
+    fn up_in_the_answer_of_a_text_question_reaches_the_start_of_its_text() {
+        let session = serde_json::json!({"asqr": 2, "questions": [
+            {"id": "q", "text": words('t', 200), "kind": "text", "note": false}]});
+        let (mut harness, mut app, mut inbox) = small_with(&session);
+
+        let mut screen = String::new();
+        for _ in 0..40 {
+            screen = press(&mut harness, &mut app, &mut inbox, KeyCode::Up);
+        }
+        assert!(
+            shown_words(&screen, 't').contains("t001"),
+            "the text's first word shows:\n{screen}"
+        );
+
+        let screen = press(&mut harness, &mut app, &mut inbox, KeyCode::Char('x'));
+        assert!(screen.contains("✎ x"), "typing shows the field:\n{screen}");
+    }
+
+    #[test]
+    fn down_on_the_last_option_reaches_the_end_of_its_note() {
+        let options = serde_json::json!([{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]);
+        let (mut harness, mut app, mut inbox) =
+            small_with(&question(&words('t', 200), options, true));
+        let ctrl_j = Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
+        let mut typed = vec![key(KeyCode::Char('j')), key(KeyCode::Char('n'))];
+        for line in 1..=6 {
+            if line > 1 {
+                typed.push(ctrl_j.clone());
+            }
+            typed.extend(format!("n{line:03}").chars().map(|c| key(KeyCode::Char(c))));
+        }
+        typed.push(key(KeyCode::Esc));
+        harness
+            .run_started(&mut app, &mut inbox, typed)
+            .expect("runs");
+
+        let mut screen = String::new();
+        for _ in 0..20 {
+            screen = press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
+        }
+
+        assert!(
+            shown_words(&screen, 'n').contains("n006"),
+            "the note's last line shows:\n{screen}"
+        );
     }
 
     #[test]

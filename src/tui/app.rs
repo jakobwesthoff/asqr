@@ -13,7 +13,7 @@ use std::ops::Range;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
-use super::{Effect, Extent, FieldShape, Offset, Page, PanePage, SessionState};
+use super::{Effect, Extent, FieldShape, Offset, Page, PanePage, RowCut, SessionState};
 use crate::format::{Answer, SessionResult, same_session_id};
 
 /// How a finished session ends.
@@ -290,6 +290,14 @@ impl App {
     pub fn set_pane_page(&mut self, page: Option<PanePage>) {
         if let Some(state) = self.sessions.get_mut(self.active) {
             state.set_pane_page(page);
+        }
+    }
+
+    /// Hands the active session what the last draw showed of the range of
+    /// the row under its cursor, which is how far its keys move the view.
+    pub fn set_row_cut(&mut self, cut: Option<RowCut>) {
+        if let Some(state) = self.sessions.get_mut(self.active) {
+            state.set_row_cut(cut);
         }
     }
 
