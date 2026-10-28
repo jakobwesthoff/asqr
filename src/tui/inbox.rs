@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 
-use super::{App, AppEffect, Invalid, Notice, Outcome, SessionState, Tone};
+use super::{App, AppEffect, EditRequest, Invalid, Notice, Outcome, SessionState, Tone};
 use crate::format::{
     ParseError, SessionResult, Status, is_valid_session_id, now_rfc3339, parse_session,
     same_session_id, validate,
@@ -46,6 +46,8 @@ pub enum Applied {
     Continue,
     Quit,
     OpenImage(String),
+    /// Open a field in the person's editor (ADR 74).
+    Edit(EditRequest),
 }
 
 #[derive(Debug)]
@@ -80,6 +82,13 @@ impl Inbox {
         self.known
             .iter()
             .position(|known| same_session_id(&known.id, id))
+    }
+
+    /// Whether the file of session `id` is still in the inbox now; it may
+    /// have left since the last sync, as when the asker withdrew it.
+    pub fn waiting(&self, id: &str) -> bool {
+        self.known(id)
+            .is_some_and(|index| self.known[index].path.exists())
     }
 
     fn forget(&mut self, app: &mut App, id: &str) {
@@ -351,6 +360,7 @@ impl Inbox {
             AppEffect::Finish { id, outcome } => self.finish(app, &id, outcome),
             AppEffect::Quit => return Applied::Quit,
             AppEffect::OpenImage(path) => return Applied::OpenImage(path),
+            AppEffect::Edit(request) => return Applied::Edit(request),
         }
         Applied::Continue
     }

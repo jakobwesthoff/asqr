@@ -256,6 +256,15 @@ impl<'a> View<'a> {
         }
     }
 
+    /// asqr took the terminal back from the person's editor (ADR 74): the
+    /// alternate screen was left and entered anew, which clears it, and a
+    /// terminal may keep its Kitty images per screen. Every image is read
+    /// and sent again as it is next shown, under new ids, and the old ones
+    /// are deleted after that frame.
+    pub fn screen_regained(&mut self) {
+        self.tab.viewers.forget_images();
+    }
+
     /// The book of the Kitty ids of the images of context entries. Every
     /// image of a frame that went hands its id on there, for the terminal
     /// to delete once the frame is on the screen (ADR 42).

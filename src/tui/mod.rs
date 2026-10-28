@@ -8,6 +8,7 @@
 
 mod alert;
 mod app;
+mod editor;
 mod inbox;
 mod key_reader;
 mod progress;
@@ -20,6 +21,7 @@ mod watch;
 
 pub use alert::*;
 pub use app::*;
+pub use editor::*;
 pub use inbox::*;
 pub use key_reader::*;
 pub use progress::*;

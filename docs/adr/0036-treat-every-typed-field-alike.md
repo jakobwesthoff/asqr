@@ -15,6 +15,9 @@ Amended by [66. Let the cursor keys reach every line of the question](0066-let-t
 
 Amended by [68. Every item takes a note](0068-every-item-takes-a-note.md)
 
+Amended by [74. Edit a typed field in the person's editor with ctrl-g](0074-edit-a-typed-field-in-the-person-s-editor-with-ctrl-g.md):
+`ctrl-g` opens the focused field in the person's editor
+
 ## Context
 
 asqr has five typed fields: the own answer, the answer of a `text`

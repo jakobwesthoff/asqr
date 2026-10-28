@@ -67,7 +67,8 @@ terminal title counts the waiting sessions (`--no-title`). Ghostty,
 iTerm2, Windows Terminal and kitty inside tmux also show how much of the
 session is answered. Answer
 with the keyboard: `↑`/`↓` and `←`/`→` (or `hjkl`) move, `enter` picks,
-typing goes straight into the answer fields, `n` adds a note, and the
+typing goes straight into the answer fields, `ctrl-g` opens a field in
+your editor (`VISUAL` or `EDITOR`), `n` adds a note, and the
 last tab reviews everything before you submit or reject. `?` shows every
 key. `q` quits; your answers so far are kept as a draft.
 

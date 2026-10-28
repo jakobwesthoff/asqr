@@ -928,8 +928,10 @@ needs a terminal on stdin and stdout; otherwise it prints "asqr needs a
 terminal" and exits with 1. It creates the queue's directories and
 takes the queue lock (section 5.6). `q` quits with exit code 0 and gives
 the terminal back as it was, also after a panic. On Unix, SIGTERM,
-SIGINT and SIGHUP quit as `q` does. SIGKILL ends asqr at once and leaves
-the terminal as asqr had set it up.
+SIGINT and SIGHUP quit as `q` does. While the person's editor has the
+terminal (section 7.7), SIGINT, which ctrl-c sends there, does not quit
+asqr, and SIGTERM and SIGHUP quit once the editor has exited. SIGKILL
+ends asqr at once and leaves the terminal as asqr had set it up.
 
 asqr asks the terminal for bracketed paste (section 7.7) and for focus
 reports (section 8.8). It turns both off again when it quits or panics,
@@ -1411,6 +1413,65 @@ line (ADR 36).
   - There is no selection: `shift` with a move only moves, and `ctrl-x`
     cuts nothing.
   - `ctrl-v` and `alt-v` do nothing, as `pgup`/`pgdn` without a pane.
+  - `ctrl-g` opens the field in the person's editor (below). On a row
+    with a field left with `esc` it gives the field the keys again, as a
+    paste does, and opens it. Elsewhere it does nothing. The key bar of a
+    field and of a note names `ctrl-g  editor` last of their keys, so a
+    bar too narrow for every hint leaves it out before them (section
+    7.2), and the general help names it on the line of `esc`: `esc,
+    ctrl-g  stop typing; edit the field in your editor`.
+- **The editor** (ADR 74) is the program `VISUAL` names, else `EDITOR`;
+  either may carry arguments and quotes. A value that names no program
+  asqr finds is skipped for the next, and without one asqr takes the
+  first of a list of common editors it finds. asqr writes the field into
+  `asqr-XXXXXX.md` in the system's temp directory, gives the terminal to
+  the editor (it leaves the alternate screen and raw mode, and stops
+  reading the terminal's keys), and takes it back when the editor exits,
+  drawing the screen afresh and sending its images, the title and the
+  progress again. While the editor runs asqr does nothing else: what
+  happens in the queue meanwhile shows after it. The file holds the
+  field's text, then:
+
+  ```
+  # ------------------------ >8 ------------------------
+  # Do not change or remove the line above. Everything below it is ignored.
+  #
+  # Session: <title> (<id>)
+  # Question <n> of <count>: <header or id>
+  # Field: <own answer|answer|note|note to the asker|reason for rejecting>
+  #
+  # <the question's text, a line at a time>
+  ```
+
+  A blank line stands between the text and the cut line. A session
+  without a title is named by its id alone; the review's fields name no
+  question. When the editor exits, everything above the first line that
+  is exactly the cut line goes into the field, without the line breaks
+  at its end and cleaned as a paste; `#` lines above it stay. A text that
+  differs only by the line breaks at its end leaves the field as it was,
+  and the status line says "the field is unchanged". A field whose text
+  holds the cut line is not opened: "the field holds the >8 line; remove
+  it to edit in the editor". The field stays as it was, and the status
+  line says why, when
+  - no editor is found: "no editor found: set VISUAL or EDITOR";
+  - asqr's key reader does not stop within a second: "the editor did not
+    start: the terminal's input is busy; press ctrl-g again";
+  - the editor exits with an error: "the field is unchanged: the editor
+    exited with an error";
+  - it cannot run: "the field is unchanged: cannot run the editor:
+    <reason>";
+  - the file cannot be written, or read back: "cannot write the file for
+    the editor: <reason>", "the field is unchanged: cannot read the
+    editor's file: <reason>";
+  - the cut line is gone: "your text is in <path>: the >8 line is gone,
+    field unchanged", a warning.
+
+  A session that left while the editor ran gets the text, and the status
+  line warns "your text is in <path>: "<title>" left while the editor
+  ran". In these two warnings asqr keeps the file; `<path>` names the
+  temp directory `$TMPDIR` where that variable names it, and the log has
+  the whole path. An editor that returns at once, as `code` without
+  `-w`, leaves the field unchanged.
 
 Where the question sets `length`, a counter on a line of its own after
 the focused field's text, at the right edge, shows the length as text,
@@ -2101,7 +2162,6 @@ The skill teaches:
 - Partial submits.
 - Question kinds beyond `single`, `multi`, `text` and `info`.
 - A tmux passthrough hint in the TUI.
-- Editing a field in `$EDITOR` with `ctrl-g`.
 - Windows support (it may work, but it is not tested).
 - Formats other than JSON.
 - A config file: flags and environment variables only.

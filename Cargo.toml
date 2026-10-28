@@ -19,6 +19,7 @@ anstyle-parse = "1.0.0"
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 directories = "6.0.0"
+edit = { version = "0.1.5", features = ["quoted-env"] }
 gethostname = "1.1.0"
 image = "0.25.10"
 jiff = "0.2.37"
@@ -50,5 +51,5 @@ portable-pty = "0.9.0"
 vt100 = "0.18.1"
 
 [target."cfg(unix)".dependencies]
-rustix = { version = "1.1.5", features = ["event", "fs"] }
+rustix = { version = "1.1.5", features = ["event", "fs", "termios"] }
 signal-hook = "0.4.5"

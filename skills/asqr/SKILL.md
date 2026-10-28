@@ -441,7 +441,7 @@ one too.
   carry a note: read it, it often says why.
 - Every typed text may span several lines: `custom`, both kinds of
   `note` and `reason` can contain `\n`, for example when the person
-  pasted a list.
+  pasted a list or wrote the text in their editor.
 - `defaulted: true` means the person left your default untouched. A
   question whose default they cleared comes back with `skipped: true`
   in a submitted result, and a rejected result leaves it out unless it

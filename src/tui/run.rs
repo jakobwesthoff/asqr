@@ -9,16 +9,21 @@
 //! backend.
 
 use std::collections::VecDeque;
-use std::io;
+use std::fs;
+use std::io::{self, Write};
+use std::path::Path;
 use std::sync::mpsc::Receiver;
 
 use anyhow::Context;
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
+use ratatui::layout::{Position, Rect};
 
 use super::render::{Drawn, View, draw};
-use super::{App, Applied, Inbox, Tone, session_progress};
+use super::{
+    App, Applied, EditRequest, Inbox, Notice, Tone, edited_text, editor_file, session_progress,
+};
 use crate::graphics::KittyDeletes;
 use crate::queue::QueueLocation;
 
@@ -74,6 +79,136 @@ pub trait Host {
     /// Show `percent` as the terminal's progress, or remove the progress
     /// for `None`, where the terminal is known to show it (ADR 73).
     fn progress(&mut self, percent: Option<u8>);
+    /// Hand the terminal to the person's editor on the file at `path`, and
+    /// take it back once the editor exits (ADR 74). The error's kind says
+    /// what went wrong: `NotFound` for no editor, `WouldBlock` for a
+    /// terminal whose input could not be freed, `Other` for an editor that
+    /// exited with an error.
+    fn edit(&mut self, path: &Path) -> io::Result<()>;
+}
+
+/// Opens the field of `request` in the person's editor through `host` and
+/// puts the text left above the file's cut line into it, or says in the
+/// status line why it cannot (ADR 74). Says whether the editor had the
+/// terminal, which is then drawn afresh.
+///
+/// The file is read by its path: an editor that saves into a new file and
+/// renames it over the old one leaves the file asqr opened unchanged. Where
+/// the text would be lost, as when the cut line is gone or the session
+/// left while the editor ran, the file stays and the status line names it.
+fn edit_in_editor(
+    host: &mut impl Host,
+    inbox: &mut Inbox,
+    app: &mut App,
+    request: &EditRequest,
+) -> bool {
+    let written = tempfile::Builder::new()
+        .prefix("asqr-")
+        .suffix(".md")
+        .tempfile()
+        .and_then(|mut file| {
+            file.write_all(editor_file(request).as_bytes())?;
+            file.flush()?;
+            Ok(file)
+        });
+    let file = match written {
+        Ok(file) => file,
+        Err(error) => {
+            app.notice(
+                Tone::Error,
+                format!("cannot write the file for the editor: {error}"),
+            );
+            return false;
+        }
+    };
+    if let Err(error) = host.edit(file.path()) {
+        app.notice(Tone::Error, editor_failure(&error));
+        return true;
+    }
+    let read = fs::read(file.path()).and_then(|bytes| {
+        String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    });
+    let content = match read {
+        Ok(content) => content,
+        Err(error) => {
+            app.notice(
+                Tone::Error,
+                format!("the field is unchanged: cannot read the editor's file: {error}"),
+            );
+            return true;
+        }
+    };
+    let Some(text) = edited_text(&content) else {
+        let kept = kept(file);
+        app.notice(
+            Tone::Warning,
+            format!("{kept}the >8 line is gone, field unchanged"),
+        );
+        return true;
+    };
+    // A session withdrawn or finished elsewhere while the editor ran keeps
+    // no draft, so its field would take the text along when it leaves.
+    let id = &request.about.id;
+    if !inbox.waiting(id) {
+        let name = request.about.title.as_deref().unwrap_or(id);
+        let kept = kept(file);
+        app.show(Notice::naming(
+            Tone::Warning,
+            &format!("{kept}\""),
+            name,
+            "\" left while the editor ran",
+        ));
+    }
+    let effect = app.edited(&text);
+    // The edited text asks for a draft save at most, which says nothing
+    // back to the loop.
+    inbox.apply(app, effect);
+    true
+}
+
+/// Keeps `file` past the run, and says where it is as the start of a
+/// message, or nothing where it cannot be kept. The status line is cut at
+/// the screen's edge, so the path comes first and short: the system's temp
+/// directory as `$TMPDIR` where that variable names it. The log has the
+/// whole path.
+fn kept(file: tempfile::NamedTempFile) -> String {
+    match file.keep() {
+        Ok((_, path)) => {
+            tracing::info!(path = %path.display(), "kept the editor's file");
+            let tmpdir = std::env::var_os("TMPDIR");
+            format!("your text is in {}: ", shown_path(&path, tmpdir.as_deref()))
+        }
+        Err(error) => {
+            tracing::warn!(%error, "could not keep the editor's file");
+            String::new()
+        }
+    }
+}
+
+/// `path` as the status line names it: under `tmpdir`, the value of
+/// `TMPDIR`, as `$TMPDIR/<name>`, otherwise whole.
+fn shown_path(path: &Path, tmpdir: Option<&std::ffi::OsStr>) -> String {
+    tmpdir
+        .filter(|dir| !dir.is_empty())
+        .and_then(|dir| path.strip_prefix(dir).ok())
+        .map_or_else(
+            || path.display().to_string(),
+            |name| format!("$TMPDIR/{}", name.display()),
+        )
+}
+
+/// What the status line says when the editor did not give a text back.
+fn editor_failure(error: &io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::NotFound => "no editor found: set VISUAL or EDITOR".to_owned(),
+        io::ErrorKind::WouldBlock => {
+            "the editor did not start: the terminal's input is busy; press ctrl-g again".to_owned()
+        }
+        io::ErrorKind::Other => {
+            "the field is unchanged: the editor exited with an error".to_owned()
+        }
+        _ => format!("the field is unchanged: cannot run the editor: {error}"),
+    }
 }
 
 /// What the run loop last sent as the progress.
@@ -136,6 +271,9 @@ where
     // pass with a draw between, as each key may depend on what the draw
     // before it measured.
     let mut ahead: VecDeque<Event> = VecDeque::new();
+    // The person's editor had the terminal, so the next frame is drawn
+    // whole (ADR 74).
+    let mut redraw = false;
     loop {
         let title = terminal_title(app);
         if title != sent_title {
@@ -163,7 +301,16 @@ where
         view.set_input_pending(ahead.iter().any(Event::is_input));
         // An overlay closed over an image leaves its text on the image
         // unless the whole screen is drawn afresh (ADR 31).
-        if view.must_clear(app) {
+        if std::mem::take(&mut redraw) {
+            // A resize to the size it has clears the screen and forgets
+            // the last frame, as a clear does, without asking the terminal
+            // where its cursor is: a terminal that does not answer would
+            // end the run after the query's wait.
+            let size = terminal.size().context("measuring the screen")?;
+            terminal
+                .resize(Rect::from((Position::ORIGIN, size)))
+                .context("clearing the screen")?;
+        } else if view.must_clear(app) {
             terminal.clear().context("clearing the screen")?;
         }
         let mut drawn = Drawn::default();
@@ -263,6 +410,19 @@ where
         match inbox.apply(app, effect) {
             Applied::Continue => {}
             Applied::Quit => return Ok(()),
+            Applied::Edit(request) => {
+                // Nothing else runs while the editor has the terminal:
+                // what arrived meanwhile waits in the channel, so the text
+                // goes into the field `ctrl-g` came from.
+                if edit_in_editor(host, inbox, app, &request) {
+                    view.screen_regained();
+                    redraw = true;
+                    // The editor may have set a title, or a progress, of
+                    // its own.
+                    sent_title.clear();
+                    sent_progress = SentProgress::Unknown;
+                }
+            }
             Applied::OpenImage(path) => {
                 if let Err(error) = host.open_image(&path) {
                     app.notice(Tone::Error, format!("cannot open {path}: {error}"));
@@ -277,6 +437,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::BTreeSet;
     use std::fs;
+    use std::path::PathBuf;
     use std::rc::Rc;
     use std::sync::mpsc;
 
@@ -309,11 +470,27 @@ mod tests {
         log: Log,
         /// Every progress the loop sent, in order.
         progress: Vec<Option<u8>>,
+        /// What the person's editor does with the file it gets; without
+        /// one, it exits at once and leaves the file as it was.
+        editor: Option<Editor>,
+        /// The files the editor got, in order.
+        edited: Vec<PathBuf>,
     }
+
+    /// A stand-in for the person's editor.
+    type Editor = Box<dyn FnMut(&Path) -> io::Result<()>>;
 
     impl Host for Recorder {
         fn progress(&mut self, percent: Option<u8>) {
             self.progress.push(percent);
+        }
+
+        fn edit(&mut self, path: &Path) -> io::Result<()> {
+            self.edited.push(path.to_path_buf());
+            match &mut self.editor {
+                Some(editor) => editor(path),
+                None => Ok(()),
+            }
         }
 
         fn delete_images(&mut self, deletes: &KittyDeletes) -> io::Result<()> {
@@ -996,6 +1173,323 @@ mod tests {
         assert_eq!(log, ["frame"]);
     }
 
+    // -----------------------------------------------------------------
+    // ctrl-g: the field in the person's editor (ADR 74)
+    // -----------------------------------------------------------------
+
+    /// One `text` question, whose field has the keys from the start.
+    const TEXT_QUESTION: &str = r#"{"asqr": 2, "title": "Release", "questions": [
+        {"id": "q", "text": "What changed?", "kind": "text"}]}"#;
+
+    fn text_question() -> Harness {
+        let harness = Harness::new();
+        fs::write(harness.location.inbox().join("text.json"), TEXT_QUESTION).expect("written");
+        harness
+    }
+
+    fn ctrl(c: char) -> Event {
+        Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+    }
+
+    /// An editor that puts `text` on top of the file, saving the way vim
+    /// can: into a new file renamed over the old one, so only the path
+    /// reaches what it wrote.
+    fn writing(text: &'static str) -> Editor {
+        Box::new(move |path: &Path| {
+            let file = fs::read_to_string(path)?;
+            let saved = path.with_extension("saved");
+            fs::write(&saved, format!("{text}\n{file}"))?;
+            fs::rename(saved, path)
+        })
+    }
+
+    /// An editor that fails with an error of `kind`.
+    fn failing(kind: io::ErrorKind) -> Editor {
+        Box::new(move |_: &Path| Err(io::Error::new(kind, "it failed")))
+    }
+
+    /// The status line of `harness` after a run with `editor` on the text
+    /// question, and the run's harness.
+    fn status_after(editor: Editor) -> (String, Harness) {
+        let mut harness = text_question();
+        harness.host.editor = Some(editor);
+        harness.run(vec![ctrl('g')]).expect("runs");
+        let screen = harness.screen();
+        let rows: Vec<&str> = screen.lines().collect();
+        (rows[rows.len() - 2].trim_end().to_owned(), harness)
+    }
+
+    #[test]
+    fn ctrl_g_puts_the_text_the_editor_wrote_into_the_field() {
+        let mut harness = text_question();
+        harness.host.editor = Some(writing("from the editor"));
+
+        // `enter` moves on to the review, where it submits.
+        harness
+            .run(vec![ctrl('g'), key(KeyCode::Enter), key(KeyCode::Enter)])
+            .expect("runs");
+
+        assert_eq!(harness.host.edited.len(), 1);
+        assert_eq!(
+            harness.result("text").answers[0].custom.as_deref(),
+            Some("from the editor")
+        );
+    }
+
+    #[test]
+    fn the_editor_s_file_names_the_question_below_the_cut_line() {
+        let seen = Rc::new(RefCell::new(String::new()));
+        let mut harness = text_question();
+        let copy = Rc::clone(&seen);
+        harness.host.editor = Some(Box::new(move |path: &Path| {
+            *copy.borrow_mut() = fs::read_to_string(path)?;
+            Ok(())
+        }));
+
+        harness.run(vec![ctrl('g')]).expect("runs");
+
+        let path = &harness.host.edited[0];
+        assert_eq!(path.extension().and_then(|ext| ext.to_str()), Some("md"));
+        assert!(!path.exists(), "the file goes once the text is back");
+        assert!(
+            seen.borrow()
+                .contains("# Session: Release (text)\n# Question 1 of 1: q\n"),
+            "{}",
+            seen.borrow()
+        );
+    }
+
+    #[test]
+    fn an_editor_left_unchanged_leaves_the_field_and_says_so() {
+        let (status, _) = status_after(Box::new(|_: &Path| Ok(())));
+        assert_eq!(status, "the field is unchanged");
+    }
+
+    #[test]
+    fn no_editor_is_named_in_the_status_line() {
+        let (status, _) = status_after(failing(io::ErrorKind::NotFound));
+        assert_eq!(status, "✗ no editor found: set VISUAL or EDITOR");
+    }
+
+    #[test]
+    fn a_busy_terminal_is_named_in_the_status_line() {
+        let (status, _) = status_after(failing(io::ErrorKind::WouldBlock));
+        assert_eq!(
+            status,
+            "✗ the editor did not start: the terminal's input is busy; press ctrl-g again"
+        );
+    }
+
+    #[test]
+    fn an_editor_that_exits_with_an_error_leaves_the_field() {
+        let (status, harness) = status_after(failing(io::ErrorKind::Other));
+        assert_eq!(
+            status,
+            "✗ the field is unchanged: the editor exited with an error"
+        );
+        assert!(!harness.host.edited[0].exists(), "the file goes");
+    }
+
+    #[test]
+    fn an_editor_that_cannot_run_says_why() {
+        let (status, _) = status_after(failing(io::ErrorKind::PermissionDenied));
+        assert_eq!(
+            status,
+            "✗ the field is unchanged: cannot run the editor: it failed"
+        );
+    }
+
+    #[test]
+    fn a_file_the_editor_took_away_leaves_the_field() {
+        let (status, _) = status_after(Box::new(|path: &Path| fs::remove_file(path)));
+        assert!(
+            status.starts_with("✗ the field is unchanged: cannot read the editor's file: "),
+            "{status}"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_no_utf_8_leaves_the_field() {
+        let (status, _) = status_after(Box::new(|path: &Path| fs::write(path, [0xff, 0xfe])));
+        assert!(
+            status.starts_with("✗ the field is unchanged: cannot read the editor's file: "),
+            "{status}"
+        );
+    }
+
+    #[test]
+    fn a_file_without_its_cut_line_leaves_the_field_and_is_kept() {
+        let (status, harness) =
+            status_after(Box::new(|path: &Path| fs::write(path, "all of it\n")));
+
+        let kept = &harness.host.edited[0];
+        assert_eq!(
+            status,
+            format!(
+                "! your text is in {}: the >8 line is gone, field unchanged",
+                as_shown(kept)
+            )
+        );
+        assert_eq!(fs::read_to_string(kept).expect("kept"), "all of it\n");
+        fs::remove_file(kept).expect("cleaned up");
+    }
+
+    /// `path` as the status line names it in this process.
+    fn as_shown(path: &Path) -> String {
+        shown_path(path, std::env::var_os("TMPDIR").as_deref())
+    }
+
+    #[test]
+    fn a_kept_file_under_tmpdir_is_named_by_the_variable() {
+        let dir = std::ffi::OsStr::new("/var/folders/p2/r4y13yq/T/");
+        assert_eq!(
+            shown_path(
+                Path::new("/var/folders/p2/r4y13yq/T/asqr-E0yXnT.md"),
+                Some(dir)
+            ),
+            "$TMPDIR/asqr-E0yXnT.md"
+        );
+    }
+
+    #[test]
+    fn a_kept_file_elsewhere_is_named_whole() {
+        let path = Path::new("/tmp/asqr-E0yXnT.md");
+        assert_eq!(shown_path(path, None), "/tmp/asqr-E0yXnT.md");
+        assert_eq!(
+            shown_path(path, Some(std::ffi::OsStr::new(""))),
+            "/tmp/asqr-E0yXnT.md",
+            "an empty TMPDIR"
+        );
+        assert_eq!(
+            shown_path(path, Some(std::ffi::OsStr::new("/var/tmp"))),
+            "/tmp/asqr-E0yXnT.md"
+        );
+    }
+
+    #[test]
+    fn a_session_that_left_while_the_editor_ran_keeps_the_text_in_its_file() {
+        let mut harness = text_question();
+        let inbox = harness.location.inbox().join("text.json");
+        let mut write = writing("written meanwhile");
+        harness.host.editor = Some(Box::new(move |path: &Path| {
+            fs::remove_file(&inbox)?;
+            write(path)
+        }));
+
+        harness.run(vec![ctrl('g')]).expect("runs");
+
+        let kept = &harness.host.edited[0];
+        let screen = harness.screen();
+        assert!(
+            screen.contains(&format!(
+                "! your text is in {}: \"Release\" left while the editor ran",
+                as_shown(kept)
+            )),
+            "{screen}"
+        );
+        assert!(
+            fs::read_to_string(kept)
+                .expect("kept")
+                .starts_with("written meanwhile\n"),
+        );
+        fs::remove_file(kept).expect("cleaned up");
+    }
+
+    #[test]
+    fn the_screen_is_drawn_whole_after_the_editor_without_asking_for_the_cursor() {
+        let harness = text_question();
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
+        let log = Log::default();
+        let mut backend = Logging::new(&log);
+        backend.refuse_cursor_query = true;
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        let (sender, receiver) = mpsc::channel();
+        sender.send(ctrl('g')).expect("sent");
+        drop(sender);
+
+        run(
+            &mut terminal,
+            &mut app,
+            &mut inbox,
+            &mut view,
+            &receiver,
+            &mut Recorder::default(),
+        )
+        .expect("runs without asking for the cursor");
+
+        let steps = log.borrow();
+        let kinds: Vec<&str> = steps
+            .iter()
+            .map(|step| match step {
+                Step::Clear => "clear",
+                Step::Frame(_) => "frame",
+                Step::Deleted(_) => "delete",
+            })
+            .collect();
+        assert_eq!(kinds, ["frame", "clear", "frame"]);
+    }
+
+    #[test]
+    fn the_title_and_the_progress_go_out_again_after_the_editor() {
+        let mut harness = text_question();
+
+        harness.run(vec![ctrl('g')]).expect("runs");
+
+        assert_eq!(
+            harness.host.titles,
+            ["asqr · 1 waiting", "asqr · 1 waiting"]
+        );
+        assert_eq!(harness.host.progress, [Some(0), Some(0)]);
+    }
+
+    #[test]
+    fn images_are_sent_again_after_the_editor() {
+        let mut watched = Watched::new();
+        watched.put("a", PICTURE, [255, 0, 0]);
+        let path = watched.harness.location.inbox().join("a.json");
+        let session = fs::read_to_string(&path).expect("written");
+        fs::write(
+            &path,
+            session.replacen(
+                r#""kind": "single","#,
+                r#""kind": "single", "custom": true,"#,
+                1,
+            ),
+        )
+        .expect("written");
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
+
+        // `jj` reaches the own answer, whose field `ctrl-g` opens.
+        watched.run(
+            &mut app,
+            &mut inbox,
+            &mut view,
+            vec![key(KeyCode::Char('j')), key(KeyCode::Char('j')), ctrl('g')],
+        );
+
+        let steps = watched.steps();
+        let shown: Vec<&BTreeSet<u32>> = steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Frame(shown) => Some(shown),
+                _ => None,
+            })
+            .collect();
+        let first = shown.first().expect("frames");
+        let last = shown.last().expect("frames");
+        assert_eq!((first.len(), last.len()), (1, 1), "{steps:?}");
+        assert!(
+            first.is_disjoint(last),
+            "sent again under a new id: {steps:?}"
+        );
+        assert!(
+            steps.contains(&Step::Deleted(first.iter().copied().collect())),
+            "the old one is deleted: {steps:?}"
+        );
+    }
+
     #[test]
     fn a_change_without_new_sessions_is_not_announced() {
         let mut harness = Harness::new();
@@ -1472,6 +1966,9 @@ mod tests {
         /// Flushing a frame fails, as writing to a terminal that went
         /// away does, when set.
         refuse_flush: bool,
+        /// Asking for the cursor's position fails, as it does in a
+        /// terminal that never answers the query, when set.
+        refuse_cursor_query: bool,
     }
 
     impl Logging {
@@ -1480,6 +1977,7 @@ mod tests {
                 backend: TestBackend::new(80, 24),
                 log: Rc::clone(log),
                 refuse_flush: false,
+                refuse_cursor_query: false,
             }
         }
     }
@@ -1509,6 +2007,12 @@ mod tests {
         }
 
         fn get_cursor_position(&mut self) -> io::Result<ratatui::layout::Position> {
+            if self.refuse_cursor_query {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "the cursor position could not be read",
+                ));
+            }
             infallible(self.backend.get_cursor_position())
         }
 

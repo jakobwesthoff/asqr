@@ -19,7 +19,10 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
 use super::text_field::cleaned;
-use super::{FieldKey, FieldShape, Leave, Notice, Offset, Page, TextField, Tone};
+use super::{
+    EditRequest, FieldAbout, FieldKey, FieldName, FieldShape, Leave, Notice, Offset, Page,
+    QuestionAbout, TextField, Tone, holds_scissors,
+};
 
 pub use crate::format::Length;
 use crate::format::{
@@ -52,6 +55,8 @@ pub enum Effect {
     OpenSessionList,
     /// Show the session's whole intro, which the header may cut.
     ShowIntro,
+    /// Open the focused field in the person's editor (ADR 74).
+    Edit(EditRequest),
 }
 
 /// One row of the current tab.
@@ -1220,6 +1225,12 @@ impl SessionState {
     // -----------------------------------------------------------------
 
     fn command(&mut self, key: KeyEvent) -> Effect {
+        // On a field's row left with `esc`, `ctrl-g` gives the field the
+        // keys again, as a paste there does, and opens it in the editor.
+        if is_ctrl_g(key) && self.current_row().is_some_and(Row::is_field) {
+            self.arrive();
+            return self.edit_request();
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             return Effect::None;
         }
@@ -1483,6 +1494,9 @@ impl SessionState {
     /// says which keys it leaves to its context; what they mean depends on
     /// where the field is.
     fn typing(&mut self, key: KeyEvent) -> Effect {
+        if is_ctrl_g(key) {
+            return self.edit_request();
+        }
         let note = self.focus == Focus::Note;
         // A field scrolled away from where it shows, into the lines above
         // the first row or below the last, goes back a line at a time with
@@ -1594,6 +1608,63 @@ impl SessionState {
         self.store_edit()
     }
 
+    /// Asks for the focused field or note in the person's editor, with
+    /// what it belongs to (ADR 74). A text that holds the editor file's cut
+    /// line would come back cut short there, so it is refused with a
+    /// message.
+    fn edit_request(&mut self) -> Effect {
+        let text = self.field.as_ref().map(TextField::text).unwrap_or_default();
+        if holds_scissors(&text) {
+            self.message = Some(Notice::new(
+                Tone::Warning,
+                "the field holds the >8 line; remove it to edit in the editor",
+            ));
+            return Effect::None;
+        }
+        let field = match (self.focus, self.current_row()) {
+            (Focus::Note, _) => FieldName::Note,
+            (_, Some(Row::Note)) => FieldName::SessionNote,
+            (_, Some(Row::Reject)) => FieldName::RejectReason,
+            (_, Some(Row::Answer)) => FieldName::Answer,
+            _ => FieldName::OwnAnswer,
+        };
+        let count = self.session.questions.len();
+        let question = self.question().map(|question| QuestionAbout {
+            number: self.tab + 1,
+            count,
+            label: question
+                .header
+                .clone()
+                .unwrap_or_else(|| question.id.clone()),
+            text: question.text.clone(),
+        });
+        Effect::Edit(EditRequest {
+            text,
+            about: FieldAbout {
+                title: self.session.title.clone(),
+                id: self.id.clone(),
+                question,
+                field,
+            },
+        })
+    }
+
+    /// Takes `text` back from the person's editor into the focused field
+    /// or note, cleaned as a paste is (ADR 74). A text that differs from
+    /// the field's only by the line breaks at its end, which the editor's
+    /// file drops, leaves the field as it was.
+    pub fn edited(&mut self, text: &str) -> Effect {
+        let text = cleaned(text);
+        let current = self.field.as_ref().map(TextField::text).unwrap_or_default();
+        if text == current.trim_end_matches('\n') {
+            self.message = Some(Notice::new(Tone::Info, "the field is unchanged"));
+            return Effect::None;
+        }
+        self.field = Some(TextField::new(&text));
+        self.reset_view();
+        self.store_edit()
+    }
+
     /// Keeps the field's text where the focused field or note belongs.
     fn store_edit(&mut self) -> Effect {
         let text = self.field.as_ref().map(TextField::text).unwrap_or_default();
@@ -1634,6 +1705,11 @@ fn vertical(key: KeyEvent) -> Option<bool> {
         KeyCode::Char('p') if control && !alt => Some(false),
         _ => None,
     }
+}
+
+/// Whether `key` is `ctrl-g`, which opens a field in the person's editor.
+fn is_ctrl_g(key: KeyEvent) -> bool {
+    key.code == KeyCode::Char('g') && key.modifiers == KeyModifiers::CONTROL
 }
 
 /// Typed text as a result carries it: trimmed, and absent when blank.
@@ -1703,7 +1779,7 @@ mod tests {
 
     use super::*;
     use crate::format::{Answer, SessionResult};
-    use crate::tui::Extent;
+    use crate::tui::{Extent, SCISSORS};
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [
         {"id": "single", "text": "?", "kind": "single", "custom": true,
@@ -4972,5 +5048,232 @@ mod tests {
         let fewer = SESSION.replace(r#", {"id": "z", "label": "Z"}"#, "");
         state.replace_session(serde_json::from_str(&fewer).expect("parses"));
         assert_eq!(state.row_top(), RowTop::Start);
+    }
+
+    // ---------------------------------------------------------------
+    // ctrl-g: the field in the person's editor (ADR 74)
+    // ---------------------------------------------------------------
+
+    /// What `ctrl-g` asks for on question `index` of [`SESSION`] (each of
+    /// whose questions is `?`), in its `field`.
+    fn about_question(index: usize, field: FieldName) -> FieldAbout {
+        let ids = ["single", "multi", "text", "plain"];
+        FieldAbout {
+            title: None,
+            id: "batch".to_owned(),
+            question: Some(QuestionAbout {
+                number: index + 1,
+                count: 4,
+                label: ids[index].to_owned(),
+                text: "?".to_owned(),
+            }),
+            field,
+        }
+    }
+
+    fn edit_of(text: &str, about: FieldAbout) -> Effect {
+        Effect::Edit(EditRequest {
+            text: text.to_owned(),
+            about,
+        })
+    }
+
+    #[test]
+    fn ctrl_g_asks_for_the_editor_in_the_own_answer() {
+        let mut state = state();
+        press(&mut state, "jjab");
+
+        assert_eq!(
+            state.handle(ctrl('g')),
+            edit_of("ab", about_question(0, FieldName::OwnAnswer))
+        );
+    }
+
+    #[test]
+    fn ctrl_g_asks_for_the_editor_in_a_text_answer() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+        press(&mut state, "ab");
+
+        assert_eq!(
+            state.handle(ctrl('g')),
+            edit_of("ab", about_question(2, FieldName::Answer))
+        );
+    }
+
+    #[test]
+    fn ctrl_g_asks_for_the_editor_in_a_note() {
+        let mut state = state();
+        press(&mut state, "nab");
+
+        assert_eq!(
+            state.handle(ctrl('g')),
+            edit_of("ab", about_question(0, FieldName::Note))
+        );
+    }
+
+    #[test]
+    fn ctrl_g_asks_for_the_editor_in_the_session_note() {
+        let mut state = state();
+        review_row(&mut state, Row::Note);
+        press(&mut state, "ab");
+
+        assert_eq!(
+            state.handle(ctrl('g')),
+            edit_of(
+                "ab",
+                FieldAbout {
+                    title: None,
+                    id: "batch".to_owned(),
+                    question: None,
+                    field: FieldName::SessionNote,
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn ctrl_g_asks_for_the_editor_in_the_reject_reason() {
+        let mut state = state();
+        review_row(&mut state, Row::Reject);
+        press(&mut state, "ab");
+
+        let Effect::Edit(request) = state.handle(ctrl('g')) else {
+            panic!("ctrl-g asks for the editor");
+        };
+        assert_eq!(request.about.field, FieldName::RejectReason);
+    }
+
+    #[test]
+    fn ctrl_g_on_a_field_left_with_esc_gives_it_the_keys_and_asks_for_the_editor() {
+        let mut state = state();
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Esc));
+        assert_eq!(state.focus(), Focus::None);
+
+        let effect = state.handle(ctrl('g'));
+
+        assert_eq!(
+            effect,
+            edit_of("ab", about_question(0, FieldName::OwnAnswer))
+        );
+        assert_eq!(state.focus(), Focus::Field);
+        assert_eq!(state.field_cursor(), Some((0, 2)), "at the end of the text");
+    }
+
+    #[test]
+    fn ctrl_g_does_nothing_on_an_option_row() {
+        let mut state = state();
+        assert_eq!(state.handle(ctrl('g')), Effect::None);
+        assert_eq!(state.focus(), Focus::None);
+    }
+
+    #[test]
+    fn ctrl_g_does_nothing_in_the_focused_pane() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::Tab));
+
+        assert_eq!(state.handle(ctrl('g')), Effect::None);
+        assert!(state.pane_focused());
+    }
+
+    #[test]
+    fn ctrl_g_does_nothing_in_the_full_screen_view() {
+        let mut state = with_pane();
+        press(&mut state, "jjab");
+        state.handle(code(KeyCode::Tab));
+        press(&mut state, "z");
+
+        assert_eq!(state.handle(ctrl('g')), Effect::None);
+        assert!(state.full_screen());
+    }
+
+    #[test]
+    fn ctrl_g_does_nothing_over_the_help() {
+        let mut state = state();
+        press(&mut state, "?");
+
+        assert_eq!(state.handle(ctrl('g')), Effect::None);
+        assert!(!state.help(), "the key closed it, as any key does");
+    }
+
+    #[test]
+    fn ctrl_g_refuses_a_field_that_holds_the_cut_line() {
+        let mut state = state();
+        press(&mut state, "jj");
+        state.paste(&format!("pasted\n{SCISSORS}\nmore"));
+
+        assert_eq!(state.handle(ctrl('g')), Effect::None);
+        assert_eq!(
+            state.message(),
+            Some(&refused(
+                "the field holds the >8 line; remove it to edit in the editor"
+            ))
+        );
+    }
+
+    #[test]
+    fn the_edited_text_replaces_the_field_and_saves_the_draft() {
+        let mut state = state();
+        press(&mut state, "jjab");
+        state.handle(ctrl('g'));
+
+        assert_eq!(
+            state.edited("from the editor\nline two"),
+            Effect::DraftChanged
+        );
+
+        assert_eq!(
+            state.field_text().as_deref(),
+            Some("from the editor\nline two")
+        );
+        assert_eq!(state.field_cursor(), Some((1, 8)), "at the end of the text");
+        assert_eq!(
+            answer(&state, "single").custom.as_deref(),
+            Some("from the editor\nline two")
+        );
+    }
+
+    #[test]
+    fn an_edited_note_goes_into_the_note() {
+        let mut state = state();
+        press(&mut state, "nab");
+        state.handle(ctrl('g'));
+
+        assert_eq!(state.edited("a note"), Effect::DraftChanged);
+
+        assert_eq!(answer(&state, "single").note.as_deref(), Some("a note"));
+    }
+
+    #[test]
+    fn an_unchanged_text_saves_nothing() {
+        let mut state = state();
+        press(&mut state, "jjab");
+        state.handle(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
+        assert_eq!(state.field_text().as_deref(), Some("ab\n"));
+        state.handle(ctrl('g'));
+
+        assert_eq!(state.edited("ab"), Effect::None);
+
+        assert_eq!(
+            state.field_text().as_deref(),
+            Some("ab\n"),
+            "kept as it was"
+        );
+        assert_eq!(
+            state.message(),
+            Some(&Notice::new(Tone::Info, "the field is unchanged"))
+        );
+    }
+
+    #[test]
+    fn edited_text_is_cleaned_like_a_paste() {
+        let mut state = state();
+        press(&mut state, "jj");
+        state.handle(ctrl('g'));
+
+        state.edited("a\tb\x1b[31mc");
+
+        assert_eq!(state.field_text().as_deref(), Some("a   b[31mc"));
     }
 }

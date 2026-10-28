@@ -37,7 +37,7 @@ use ratatui::crossterm::event::{
     Event as TerminalEvent,
 };
 use ratatui::crossterm::terminal::SetTitle;
-use ratatui::crossterm::{execute, queue, terminal};
+use ratatui::crossterm::{cursor, execute, queue, terminal};
 use ratatui_image::picker::cap_parser::QueryStdioOptions;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
 
@@ -102,8 +102,9 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // SIGTERM, SIGINT and SIGHUP would end the process without the guard.
     // Caught, they end the run as `q` does, and the guard runs. SIGKILL
     // cannot be caught and leaves the terminal as set up here.
+    let editing = Arc::new(AtomicBool::new(false));
     #[cfg(unix)]
-    forward_quit_signals(sender.clone());
+    forward_quit_signals(sender.clone(), Arc::clone(&editing));
 
     // The protocol query reads the terminal's answers from stdin, so it
     // runs before the thread that reads key events starts.
@@ -169,7 +170,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     let ticks = sender.clone();
     // The thread reads for the life of the process and ends with it; it
     // pauses while another program has the terminal.
-    let _keys = KeyReader::spawn(CrosstermEvents, sender);
+    let keys = KeyReader::spawn(CrosstermEvents, sender);
 
     let queue = match location.name() {
         Some(name) => name.to_owned(),
@@ -181,6 +182,8 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         title_pushed,
         progress: ProgressOut::new(env.clone(), run_tmux, progress, ticks),
         env,
+        keys,
+        editing,
     };
     let mut view = View::new(&queue, watch.layout(), images)
         .no_color(watch.no_color())
@@ -484,8 +487,12 @@ impl ProgressOut {
 /// as from `kill`. A SIGHUP mostly means the terminal is gone; the guard's
 /// writes then fail and are logged. When the handler cannot be installed,
 /// asqr runs on, and a signal ends it at once.
+///
+/// While the person's editor has the terminal (`editing`), the tty is not
+/// in raw mode, so ctrl-c there sends SIGINT to the editor and to asqr.
+/// It is meant for the editor, so asqr lets it go (ADR 74).
 #[cfg(unix)]
-fn forward_quit_signals(sender: mpsc::Sender<Event>) {
+fn forward_quit_signals(sender: mpsc::Sender<Event>, editing: Arc<AtomicBool>) {
     use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 
     let mut signals = match signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP]) {
@@ -498,10 +505,146 @@ fn forward_quit_signals(sender: mpsc::Sender<Event>) {
     // The thread waits for the life of the process. A signal after the run
     // ended finds no receiver; the process is on its way out then.
     std::thread::spawn(move || {
-        for _ in signals.forever() {
-            let _ = sender.send(Event::Quit);
+        for signal in signals.forever() {
+            if quits(signal, editing.load(Ordering::Relaxed)) {
+                let _ = sender.send(Event::Quit);
+            }
         }
     });
+}
+
+/// Whether `signal` quits asqr, while the person's editor has the
+/// terminal when `editing`. SIGTERM and SIGHUP do so after the editor
+/// ended, as nothing else runs until then.
+#[cfg(unix)]
+fn quits(signal: i32, editing: bool) -> bool {
+    !(editing && signal == signal_hook::consts::SIGINT)
+}
+
+// ---------------------------------------------------------------------
+// Handing the terminal to the person's editor (ADR 74)
+// ---------------------------------------------------------------------
+
+/// How long `ctrl-g` waits for the key reader to stop reading the terminal
+/// before it gives up on the editor.
+const PAUSE_DEADLINE: Duration = Duration::from_secs(1);
+
+/// Checks that the editor can start: one is found, and the key reader
+/// stopped reading the terminal within `deadline`. Neither touches the
+/// terminal. On `Ok` the reader is paused, and the caller resumes it.
+fn ready_to_edit(
+    find_editor: fn() -> io::Result<()>,
+    keys: &KeyReader,
+    deadline: Duration,
+) -> io::Result<()> {
+    if let Err(error) = find_editor() {
+        tracing::info!(%error, "no editor found");
+        return Err(io::Error::from(io::ErrorKind::NotFound));
+    }
+    if keys.pause(deadline) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "the terminal's input is busy",
+        ))
+    }
+}
+
+/// What handing the terminal over needs from the operating system besides
+/// the bytes written to it.
+trait TtyModes {
+    fn raw_mode(&mut self, on: bool) -> io::Result<()>;
+    /// Notes the terminal's settings out of raw mode, those of before asqr.
+    fn save_cooked(&mut self);
+    /// Puts back what [`TtyModes::save_cooked`] noted. An editor that ended
+    /// without giving the terminal back would otherwise leave its settings,
+    /// and crossterm takes whatever is set when raw mode goes on for the
+    /// settings to give back on quitting.
+    fn restore_cooked(&mut self);
+}
+
+/// The terminal's modes through crossterm and termios.
+#[derive(Default)]
+struct RealTty {
+    #[cfg(unix)]
+    cooked: Option<rustix::termios::Termios>,
+}
+
+impl TtyModes for RealTty {
+    fn raw_mode(&mut self, on: bool) -> io::Result<()> {
+        if on {
+            terminal::enable_raw_mode()
+        } else {
+            terminal::disable_raw_mode()
+        }
+    }
+
+    fn save_cooked(&mut self) {
+        #[cfg(unix)]
+        match rustix::termios::tcgetattr(io::stdin()) {
+            Ok(cooked) => self.cooked = Some(cooked),
+            Err(error) => tracing::warn!(%error, "could not read the terminal's settings"),
+        }
+    }
+
+    fn restore_cooked(&mut self) {
+        #[cfg(unix)]
+        if let Some(cooked) = &self.cooked {
+            let restored = rustix::termios::tcsetattr(
+                io::stdin(),
+                rustix::termios::OptionalActions::Now,
+                cooked,
+            );
+            if let Err(error) = restored {
+                tracing::warn!(%error, "could not put the terminal's settings back");
+            }
+        }
+    }
+}
+
+/// Gives the terminal to `editor` and takes it back once it returned,
+/// whatever it returned. The terminal is given back as asqr found it,
+/// focus reports and bracketed paste off and the cursor showing, and set
+/// up again as at start; the next draw hides the cursor. A step that fails
+/// is logged and the others go on, so the terminal is never left half set
+/// up.
+fn hand_over(
+    out: &mut impl Write,
+    modes: &mut impl TtyModes,
+    editor: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    let given_up = execute!(
+        out,
+        DisableFocusChange,
+        DisableBracketedPaste,
+        cursor::Show,
+        terminal::LeaveAlternateScreen
+    );
+    if let Err(error) = given_up {
+        tracing::warn!(%error, "could not give the screen to the editor");
+    }
+    if let Err(error) = modes.raw_mode(false) {
+        tracing::warn!(%error, "could not leave raw mode for the editor");
+    }
+    modes.save_cooked();
+
+    let edited = editor();
+
+    modes.restore_cooked();
+    if let Err(error) = modes.raw_mode(true) {
+        tracing::warn!(%error, "could not enter raw mode after the editor");
+    }
+    let taken_back = execute!(
+        out,
+        terminal::EnterAlternateScreen,
+        EnableBracketedPaste,
+        EnableFocusChange
+    );
+    if let Err(error) = taken_back {
+        tracing::warn!(%error, "could not take the screen back from the editor");
+    }
+    edited
 }
 
 /// The terminal's events as crossterm reads them, for the [`KeyReader`].
@@ -604,9 +747,27 @@ struct TerminalHost {
     title_pushed: Arc<AtomicBool>,
     progress: ProgressOut,
     env: TerminalEnv,
+    /// Paused while the person's editor has the terminal.
+    keys: KeyReader,
+    /// Set while the person's editor has the terminal, for the thread
+    /// that turns signals into quits.
+    editing: Arc<AtomicBool>,
 }
 
 impl Host for TerminalHost {
+    fn edit(&mut self, path: &Path) -> io::Result<()> {
+        ready_to_edit(|| edit::get_editor().map(drop), &self.keys, PAUSE_DEADLINE)?;
+        // Ticks would only pile up while the run loop waits here.
+        self.progress.keep(false);
+        self.editing.store(true, Ordering::Relaxed);
+        let edited = hand_over(&mut io::stdout(), &mut RealTty::default(), || {
+            edit::edit_file(path)
+        });
+        self.editing.store(false, Ordering::Relaxed);
+        self.keys.resume();
+        edited
+    }
+
     fn progress(&mut self, percent: Option<u8>) {
         let mut stdout = io::stdout().lock();
         if let Err(error) = self.progress.write(&mut stdout, percent) {
@@ -663,7 +824,8 @@ impl Host for TerminalHost {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
 
     use asqr::graphics::{Image, Protocol};
     use ratatui::layout::Size;
@@ -672,6 +834,176 @@ mod tests {
 
     thread_local! {
         static RESTORED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    // -----------------------------------------------------------------
+    // Handing the terminal to the editor
+    // -----------------------------------------------------------------
+
+    /// What a hand-over did, in order: the bytes written, and the calls on
+    /// the terminal's modes.
+    type Steps = Rc<RefCell<Vec<String>>>;
+
+    struct LoggedOut(Steps);
+
+    impl Write for LoggedOut {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .borrow_mut()
+                .push(String::from_utf8_lossy(bytes).into_owned());
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct LoggedModes(Steps);
+
+    impl TtyModes for LoggedModes {
+        fn raw_mode(&mut self, on: bool) -> io::Result<()> {
+            let step = if on { "<raw on>" } else { "<raw off>" };
+            self.0.borrow_mut().push(step.to_owned());
+            // Fails as a terminal that went away does; the hand-over goes on.
+            Err(io::Error::other("no terminal"))
+        }
+
+        fn save_cooked(&mut self) {
+            self.0.borrow_mut().push("<save>".to_owned());
+        }
+
+        fn restore_cooked(&mut self) {
+            self.0.borrow_mut().push("<restore>".to_owned());
+        }
+    }
+
+    #[test]
+    fn the_terminal_is_given_to_the_editor_and_taken_back_after_it() {
+        let steps = Steps::default();
+        let ran = Rc::clone(&steps);
+
+        let edited = hand_over(
+            &mut LoggedOut(Rc::clone(&steps)),
+            &mut LoggedModes(Rc::clone(&steps)),
+            || {
+                ran.borrow_mut().push("<editor>".to_owned());
+                Err(io::Error::other("exited with an error"))
+            },
+        );
+
+        assert_eq!(
+            edited.map_err(|error| error.to_string()),
+            Err("exited with an error".to_owned()),
+            "the editor's outcome"
+        );
+        assert_eq!(
+            steps.borrow().concat(),
+            "\x1b[?1004l\x1b[?2004l\x1b[?25h\x1b[?1049l<raw off><save><editor>\
+             <restore><raw on>\x1b[?1049h\x1b[?2004h\x1b[?1004h"
+        );
+    }
+
+    #[test]
+    fn a_terminal_that_refuses_the_bytes_still_gets_the_editor() {
+        let ran = Cell::new(false);
+        // A full buffer fails every write with `WriteZero`.
+        let mut full: [u8; 0] = [];
+
+        let edited = hand_over(
+            &mut &mut full[..],
+            &mut LoggedModes(Steps::default()),
+            || {
+                ran.set(true);
+                Ok(())
+            },
+        );
+
+        assert!(edited.is_ok() && ran.get());
+    }
+
+    /// A source of terminal events whose `poll` says that it began on its
+    /// sender and waits until its receiver's sender sends or goes, as
+    /// crossterm waits for the rest of a sequence.
+    struct Waiting(mpsc::Sender<()>, mpsc::Receiver<()>);
+
+    impl EventSource for Waiting {
+        fn poll(&mut self, _timeout: Duration) -> io::Result<bool> {
+            let _ = self.0.send(());
+            self.1
+                .recv()
+                .map(|()| false)
+                .map_err(|_| io::Error::other("the terminal is gone"))
+        }
+
+        fn read(&mut self) -> io::Result<TerminalEvent> {
+            Err(io::Error::other("nothing to read"))
+        }
+    }
+
+    fn found() -> io::Result<()> {
+        Ok(())
+    }
+
+    fn not_found() -> io::Result<()> {
+        Err(io::Error::other("no editor on the path"))
+    }
+
+    /// A key reader inside a `poll` that waits, the sender that ends that
+    /// `poll`, and the receiver of the polls that begin.
+    fn reader_in_a_poll() -> (KeyReader, mpsc::Sender<()>, mpsc::Receiver<()>) {
+        let (began, polls) = mpsc::channel();
+        let (input, waiting) = mpsc::channel();
+        let (sender, _events) = mpsc::channel();
+        let keys = KeyReader::spawn(Waiting(began, waiting), sender);
+        polls.recv().expect("the reader polls");
+        (keys, input, polls)
+    }
+
+    #[test]
+    fn no_editor_is_said_before_the_key_reader_is_asked() {
+        let (keys, input, _polls) = reader_in_a_poll();
+
+        let ready = ready_to_edit(not_found, &keys, Duration::ZERO);
+
+        assert_eq!(
+            ready.map_err(|error| error.kind()),
+            Err(io::ErrorKind::NotFound)
+        );
+        drop(input);
+    }
+
+    #[test]
+    fn a_key_reader_that_does_not_stop_in_time_is_a_busy_terminal() {
+        let (keys, input, _polls) = reader_in_a_poll();
+
+        let ready = ready_to_edit(found, &keys, Duration::ZERO);
+
+        assert_eq!(
+            ready.map_err(|error| error.kind()),
+            Err(io::ErrorKind::WouldBlock)
+        );
+        drop(input);
+    }
+
+    #[test]
+    fn a_key_reader_that_stopped_is_ready_for_the_editor() {
+        let (keys, input, _polls) = reader_in_a_poll();
+        // The terminal goes, and the reader with it: nothing reads the
+        // terminal any more.
+        drop(input);
+
+        assert!(ready_to_edit(found, &keys, Duration::from_secs(5)).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ctrl_c_meant_for_the_editor_does_not_quit_asqr() {
+        use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+
+        assert!(!quits(SIGINT, true), "SIGINT while editing");
+        assert!(quits(SIGINT, false));
+        assert!(quits(SIGTERM, true) && quits(SIGHUP, true));
     }
 
     fn note_restore() {

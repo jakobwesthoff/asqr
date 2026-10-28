@@ -13,7 +13,9 @@ use std::ops::Range;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
-use super::{Effect, Extent, FieldShape, Offset, Page, PanePage, RowCut, SessionState};
+use super::{
+    EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, RowCut, SessionState,
+};
 use crate::format::{Answer, SessionResult, same_session_id};
 
 /// How a finished session ends.
@@ -45,6 +47,8 @@ pub enum AppEffect {
     },
     Quit,
     OpenImage(String),
+    /// Open a field in the person's editor (ADR 74).
+    Edit(EditRequest),
 }
 
 /// What shows over the screen, at most one at a time.
@@ -411,6 +415,17 @@ impl App {
         self.apply(effect)
     }
 
+    /// Takes `text` back from the person's editor into the active
+    /// session's focused field (see [`SessionState::edited`]). Nothing ran
+    /// in between, so the session is the one `ctrl-g` came from.
+    pub fn edited(&mut self, text: &str) -> AppEffect {
+        let Some(state) = self.sessions.get_mut(self.active) else {
+            return AppEffect::None;
+        };
+        let effect = state.edited(text);
+        self.apply(effect)
+    }
+
     /// What the active session's `effect` asks of the app.
     fn apply(&mut self, effect: Effect) -> AppEffect {
         let state = &self.sessions[self.active];
@@ -435,6 +450,7 @@ impl App {
             },
             Effect::Quit => AppEffect::Quit,
             Effect::OpenImage(path) => AppEffect::OpenImage(path),
+            Effect::Edit(request) => AppEffect::Edit(request),
             Effect::OpenSessionList => {
                 self.list = Some(self.active);
                 AppEffect::None
@@ -796,6 +812,38 @@ mod tests {
             "nothing reached the question"
         );
         assert_eq!(app.handle(ctrl('c')), AppEffect::Quit, "ctrl-c still quits");
+    }
+
+    #[test]
+    fn ctrl_g_does_nothing_over_the_intro_or_the_session_list() {
+        let mut intro = intro_open(10, 40);
+        assert_eq!(intro.handle(ctrl('g')), AppEffect::None);
+        assert_eq!(intro.intro_scroll(), Some(0), "the intro stays open");
+
+        let mut listing = app(&["first", "second"]);
+        listing.handle(key('L'));
+        assert_eq!(listing.handle(ctrl('g')), AppEffect::None);
+        assert_eq!(listing.list_cursor(), Some(0), "the list stays open");
+    }
+
+    #[test]
+    fn the_edited_text_goes_into_the_active_session_and_saves_its_draft() {
+        let text: Session = serde_json::from_str(
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+        )
+        .expect("parses");
+        let mut app = App::default();
+        assert_eq!(app.edited("lost"), AppEffect::None, "no session");
+        app.add(SessionState::new("text", text, None));
+
+        let AppEffect::Edit(request) = app.handle(ctrl('g')) else {
+            panic!("ctrl-g asks for the editor");
+        };
+        assert_eq!(request.text, "");
+        let AppEffect::SaveDraft(draft) = app.edited("typed elsewhere") else {
+            panic!("the edited text saves the draft");
+        };
+        assert_eq!(draft.answers[0].custom.as_deref(), Some("typed elsewhere"));
     }
 
     #[test]

@@ -29,7 +29,7 @@ const HELP: &[(&str, &str)] = &[
         "toggle an option; pick or toggle one directly",
     ),
     ("n, ctrl-j", "write a note; a new line in any field"),
-    ("esc", "stop typing in a field"),
+    ("esc, ctrl-g", "stop typing; edit the field in your editor"),
     ("tab", "move into the context pane and back"),
     ("pgup/pgdn, ctrl-u/ctrl-d", "scroll by page; by half a page"),
     ("o, z, s", "open an image; full screen; diff side by side"),
@@ -302,15 +302,22 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<Hint> {
     }
     let row = state.rows().get(state.row()).copied();
     let kind = state.question().map(|question| question.kind);
+    // `ctrl-g` stands last of a field's keys, so a bar too narrow for all
+    // of them leaves it out first (ADR 74).
     let typing = |enter| {
         vec![
             cursor("ctrl-j", "new line"),
             cursor("enter", enter),
             cursor("esc", "stop typing"),
+            cursor("ctrl-g", "editor"),
         ]
     };
     match (state.focus(), row) {
-        (Focus::Note, _) => vec![cursor("ctrl-j", "new line"), cursor("enter/esc", "done")],
+        (Focus::Note, _) => vec![
+            cursor("ctrl-j", "new line"),
+            cursor("enter/esc", "done"),
+            cursor("ctrl-g", "editor"),
+        ],
         (Focus::Field, Some(Row::Answer)) => typing("next"),
         (Focus::Field, Some(Row::Note)) => typing("submit"),
         (Focus::Field, Some(Row::Reject)) => typing("reject"),
@@ -807,6 +814,7 @@ mod tests {
                 ("ctrl-j", "new line"),
                 ("enter", "next"),
                 ("esc", "stop typing"),
+                ("ctrl-g", "editor"),
                 ("tab", "context"),
                 ("ctrl-u/ctrl-d", "half page")
             ]
@@ -963,6 +971,7 @@ mod tests {
                 ("ctrl-j", "new line"),
                 ("enter", "next"),
                 ("esc", "stop typing"),
+                ("ctrl-g", "editor"),
                 ("tab", "context"),
                 ("ctrl-u/ctrl-d", "half page")
             ],
@@ -1079,6 +1088,70 @@ mod tests {
         assert_eq!(
             lines.iter().find(|line| line.starts_with("L")),
             Some(&"L, backspace the session list; clear the pick".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_field_names_ctrl_g_in_its_key_bar() {
+        let state = SessionState::new(
+            "field",
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+            )
+            .expect("parses"),
+            None,
+        );
+        assert_eq!(state.focus(), Focus::Field);
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, None)),
+            [
+                ("ctrl-j", "new line"),
+                ("enter", "next"),
+                ("esc", "stop typing"),
+                ("ctrl-g", "editor")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_note_names_ctrl_g_in_its_key_bar() {
+        let mut state = general_help_state();
+        state.handle(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        state.handle(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        assert_eq!(state.focus(), Focus::Note);
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, None)),
+            [
+                ("ctrl-j", "new line"),
+                ("enter/esc", "done"),
+                ("ctrl-g", "editor")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_narrow_field_bar_leaves_ctrl_g_out_first_of_its_own_keys() {
+        let (state, page) = beside_code("text", 1);
+
+        assert_eq!(
+            bar_of(&state, page, 80),
+            " ctrl-j  new line   enter  next   esc  stop typing   ctrl-g  editor"
+        );
+        assert_eq!(
+            line_texts(&[key_line(&key_hints(&state, false, None), 60)])[0].trim_end(),
+            " ctrl-j  new line   enter  next   esc  stop typing"
+        );
+    }
+
+    #[test]
+    fn the_general_help_names_ctrl_g_on_the_line_of_esc() {
+        let lines = smallest_help_lines(&general_help_state());
+
+        assert_eq!(
+            lines.iter().find(|line| line.starts_with("esc")),
+            Some(&"esc, ctrl-g stop typing; edit the field in your editor".to_owned())
         );
     }
 

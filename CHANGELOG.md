@@ -74,6 +74,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it goes out in the passthrough wrapper while one client is attached.
   Other terminals get nothing, as several show any OSC 9 as a desktop
   notification.
+- `ctrl-g` in a typed field or a note opens its text in the person's
+  editor (`VISUAL`, then `EDITOR`, with arguments and quotes), as a
+  Markdown file that names the session and the question below a cut
+  line; the text above the line goes into the field when the editor
+  exits. On a field left with `esc` it gives the field the keys again
+  first. When no editor is found, the editor fails, or the cut line is
+  gone, the field stays as it was and the status line says why; a text
+  that would be lost stays in its file, which the status line names. A
+  field's key bar names `ctrl-g  editor`, and the help names it on the
+  line of `esc`. While the editor runs, ctrl-c there does not quit asqr.
 
 ### Changed
 

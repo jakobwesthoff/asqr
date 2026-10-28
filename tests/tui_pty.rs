@@ -1421,6 +1421,76 @@ fn progress_reaches_a_terminal_that_shows_it_through_tmux() {
     );
 }
 
+/// What the stand-in editor writes to the terminal when it starts: an OSC
+/// sequence no terminal acts on.
+const EDITOR_STARTED: &str = "\x1b]7777;editor\x07";
+
+/// `ctrl-g` hands the terminal to the editor `VISUAL` names: a script that
+/// reads one line from the terminal and puts it on top of the file. That
+/// the line reaches the script, and not asqr, shows that asqr's key reader
+/// paused; asqr leaves the alternate screen for the editor and enters it
+/// again after.
+#[test]
+fn ctrl_g_edits_the_own_answer_in_the_editor() {
+    let sandbox = Sandbox::new();
+    let bin = sandbox.home().join("bin");
+    std::fs::create_dir_all(&bin).expect("bin dir");
+    let editor = bin.join("stand-in-editor");
+    std::fs::write(
+        &editor,
+        "#!/bin/sh\n\
+         printf '\\033]7777;editor\\007' > /dev/tty\n\
+         IFS= read -r line < /dev/tty\n\
+         { printf '%s\\n' \"$line\"; cat \"$1\"; } > \"$1.new\" && mv \"$1.new\" \"$1\"\n",
+    )
+    .expect("script");
+    std::fs::set_permissions(&editor, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+        "off\t1\t",
+        &[("VISUAL", editor.to_str().expect("UTF-8"))],
+    );
+    tui.wait_for("Nothing to answer");
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("Pick a fruit");
+
+    tui.press("jjx");
+    tui.wait_for("Own answer: x");
+    tui.send("\x07");
+    wait_for_output(&tui, EDITOR_STARTED, 1);
+    tui.press("typed in the editor\r");
+    tui.wait_for("Own answer: typed in the editor");
+
+    let output = tui.output();
+    let started = first(&output, EDITOR_STARTED);
+    assert!(
+        output[..started].contains("\x1b[?1049l") && output[started..].contains("\x1b[?1049h"),
+        "{output:?}"
+    );
+    // Pick the own answer, which moves on to the review, and submit.
+    tui.press("\r");
+    tui.wait_for("Review your answers");
+    tui.press("\r");
+    tui.wait_for("Nothing to answer");
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+    let result: SessionResult = serde_json::from_slice(
+        &std::fs::read(sandbox.queue_dir().join("outbox/pty-test.json")).expect("result"),
+    )
+    .expect("parses");
+    assert_eq!(
+        result.answers[0].custom.as_deref(),
+        Some("typed in the editor\nx")
+    );
+}
+
 #[test]
 fn a_terminal_not_known_to_show_progress_gets_none() {
     let sandbox = Sandbox::new();
