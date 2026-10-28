@@ -609,7 +609,10 @@ asker's own file is never changed. `session_sha256` in the result
 - A session with that id is waiting and its draft has no answer: `ask`
   replaces it.
 - A session with that id is waiting and its draft has an answer
-  (section 4.3): `ask` refuses.
+  (section 4.3): `ask` refuses with "session "<id>" is being answered;
+  wait for its result, or ask the person and withdraw it with `asqr
+  withdraw --force <id>`". Another id would leave the old session in
+  the person's queue.
 - A result with that id is still in the outbox: `ask` refuses, so an
   unread result is never lost. `ask --force` moves the old result into
   the archive (section 5.7) and then drops the new session.

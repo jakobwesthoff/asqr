@@ -30,7 +30,12 @@ pub enum Dropped {
 
 #[derive(Debug, Error)]
 pub enum DropError {
-    #[error("session {0:?} is being answered; wait for its result or use another id")]
+    /// Another id would leave this session in the person's queue, and
+    /// `--force` does not get past this refusal (spec section 5.5), so the
+    /// message names the two ways that do.
+    #[error(
+        "session {0:?} is being answered; wait for its result, or ask the person and withdraw it with `asqr withdraw --force {0}`"
+    )]
     BeingAnswered(String),
 
     #[error(
@@ -410,7 +415,7 @@ mod tests {
     fn errors_name_what_to_do() {
         assert_eq!(
             DropError::BeingAnswered("b".into()).to_string(),
-            "session \"b\" is being answered; wait for its result or use another id"
+            "session \"b\" is being answered; wait for its result, or ask the person and withdraw it with `asqr withdraw --force b`"
         );
         assert_eq!(
             DropError::UnreadResult("b".into()).to_string(),

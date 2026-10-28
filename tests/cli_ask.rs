@@ -455,10 +455,9 @@ fn refuses_while_the_session_is_being_answered() {
         .expect("runs");
 
     assert_eq!(output.status.code(), Some(1));
-    assert!(
-        stderr(&output).contains("is being answered"),
-        "{}",
-        stderr(&output)
+    assert_eq!(
+        stderr(&output),
+        "error: session \"batch-01\" is being answered; wait for its result, or ask the person and withdraw it with `asqr withdraw --force batch-01`\n"
     );
 }
 
