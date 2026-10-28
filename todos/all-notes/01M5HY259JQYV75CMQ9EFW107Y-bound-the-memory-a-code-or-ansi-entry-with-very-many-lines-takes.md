@@ -2,7 +2,6 @@
 title: "Bound the memory a code or ansi entry with very many lines takes"
 kind: improvement
 component: tui
-status: needs-discussion
 origin: implementation
 tags: [ux]
 ---
@@ -53,3 +52,10 @@ The two can be combined.
 - 2026-10-22, user: worth a todo of normal impact; limiting the line
   count in addition to the bytes is the user's own idea, as such input
   looks like an error or misuse rather than something to optimise for.
+- 2026-10-28, user: limit the lines as well as the bytes. Beside the
+  8 MiB limit, an entry is cut after a maximum number of lines (about
+  100,000 was proposed; set it from what realistic content of that size
+  has) with the same kind of note the byte limit gives. It applies to
+  `code`, `ansi`, `markdown` and `diff` entries, and `validate` and
+  `ask` warn about an entry above it, as they warn above 1 MiB. Keeping
+  lines leaner is not part of it.
