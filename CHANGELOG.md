@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `↩ withdrawn "<title>" by the asker` when a waiting session is
   withdrawn, with `, with your answers so far` when the result carries
   them and `; your answers to it are dropped` when it does not.
+  `asqr status` lists a withdrawn session under answered, with status
+  `withdrawn`.
 - `asqr ask --replaces <old-id> <file>` withdraws the old session and
   drops the new one in one step, for a session rebuilt and asked again
   under a new id. It refuses where `asqr withdraw` or `asqr ask` would,
@@ -73,13 +75,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - asqr reports how much of the session being answered has an answer
   through OSC 9;4: Ghostty from 1.2.0 and iTerm2 from 3.6.6 show it as a
   bar in the window (iTerm2 from 3.7.0 also on the tab), Windows
-  Terminal as a ring on the tab, and kitty from 0.39.0 inside tmux in the
-  tab's title. The share counts the questions with an answer, a default
-  included, and reads 100 % on the review once all are answered. An
-  empty queue shows none, and asqr removes it when it quits. Inside tmux
-  it goes out in the passthrough wrapper while one client is attached.
-  Other terminals get nothing, as several show any OSC 9 as a desktop
-  notification.
+  Terminal as a ring on the tab and a bar in the taskbar, and kitty from
+  0.39.0 inside tmux in the tab's title. The share counts the questions
+  with an answer, a default included, and reads 100 % on the review once
+  all are answered. An empty queue shows none, and asqr removes it when
+  it quits. Inside tmux it goes out in the passthrough wrapper while one
+  client is attached. Other terminals get nothing, as several show any
+  OSC 9 as a desktop notification.
 - `ctrl-g` in a typed field or a note opens its text in the person's
   editor (`VISUAL`, then `EDITOR`, with arguments and quotes), as a
   Markdown file that names the session and the question below a cut
@@ -104,13 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asqr validate` and `asqr ask` print it, and the dialog and the error
   result of an invalid session in the queue carry it. Before, the
   message was the parser's `unknown variant`.
-- Every question and info item takes a note. `"note": false` is still
-  read but has no effect: `asqr validate` and `asqr ask` warn that it is
-  ignored, the schema marks the field deprecated, and `asqr ask` drops it
-  from the copy it puts into the inbox. Before, it turned the question's
-  note off, and `n` said that the question takes no note. An open note
-  stays open on a replaced session file while its question shows, also
-  where its row is gone.
+- Every question and info item takes a note. Before, `"note": false`
+  turned the question's note off, and `n` said that the question takes
+  no note. An open note stays open on a replaced session file while its
+  question shows, also where its row is gone.
 - `pgup` and `pgdn` scroll the context pane, the full-screen view and
   the intro by their height less 2 lines, so the last 2 lines before the
   jump show again at the other end, as with Vim's `ctrl-f`; in a view of
@@ -122,6 +121,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   500,000 lines", from a file or inline; each side of a diff counts on
   its own. 8 MiB of empty lines took 828 MB in a code entry and takes
   64 MB now. `asqr validate` and `asqr ask` warn about such an entry.
+
+### Deprecated
+
+- The `note` field of a question. `"note": false` is still read but has
+  no effect: `asqr validate` and `asqr ask` warn that it is ignored, the
+  schema marks the field deprecated, and `asqr ask` drops it from the
+  copy it puts into the inbox.
 
 ### Fixed
 

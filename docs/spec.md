@@ -304,11 +304,12 @@ add optional fields.
   `ansi` entry its escape sequences count. asqr still shows it.
   Image files get no such warning; an image entry's `caption` above
   1 MiB does.
-- about a `code`, `markdown` or `ansi` entry, a side of a `diff` or an
-  image entry's `caption` of more than 500,000 lines, inline or in the
-  first 8 MiB of its file, which asqr cuts (section 8.3). A file that
-  holds a NUL byte, which asqr does not show, gets no such warning. An
-  entry can get both this and the 1 MiB warning.
+- about a `code`, `markdown` or `ansi` entry or a side of a `diff` of
+  more than 500,000 lines, inline or in the first 8 MiB of its file, or
+  an image entry's `caption` of more than 500,000 lines, which asqr cuts
+  (section 8.3). A file that holds a NUL byte, which asqr does not show,
+  gets no such warning. An entry can get both this and the 1 MiB
+  warning.
 - about fields of earlier format versions (section 3.6).
 - about `"note": false` on a question or an info item, which is ignored,
   as every question takes a note (section 3.2).
@@ -642,7 +643,7 @@ on stderr: "no asqr is watching queue <name>; start `asqr` in another
 terminal". For a queue given by directory, the warning names the
 directory.
 
-### 5.6 The instance lock
+### 5.6 The instance lock and the drafts lock
 
 One asqr instance per queue. On start the TUI opens `<queue>/lock` and
 takes an exclusive advisory lock on it (flock on Unix).
@@ -1582,11 +1583,11 @@ keeps the session and shows its own notice instead.
   - Only terminals known to show it get it: Ghostty from 1.2.0 and
     iTerm2 from 3.6.6, which show a bar in the window (iTerm2 from 3.7.0
     also on the tab), Windows Terminal (`WT_SESSION`), which shows a
-    ring on the tab, and inside tmux kitty from 0.39.0, which shows the
-    percentage in the tab's title. Windows Terminal names no version, so
-    one before 1.6 is not told apart. Every other terminal, and one
-    whose version cannot be read, gets nothing: several show any OSC 9
-    as a desktop notification.
+    ring on the tab and a bar in the taskbar, and inside tmux kitty from
+    0.39.0, which shows the percentage in the tab's title. Windows
+    Terminal names no version, so one before 1.6 is not told apart.
+    Every other terminal, and one whose version cannot be read, gets
+    nothing: several show any OSC 9 as a desktop notification.
   - Ghostty clears the bar after a while without an update, so it gets
     the progress again every second while one shows.
   - Inside tmux the client's terminal decides, from its answer to
