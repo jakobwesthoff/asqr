@@ -340,10 +340,7 @@ impl SessionState {
                 match saved {
                     Some(answer) => restored(question, answer),
                     None => Working {
-                        selected: option_ids(question)
-                            .filter(|id| is_default(question, id))
-                            .map(str::to_owned)
-                            .collect(),
+                        selected: defaults(question),
                         ..Working::default()
                     },
                 }
@@ -396,7 +393,8 @@ impl SessionState {
 
     /// Takes over a session file that was replaced while it was open,
     /// keeping the answers that still fit and where the person
-    /// was, so the reload does not throw them back to the start.
+    /// was, so the reload does not throw them back to the start. A
+    /// question the person has not touched takes the new file's defaults.
     ///
     /// The question shown is found again by its id, as a draft finds it,
     /// and the review stays the review. Where the row is found again, the
@@ -416,7 +414,18 @@ impl SessionState {
     /// the person has seen (see [`Self::seen`]): they never had any other
     /// on screen, so "was reloaded" tells them nothing about it.
     pub fn replace_session(&mut self, session: Session) {
-        let draft = self.to_draft();
+        // A question the person has not touched holds nothing of theirs,
+        // so it starts from the new file's defaults, as on a fresh start.
+        // Left in the draft, an empty answer would restore as touched and
+        // keep a default the file added from being picked.
+        let mut draft = self.to_draft();
+        draft.answers.retain(|answer| {
+            self.session
+                .questions
+                .iter()
+                .zip(&self.working)
+                .any(|(question, working)| question.id == answer.question && working.touched)
+        });
         let mut replaced = SessionState::new(self.id.clone(), session, Some(&draft));
         replaced.revision = self.revision + 1;
         replaced.seen = self.seen;
@@ -1756,20 +1765,33 @@ fn entry_at(session: &Session, key: EntryKey) -> Option<&ContextEntry> {
     }
 }
 
-fn is_default(question: &Question, id: &str) -> bool {
+/// The ids of the options `question` marks as defaults, in option order.
+fn defaults(question: &Question) -> Vec<String> {
     question
         .options
         .iter()
         .flatten()
-        .any(|option| option.id == id && option.default)
+        .filter(|option| option.default)
+        .map(|option| option.id.clone())
+        .collect()
 }
 
 /// A working answer from a draft, keeping only what fits the question.
+///
+/// An untouched default is the asker's preset, not the person's pick, so
+/// it restores as the defaults the question sets now: a default the file
+/// moved, added or removed since the draft was saved shows as the file
+/// sets it. The person typed nothing into such a question, as every edit
+/// and every pick marks it touched.
 fn restored(question: &Question, answer: &Answer) -> Working {
-    let mut selected: Vec<String> = option_ids(question)
-        .filter(|id| answer.selected.iter().any(|selected| selected == id))
-        .map(str::to_owned)
-        .collect();
+    let mut selected: Vec<String> = if answer.defaulted {
+        defaults(question)
+    } else {
+        option_ids(question)
+            .filter(|id| answer.selected.iter().any(|selected| selected == id))
+            .map(str::to_owned)
+            .collect()
+    };
     if question.kind == Kind::Single {
         selected.truncate(1);
     }
@@ -4613,6 +4635,91 @@ mod tests {
         assert_eq!(
             state.session().questions[0].options.as_ref().map(Vec::len),
             Some(1)
+        );
+    }
+
+    /// The test session with the default of `single` on `a` instead of
+    /// `b`.
+    fn default_on_a() -> Session {
+        let moved = SESSION
+            .replace(r#""label": "B", "default": true"#, r#""label": "B""#)
+            .replace(r#""label": "A""#, r#""label": "A", "default": true"#);
+        serde_json::from_str(&moved).expect("parses")
+    }
+
+    #[test]
+    fn a_reload_moves_an_untouched_default_with_the_file() {
+        let mut state = state();
+
+        state.replace_session(default_on_a());
+
+        assert_eq!(
+            answer(&state, "single"),
+            Answer {
+                selected: vec!["a".into()],
+                defaulted: true,
+                ..Answer::new("single")
+            }
+        );
+    }
+
+    #[test]
+    fn a_reload_selects_a_default_added_to_an_untouched_question() {
+        let mut state = state();
+        let added = SESSION.replace(r#""label": "X""#, r#""label": "X", "default": true"#);
+
+        state.replace_session(serde_json::from_str(&added).expect("parses"));
+
+        assert_eq!(
+            answer(&state, "multi"),
+            Answer {
+                selected: vec!["x".into()],
+                defaulted: true,
+                ..Answer::new("multi")
+            }
+        );
+    }
+
+    #[test]
+    fn a_reload_drops_a_default_removed_from_an_untouched_question() {
+        let mut state = state();
+        let removed = SESSION.replace(r#""label": "B", "default": true"#, r#""label": "B""#);
+
+        state.replace_session(serde_json::from_str(&removed).expect("parses"));
+
+        assert_eq!(answer(&state, "single"), Answer::new("single"));
+    }
+
+    #[test]
+    fn a_reload_keeps_the_persons_pick() {
+        let mut state = state();
+        press(&mut state, "1");
+        let removed = SESSION.replace(r#""label": "B", "default": true"#, r#""label": "B""#);
+
+        state.replace_session(serde_json::from_str(&removed).expect("parses"));
+
+        assert_eq!(
+            answer(&state, "single"),
+            Answer {
+                selected: vec!["a".into()],
+                ..Answer::new("single")
+            }
+        );
+    }
+
+    #[test]
+    fn a_restart_takes_the_current_default_of_an_untouched_question() {
+        let draft = state().to_draft();
+
+        let restored = SessionState::new("batch", default_on_a(), Some(&draft));
+
+        assert_eq!(
+            answer(&restored, "single"),
+            Answer {
+                selected: vec!["a".into()],
+                defaulted: true,
+                ..Answer::new("single")
+            }
         );
     }
 

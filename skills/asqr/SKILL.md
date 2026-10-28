@@ -368,7 +368,8 @@ asqr withdraw "$id"
   exits 0.
 - A rebuilt session under the same id needs no `withdraw`: `ask` it
   again, and it replaces the waiting one unless the person has started
-  answering it. After a withdrawal its result stays in the outbox, so
+  answering it. Questions they have not touched show the defaults of
+  the new file. After a withdrawal its result stays in the outbox, so
   asking the same id again needs `--force`.
 
 To replace a session you rebuilt under a new id, ask the new one with

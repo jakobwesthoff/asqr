@@ -151,6 +151,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `draft_has_answers`. Before, moving to another question saved the
   default into the draft, and `ask` refused as if the person had
   started answering.
+- A session file replaced under the same id, or a session restored from
+  its draft, shows the defaults the file sets now on every question the
+  person has not touched: a moved default moves the pick along with
+  `◀ default`, an added one is picked, and a removed one is no longer
+  picked. Before, the old default stayed picked and came back with
+  `defaulted: true` while the marker stood on the new one, and a default
+  added to a question that had none was not picked on a replaced file.
 - A session whose file changes on disk before the person has had it on
   screen, such as one waiting behind the session being answered, is
   reloaded without the message "<title> changed on disk and was

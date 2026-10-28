@@ -487,9 +487,11 @@ change to a session whose file has left the inbox writes no draft. The
 look at the inbox and the write run under the drafts lock (section 5.6).
 On restore, answers are matched by
 question id and option id, and anything that no longer fits (a question
-or option that is gone) is dropped. A draft that cannot be read is
-logged and ignored, and the session starts fresh, with only its defaults
-selected.
+or option that is gone) is dropped. An untouched default (`"defaulted":
+true`) restores as the defaults the question sets in the file as it is
+now, so a default the asker moved, added or removed since shows as the
+file sets it. A draft that cannot be read is logged and ignored, and the
+session starts fresh, with only its defaults selected.
 
 A draft "has an answer" (section 5.5) when any question has a selection
 the person made, typed text that is not blank or a note that is not
@@ -1611,8 +1613,9 @@ keeps the session and shows its own notice instead.
   - When asqr quits, also after a panic, it removes a progress it
     shows, before it leaves the alternate screen.
 - A replaced session file keeps the answers that still fit (section
-  5.4) and where the person was: the question shown, found again by its
-  id, or the review; the row with its focus, so a field left with `esc`
+  5.4), while a question the person has not touched takes the new
+  file's defaults, and keeps where the person was: the question shown,
+  found again by its id, or the review; the row with its focus, so a field left with `esc`
   stays without the keys, a field typed in keeps its text cursor, and an
   open note stays open with its text cursor while its question shows,
   also where its row is gone; the part of the question's area scrolled
