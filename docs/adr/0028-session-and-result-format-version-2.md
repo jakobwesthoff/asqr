@@ -26,6 +26,8 @@ Amended by [68. Every item takes a note](0068-every-item-takes-a-note.md)
 
 Amended by [69. Show a Markdown caption with an image entry](0069-show-a-markdown-caption-with-an-image-entry.md)
 
+Amended by [71. Let backspace clear the pick of a single question](0071-let-backspace-clear-the-pick-of-a-single-question.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

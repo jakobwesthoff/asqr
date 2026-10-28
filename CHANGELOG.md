@@ -119,6 +119,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as in a code or `ansi` entry, so no text can make the terminal draw an
   image's cells there. Answers keep the character as typed. Before, it
   reached the terminal as written.
+- `backspace` on the picked option's row of a `single` question clears
+  the pick, a default included, so the question comes back skipped,
+  with its note if it has one; on any other row it does nothing. Own
+  text typed before the option was picked stays in its field, unpicked,
+  until `enter` on its row or an edit of it picks it again; a draft
+  keeps it as `custom` with `custom_unpicked: true`, which asqr 0.13.1
+  and earlier ignore. The key bar names `backspace  clear` there, where
+  it has room, and the help lists it. `enter` on the option already
+  picked keeps it. Before, a `single` question with a default could not
+  be skipped, and one without a default could no longer be skipped once
+  an option was picked.
+- The review lists a `single` question's own text only where it is the
+  answer. Before, it showed the text next to a chosen option, which the
+  result does not send.
 
 ## [0.13.1] - 2026-10-22
 

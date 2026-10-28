@@ -33,7 +33,7 @@ const HELP: &[(&str, &str)] = &[
     ("tab", "move into the context pane and back"),
     ("pgup/pgdn, ctrl-u/ctrl-d", "scroll by page; by half a page"),
     ("o, z, s", "open an image; full screen; diff side by side"),
-    ("L", "the list of waiting sessions"),
+    ("L, backspace", "the session list; clear the pick"),
     ("q, ctrl-c", "quit, keeping the draft"),
     ("?, i", "this help; the whole intro"),
 ];
@@ -159,6 +159,7 @@ pub(super) struct Hint {
 pub(super) enum Rank {
     /// `ctrl-u`/`ctrl-d`, beside the page keys and after `tab`.
     HalfPage,
+    /// `n`, and `backspace` right of it while it can clear a pick.
     Note,
     Context,
     /// Switching questions, or scrolling the context pane sideways.
@@ -346,14 +347,24 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<Hint> {
             HELP_HINT,
             QUIT_HINT,
         ],
-        (Focus::None, _) => vec![
-            cursor("↑/↓", "move"),
-            cursor("enter", "pick"),
-            QUESTION_HINT,
-            NOTE_HINT,
-            HELP_HINT,
-            QUIT_HINT,
-        ],
+        (Focus::None, _) => {
+            // `backspace` clears a pick only on the picked option's row. It
+            // ranks with the note and stands right of it, so a narrow bar
+            // leaves it out first.
+            let clear = state
+                .on_pick()
+                .then_some(hint("backspace", "clear", Rank::Note));
+            [
+                cursor("↑/↓", "move"),
+                cursor("enter", "pick"),
+                QUESTION_HINT,
+                NOTE_HINT,
+            ]
+            .into_iter()
+            .chain(clear)
+            .chain([HELP_HINT, QUIT_HINT])
+            .collect()
+        }
     }
 }
 
@@ -961,6 +972,113 @@ mod tests {
             pairs(&key_hints(&session(true, "single"), true, Some(page))),
             [("↑/↓", "move"), ("enter", "open"), ("esc", "close")],
             "the session list names no pane"
+        );
+    }
+
+    /// A `single` question with an own answer whose option `a` is picked
+    /// as its default.
+    fn picked_single() -> SessionState {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "custom": true, "options": [{"id": "a", "label": "A", "default": true}, {"id": "b", "label": "B"}]}]}"#;
+        SessionState::new("picked", serde_json::from_str(json).expect("parses"), None)
+    }
+
+    #[test]
+    fn a_single_with_a_pick_names_backspace_after_the_note() {
+        let mut state = picked_single();
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, None)),
+            [
+                ("↑/↓", "move"),
+                ("enter", "pick"),
+                ("←/→", "question"),
+                ("n", "note"),
+                ("backspace", "clear"),
+                ("?", "help"),
+                ("q", "quit")
+            ]
+        );
+
+        let names_backspace = |state: &SessionState| {
+            pairs(&key_hints(state, false, None)).contains(&("backspace", "clear"))
+        };
+        state.handle(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert!(!names_backspace(&state), "nothing is picked");
+        let mut own = picked_single();
+        for key in [KeyCode::Down, KeyCode::Down, KeyCode::Esc] {
+            own.handle(KeyEvent::new(key, KeyModifiers::NONE));
+        }
+        assert!(!names_backspace(&own), "the own-answer row");
+        let multi = SessionState::new(
+            "multi",
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "multi",
+                    "options": [{"id": "a", "label": "A", "default": true}]}]}"#,
+            )
+            .expect("parses"),
+            None,
+        );
+        assert!(!names_backspace(&multi), "a multi");
+    }
+
+    #[test]
+    fn a_single_names_backspace_only_on_the_picked_options_row() {
+        let names_backspace = |state: &SessionState| {
+            pairs(&key_hints(state, false, None)).contains(&("backspace", "clear"))
+        };
+        let press = |state: &mut SessionState, code: KeyCode| {
+            state.handle(KeyEvent::new(code, KeyModifiers::NONE));
+        };
+        let mut state = picked_single();
+        assert!(names_backspace(&state), "the picked option");
+
+        press(&mut state, KeyCode::Down);
+        assert!(!names_backspace(&state), "another option");
+
+        // Clear the default, type an own answer, and go back to an option:
+        // the own answer is picked, but not on an option row.
+        press(&mut state, KeyCode::Up);
+        press(&mut state, KeyCode::Backspace);
+        for code in [
+            KeyCode::Down,
+            KeyCode::Down,
+            KeyCode::Char('x'),
+            KeyCode::Esc,
+            KeyCode::Up,
+        ] {
+            press(&mut state, code);
+        }
+        assert!(!names_backspace(&state), "an own answer picked");
+    }
+
+    #[test]
+    fn the_clear_hint_leaves_a_narrow_bar_first() {
+        let state = picked_single();
+        let bar = |width: u16| {
+            let hints = key_hints(&state, false, None);
+            line_texts(&[key_line(&hints, width)])[0]
+                .trim_end()
+                .to_owned()
+        };
+
+        assert_eq!(
+            bar(89),
+            " ↑/↓  move   enter  pick   ←/→  question   n  note   backspace  clear   ?  help   q  quit"
+        );
+        assert_eq!(
+            bar(88),
+            " ↑/↓  move   enter  pick   ←/→  question   n  note   ?  help   q  quit"
+        );
+    }
+
+    #[test]
+    fn the_general_help_names_backspace_on_the_line_of_l() {
+        let lines = smallest_help_lines(&general_help_state());
+
+        assert_eq!(
+            lines.iter().find(|line| line.starts_with("L")),
+            Some(&"L, backspace the session list; clear the pick".to_owned())
         );
     }
 

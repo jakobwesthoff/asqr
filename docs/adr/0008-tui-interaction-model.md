@@ -16,6 +16,8 @@ Amended by [36. Treat every typed field alike](0036-treat-every-typed-field-alik
 
 Amended by [62. Show text and context without asking through an info item](0062-show-text-and-context-without-asking-through-an-info-item.md)
 
+Amended by [71. Let backspace clear the pick of a single question](0071-let-backspace-clear-the-pick-of-a-single-question.md)
+
 ## Context
 
 The person answering has to get through many questions fast, often with

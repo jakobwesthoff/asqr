@@ -101,11 +101,13 @@ Once asked, asqr fits best when:
   every question and info item: a condition on an answer, why they
   skipped, or that a question is wrong. Read every note before you act
   on the answers.
-- Every question is optional: the person may skip any of them, and a
-  skipped question may still carry a note explaining why.
+- Every question is optional: the person may skip any of them, one
+  with a `default` included, and a skipped question may still carry a
+  note explaining why.
 - `min` and `max` count the picked options; the own answer of a `multi`
   comes on top of them.
-- `default: true` on an option preselects it.
+- `default: true` on an option preselects it. The person may keep it,
+  pick another option, or clear it and skip the question.
 - An option's `label` is the short handle the person picks the option
   by, such as `Publish now`. It wraps and is never cut. Keep it to a few
   words, and put longer text into the option's `description`, or into
@@ -440,7 +442,10 @@ one too.
 - Every typed text may span several lines: `custom`, both kinds of
   `note` and `reason` can contain `\n`, for example when the person
   pasted a list.
-- `defaulted: true` means the person left your default untouched.
+- `defaulted: true` means the person left your default untouched. A
+  question whose default they cleared comes back with `skipped: true`
+  in a submitted result, and a rejected result leaves it out unless it
+  has a note.
 
 ## Finding sessions again
 
@@ -535,9 +540,11 @@ Habits that run through them: one question per item, your
 recommendation first, before and after spelled out, a change to existing
 text shown as a `diff`, and each option's own `context` where the person
 compares. Results so far go into an `info` item, not a question with an
-option like "OK". A `single` with a `default` comes back answered, with
-the default unless the person picks another option or an own answer, so
-add an option such as "not yet" where they may want to leave it open.
+option like "OK". A `single` with a `default` comes back answered with
+the default unless the person picks another option or an own answer, or
+clears the pick, which skips the question. Where "not yet" is a likely
+answer, an option for it is easier for the person to find than clearing
+the pick, and it says why without a note.
 Read every note, on info items too. For what came up, ask a follow-up
 round with `follows`. When the person answers the questions another way,
 such as in the chat, withdraw the session. Ask one you rebuilt under a

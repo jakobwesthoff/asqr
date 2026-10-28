@@ -150,9 +150,14 @@ struct Working {
     /// Option ids, kept in option order.
     selected: Vec<String>,
     /// The own answer, or the answer of a `text` question. On a `single`
-    /// question it counts only while no option is chosen (spec section
-    /// 4.2).
+    /// question it counts only while no option is chosen and it is not
+    /// unpicked (spec section 4.2).
     custom: String,
+    /// On a `single`, the own text stays typed but is not the pick: it was
+    /// typed, then an option was picked and `backspace` cleared that pick.
+    /// `enter` on the own-answer row or an edit of the text picks it again.
+    /// Set only while there is text to show unpicked.
+    custom_unpicked: bool,
     note: String,
     /// The person edited the question; a default then no longer counts as
     /// untouched.
@@ -846,6 +851,7 @@ impl SessionState {
                     question: question.id.clone(),
                     selected: working.selected.clone(),
                     custom: filled(&working.custom),
+                    custom_unpicked: working.custom_unpicked,
                     note: filled(&working.note),
                     defaulted: !working.touched && !working.selected.is_empty(),
                     skipped: false,
@@ -896,6 +902,22 @@ impl SessionState {
             draft.reason = Some(self.reject_reason.clone());
         }
         draft
+    }
+
+    /// Whether the cursor is on the picked option of a single question, a
+    /// default included: the one place where `backspace` clears the pick.
+    pub fn on_pick(&self) -> bool {
+        let (Some(question), Some(Row::Option(index))) = (self.question(), self.current_row())
+        else {
+            return false;
+        };
+        question.kind == Kind::Single
+            && option_ids(question).nth(index).is_some_and(|id| {
+                self.working[self.tab]
+                    .selected
+                    .iter()
+                    .any(|picked| picked == id)
+            })
     }
 
     pub fn question_states(&self) -> Vec<QuestionState> {
@@ -1219,6 +1241,7 @@ impl SessionState {
             },
             KeyCode::Char('l') | KeyCode::Right => self.go_to_tab(self.tab + 1),
             KeyCode::Enter => self.enter(),
+            KeyCode::Backspace => self.unpick(),
             KeyCode::Char(' ') => match self.current_row() {
                 Some(Row::Option(index)) if self.kind() == Some(Kind::Multi) => self.toggle(index),
                 _ => Effect::None,
@@ -1366,12 +1389,30 @@ impl SessionState {
         self.go_to_tab(self.tab + 1)
     }
 
+    /// Clears the pick of a single question, a default included, so that
+    /// every question can be skipped (spec section 4.2). Only the picked
+    /// option's own row clears it, so moving around never clears a pick by
+    /// accident. Typed own text stays in its field, unpicked. The cursor
+    /// stays on its row.
+    fn unpick(&mut self) -> Effect {
+        if !self.on_pick() {
+            return Effect::None;
+        }
+        let working = &mut self.working[self.tab];
+        working.selected.clear();
+        working.custom_unpicked = !working.custom.trim().is_empty();
+        working.touched = true;
+        Effect::DraftChanged
+    }
+
     /// Picks the own answer and moves on. On a single question that
-    /// deselects the options, since the own answer counts only without one.
+    /// deselects the options, since the own answer counts only without one,
+    /// and picks own text that `backspace` left unpicked.
     fn pick_own(&mut self) -> Effect {
         if self.kind() == Some(Kind::Single) {
             let working = &mut self.working[self.tab];
             working.selected.clear();
+            working.custom_unpicked = false;
             working.touched = true;
         }
         self.go_to_tab(self.tab + 1)
@@ -1566,6 +1607,13 @@ impl SessionState {
             }
             _ => {
                 let working = &mut self.working[self.tab];
+                // With no option chosen, an edit of the own answer picks
+                // it, as typing does on a fresh question; it never
+                // deselects a chosen option (ADR 8). Text edited down to
+                // nothing leaves nothing to show unpicked either.
+                if working.selected.is_empty() || text.trim().is_empty() {
+                    working.custom_unpicked = false;
+                }
                 working.custom = text;
                 working.touched = true;
             }
@@ -1636,9 +1684,14 @@ fn restored(question: &Question, answer: &Answer) -> Working {
     };
     // Text in a draft reaches a field without being typed, like a paste,
     // and is cleaned the same way, so the field draws what it counts.
+    let custom = cleaned(custom.unwrap_or_default());
+    // Only a single's own text can be unpicked, and only text that shows.
+    let custom_unpicked =
+        question.kind == Kind::Single && answer.custom_unpicked && !custom.trim().is_empty();
     Working {
         selected,
-        custom: cleaned(custom.unwrap_or_default()),
+        custom,
+        custom_unpicked,
         note: cleaned(answer.note.as_deref().unwrap_or_default()),
         touched: !answer.defaulted,
     }
@@ -1917,6 +1970,254 @@ mod tests {
         state.handle(code(KeyCode::Enter));
 
         assert!(state.on_review());
+    }
+
+    /// The answers a submit sends from where `state` is now.
+    fn submitted(state: &mut SessionState) -> Vec<Answer> {
+        go_to_tab(state, 4);
+        let Effect::Submit { answers, .. } = state.handle(code(KeyCode::Enter)) else {
+            panic!("enter on Submit submits");
+        };
+        answers
+    }
+
+    #[test]
+    fn backspace_clears_a_pick_and_the_question_comes_back_skipped() {
+        let mut state = state();
+        go_to_tab(&mut state, 3);
+        press(&mut state, "1h");
+        assert_eq!(answer(&state, "plain").selected, ["only"]);
+
+        assert_eq!(state.handle(code(KeyCode::Backspace)), Effect::DraftChanged);
+
+        assert_eq!((state.tab(), state.row()), (3, 0), "the cursor stays");
+        assert_eq!(answer(&state, "plain").selected, Vec::<String>::new());
+        assert_eq!(submitted(&mut state)[3], Answer::skipped("plain"));
+    }
+
+    #[test]
+    fn backspace_clears_an_untouched_default_and_its_flag() {
+        let mut state = state();
+        press(&mut state, "j");
+
+        state.handle(code(KeyCode::Backspace));
+
+        assert_eq!(answer(&state, "single"), Answer::new("single"));
+        assert_eq!(
+            state.counts(),
+            Counts {
+                answered: 0,
+                skipped: 4,
+                defaulted: 0,
+                questions: 4,
+            }
+        );
+        assert_eq!(submitted(&mut state)[0], Answer::skipped("single"));
+    }
+
+    #[test]
+    fn a_cleared_default_keeps_its_note_and_comes_back_skipped_with_it() {
+        let mut state = state();
+        press(&mut state, "nnot sure");
+        state.handle(code(KeyCode::Enter));
+        press(&mut state, "j");
+
+        state.handle(code(KeyCode::Backspace));
+
+        assert_eq!(
+            submitted(&mut state)[0],
+            Answer {
+                note: Some("not sure".into()),
+                ..Answer::skipped("single")
+            }
+        );
+    }
+
+    #[test]
+    fn a_cleared_pick_stays_cleared_through_the_draft() {
+        let mut state = state();
+        press(&mut state, "j");
+        state.handle(code(KeyCode::Backspace));
+        let session = || serde_json::from_str(SESSION).expect("parses");
+
+        let restored = SessionState::new("batch", session(), Some(&state.to_draft()));
+        state.replace_session(session());
+
+        assert_eq!(answer(&restored, "single"), Answer::new("single"));
+        assert_eq!(answer(&state, "single"), Answer::new("single"));
+    }
+
+    #[test]
+    fn backspace_clears_only_on_the_picked_options_row() {
+        // Moving around never clears a pick by accident.
+        let mut state = state();
+
+        assert_eq!(state.handle(code(KeyCode::Backspace)), Effect::None);
+
+        assert_eq!(answer(&state, "single").selected, ["b"]);
+        assert!(answer(&state, "single").defaulted);
+    }
+
+    #[test]
+    fn enter_on_the_picked_option_keeps_it_picked() {
+        // Going back and pressing enter on the same answer again is an
+        // ordinary step, never a way to clear it.
+        let mut state = state();
+        press(&mut state, "2hj");
+
+        state.handle(code(KeyCode::Enter));
+
+        assert_eq!(answer(&state, "single").selected, ["b"]);
+        assert_eq!(state.tab(), 1, "and moves on");
+    }
+
+    #[test]
+    fn backspace_where_there_is_no_pick_to_clear_changes_nothing() {
+        let backspace_changes_nothing = |state: &mut SessionState, place: &str| {
+            let before = state.answers();
+            assert_eq!(
+                state.handle(code(KeyCode::Backspace)),
+                Effect::None,
+                "{place}"
+            );
+            assert_eq!(state.answers(), before, "{place}");
+        };
+
+        let mut state = state();
+        press(&mut state, "jj");
+        state.handle(code(KeyCode::Esc));
+        backspace_changes_nothing(&mut state, "the own-answer row after esc");
+        go_to_tab(&mut state, 2);
+        state.handle(code(KeyCode::Esc));
+        backspace_changes_nothing(&mut state, "a text question after esc");
+        go_to_tab(&mut state, 3);
+        backspace_changes_nothing(&mut state, "a single without a pick");
+        go_to_tab(&mut state, 4);
+        backspace_changes_nothing(&mut state, "the review");
+        assert!(!state.on_pick(), "the review has no question to pick on");
+
+        let mut info = with_info();
+        backspace_changes_nothing(&mut info, "an info item");
+    }
+
+    #[test]
+    fn backspace_in_the_own_answer_deletes_a_character() {
+        let mut state = state();
+        press(&mut state, "jjab");
+
+        state.handle(code(KeyCode::Backspace));
+
+        assert_eq!(state.field_text().as_deref(), Some("a"));
+        assert_eq!(answer(&state, "single").selected, ["b"]);
+    }
+
+    // ---------------------------------------------------------------
+    // The own answer of a single counts only while it is the pick
+    // ---------------------------------------------------------------
+
+    /// The state with `own` typed into the own answer of `single`, then
+    /// option `a` picked and the pick cleared again on the first row.
+    fn own_text_left_unpicked() -> SessionState {
+        let mut state = state();
+        press(&mut state, "jjown");
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "1h");
+        state.handle(code(KeyCode::Backspace));
+        state
+    }
+
+    #[test]
+    fn backspace_unpicks_the_own_answer_and_keeps_its_text() {
+        let mut state = own_text_left_unpicked();
+
+        assert_eq!(answer(&state, "single").custom.as_deref(), Some("own"));
+        assert_eq!(state.question_states()[0].answer, AnswerState::Skipped);
+        assert_eq!(submitted(&mut state)[0], Answer::skipped("single"));
+    }
+
+    #[test]
+    fn backspace_on_an_option_row_leaves_a_picked_own_answer() {
+        // Emptying its text in the field is how an own answer goes.
+        let mut state = state();
+        press(&mut state, "j");
+        state.handle(code(KeyCode::Backspace));
+        press(&mut state, "jown");
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "k");
+
+        assert_eq!(state.handle(code(KeyCode::Backspace)), Effect::None);
+
+        assert_eq!(state.question_states()[0].answer, AnswerState::Answered);
+    }
+
+    #[test]
+    fn typing_after_clearing_an_empty_own_answer_counts_as_on_a_fresh_question() {
+        // A clear with nothing typed leaves nothing unpicked behind, so the
+        // question reads exactly as a fresh one.
+        let mut state = state();
+        press(&mut state, "j");
+        state.handle(code(KeyCode::Backspace));
+        press(&mut state, "jx");
+        state.handle(code(KeyCode::Up));
+
+        assert_eq!(
+            submitted(&mut state)[0],
+            Answer {
+                custom: Some("x".into()),
+                ..Answer::new("single")
+            }
+        );
+    }
+
+    #[test]
+    fn typing_into_an_unpicked_own_answer_picks_it() {
+        // With no option chosen, an edit of the own answer picks it, as
+        // typing does on a fresh question.
+        let mut state = own_text_left_unpicked();
+        press(&mut state, "jj!");
+        state.handle(code(KeyCode::Up));
+
+        assert_eq!(
+            submitted(&mut state)[0],
+            Answer {
+                custom: Some("own!".into()),
+                ..Answer::new("single")
+            }
+        );
+    }
+
+    #[test]
+    fn enter_on_the_own_answer_picks_its_text_again() {
+        let mut state = own_text_left_unpicked();
+        press(&mut state, "jj");
+
+        state.handle(code(KeyCode::Enter));
+
+        assert_eq!(
+            submitted(&mut state)[0],
+            Answer {
+                custom: Some("own".into()),
+                ..Answer::new("single")
+            }
+        );
+    }
+
+    #[test]
+    fn an_unpicked_own_answer_stays_unpicked_through_the_draft() {
+        let mut state = own_text_left_unpicked();
+        let session = || serde_json::from_str(SESSION).expect("parses");
+
+        let mut restored = SessionState::new("batch", session(), Some(&state.to_draft()));
+        state.replace_session(session());
+
+        for (state, case) in [(&mut restored, "restored"), (&mut state, "replaced")] {
+            assert_eq!(
+                answer(state, "single").custom.as_deref(),
+                Some("own"),
+                "{case}"
+            );
+            assert_eq!(submitted(state)[0], Answer::skipped("single"), "{case}");
+        }
     }
 
     // ---------------------------------------------------------------

@@ -3262,6 +3262,8 @@ mod tests {
 
         keys(&mut app, "hh");
         insta::assert_snapshot!("single_picked", screen(&app, 80, 24));
+        // A wider key bar has room for `backspace`, which clears the pick.
+        insta::assert_snapshot!("single_picked_wide", screen(&app, 100, 24));
     }
 
     #[test]

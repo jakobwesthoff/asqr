@@ -109,6 +109,13 @@ pub struct Answer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom: Option<String>,
 
+    /// Drafts only: on a `single`, the own text stays typed but is not the
+    /// pick, so it answers nothing (spec section 4.3). A result never
+    /// carries it, so the result schema leaves it out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(skip)]
+    pub custom_unpicked: bool,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 
@@ -462,6 +469,29 @@ mod tests {
                 "current": "q2",
                 "answers": [{ "question": "q1" }]
             })
+        );
+    }
+
+    #[test]
+    fn a_draft_marks_own_text_the_person_unpicked() {
+        let draft = SessionResult::draft(
+            "batch-01",
+            "q1",
+            vec![Answer {
+                custom: Some("own".into()),
+                custom_unpicked: true,
+                ..Answer::new("q1")
+            }],
+        );
+        let written = serde_json::to_value(&draft).expect("draft serializes");
+
+        assert_eq!(
+            written["answers"],
+            json!([{ "question": "q1", "custom": "own", "custom_unpicked": true }])
+        );
+        assert_eq!(
+            serde_json::from_value::<SessionResult>(written).expect("parses"),
+            draft
         );
     }
 

@@ -49,9 +49,12 @@ pub fn answer_summary(
     quote: QuoteStyle,
 ) -> Vec<Span<'static>> {
     let dim = |text: String| Span::styled(text, theme::secondary());
+    // A single's own text shows only where it is the answer: a chosen
+    // option wins over it, as in the result.
     let own = answer
         .custom
         .as_deref()
+        .filter(|_| question.kind != Kind::Single || answer.selected.is_empty())
         .filter(|text| !text.trim().is_empty())
         .map(|text| format!("\"{}\"", text.lines().collect::<Vec<_>>().join(" ⏎ ")));
     // An info item has no answer to show, and a blank note on it is none,
@@ -344,6 +347,26 @@ mod tests {
         };
 
         assert_eq!(summary_text(&multi, &both), "X, \"more\"");
+    }
+
+    #[test]
+    fn a_single_shows_its_own_text_only_where_it_counts() {
+        // Text that is not the pick is not the answer, so the list shows
+        // what a submit would send.
+        let single = question(
+            r#"{"id": "s", "text": "?", "kind": "single", "custom": true,
+                "options": [{"id": "a", "label": "A"}]}"#,
+        );
+        let typed = |selected: &[&str], custom_unpicked: bool| Answer {
+            selected: selected.iter().map(|id| (*id).to_owned()).collect(),
+            custom: Some("own".into()),
+            custom_unpicked,
+            ..Answer::new("s")
+        };
+
+        assert_eq!(summary_text(&single, &typed(&["a"], false)), "A");
+        assert_eq!(summary_text(&single, &typed(&[], false)), "\"own\"");
+        assert_eq!(summary_text(&single, &typed(&[], true)), "-");
     }
 
     #[test]

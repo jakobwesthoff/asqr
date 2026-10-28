@@ -591,10 +591,12 @@ fn question_content(
                     .unwrap_or("Own answer")
                     .to_owned();
                 // On a single question the own answer is chosen when it
-                // counts: it has text and no option is chosen. Blanks and
-                // line breaks alone are no text, as in the result.
+                // counts: it has text, no option is chosen and `backspace`
+                // did not leave it unpicked. Blanks and line breaks alone
+                // are no text, as in the result.
                 let chosen = has_text(answer)
-                    && (question.kind == Kind::Multi || answer.selected.is_empty());
+                    && (question.kind == Kind::Multi
+                        || (answer.selected.is_empty() && !answer.custom_unpicked));
                 let head = vec![
                     pointer(current),
                     mark(question.kind, chosen),
@@ -1034,8 +1036,8 @@ mod tests {
          "options": [{"id": "a", "label": "A"}]},
         {"id": "words", "text": "?", "kind": "text", "length": {"warn": 3}}]}"#;
 
-    /// The session after pressing `keys`, `E` standing for `esc` and `\n`
-    /// for `enter`.
+    /// The session after pressing `keys`, `E` standing for `esc`, `B` for
+    /// `backspace` and `\n` for `enter`.
     fn after(keys: &str) -> SessionState {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -1047,6 +1049,7 @@ mod tests {
         for key in keys.chars() {
             let code = match key {
                 'E' => KeyCode::Esc,
+                'B' => KeyCode::Backspace,
                 '\n' => KeyCode::Enter,
                 key => KeyCode::Char(key),
             };
@@ -1309,6 +1312,7 @@ mod tests {
             // Enter picks A and moves on to the text question, which takes
             // the keys; `esc` and `h` come back.
             ("jabEk\nEh", "an option chosen besides the text"),
+            ("jabEk\nEhB", "the pick cleared, the text left unpicked"),
         ] {
             let (_, buf) = tab_of(&after(keys));
             let (mark, _) = own_mark_looks(&buf, "( )");

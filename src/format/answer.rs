@@ -20,7 +20,10 @@ pub fn has_text(answer: &Answer) -> bool {
 /// Whether `answer` answers `question`. A note never does.
 pub fn is_answered(question: &Question, answer: &Answer) -> bool {
     match question.kind {
-        Kind::Single => !answer.selected.is_empty() || has_text(answer),
+        // Own text answers a single only while it is the pick.
+        Kind::Single => {
+            !answer.selected.is_empty() || (has_text(answer) && !answer.custom_unpicked)
+        }
         Kind::Multi => {
             // Custom text answers the question on its own. `min` and `max`
             // bound the selected options, so they only apply once one is
@@ -106,6 +109,8 @@ fn shaped(question: &Question, answer: &Answer) -> Answer {
         question: question.id.clone(),
         selected,
         custom,
+        // Drafts alone mark own text as unpicked.
+        custom_unpicked: false,
         note: answer.note.clone(),
         defaulted: answer.defaulted,
         skipped: false,
@@ -197,6 +202,39 @@ mod tests {
             result_answers(&session(MULTI), std::slice::from_ref(&below_min_with_text)),
             [below_min_with_text],
             "the result keeps the options next to the text"
+        );
+    }
+
+    /// A draft's answer to `s` whose own text `own` the person unpicked,
+    /// with option ids `selected`.
+    fn unpicked(selected: &[&str]) -> Answer {
+        let json = serde_json::json!({
+            "question": "s",
+            "selected": selected,
+            "custom": "own",
+            "custom_unpicked": true,
+        });
+        serde_json::from_value(json).expect("a draft answer parses")
+    }
+
+    #[test]
+    fn unpicked_own_text_answers_nothing_and_the_result_leaves_it_out() {
+        let single = question(SINGLE);
+
+        assert!(!is_answered(&single, &unpicked(&[])));
+        assert_eq!(
+            result_answers(&session(SINGLE), &[unpicked(&[])]),
+            [Answer::skipped("s")]
+        );
+    }
+
+    #[test]
+    fn a_result_never_marks_own_text_as_unpicked() {
+        // An option picked after the text was unpicked answers the
+        // question; the mark belongs to drafts alone.
+        assert_eq!(
+            result_answers(&session(SINGLE), &[unpicked(&["a"])]),
+            [selected("s", &["a"])]
         );
     }
 

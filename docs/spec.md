@@ -417,7 +417,7 @@ rules are validation's alone.
 A question is **answered** when:
 
 - `single`: an option is selected, or the custom text is not empty after
-  trimming
+  trimming and is the pick (see the answer shape below)
 - `multi`: the custom text is not empty after trimming, or the number of
   selected options lies within `min` and `max`
 - `text`: the typed text is not empty after trimming
@@ -429,6 +429,9 @@ neither: nothing answers it, and it never counts as skipped.
   default. The answer carries `"defaulted": true` only when the person
   never edited the question. Any edit removes the flag, even one that
   restores the default, and so does writing a note.
+- `backspace` on the picked option's row clears the pick of a
+  `single`, a default included (section 7.6), so the question is
+  skipped.
 - A note never answers a question. A skipped question keeps its note.
 - `min` and `max` only apply once something is selected, so a `multi`
   with `min: 2` can be skipped. They count the picked options only; the
@@ -445,7 +448,12 @@ Answer shape per kind:
   both. While answering, a chosen option and typed own-answer text can
   both exist; the option counts while it is chosen, and the typed text
   counts once no option is chosen (`enter` on the own-answer row
-  deselects the options). The result keeps only what counts.
+  deselects the options). Typed text that is not selected is not the
+  answer: when the person picked an option after typing own text and
+  `backspace` clears that option, the question is skipped and the text
+  stays in its field, unpicked. `enter` on the own-answer row picks it
+  again, and so does editing it while no option is chosen, as typing
+  does on a fresh question. The result keeps only what counts.
 - `multi`: `selected` with the chosen option ids, and `custom` as one
   more entry next to them when present.
 - `text`: `custom` holds the answer, and there is no `selected`.
@@ -460,6 +468,11 @@ A draft has the result format with `"status": "draft"`, no
 question the cursor is on (the last question while the review tab is
 shown), `note`, the session note typed so far, and `reason`, the reject
 reason typed so far, each when there is one and as typed.
+A `single`'s own text the person unpicked (section 4.2) is `custom`
+with `custom_unpicked: true` on its answer. The field appears only in
+drafts, and the result schema leaves it out. It is new within format
+version 2: asqr 0.13.1 and earlier ignore it, so the text counts there
+again.
 It is written on every change while the session waits in the inbox; a
 change to a session whose file has left the inbox writes no draft. The
 look at the inbox and the write run under the drafts lock (section 5.6).
@@ -1015,7 +1028,8 @@ has context (section 7.4, ADRs 30 and 31):
   7.4).
 - The own-answer row is the last row of a question with `custom`; its
   mark shows whether the typed text counts, and when it counts it is
-  bold in the primary colour like a chosen option's mark (ADR 37). A
+  bold in the primary colour like a chosen option's mark (ADR 37). Own
+  text left unpicked (section 4.2) shows an empty mark. A
   `text` question consists of its answer field only.
 - An info item has one row, `next`, below the hint, with the pointer and
   under the focus fill like an option row; `enter` on it moves on (section
@@ -1029,8 +1043,10 @@ has context (section 7.4, ADRs 30 and 31):
 - The key bar shows the keys that work where the cursor is; they change
   inside a field. Each key is bold in the primary colour and its
   description dim, without a fill. Hints that do not fit its width are
-  left out whole, never cut: first `ctrl-u/ctrl-d`, then `n`, then
-  `tab`, then `←`/`→`, then the others from the right. `?` and `q` stay
+  left out whole, never cut: first `ctrl-u/ctrl-d`, then `backspace`,
+  then `n`, then `tab`, then `←`/`→`, then the others from the right.
+  On the picked option's row of a `single` it names `backspace  clear`
+  after `n  note`. `?` and `q` stay
   longest, as the help lists every key (ADR 31, ADR 58). On the empty
   queue its right end shows asqr's version in the space the hints leave
   (section 7.5, ADR 59).
@@ -1207,6 +1223,7 @@ On an option row (vim style plus arrows):
 | `enter` | `single`: pick the option and move on to the next question. `multi` and an info item: move on |
 | `space` | `multi`: toggle the option |
 | `1`-`9` | `single`: pick that option and move on. `multi`: toggle it |
+| `backspace` | `single`, on the picked option's row: clear the pick, a default included; the cursor stays, and typed own text stays in its field, unpicked |
 | `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
 | `i` | the whole intro |
@@ -1220,6 +1237,10 @@ On an option row (vim style plus arrows):
 - A selection beyond `max` in a `multi` is refused with the message "at
   most N options".
 - `enter` on the last question moves on to the review tab.
+- `enter` on the option already picked keeps it picked. `backspace` on
+  any other row does nothing, so moving around never clears a pick; in a
+  field, the own answer included, it deletes (section 7.7), and emptying
+  the own text is how a picked own answer goes.
 - Inside a field every key that produces text types, so `n`, `q` and
   the others work again after `esc` (section 7.7). `ctrl-c` quits
   everywhere, except over the help and over the dialog of an invalid
@@ -1316,7 +1337,8 @@ line (ADR 36).
   After `esc`, `↑`/`↓` move on as usual; where the move cannot leave the
   row (the single row of a `text` question, `↓` on the last row), they
   focus the field again. `enter` picks the own answer and moves on, like
-  an option. A text longer than the line wraps onto further lines under
+  an option, and on a `single` it picks own text left unpicked (section
+  4.2). A text longer than the line wraps onto further lines under
   its start, after the row's head, focused or not, and is never cut with
   `…`. Every line after the first starts there too. When the head leaves
   the text less than 20 columns, the further lines start 4 columns in
@@ -1404,7 +1426,9 @@ refused.
 The last tab lists every question with its answer on one line, dim: the
 chosen options by label, own text and a text answer in quotes (line
 breaks shown as `⏎`), `(default)` after an untouched default, `-`
-for a skipped question and `+note` for a note. A label shows its
+for a skipped question and `+note` for a note. A `single` shows its own
+text only where it is the answer: not next to a chosen option, and own
+text left unpicked (section 4.2) shows as `-`. A label shows its
 Markdown styles over the dim, not bold, its lines joined by a blank. A
 line longer than the screen is cut with `…`. An info item shows its dim
 `ℹ` and only `+note`, for a note that is not blank. Below the list, the
