@@ -360,8 +360,11 @@ asqr withdraw "$id"
   session (`"default": true` on the options they picked, which asqr
   shows marked `◀ default`; say in the question's text that these are
   their earlier answers, so the marker does not read as your
-  recommendation), where they confirm everything again. When you build
-  no replacement, ignore them.
+  recommendation), where they confirm everything again. Typed text
+  (`custom`) and notes have no preset in the format: quote them in the
+  replacement question's text, such as "Earlier you wrote: ...", so the
+  person can paste or retype them. When you build no replacement,
+  ignore them.
 - When the person has answered already, `withdraw` refuses with exit
   code 1: read the answers with `asqr result <id>`.
 - Withdrawing twice is fine: the second call prints the same result and
@@ -370,8 +373,8 @@ asqr withdraw "$id"
   again, and it replaces the waiting one unless the person has started
   answering it. Questions they have not touched show the defaults of
   the new file. When it refuses because the person has started
-  answering, stderr names the way on. After a withdrawal its result stays in the outbox, so
-  asking the same id again needs `--force`.
+  answering, stderr names the way on. After a withdrawal its result
+  stays in the outbox, so asking the same id again needs `--force`.
 
 To replace a session you rebuilt under a new id, ask the new one with
 `--replaces`:

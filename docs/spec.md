@@ -2204,7 +2204,8 @@ The skill teaches:
 - `asqr withdraw` for a session whose answers it no longer needs, that
   `--force` takes one the person has started answering, and that a
   withdrawn result's `draft` holds no decisions, only presets for a
-  replacement session
+  replacement session, and that its typed text and notes, which have no
+  preset, are quoted in the replacement's question text
 - `asqr ask --replaces` for a session rebuilt under another id, that
   its `--force` also ends a session the person is in the middle of, so
   it is for the exception, and that a fresh id avoids an unread result
