@@ -105,9 +105,15 @@ enum Command {
         #[arg(long, value_name = "SECONDS", requires = "wait")]
         timeout: Option<u64>,
 
-        /// Move an unread result with the same id into the archive first.
+        /// Move an unread result with the same id into the archive first;
+        /// with --replaces, also withdraw the old session while it is being
+        /// answered.
         #[arg(long)]
         force: bool,
+
+        /// Withdraw this waiting session and drop the new one in its place.
+        #[arg(long, value_name = "ID")]
+        replaces: Option<String>,
     },
 
     /// Wait for the result of a session and print it.
@@ -302,6 +308,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
             wait,
             timeout,
             force,
+            replaces,
         } => ask::run(
             &location,
             &file,
@@ -309,6 +316,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
                 wait,
                 timeout: timeout.map(Duration::from_secs),
                 force,
+                replaces,
             },
         ),
         Command::Wait { id, timeout } => {

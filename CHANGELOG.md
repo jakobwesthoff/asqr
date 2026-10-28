@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `↩ withdrawn "<title>" by the asker` when a waiting session is
   withdrawn, with `, with your answers so far` when the result carries
   them and `; your answers to it are dropped` when it does not.
+- `asqr ask --replaces <old-id> <file>` withdraws the old session and
+  drops the new one in one step, for a session rebuilt and asked again
+  under a new id. It refuses where `asqr withdraw` or `asqr ask` would,
+  and a refusal changes nothing. `--force` takes the old session also
+  while the person is answering it, and moves an unread result of the
+  new id aside.
 
 ### Changed
 

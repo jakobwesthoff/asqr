@@ -12,11 +12,12 @@ use std::path::Path;
 
 use thiserror::Error;
 
+use super::drop::{check_drop, write_drop};
 use super::finish::{archive_session, finish_steps, stem};
 use super::names::entries_if_present;
 use super::{
-    FinishError, Gate, QueueLocation, Step, delete_draft, find_session_file, has_answered_draft,
-    load_draft, lock_drafts, parse_archive_name, session_sha256,
+    DropError, Dropped, FinishError, Gate, QueueLocation, Step, delete_draft, find_session_file,
+    has_answered_draft, load_draft, lock_drafts, parse_archive_name, session_sha256,
 };
 use crate::format::{
     SessionResult, Status, UnsentDraft, now_rfc3339, parse_session, rejected_answers,
@@ -80,7 +81,17 @@ pub fn withdraw_session_with(
     // From the first look at the files to the last write, so the TUI
     // cannot save an answer into the draft after the check.
     let _lock = lock_drafts(location, gate.attempts)?;
+    withdraw_locked(location, id, force, &mut gate.step)
+}
 
+/// The withdrawal of [`withdraw_session_with`] once the drafts lock is
+/// held, calling `step` after each of its steps.
+fn withdraw_locked(
+    location: &QueueLocation,
+    id: &str,
+    force: bool,
+    step: &mut dyn FnMut(Step),
+) -> Result<Withdrawn, WithdrawError> {
     let Some(session) = find_session_file(&location.inbox(), id)? else {
         return gone(location, id);
     };
@@ -97,11 +108,11 @@ pub fn withdraw_session_with(
                     // The TUI's recovery completes the person's finish.
                     return Err(WithdrawError::Answered(id.to_owned()));
                 }
-                (gate.step)(Step::Checked);
+                step(Step::Checked);
                 archive_session(location, &session, stem(&session))?;
-                (gate.step)(Step::Archived);
+                step(Step::Archived);
                 delete_draft(location, id)?;
-                (gate.step)(Step::DraftDeleted);
+                step(Step::DraftDeleted);
                 Ok(Withdrawn::Already(result))
             }
             _ => Err(WithdrawError::UnreadResult(id.to_owned())),
@@ -117,8 +128,8 @@ pub fn withdraw_session_with(
         &now_rfc3339(),
         unsent_draft(location, id, &bytes),
     );
-    (gate.step)(Step::Checked);
-    match finish_steps(location, &session, &result, &mut gate.step) {
+    step(Step::Checked);
+    match finish_steps(location, &session, &result, step) {
         Ok(()) => {
             tracing::info!(id, forced = force, "withdrew a session");
             Ok(Withdrawn::Now(result))
@@ -128,6 +139,54 @@ pub fn withdraw_session_with(
         Err(FinishError::Conflict(_)) => gone(location, id),
         Err(FinishError::Io(error)) => Err(error.into()),
     }
+}
+
+// =========================================================================
+// Replacing a session under another id
+// =========================================================================
+
+/// Why `ask --replaces` did not complete (spec section 5.5).
+#[derive(Debug, Error)]
+pub enum ReplaceError {
+    /// The new session was refused; nothing changed.
+    #[error(transparent)]
+    Drop(DropError),
+
+    /// The old session was not withdrawn; nothing changed.
+    #[error(transparent)]
+    Withdraw(WithdrawError),
+
+    /// The old session is withdrawn, but the new one could not be dropped.
+    #[error("{error}; {old} was withdrawn already, so the same command again drops the new one")]
+    DropAfterWithdrawal { old: String, error: DropError },
+}
+
+/// Withdraws session `old` and drops `bytes` as session `id` in its place,
+/// both under one hold of the drafts lock. Every refusal of either comes
+/// before the first change, so a refused replacement leaves the queue as
+/// it was. `force` stands for both: it withdraws `old` while the person is
+/// answering it, and moves an unread result of `id` aside.
+pub fn drop_replacing(
+    location: &QueueLocation,
+    old: &str,
+    id: &str,
+    bytes: &[u8],
+    force: bool,
+    mut gate: Gate<'_>,
+) -> Result<(Withdrawn, Dropped), ReplaceError> {
+    let refused = |error| ReplaceError::Drop(DropError::Io(error));
+    location.create_layout().map_err(refused)?;
+    let _lock = lock_drafts(location, gate.attempts).map_err(refused)?;
+    let checked = check_drop(location, id, force).map_err(ReplaceError::Drop)?;
+    let withdrawn =
+        withdraw_locked(location, old, force, &mut gate.step).map_err(ReplaceError::Withdraw)?;
+    let dropped = write_drop(location, id, bytes, checked, &mut gate.step).map_err(|error| {
+        ReplaceError::DropAfterWithdrawal {
+            old: old.to_owned(),
+            error,
+        }
+    })?;
+    Ok((withdrawn, dropped))
 }
 
 /// Where a session stands whose file is not in the inbox, as far as a
@@ -718,6 +777,132 @@ mod tests {
         let completed = withdraw_session(&location, "batch-01", false).expect("completed");
         assert_eq!(completed, Withdrawn::Already(written));
         assert_eq!(names(&location.inbox()), Vec::<String>::new());
+    }
+
+    // ---------------------------------------------------------------------
+    // Replacing a session under another id
+    // ---------------------------------------------------------------------
+
+    const NEW: &[u8] = b"{\"asqr\": 2}";
+
+    #[test]
+    fn a_replacement_withdraws_the_old_and_drops_the_new_under_one_lock() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        let seen = RefCell::new(Vec::new());
+
+        let (withdrawn, dropped) = drop_replacing(
+            &location,
+            "round-1",
+            "round-2",
+            NEW,
+            false,
+            recording_gate(&location, &seen),
+        )
+        .expect("replaced");
+
+        assert!(matches!(withdrawn, Withdrawn::Now(_)), "{withdrawn:?}");
+        assert_eq!(dropped, Dropped::New(location.inbox().join("round-2.json")));
+        assert_eq!(names(&location.inbox()), ["round-2.json"]);
+        assert_eq!(
+            outbox_result(&location, "round-1").status,
+            Status::Withdrawn
+        );
+        assert_eq!(
+            seen.into_inner(),
+            [
+                (Step::Checked, true),
+                (Step::ResultWritten, true),
+                (Step::Archived, true),
+                (Step::DraftDeleted, true),
+                (Step::SessionWritten, true)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_refused_withdrawal_drops_nothing() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        started(&location, "round-1");
+
+        let refused = drop_replacing(&location, "round-1", "round-2", NEW, false, Gate::default());
+
+        assert!(
+            matches!(
+                refused,
+                Err(ReplaceError::Withdraw(WithdrawError::BeingAnswered(_)))
+            ),
+            "{refused:?}"
+        );
+        assert_eq!(names(&location.inbox()), ["round-1.json"]);
+        assert_eq!(names(&location.outbox()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_refused_new_session_withdraws_nothing() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        fs::write(location.outbox().join("round-2.json"), "unread").expect("written");
+
+        let refused = drop_replacing(&location, "round-1", "round-2", NEW, false, Gate::default());
+
+        assert!(
+            matches!(refused, Err(ReplaceError::Drop(DropError::UnreadResult(_)))),
+            "{refused:?}"
+        );
+        assert_eq!(names(&location.inbox()), ["round-1.json"]);
+        assert_eq!(names(&location.outbox()), ["round-2.json"]);
+    }
+
+    #[test]
+    fn a_drop_that_loses_its_race_after_the_withdrawal_says_so() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        // A file dropped by hand under the new id between the withdrawal
+        // and the drop, the one writer that does not take the lock.
+        let inbox = location.inbox();
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(move |step| {
+                if step == Step::DraftDeleted {
+                    fs::write(inbox.join("round-2.json"), "by hand").expect("written");
+                }
+            }),
+        };
+
+        let failed = drop_replacing(&location, "round-1", "round-2", NEW, false, gate);
+
+        let Err(error @ ReplaceError::DropAfterWithdrawal { .. }) = failed else {
+            panic!("the drop fails after the withdrawal: {failed:?}");
+        };
+        assert_eq!(
+            error.to_string(),
+            "another session \"round-2\" was dropped at the same moment; round-1 was withdrawn already, so the same command again drops the new one"
+        );
+        assert_eq!(
+            outbox_result(&location, "round-1").status,
+            Status::Withdrawn
+        );
+    }
+
+    #[test]
+    fn a_replacement_while_the_drafts_lock_is_busy_changes_nothing() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        let _held = lock_drafts(&location, 1).expect("locks");
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(|step| panic!("no step while the lock is busy: {step:?}")),
+        };
+
+        let busy = drop_replacing(&location, "round-1", "round-2", NEW, false, gate);
+
+        assert!(
+            matches!(&busy, Err(ReplaceError::Drop(DropError::Io(error))) if error.kind() == io::ErrorKind::WouldBlock),
+            "{busy:?}"
+        );
+        assert_eq!(names(&location.inbox()), ["round-1.json"]);
     }
 
     #[test]

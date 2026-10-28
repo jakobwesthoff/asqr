@@ -585,6 +585,22 @@ The checks and the writes of `ask` run under the drafts lock (section
 replacement cannot slip past the check. When the lock stays taken, `ask`
 refuses with "the queue is busy".
 
+`ask --replaces <old-id>` withdraws the waiting session `<old-id>`
+(section 5.10) and drops the new session in its place, for a session
+rebuilt under another id (ADR 61). It holds the drafts lock once for
+both: first the refusals of the new session above, then those of the
+withdrawal, and only then the withdrawal and the drop, so a refusal of
+either leaves the queue as it was. Without `--force`, the old session is
+withdrawn only while nobody has started answering it; `--force` withdraws
+it also while the person is answering it, and moves an unread result of
+the new id aside as above. The new session's own id is a usage error,
+since `ask` replaces a waiting session of the same id by itself. Exit
+codes are those of `ask` and `withdraw`: 13 for an old id the queue does
+not know or whose result is gone. A drop that fails after the
+withdrawal, which only a file dropped by hand under the new id at that
+moment can cause, says so: "<reason>; <old-id> was withdrawn already, so
+the same command again drops the new one", and exits with 1.
+
 These are rules of `asqr ask`, not of the queue. A file someone drops
 into the inbox by hand replaces whatever is there, draft or not. A
 replacement is never an error in itself; a replacing file that fails
@@ -772,7 +788,7 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 |---|---|
 | `asqr` / `asqr watch [--no-notify] [--no-bell] [--no-title] [--layout auto\|beside\|below]` | the TUI (section 7) |
 | `asqr new` | prints a session skeleton without an id, which `asqr ask` assigns |
-| `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file (section 5.5), prints the id |
+| `asqr ask <file> [--wait] [--timeout <secs>] [--force] [--replaces <id>]` | validates, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file (section 5.5), with `--replaces` in place of a session it withdraws, prints the id |
 | `asqr wait <id> [--timeout <secs>]` | waits for the result and prints it; blocks without `--timeout` |
 | `asqr result <id>` | prints the result if it is there, like `wait --timeout 0` |
 | `asqr withdraw <id> [--force]` | takes a waiting session back and prints its result, status `withdrawn` (section 5.10) |
@@ -817,6 +833,8 @@ Other variables asqr reads: `ASQR_QUEUE` and `ASQR_DIR` (section 5.2),
   result JSON, so the output can be piped into `jq`.
 - Without a watching asqr, `ask` warns (section 5.5), and `--timeout`
   bounds the wait.
+- With `--replaces <id>` (section 5.5), `--wait` waits for the new
+  session.
 
 ### 6.4 `wait` and `result`
 
@@ -874,7 +892,7 @@ The same for every command:
 | 10 | the result is `cancelled` |
 | 11 | the result is `error`, or a file fails validation |
 | 12 | timeout: no result yet |
-| 13 | no result will come: nothing in the queue has the id, or the session left without one |
+| 13 | no result will come: nothing in the queue has the id, or the session left without one; for `ask --replaces`, the old id is such an id, and nothing was dropped |
 | 14 | the result is `withdrawn`: the asker took the session back |
 
 ## 7. The TUI
@@ -1887,6 +1905,10 @@ The skill teaches:
   `--force` takes one the person has started answering, and that a
   withdrawn result's `draft` holds no decisions, only presets for a
   replacement session
+- `asqr ask --replaces` for a session rebuilt under another id, that
+  its `--force` also ends a session the person is in the middle of, so
+  it is for the exception, and that a fresh id avoids an unread result
+  of the new id without it
 - longer sessions: batches, follow-up rounds with `follows`, and keeping
   a record of the answers
 

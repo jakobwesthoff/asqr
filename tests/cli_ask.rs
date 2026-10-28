@@ -534,3 +534,264 @@ fn stops_waiting_after_the_timeout() {
     assert_eq!(stdout(&output), "");
     assert!(started.elapsed() >= Duration::from_secs(1));
 }
+
+// -------------------------------------------------------------------------
+// --replaces
+// -------------------------------------------------------------------------
+
+/// The session `round-1` waiting, and the file of `round-2`, which is to
+/// replace it.
+fn round_one_waiting(sandbox: &Sandbox) -> std::path::PathBuf {
+    let first = sandbox.file("round-1.json", &SESSION.replace("batch-01", "round-1"));
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&first)
+        .assert()
+        .success();
+    sandbox.file("round-2.json", &SESSION.replace("batch-01", "round-2"))
+}
+
+fn replace(sandbox: &Sandbox, file: &Path, args: &[&str]) -> std::process::Output {
+    let mut all = vec!["ask"];
+    all.extend(args);
+    sandbox
+        .asqr_in_queue(&all)
+        .arg(file)
+        .output()
+        .expect("runs")
+}
+
+fn waiting(sandbox: &Sandbox) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(sandbox.queue_dir().join("inbox"))
+        .expect("inbox")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.ends_with(".json"))
+        .collect();
+    names.sort();
+    names
+}
+
+fn result_status(sandbox: &Sandbox, id: &str) -> Option<String> {
+    let path = sandbox
+        .queue_dir()
+        .join("outbox")
+        .join(format!("{id}.json"));
+    let bytes = std::fs::read(path).ok()?;
+    let result: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+    result["status"].as_str().map(str::to_owned)
+}
+
+fn start_answering(sandbox: &Sandbox, id: &str) {
+    let started = Answer {
+        custom: Some("half".into()),
+        ..Answer::new("q")
+    };
+    save_draft(
+        &location(sandbox),
+        &SessionResult::draft(id, "q", vec![started]),
+    )
+    .expect("saved");
+}
+
+#[test]
+fn ask_replaces_withdraws_the_old_session_and_drops_the_new_one() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(stdout(&output), "round-2\n");
+    assert_eq!(waiting(&sandbox), ["round-2.json"]);
+    assert_eq!(
+        result_status(&sandbox, "round-1").as_deref(),
+        Some("withdrawn")
+    );
+}
+
+#[test]
+fn ask_replaces_refuses_while_the_old_session_is_being_answered() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    start_answering(&sandbox, "round-1");
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stderr(&output),
+        "error: session \"round-1\" is being answered; withdraw it anyway with --force\n"
+    );
+    assert_eq!(waiting(&sandbox), ["round-1.json"]);
+}
+
+#[test]
+fn ask_replaces_with_force_takes_a_session_being_answered() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    start_answering(&sandbox, "round-1");
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1", "--force"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(waiting(&sandbox), ["round-2.json"]);
+    assert_eq!(
+        result_status(&sandbox, "round-1").as_deref(),
+        Some("withdrawn")
+    );
+}
+
+#[test]
+fn ask_replaces_force_archives_an_unread_result_of_the_new_id() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    std::fs::write(sandbox.queue_dir().join("outbox/round-2.json"), "{}").expect("written");
+
+    let refused = replace(&sandbox, &second, &["--replaces", "round-1"]);
+    let forced = replace(&sandbox, &second, &["--replaces", "round-1", "--force"]);
+
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        stderr(&refused).contains("unread result for \"round-2\""),
+        "{}",
+        stderr(&refused)
+    );
+    assert_eq!(forced.status.code(), Some(0), "{}", stderr(&forced));
+    assert_eq!(waiting(&sandbox), ["round-2.json"]);
+    assert_eq!(result_status(&sandbox, "round-2"), None, "moved aside");
+}
+
+#[test]
+fn ask_replaces_refuses_an_answered_old_session() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    answer(&sandbox, "round-1", |sha| {
+        SessionResult::submitted("round-1", sha, &now_rfc3339(), None, Vec::new())
+    });
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("is answered already"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(waiting(&sandbox), Vec::<String>::new());
+}
+
+#[test]
+fn ask_replaces_an_unknown_id_exits_13_without_dropping() {
+    let sandbox = Sandbox::new();
+    let second = sandbox.file("round-2.json", &SESSION.replace("batch-01", "round-2"));
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(13));
+    assert_eq!(
+        stderr(&output),
+        "error: no session \"round-1\" in this queue\n"
+    );
+    assert_eq!(waiting(&sandbox), Vec::<String>::new());
+}
+
+#[test]
+fn ask_replaces_an_already_withdrawn_session_drops_the_new_one() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    sandbox
+        .asqr_in_queue(&["withdraw", "round-1"])
+        .assert()
+        .success();
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(waiting(&sandbox), ["round-2.json"]);
+}
+
+#[test]
+fn ask_replaces_its_own_id_is_a_usage_error() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+
+    let output = replace(&sandbox, &second, &["--replaces", "ROUND-2"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        stderr(&output),
+        "error: --replaces names the session's own id; ask replaces a waiting session of the same id without it\n"
+    );
+    assert_eq!(waiting(&sandbox), ["round-1.json"]);
+}
+
+#[test]
+fn ask_replaces_an_invalid_file_leaves_the_old_waiting() {
+    let sandbox = Sandbox::new();
+    round_one_waiting(&sandbox);
+    let broken = sandbox.file("broken.json", r#"{"asqr": 2, "questions": []}"#);
+
+    let output = replace(&sandbox, &broken, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(11));
+    assert_eq!(waiting(&sandbox), ["round-1.json"]);
+    assert_eq!(result_status(&sandbox, "round-1"), None);
+}
+
+#[test]
+fn ask_replaces_with_an_outbox_that_cannot_be_read_fails() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    let outbox = sandbox.queue_dir().join("outbox");
+    std::fs::remove_dir(&outbox).expect("removed");
+    std::fs::write(&outbox, "in the way").expect("written");
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(waiting(&sandbox), ["round-1.json"]);
+}
+
+#[test]
+fn ask_replaces_an_old_session_that_cannot_be_read_fails_and_drops_nothing() {
+    let sandbox = Sandbox::new();
+    let second = sandbox.file("round-2.json", &SESSION.replace("batch-01", "round-2"));
+    // A directory under the old session's name: it is found, and reading
+    // it fails.
+    std::fs::create_dir_all(sandbox.queue_dir().join("inbox/round-1.json")).expect("created");
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).starts_with("error: cannot withdraw round-1: "),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(waiting(&sandbox), ["round-1.json"]);
+}
+
+#[test]
+fn ask_replaces_with_wait_waits_for_the_new_one() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+
+    let output = replace(
+        &sandbox,
+        &second,
+        &["--replaces", "round-1", "--wait", "--timeout", "0"],
+    );
+
+    assert_eq!(output.status.code(), Some(12));
+    assert!(
+        stderr(&output).contains("\nround-2\nasqr: no result for round-2 yet (timeout)\n"),
+        "{}",
+        stderr(&output)
+    );
+}

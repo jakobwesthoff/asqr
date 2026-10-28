@@ -303,7 +303,8 @@ asqr withdraw "$id"
 ```
 
 - Withdraw when the questions are settled another way, such as when the
-  person answered them in the chat.
+  person answered them in the chat. For a session you rebuilt, use
+  `ask --replaces` (below).
 - `withdraw` takes the session out of the person's queue and prints a
   result with `"status": "withdrawn"`. Every `asqr wait` for the
   session ends with exit code 14, your own in the background included,
@@ -328,6 +329,29 @@ asqr withdraw "$id"
   answering it. After a withdrawal its result stays in the outbox, so
   asking the same id again needs `--force`.
 
+To replace a session you rebuilt under a new id, ask the new one with
+`--replaces`:
+
+```sh
+id=$(asqr ask questions.json --replaces "$old_id")
+```
+
+It withdraws the old session and drops the new one in one step, and
+prints the new id. It refuses where `withdraw` or `ask` would refuse,
+with the same exit codes; 13 means the old id is unknown. When it
+refuses, nothing changes: the old session stays and the new one is not
+dropped. If stderr says the old session was withdrawn already, run the
+same command again: it finds the old one withdrawn and drops the new
+one.
+
+`--force` with `--replaces` also ends a session the person is in the
+middle of: their answers so far go into the old result's `draft`, and
+they have to start over on the new one. Use it only as the exception,
+after asking them. It also moves an unread result of the new id aside;
+reading a result with `asqr result` does not move it, so to get past an
+old result of that id without `--force`, leave `id` out of the new file
+and let `ask` assign a fresh one.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -338,12 +362,14 @@ asqr withdraw "$id"
 | 10 | the person rejected the session, with an optional `reason` |
 | 11 | the file is invalid: `ask` lists the errors; a result with status `error` holds them in `error` |
 | 12 | no result yet: wait again |
-| 13 | no result will come: the id is unknown, or the session is gone |
+| 13 | no result will come: the id is unknown, or the session is gone; for `ask --replaces`, the old id is, and nothing was dropped |
 | 14 | you withdrew the session: the result has status `withdrawn` |
 
 `ask` refuses to replace a session the person has started answering, and
 refuses while an unread result with the same id is in the outbox.
-`--force` moves that result into the archive first.
+`--force` moves that result into the archive first. `ask --replaces`
+refuses the same way for the old session, and its `--force` takes that
+one too.
 
 ## Reading the result
 
@@ -365,7 +391,7 @@ refuses while an unread result with the same id is in the outbox.
 
 - `status` is `submitted`, `cancelled` (rejected, with an optional
   `reason`), `error` (with `error`) or `withdrawn` (you withdrew it; no
-  answers, and a `draft` only after `withdraw --force`, see above).
+  answers, and a `draft` only after a forced withdrawal, see above).
 - A submitted result lists every question once, in session order,
   except `info` items: an info item is listed only when the person wrote
   a note on it, as `{ "question": "checks", "note": "..." }`. asqr does

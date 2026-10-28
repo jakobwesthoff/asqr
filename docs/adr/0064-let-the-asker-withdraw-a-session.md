@@ -55,6 +55,15 @@ to stop its own `asqr wait` separately.
   files and its writes run under the drafts lock of ADR 63, since the
   TUI and the CLI are separate processes and a check-then-write between
   them races.
+- `asqr ask --replaces <old-id> <file>` withdraws the old session and
+  drops the new one in one step, with the same rule for a session being
+  answered. A rebuilt session is the case it serves: the old one should
+  go. One `--force` covers both of its refusals: it withdraws the old
+  session while the person is answering it, and moves an unread result
+  of the new id aside as `ask --force` does. `--force` means "force
+  it", and the skill warns that it is for the exception. The checks of
+  both and the writes of both run under one hold of the drafts lock, so
+  a refusal of either changes nothing.
 - The TUI's notice goes by the result: with a `draft`, it says the
   person's answers went with the withdrawal; without one, while the TUI
   held answers, it says they are dropped; otherwise it only names the
@@ -68,3 +77,5 @@ to stop its own `asqr wait` separately.
   one of another session. The skill says so.
 - A withdrawn result stays in the outbox like any result, so asking the
   same id again needs `ask --force`.
+- `ask --replaces` exits with 13 for an old id the queue does not know,
+  and drops nothing then.

@@ -75,9 +75,27 @@ pub fn drop_session_with(
 ) -> Result<Dropped, DropError> {
     location.create_layout()?;
     let _lock = lock_drafts(location, gate.attempts)?;
+    let checked = check_drop(location, id, force)?;
+    (gate.step)(Step::Checked);
+    write_drop(location, id, bytes, checked, &mut gate.step)
+}
 
-    // Every refusal comes before the first change, so a refused drop
-    // leaves the queue as it was.
+/// What a drop found that its writes act on.
+pub(super) struct CheckedDrop {
+    /// The waiting file of the same session, which the drop replaces.
+    waiting: Option<PathBuf>,
+    /// An unread result under the id, which the drop moves aside.
+    result: Option<PathBuf>,
+}
+
+/// The refusals of a drop of session `id`, every one of them before the
+/// first change, so a refused drop leaves the queue as it was. The caller
+/// holds the drafts lock.
+pub(super) fn check_drop(
+    location: &QueueLocation,
+    id: &str,
+    force: bool,
+) -> Result<CheckedDrop, DropError> {
     let waiting = find_session_file(&location.inbox(), id)?;
     if waiting.is_some() && has_answered_draft(location, id) {
         return Err(DropError::BeingAnswered(id.to_owned()));
@@ -86,13 +104,23 @@ pub fn drop_session_with(
     if result.is_some() && !force {
         return Err(DropError::UnreadResult(id.to_owned()));
     }
-    (gate.step)(Step::Checked);
-    if let Some(result) = result {
-        archive_result(location, &result)?;
-        (gate.step)(Step::Archived);
-    }
+    Ok(CheckedDrop { waiting, result })
+}
 
-    let dropped = match waiting {
+/// The writes of a drop that [`check_drop`] let through, calling `step`
+/// after each. The caller still holds the drafts lock.
+pub(super) fn write_drop(
+    location: &QueueLocation,
+    id: &str,
+    bytes: &[u8],
+    checked: CheckedDrop,
+    step: &mut dyn FnMut(Step),
+) -> Result<Dropped, DropError> {
+    if let Some(result) = checked.result {
+        archive_result(location, &result)?;
+        step(Step::Archived);
+    }
+    let dropped = match checked.waiting {
         Some(waiting) => {
             write_atomically(&waiting, bytes)?;
             Dropped::Replaced(waiting)
@@ -103,7 +131,7 @@ pub fn drop_session_with(
             Dropped::New(target)
         }
     };
-    (gate.step)(Step::SessionWritten);
+    step(Step::SessionWritten);
     Ok(dropped)
 }
 

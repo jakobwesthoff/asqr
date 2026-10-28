@@ -14,13 +14,18 @@ use serde_json::Value;
 use super::Exit;
 use super::format::{print_errors, print_warnings, read_session_file, session_dir};
 use super::wait::wait_for_result;
-use crate::format::{WarningKind, validate, warnings};
-use crate::queue::{QueueLocation, drop_session, lock_holder};
+use crate::format::{WarningKind, same_session_id, validate, warnings};
+use crate::queue::{
+    Dropped, Gate, QueueLocation, ReplaceError, WithdrawError, drop_replacing, drop_session,
+    lock_holder,
+};
 
 pub(super) struct AskOptions {
     pub wait: bool,
     pub timeout: Option<Duration>,
     pub force: bool,
+    /// The waiting session the new one takes the place of.
+    pub replaces: Option<String>,
 }
 
 pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) -> Exit {
@@ -57,13 +62,17 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
     let mut bytes = serde_json::to_vec_pretty(raw).expect("a serde_json Value always serializes");
     bytes.push(b'\n');
 
-    match drop_session(location, &id, &bytes, options.force) {
-        Ok(dropped) => tracing::info!(id, ?dropped, "dropped session"),
-        Err(error) => {
+    let dropped = match options.replaces.as_deref() {
+        None => drop_session(location, &id, &bytes, options.force).map_err(|error| {
             tracing::warn!(id, %error, "ask refused");
             eprintln!("error: {error}");
-            return Exit::Failure;
-        }
+            Exit::Failure
+        }),
+        Some(old) => replace(location, old, &id, &bytes, options.force),
+    };
+    match dropped {
+        Ok(dropped) => tracing::info!(id, ?dropped, "dropped session"),
+        Err(exit) => return exit,
     }
     warn_if_nobody_watches(location);
 
@@ -73,6 +82,51 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
     } else {
         println!("{id}");
         Exit::Success
+    }
+}
+
+/// `ask --replaces <old>` (spec section 5.5): withdraws `old` and drops the
+/// new session `id` in one step. Its refusals exit as those of `ask` and
+/// `withdraw` do.
+fn replace(
+    location: &QueueLocation,
+    old: &str,
+    id: &str,
+    bytes: &[u8],
+    force: bool,
+) -> Result<Dropped, Exit> {
+    // `ask` replaces a waiting session of the same id by itself; naming it
+    // again would withdraw the session the new file is to replace.
+    if same_session_id(old, id) {
+        eprintln!(
+            "error: --replaces names the session's own id; ask replaces a waiting session of the same id without it"
+        );
+        return Err(Exit::Usage);
+    }
+    match drop_replacing(location, old, id, bytes, force, Gate::default()) {
+        Ok((withdrawn, dropped)) => {
+            tracing::info!(id, old, ?withdrawn, "replaced a session");
+            Ok(dropped)
+        }
+        Err(error) => {
+            tracing::warn!(id, old, %error, "ask --replaces refused");
+            Err(match error {
+                ReplaceError::Withdraw(
+                    error @ (WithdrawError::ResultGone(_) | WithdrawError::Unknown(_)),
+                ) => {
+                    eprintln!("error: {error}");
+                    Exit::UnknownId
+                }
+                ReplaceError::Withdraw(WithdrawError::Io(error)) => {
+                    eprintln!("error: cannot withdraw {old}: {error}");
+                    Exit::Failure
+                }
+                error => {
+                    eprintln!("error: {error}");
+                    Exit::Failure
+                }
+            })
+        }
     }
 }
 
