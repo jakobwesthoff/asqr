@@ -48,14 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forced withdrawal carries what they had entered in a separate `draft`
   field, never in `answers`. A default the person left untouched is not
   something they entered: it neither counts as starting to answer nor
-  goes into `draft`. A session answered already is refused. A
-  withdrawal without `--force` never takes a session whose draft holds
-  an answer, also while the person is typing in it. asqr shows
-  `↩ withdrawn "<title>" by the asker` when a session the person has
-  had on screen or entered answers into is withdrawn, with `, with your answers so far` when the result carries
-  them and `; your answers to it are dropped` when it does not.
-  `asqr status` lists a withdrawn session under answered, with status
-  `withdrawn`.
+  goes into `draft`. A session answered already is refused. A withdrawal
+  without `--force` never takes a session whose draft holds an answer,
+  also while the person is typing in it. asqr shows `↩ withdrawn
+  "<title>" by the asker` when a session the person has had on screen or
+  entered answers into is withdrawn, with `, with your answers so far`
+  when the result carries them and `; your answers to it are dropped`
+  when it does not. `asqr status` lists a withdrawn session under
+  answered, with status `withdrawn`.
 - `asqr ask --replaces <old-id> <file>` withdraws the old session and
   drops the new one in one step, for a session rebuilt and asked again
   under a new id. It refuses where `asqr withdraw` or `asqr ask` would,
