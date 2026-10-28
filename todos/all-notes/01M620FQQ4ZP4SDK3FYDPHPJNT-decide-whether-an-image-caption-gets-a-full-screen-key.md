@@ -20,9 +20,13 @@ Decided on 2026-10-28 while building the caption (format version 2, an
 optional Markdown `caption` on image entries, inline text only, images
 only):
 
-- Terminal graphics protocols draw an image only whole, never partly
-  scrolled off, so image and caption cannot scroll together as one page.
-  Ten layouts were rendered as mockups before the choice.
+- asqr draws an image only while all of it fits its area, so image and
+  caption could not simply scroll together as one page. Ten layouts
+  were rendered as mockups before the choice. ratatui-image can draw an
+  image partly scrolled off for half blocks and Kitty, but not cleanly
+  for iTerm2 and Sixel; the user kept Fit after learning that (todo
+  01M621K2HGAK8EDMX4T1RVXPAY, Draw an image partly scrolled off in a
+  pane).
 - Chosen layout "Fit": the image is laid out in the rows the caption
   leaves, so the whole caption shows under it and nothing scrolls. When
   the caption alone is taller than the pane body, the caption scrolls.
