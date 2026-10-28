@@ -342,6 +342,12 @@ rules are validation's alone.
   `result` print a result of version 1 that an earlier asqr left in the
   outbox as it is, so an asker waiting across an upgrade still gets its
   answers.
+- The status `withdrawn` and the result's `draft` field were added
+  within format version 2 (ADR 64). An asqr from before them refuses a
+  withdrawn result: its `wait` and `result` print "<path> is not a
+  result file" and exit with 1, its `status` lists the result's status
+  as `null`, and its TUI takes the result for one of another session
+  (section 5.7).
 
 ## 4. Results and drafts
 
@@ -374,6 +380,13 @@ rules are validation's alone.
     `reason` (trimmed; absent when empty) and an optional `note` as for
     `submitted` (ADR 53)
   - `error`: the file was invalid, and `error` holds the message
+  - `withdrawn`: the asker withdrew the session (section 5.10). What the
+    person had entered and not sent is in `draft`: `note`, the session
+    note trimmed and absent when blank, and `answers`, the questions
+    with an answer or a note in the shape of a cancelled result. These
+    are no decisions: the person never sent them, and an asker uses
+    them at most as presets of a replacement session. `draft` is absent
+    when the person had entered nothing.
 - `submitted_at` holds the time of finishing, as RFC 3339 with the
   offset. It is present for every status.
 - `session_sha256` is the SHA-256 of the session file's bytes as read
@@ -385,8 +398,9 @@ rules are validation's alone.
   answer or with a note that is not blank, in session order and in the
   same shape; an untouched default counts as an answer and carries
   `"defaulted": true` (section 4.2). The person did not submit any of
-  it. For `error`, `answers` is empty.
-- The fields are those of format version 1 plus `note` (section 3.6).
+  it. For `error` and `withdrawn`, `answers` is empty.
+- The fields are those of format version 1 plus `note` and `draft`, and
+  the statuses those of version 1 plus `withdrawn` (section 3.6).
 
 ### 4.2 Answer state
 
@@ -461,7 +475,7 @@ away.
   inbox/<id>.json                     sessions waiting, written by askers
   outbox/<id>.json                    results, written by asqr, owned by the asker
   drafts/<id>.json                    answers in progress
-  archive/<id>.<ulid>.json            finished sessions (submitted, cancelled, error)
+  archive/<id>.<ulid>.json            finished sessions (submitted, cancelled, error, withdrawn)
   archive/<id>.<ulid>.result.json     results moved aside by `ask --force` (section 5.5)
   archive/invalid.<ulid>.json         files whose stem is no valid id (section 5.8)
   lock                                the instance lock (section 5.6)
@@ -536,6 +550,9 @@ dotfiles, editor swap and backup files, `.DS_Store`.
 - A file that leaves the inbox without a result (taken back by hand)
   leaves the TUI. Its draft stays, and applies again if the session is
   dropped once more.
+- A session withdrawn with `asqr withdraw` leaves the inbox with a
+  result (section 5.10) and leaves the TUI the same way, with a notice
+  (section 7.9).
 
 ### 5.5 Writing into the inbox
 
@@ -619,8 +636,9 @@ leaves the session to its next run. The file stays after use, like
 
 ### 5.7 Finishing a session
 
-Submit, reject (both on the review tab) and an error result take one
-path. Each step can be repeated safely:
+Submit, reject (both on the review tab), an error result and a
+withdrawal (section 5.10) take one path. Each step can be repeated
+safely:
 
 1. Write the result into `outbox/<id>.json` (atomically). Every result
    carries `session_sha256`, the SHA-256 of the session file's bytes as
@@ -656,8 +674,10 @@ the next change of the inbox starts; until then the TUI shows it like a
 waiting session.
 
 Apart from this recovery, the TUI does not read the outbox or the
-archive back after a submit. It reads the archive only for the title
-that `follows` names (section 7.2).
+archive back after a submit. It reads the outbox result of a session
+that left the inbox, to tell whether the asker withdrew it (section
+7.9), and the archive only for the title that `follows` names (section
+7.2).
 
 ### 5.8 Invalid sessions
 
@@ -703,6 +723,47 @@ Nothing is deleted automatically, apart from drafts in step 3 of section
 - Drafts are never pruned.
 - Both print every file they remove, as `removed <path>`.
 
+### 5.10 Withdrawing a session
+
+`asqr withdraw <id>` takes back a session the asker dropped, so the
+person no longer sees it (ADR 64). The session leaves the inbox on the
+path of section 5.7 with a result of the status `withdrawn` (section
+4.1): the result into the outbox, the session into the archive, then
+the draft is deleted. Every `asqr wait` for the session then ends, and
+`asqr result` returns the same result later (section 6.4).
+
+- A session whose draft has an answer (section 4.3) is refused: "session
+  "<id>" is being answered; withdraw it anyway with --force". With
+  `--force` it is withdrawn anyway, and the result's `draft` carries
+  what the person had entered. A draft that cannot be read counts as
+  one with an answer and gives no `draft`.
+- A session answered already, whose result is in the outbox, is refused:
+  "session "<id>" is answered already; read the result with `asqr result
+  <id>`". So is a session whose finish was interrupted after its result
+  was written, which recovery completes. An error result counts as an
+  answer here.
+- A session next to an unread result of an earlier session under its id,
+  which only a file dropped by hand can be, is refused: "an unread
+  result of an earlier session "<id>" is in the outbox; the asqr
+  watching the queue archives this session unanswered (`asqr result
+  <id>` shows that result)". The TUI's recovery does that (section 5.7).
+- A session withdrawn before gives the same result again and says
+  "asqr: <id> was withdrawn already" on stderr. A withdrawal interrupted
+  after its result was written is completed: by the next `withdraw`, or
+  by recovery.
+- An id that only the archive knows is "the result of <id> is gone; its
+  session is archived", and any other id "no session "<id>" in this
+  queue". A queue directory that does not exist holds no session, and
+  `withdraw` creates nothing for it.
+- The look at the files and every write run under the drafts lock
+  (section 5.6). So a withdrawal without `--force` never takes a session
+  whose draft holds an answer, also while the person is typing in it:
+  either the withdrawal sees the answer and refuses, or the TUI finds
+  the session gone and writes no draft. When the lock stays taken,
+  `withdraw` fails with "cannot withdraw <id>: the queue is busy".
+- The withdrawn result stays in the outbox like any result, so `ask` of
+  the same id afterwards needs `--force` (section 5.5).
+
 ## 6. The command line
 
 ### 6.1 Commands
@@ -714,6 +775,7 @@ Nothing is deleted automatically, apart from drafts in step 3 of section
 | `asqr ask <file> [--wait] [--timeout <secs>] [--force]` | validates, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file (section 5.5), prints the id |
 | `asqr wait <id> [--timeout <secs>]` | waits for the result and prints it; blocks without `--timeout` |
 | `asqr result <id>` | prints the result if it is there, like `wait --timeout 0` |
+| `asqr withdraw <id> [--force]` | takes a waiting session back and prints its result, status `withdrawn` (section 5.10) |
 | `asqr status [--json] [--limit <count> \| --all] [--since <age>]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
@@ -767,14 +829,21 @@ Both end with 13 when nothing in the queue has the id ("no session
 without a result, or when only its archive entry is left, since its
 result was removed and none will come ("the result of <id> is gone").
 So while an asqr watches the queue, the asker never waits for a result
-that will not come.
+that will not come. A withdrawn result ends both with 14.
+
+`withdraw` prints the result it wrote, with the bytes the outbox holds,
+as `wait` and `result` print a result, and exits with 0; for a session
+withdrawn before it prints that result and exits with 0 too. Its
+refusals exit with 1, and an id that only the archive or nothing in the
+queue knows with 13, with the messages of section 5.10.
 
 ### 6.5 `status`
 
 `status --json` prints an object with `queue`, `watched_by` (the lock
 holder, or `null`), `waiting` (a list of `{id, draft_has_answers}`),
 `answered` (a list of `{id, status}`, with `status` `null` for a result
-that cannot be read) and `answered_total`. The text form shows the same,
+that cannot be read; a withdrawn session is listed here with `status`
+`withdrawn`) and `answered_total`. The text form shows the same,
 with "watched by: nobody" when no asqr watches.
 
 Results stay in the outbox until they are pruned, so `status` lists
@@ -799,13 +868,14 @@ The same for every command:
 
 | Code | Meaning |
 |---|---|
-| 0 | success: the result is `submitted`, or the file was dropped (`ask` without `--wait`), or the command did its job |
-| 1 | failure of asqr itself (I/O, a refused `ask`, a held lock, no terminal) |
+| 0 | success: the result is `submitted`, or the file was dropped (`ask` without `--wait`), or `withdraw` withdrew the session, or the command did its job |
+| 1 | failure of asqr itself (I/O, a refused `ask` or `withdraw`, a held lock, no terminal) |
 | 2 | usage error |
 | 10 | the result is `cancelled` |
 | 11 | the result is `error`, or a file fails validation |
 | 12 | timeout: no result yet |
 | 13 | no result will come: nothing in the queue has the id, or the session left without one |
+| 14 | the result is `withdrawn`: the asker took the session back |
 
 ## 7. The TUI
 
@@ -1344,6 +1414,22 @@ keeps the session and shows its own notice instead.
   open intro overlay closes when the new file has no intro. A session
   list open while a session leaves keeps its cursor on a waiting
   session, and closes when none is left.
+- A session the asker withdrew (section 5.10) leaves like any session
+  that leaves the inbox, and a notice names it with its title, or its id
+  for a session without a title, cut like the confirmation of section
+  7.8:
+
+      ↩ withdrawn "Release 0.2.0" by the asker
+      ! ↩ withdrawn "Release 0.2.0" by the asker, with your answers so far
+      ! ↩ withdrawn "Release 0.2.0" by the asker; your answers to it are dropped
+
+  The first is information. The second, a warning, shows when the
+  result carries a `draft`, so what the person entered went to the
+  asker. The third, a warning, shows when the TUI held answers the
+  result does not carry, as when the person typed while the withdrawal
+  ran. An untouched default is no answer here. Only a session the TUI
+  showed gets a notice; when several leave at once, the last one's
+  shows.
 - A session colliding with an unread result (section 5.7) and a failure
   to write a draft or a result trigger a notice. A failure never ends
   asqr; answers stay in the TUI.
@@ -1369,10 +1455,12 @@ keeps the session and shows its own notice instead.
   - warning, yellow, after a `!`: asqr refused an action or set
     something aside on purpose, such as a refused key or paste, a
     session archived next to an unread result, an invalid session
-    answered with an error, or a submit not sent because the file
-    changed on disk;
+    answered with an error, a submit not sent because the file
+    changed on disk, or a withdrawn session the person had entered
+    answers into;
   - information, the text colour: plain news, such as a session file
-    reloaded after it changed, or a session rejected;
+    reloaded after it changed, a session rejected, or a session
+    withdrawn;
   - success, green: a session was sent (section 7.8).
 
 ### 7.10 Markdown
@@ -1795,6 +1883,10 @@ The skill teaches:
   supported, both of which the agent should pass on to the person, and
   `asqr status --json` to find
   sessions it lost track of
+- `asqr withdraw` for a session whose answers it no longer needs, that
+  `--force` takes one the person has started answering, and that a
+  withdrawn result's `draft` holds no decisions, only presets for a
+  replacement session
 - longer sessions: batches, follow-up rounds with `follows`, and keeping
   a record of the answers
 

@@ -8,6 +8,8 @@ Accepted
 
 Amended by [63. Keep draft saves and replacements apart with a drafts lock](0063-keep-draft-saves-and-replacements-apart-with-a-drafts-lock.md)
 
+Amended by [64. Let the asker withdraw a session](0064-let-the-asker-withdraw-a-session.md)
+
 ## Context
 
 An asker, such as an agent or a script, has to hand questions to an asqr

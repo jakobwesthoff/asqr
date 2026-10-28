@@ -79,8 +79,9 @@ goes. `pgup`/`pgdn` scroll the pane by a page from anywhere and
 the arrow keys and back out, and `z` shows it full screen.
 
 `asqr wait` exits 0 for a submitted session, 10 when you rejected it, 11
-for an invalid file and 12 when its `--timeout` ran out, so scripts can
-branch on it. `asqr --help` lists every command.
+for an invalid file, 12 when its `--timeout` ran out and 14 when the
+asker took the session back with `asqr withdraw`, so scripts can branch
+on it. `asqr --help` lists every command.
 
 Sessions wait in a queue: a directory with an inbox, an outbox for the
 results, drafts and an archive. The default queue lives in the

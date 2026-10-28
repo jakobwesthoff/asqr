@@ -16,6 +16,7 @@ mod skill;
 mod status;
 mod wait;
 mod watch;
+mod withdraw;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -123,6 +124,16 @@ enum Command {
     Result {
         /// The session id.
         id: String,
+    },
+
+    /// Take back a waiting session and print its result, status withdrawn.
+    Withdraw {
+        /// The session id.
+        id: String,
+
+        /// Withdraw it even though the person has started answering it.
+        #[arg(long)]
+        force: bool,
     },
 
     /// List waiting and answered sessions and who watches the queue.
@@ -304,6 +315,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
             wait::run_wait(&location, &id, timeout.map(Duration::from_secs))
         }
         Command::Result { id } => wait::run_result(&location, &id),
+        Command::Withdraw { id, force } => withdraw::run(&location, &id, force),
         Command::Status {
             json,
             limit,

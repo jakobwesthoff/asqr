@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   result lists an info item only when the person wrote a note on it, as
   `{"question": ..., "note": ...}`. A session may consist of info items
   only. asqr 0.13.1 and earlier refuse a session with an info item.
+- `asqr withdraw <id>` takes back a session the asker dropped into the
+  queue, so the person no longer sees it. It prints a result with the
+  new status `withdrawn`, which every `asqr wait` for the session and a
+  later `asqr result` print too, exiting with 14. A session the person
+  has started answering is refused unless `--force`; the result of a
+  forced withdrawal carries what they had entered in a separate `draft`
+  field, never in `answers`. A session answered already is refused. A
+  withdrawal without `--force` never takes a session whose draft holds
+  an answer, also while the person is typing in it. asqr shows
+  `↩ withdrawn "<title>" by the asker` when a waiting session is
+  withdrawn, with `, with your answers so far` when the result carries
+  them and `; your answers to it are dropped` when it does not.
 
 ### Changed
 

@@ -293,17 +293,53 @@ If `ask` warns "no asqr is watching queue ...", nobody sees your
 questions yet. Tell the person to start `asqr` in a terminal of its own;
 the session waits in the queue until they do.
 
+### Withdrawing a session
+
+When you no longer need the answers to a session you asked, withdraw
+it, so the person does not answer it for nothing:
+
+```sh
+asqr withdraw "$id"
+```
+
+- Withdraw when the questions are settled another way, such as when the
+  person answered them in the chat.
+- `withdraw` takes the session out of the person's queue and prints a
+  result with `"status": "withdrawn"`. Every `asqr wait` for the
+  session ends with exit code 14, your own in the background included,
+  and `asqr result` returns the same result later. An asqr older than
+  this skill does not know the status: its `wait` ends with exit 1 and
+  "not a result file" instead.
+- When the person has started answering, `withdraw` refuses with exit
+  code 1. Ask them before you take the session away; `--force` withdraws
+  it anyway, and asqr tells them that you withdrew it.
+- The result of such a withdrawal carries what they had entered in
+  `draft`: their `note` and the `answers` they had given so far. These
+  are not decisions: they never sent them, and they might have rejected
+  the session in the end. Use them only as presets in a replacement
+  session (`"default": true` on the options they picked), where they
+  confirm everything again. When you build no replacement, ignore them.
+- When the person has answered already, `withdraw` refuses with exit
+  code 1: read the answers with `asqr result <id>`.
+- Withdrawing twice is fine: the second call prints the same result and
+  exits 0.
+- A rebuilt session under the same id needs no `withdraw`: `ask` it
+  again, and it replaces the waiting one unless the person has started
+  answering it. After a withdrawal its result stays in the outbox, so
+  asking the same id again needs `--force`.
+
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | the person submitted, or the file was dropped (`ask` without `--wait`) |
-| 1 | asqr failed, or `ask` refused the drop (the reason is on stderr) |
+| 0 | the person submitted, the file was dropped (`ask` without `--wait`), or `withdraw` withdrew the session |
+| 1 | asqr failed, or `ask` or `withdraw` refused (the reason is on stderr) |
 | 2 | wrong arguments |
 | 10 | the person rejected the session, with an optional `reason` |
 | 11 | the file is invalid: `ask` lists the errors; a result with status `error` holds them in `error` |
 | 12 | no result yet: wait again |
 | 13 | no result will come: the id is unknown, or the session is gone |
+| 14 | you withdrew the session: the result has status `withdrawn` |
 
 `ask` refuses to replace a session the person has started answering, and
 refuses while an unread result with the same id is in the outbox.
@@ -328,7 +364,8 @@ refuses while an unread result with the same id is in the outbox.
 ```
 
 - `status` is `submitted`, `cancelled` (rejected, with an optional
-  `reason`) or `error` (with `error`).
+  `reason`), `error` (with `error`) or `withdrawn` (you withdrew it; no
+  answers, and a `draft` only after `withdraw --force`, see above).
 - A submitted result lists every question once, in session order,
   except `info` items: an info item is listed only when the person wrote
   a note on it, as `{ "question": "checks", "note": "..." }`. asqr does

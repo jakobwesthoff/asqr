@@ -16,13 +16,13 @@ use std::path::PathBuf;
 
 use super::{App, AppEffect, Invalid, Notice, Outcome, SessionState, Tone};
 use crate::format::{
-    ParseError, SessionResult, is_valid_session_id, now_rfc3339, parse_session, same_session_id,
-    validate,
+    ParseError, SessionResult, Status, is_valid_session_id, now_rfc3339, parse_session,
+    same_session_id, validate,
 };
 use crate::queue::{
     DRAFTS_LOCK_ATTEMPTS, Finished, Gate, QueueLocation, Recovery, Rejected, Waiting,
-    archive_invalid_stem, archived_title, finish_unchanged_with, load_draft, recover_with,
-    reject_invalid_with, save_draft_while_waiting_with, scan_inbox, session_sha256,
+    archive_invalid_stem, archived_title, find_session_file, finish_unchanged_with, load_draft,
+    recover_with, reject_invalid_with, save_draft_while_waiting_with, scan_inbox, session_sha256,
 };
 
 /// A session the app shows, with the bytes it was read from.
@@ -89,6 +89,45 @@ impl Inbox {
         app.remove(id);
     }
 
+    /// Forgets session `id`, which left the inbox, and tells the person
+    /// when the asker withdrew it (spec section 7.9). Only a session the
+    /// app shows gets the notice: one it never showed, such as one
+    /// withdrawn while asqr was not running, leaves without a word.
+    fn leave(&mut self, app: &mut App, id: &str) {
+        let notice = self.withdrawn_notice(app, id);
+        self.forget(app, id);
+        if let Some(notice) = notice {
+            app.show(notice);
+        }
+    }
+
+    /// The notice for session `id` when its result says the asker withdrew
+    /// it. The notice says what became of what the person entered: the
+    /// result's `draft` took it to the asker, or nothing did, as when the
+    /// person typed while the withdrawal ran.
+    fn withdrawn_notice(&self, app: &App, id: &str) -> Option<Notice> {
+        let state = app
+            .sessions()
+            .iter()
+            .find(|state| same_session_id(state.id(), id))?;
+        let path = find_session_file(&self.location.outbox(), id).ok()??;
+        let result: SessionResult = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+        if result.status != Status::Withdrawn {
+            return None;
+        }
+        let (tone, after) = if result.draft.is_some() {
+            (Tone::Warning, "\" by the asker, with your answers so far")
+        } else if holds_answers(&state.to_draft()) {
+            (
+                Tone::Warning,
+                "\" by the asker; your answers to it are dropped",
+            )
+        } else {
+            (Tone::Info, "\" by the asker")
+        };
+        Some(Notice::naming(tone, "↩ withdrawn \"", state.name(), after))
+    }
+
     /// Brings `app` in line with the inbox. A failure with a single file
     /// becomes a notice; only an unreadable inbox is an error.
     pub fn sync(&mut self, app: &mut App) -> io::Result<Synced> {
@@ -99,7 +138,7 @@ impl Inbox {
             match recovery {
                 Recovery::Completed(id) => {
                     tracing::info!(%id, "completed an interrupted finish");
-                    self.forget(app, &id);
+                    self.leave(app, &id);
                 }
                 Recovery::Conflict(id) => {
                     tracing::warn!(%id, "archived a session that collided with an unread result");
@@ -142,7 +181,7 @@ impl Inbox {
             .collect();
         for id in gone {
             tracing::info!(%id, "session left the inbox");
-            self.forget(app, &id);
+            self.leave(app, &id);
         }
 
         let mut synced = Synced::default();
@@ -381,6 +420,20 @@ impl Inbox {
     }
 }
 
+/// Whether the person entered anything into `draft`: a selection they
+/// made, typed text, or a note. An untouched default is the asker's own
+/// preset, not something the person entered.
+fn holds_answers(draft: &SessionResult) -> bool {
+    let filled =
+        |text: &Option<String>| text.as_deref().is_some_and(|text| !text.trim().is_empty());
+    filled(&draft.note)
+        || draft.answers.iter().any(|answer| {
+            (!answer.selected.is_empty() && !answer.defaulted)
+                || filled(&answer.custom)
+                || filled(&answer.note)
+        })
+}
+
 /// The status line's word that `state` was finished as `outcome`, since
 /// the session leaves the screen at once (spec section 7.8). A sent
 /// session is a success and counts its answers as the review showed
@@ -410,7 +463,9 @@ mod tests {
 
     use super::*;
     use crate::format::{Answer, Status};
-    use crate::queue::{Archived, archive_name, drop_session, parse_archive_name, save_draft};
+    use crate::queue::{
+        Archived, Withdrawn, archive_name, drop_session, parse_archive_name, save_draft,
+    };
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
@@ -1420,6 +1475,246 @@ mod tests {
         drop(held);
         inbox.sync(&mut app).expect("synced");
         assert_eq!(ids(&app), ["waiting"], "recovered once the lock is free");
+    }
+
+    // -----------------------------------------------------------------
+    // A session the asker withdrew
+    // -----------------------------------------------------------------
+
+    use crate::queue::withdraw_session;
+
+    /// The notice for session `name` withdrawn, `after` following the name.
+    fn withdrawn(tone: Tone, name: &str, after: &str) -> Notice {
+        Notice::naming(tone, "↩ withdrawn \"", name, after)
+    }
+
+    #[test]
+    fn a_withdrawn_session_leaves_with_a_notice() {
+        let (_scratch, location) = queue();
+        put(&location, "release.json", RELEASE);
+        put(&location, "next.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        withdraw_session(&location, "release", false).expect("withdrawn");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(ids(&app), ["next"]);
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(Tone::Info, "Release 0.2.0", "\" by the asker"))
+        );
+    }
+
+    #[test]
+    fn a_session_withdrawn_with_its_draft_leaves_with_a_warning() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        withdraw_session(&location, "batch", true).expect("withdrawn");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker, with your answers so far"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_key_during_a_withdrawal_saves_nothing_and_warns_after_the_sync() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        // The withdrawal saw no answer; the key comes before the watcher's
+        // sync, so its draft finds the session gone.
+        withdraw_session(&location, "batch", false).expect("withdrawn");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(names(&location.drafts()), Vec::<String>::new());
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker; your answers to it are dropped"
+            ))
+        );
+    }
+
+    #[test]
+    fn an_untouched_default_counts_as_no_answer_in_the_notice() {
+        let (_scratch, location) = queue();
+        put(
+            &location,
+            "batch.json",
+            &SESSION.replace(r#""label": "A""#, r#""label": "A", "default": true"#),
+        );
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        withdraw_session(&location, "batch", false).expect("withdrawn");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(Tone::Info, "batch", "\" by the asker"))
+        );
+    }
+
+    #[test]
+    fn a_typed_note_counts_as_an_answer_in_the_notice() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        withdraw_session(&location, "batch", false).expect("withdrawn");
+        // A note to the whole session on the review tab, never saved.
+        app.handle(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.handle(key('j'));
+        app.handle(key('x'));
+        inbox.sync(&mut app).expect("synced");
+
+        assert_notice(&app, Tone::Warning, |text| text.ends_with("are dropped"));
+    }
+
+    /// Writes the result a withdrawal writes first, as if it stopped
+    /// before it archived the session.
+    fn interrupted_withdrawal(location: &QueueLocation, id: &str) {
+        let result = SessionResult::withdrawn(
+            id,
+            &session_sha256(SESSION.as_bytes()),
+            "2026-10-28T10:00:00+01:00",
+            None,
+        );
+        fs::write(
+            location.outbox().join(format!("{id}.json")),
+            serde_json::to_vec(&result).expect("serializes"),
+        )
+        .expect("written");
+    }
+
+    #[test]
+    fn an_interrupted_withdrawal_completed_by_recovery_shows_the_notice() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        interrupted_withdrawal(&location, "batch");
+        inbox.sync(&mut app).expect("synced");
+
+        assert!(app.sessions().is_empty());
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(Tone::Info, "batch", "\" by the asker"))
+        );
+    }
+
+    #[test]
+    fn an_interrupted_withdrawal_completed_at_start_shows_no_notice() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        interrupted_withdrawal(&location, "batch");
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        assert!(app.sessions().is_empty());
+        assert_eq!(app.current_notice(), None);
+    }
+
+    #[test]
+    fn a_session_taken_out_by_hand_leaves_without_a_notice() {
+        let (_scratch, location) = queue();
+        let path = put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        fs::remove_file(path).expect("removed");
+        inbox.sync(&mut app).expect("synced");
+
+        assert!(app.sessions().is_empty());
+        assert_eq!(app.current_notice(), None);
+    }
+
+    #[test]
+    fn a_submit_after_a_withdrawal_writes_nothing_and_names_the_withdrawal() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+        let Withdrawn::Now(withdrawal) =
+            withdraw_session(&location, "batch", true).expect("withdrawn")
+        else {
+            panic!("withdrawn now");
+        };
+
+        let effect = app.handle(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        inbox.apply(&mut app, effect);
+
+        assert_eq!(
+            result(&location, "batch"),
+            withdrawal,
+            "only the withdrawal"
+        );
+        assert!(app.sessions().is_empty());
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker, with your answers so far"
+            ))
+        );
+    }
+
+    #[test]
+    fn the_withdrawn_notice_shows_in_the_status_line() {
+        let (_scratch, location) = queue();
+        put(&location, "release.json", RELEASE);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        withdraw_session(&location, "release", false).expect("withdrawn");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            status_row(&app, 60),
+            "↩ withdrawn \"Release 0.2.0\" by the asker"
+        );
+    }
+
+    #[test]
+    fn the_withdrawn_warning_shows_in_the_status_line_cut_before_its_quote() {
+        let (_scratch, location) = queue();
+        put(&location, "release.json", RELEASE);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        withdraw_session(&location, "release", true).expect("withdrawn");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            status_row(&app, 60),
+            "! ↩ withdrawn \"Rele…\" by the asker, with your answers so far"
+        );
     }
 
     #[test]

@@ -72,7 +72,7 @@ fn outbox_state(
 }
 
 /// The id a session file in the inbox stands for: its stem.
-fn stem(session: &Path) -> &str {
+pub(super) fn stem(session: &Path) -> &str {
     session
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -91,7 +91,7 @@ pub fn finish(
 }
 
 /// [`finish`], calling `step` after each of its steps.
-fn finish_steps(
+pub(super) fn finish_steps(
     location: &QueueLocation,
     session: &Path,
     result: &SessionResult,
@@ -117,7 +117,11 @@ fn finish_steps(
 
 /// Moves a session file into the archive; a file that is gone already was
 /// archived by an earlier run.
-fn archive_session(location: &QueueLocation, session: &Path, id: &str) -> io::Result<()> {
+pub(super) fn archive_session(
+    location: &QueueLocation,
+    session: &Path,
+    id: &str,
+) -> io::Result<()> {
     let target = location
         .archive()
         .join(archive_name(id, Ulid::generate(), Archived::Session));

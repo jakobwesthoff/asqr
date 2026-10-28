@@ -56,7 +56,28 @@ pub struct SessionResult {
     /// apart from info items: an info item takes no answer and appears only
     /// with a note. A cancelled result holds only the questions with an
     /// answer, an untouched default included, or a note, in session order.
-    /// An error result holds none.
+    /// An error result and a withdrawn result hold none.
+    #[serde(default)]
+    pub answers: Vec<Answer>,
+
+    /// A withdrawn result's unsent draft: what the person had answered and
+    /// noted when the asker withdrew the session. These are no decisions,
+    /// as the person never sent them; they may only serve as presets in a
+    /// replacement session. Absent when the person had entered nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<UnsentDraft>,
+}
+
+/// The answers and the note of a draft that was never sent, as the `draft`
+/// field of a withdrawn result carries them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct UnsentDraft {
+    /// The person's note to the whole session, trimmed; absent when blank.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+
+    /// The questions with an answer, an untouched default included, or a
+    /// note, in session order and in the shape of a submitted result.
     #[serde(default)]
     pub answers: Vec<Answer>,
 }
@@ -70,6 +91,8 @@ pub enum Status {
     Cancelled,
     /// The session file was invalid.
     Error,
+    /// The asker withdrew the session.
+    Withdrawn,
     /// Answers in progress; never found in the outbox.
     Draft,
 }
@@ -128,6 +151,7 @@ impl SessionResult {
             error: None,
             current: None,
             answers: Vec::new(),
+            draft: None,
         }
     }
 
@@ -191,6 +215,21 @@ impl SessionResult {
             error: None,
             current: Some(current.to_owned()),
             answers,
+            draft: None,
+        }
+    }
+
+    /// The asker withdrew the session. `draft` is what the person had
+    /// entered and not sent, if anything.
+    pub fn withdrawn(
+        id: &str,
+        session_sha256: &str,
+        submitted_at: &str,
+        draft: Option<UnsentDraft>,
+    ) -> Self {
+        SessionResult {
+            draft,
+            ..Self::finished(id, Status::Withdrawn, session_sha256, submitted_at)
         }
     }
 }
@@ -357,6 +396,55 @@ mod tests {
                 "session_sha256": "9f2c",
                 "error": "asqr: unsupported format version 3",
                 "answers": []
+            })
+        );
+    }
+
+    #[test]
+    fn a_withdrawn_result_without_a_draft_has_no_answers() {
+        let result = SessionResult::withdrawn("batch-01", "9f2c", AT, None);
+
+        assert_eq!(
+            serde_json::to_value(&result).expect("result serializes"),
+            json!({
+                "asqr": 2,
+                "id": "batch-01",
+                "status": "withdrawn",
+                "submitted_at": AT,
+                "session_sha256": "9f2c",
+                "answers": []
+            })
+        );
+    }
+
+    #[test]
+    fn a_withdrawn_result_carries_the_unsent_draft_apart_from_its_answers() {
+        let draft = UnsentDraft {
+            note: Some("keep the old line".into()),
+            answers: vec![Answer {
+                selected: vec!["new1".into()],
+                note: Some("maybe shorter".into()),
+                ..Answer::new("q1")
+            }],
+        };
+
+        let result = SessionResult::withdrawn("batch-01", "9f2c", AT, Some(draft));
+
+        assert_eq!(
+            serde_json::to_value(&result).expect("result serializes"),
+            json!({
+                "asqr": 2,
+                "id": "batch-01",
+                "status": "withdrawn",
+                "submitted_at": AT,
+                "session_sha256": "9f2c",
+                "answers": [],
+                "draft": {
+                    "note": "keep the old line",
+                    "answers": [
+                        { "question": "q1", "selected": ["new1"], "note": "maybe shorter" }
+                    ]
+                }
             })
         );
     }

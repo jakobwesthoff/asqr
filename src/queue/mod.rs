@@ -15,6 +15,7 @@ mod location;
 mod lock;
 mod names;
 mod prune;
+mod withdraw;
 
 pub use archive::*;
 pub use drafts::*;
@@ -25,3 +26,4 @@ pub use location::*;
 pub use lock::*;
 pub use names::*;
 pub use prune::*;
+pub use withdraw::*;

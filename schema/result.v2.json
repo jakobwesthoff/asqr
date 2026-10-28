@@ -55,11 +55,37 @@
           "type": "string"
         },
         {
+          "const": "withdrawn",
+          "description": "The asker withdrew the session.",
+          "type": "string"
+        },
+        {
           "const": "draft",
           "description": "Answers in progress; never found in the outbox.",
           "type": "string"
         }
       ]
+    },
+    "UnsentDraft": {
+      "description": "The answers and the note of a draft that was never sent, as the `draft`\nfield of a withdrawn result carries them.",
+      "properties": {
+        "answers": {
+          "default": [],
+          "description": "The questions with an answer, an untouched default included, or a\nnote, in session order and in the shape of a submitted result.",
+          "items": {
+            "$ref": "#/$defs/Answer"
+          },
+          "type": "array"
+        },
+        "note": {
+          "description": "The person's note to the whole session, trimmed; absent when blank.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -67,7 +93,7 @@
   "properties": {
     "answers": {
       "default": [],
-      "description": "A submitted result holds every question once, in session order,\napart from info items: an info item takes no answer and appears only\nwith a note. A cancelled result holds only the questions with an\nanswer, an untouched default included, or a note, in session order.\nAn error result holds none.",
+      "description": "A submitted result holds every question once, in session order,\napart from info items: an info item takes no answer and appears only\nwith a note. A cancelled result holds only the questions with an\nanswer, an untouched default included, or a note, in session order.\nAn error result and a withdrawn result hold none.",
       "items": {
         "$ref": "#/$defs/Answer"
       },
@@ -86,6 +112,17 @@
         "string",
         "null"
       ]
+    },
+    "draft": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UnsentDraft"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "A withdrawn result's unsent draft: what the person had answered and\nnoted when the asker withdrew the session. These are no decisions,\nas the person never sent them; they may only serve as presets in a\nreplacement session. Absent when the person had entered nothing."
     },
     "error": {
       "description": "What is wrong with an invalid session file.",

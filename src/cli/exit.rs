@@ -26,6 +26,9 @@ pub enum Exit {
     Timeout,
     /// Nothing in the inbox, outbox or archive has this id.
     UnknownId,
+    /// The result is `withdrawn`: the asker took the session back, which a
+    /// script tells apart from an id the queue does not know.
+    Withdrawn,
 }
 
 impl Exit {
@@ -38,6 +41,7 @@ impl Exit {
             Exit::ErrorResult => 11,
             Exit::Timeout => 12,
             Exit::UnknownId => 13,
+            Exit::Withdrawn => 14,
         }
     }
 
@@ -47,6 +51,7 @@ impl Exit {
             Status::Submitted => Exit::Success,
             Status::Cancelled => Exit::Cancelled,
             Status::Error => Exit::ErrorResult,
+            Status::Withdrawn => Exit::Withdrawn,
             // A draft never reaches the outbox; finding one there means the
             // queue was written by something else.
             Status::Draft => Exit::Failure,
@@ -74,6 +79,7 @@ mod tests {
             (Exit::ErrorResult, 11),
             (Exit::Timeout, 12),
             (Exit::UnknownId, 13),
+            (Exit::Withdrawn, 14),
         ];
         for (exit, code) in table {
             assert_eq!(exit.code(), code, "{exit:?}");
@@ -85,6 +91,7 @@ mod tests {
         assert_eq!(Exit::for_status(Status::Submitted), Exit::Success);
         assert_eq!(Exit::for_status(Status::Cancelled), Exit::Cancelled);
         assert_eq!(Exit::for_status(Status::Error), Exit::ErrorResult);
+        assert_eq!(Exit::for_status(Status::Withdrawn), Exit::Withdrawn);
         assert_eq!(Exit::for_status(Status::Draft), Exit::Failure);
     }
 
