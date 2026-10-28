@@ -1833,6 +1833,11 @@ scrolling.
   the deletes since the last time again (section 8.9). On quitting, also
   after a panic, asqr deletes every image it sent and has not deleted
   yet, before it leaves the alternate screen (ADR 42).
+- The character U+10EEEE, which the Kitty protocol reserves for image
+  placeholders, shows as `�` wherever text puts it on the screen, in an
+  entry, a question, a typed answer or any other text, under every
+  protocol (ADR 67). Only the cells of the image a frame shows hold it.
+  Answers and notes keep the character as typed.
 
 ### 8.9 tmux
 

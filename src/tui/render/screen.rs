@@ -33,7 +33,7 @@ use super::source_line::columns;
 use super::tabs::tab_bar;
 use super::theme;
 use crate::format::ContextEntry;
-use crate::graphics::{Images, KittyBook};
+use crate::graphics::{Images, KittyBook, disarm_placeholders};
 use crate::tui::text_field::FieldShape;
 use crate::tui::{App, Extent, Invalid, Notice, Overlay, PanePage, RowCut, SessionState, Tone};
 
@@ -446,6 +446,11 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         drawn.invalid_dialog = true;
         drawn.session_shown = false;
     }
+
+    // Text from the session can hold the character Kitty places images
+    // with; once everything is drawn, only the image's own cells keep it
+    // (ADR 67).
+    disarm_placeholders(frame.buffer_mut(), image.as_ref());
 
     // The overlays drew over the Kitty image's placeholders, and the
     // image's cells beside them, or its data, are lost to the terminal
@@ -4953,5 +4958,192 @@ mod tests {
         let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks()).no_color(true);
 
         image_cells(&screen_in(&app, &mut view, 140, 20));
+    }
+
+    // -----------------------------------------------------------------
+    // The Kitty placeholder character in text
+    // -----------------------------------------------------------------
+
+    /// The character Kitty places images with.
+    const KITTY_PLACEHOLDER: char = '\u{10EEEE}';
+
+    /// The cells of `backend` that hold the Kitty placeholder.
+    fn placeholders_shown(backend: &TestBackend) -> Vec<(u16, u16)> {
+        testing::placeholder_cells(backend.buffer())
+    }
+
+    /// A session of one question with `question`'s fields over a plain
+    /// single question, as JSON, and the character checked in it.
+    fn holding(question: serde_json::Value) -> App {
+        let mut json = serde_json::json!({
+            "asqr": 2,
+            "questions": [{"id": "q", "text": "Which one?", "kind": "single",
+                "options": [{"id": "a", "label": "A"}]}]
+        });
+        for (key, value) in question.as_object().expect("an object") {
+            json["questions"][0][key] = value.clone();
+        }
+        assert!(json.to_string().contains(KITTY_PLACEHOLDER));
+        app(&[("held", &json.to_string())])
+    }
+
+    #[test]
+    fn a_code_entry_never_puts_the_kitty_placeholder_on_screen() {
+        let code = format!("let mark = \"{KITTY_PLACEHOLDER}\";");
+        let app = holding(serde_json::json!({
+            "context": [{"type": "code", "language": "rust", "content": code}]
+        }));
+        let backend = screen(&app, 140, 24);
+
+        assert!(backend.to_string().contains("let mark"), "{backend}");
+        assert_eq!(placeholders_shown(&backend), [], "{backend}");
+    }
+
+    #[test]
+    fn an_ansi_entry_never_puts_the_kitty_placeholder_on_screen() {
+        let text = format!(
+            "\u{1b}[38;2;0;0;1m{KITTY_PLACEHOLDER}\u{1b}[0m rgb \u{1b}[38;5;1m{KITTY_PLACEHOLDER}\u{1b}[0m indexed"
+        );
+        let app = holding(serde_json::json!({
+            "context": [{"type": "ansi", "content": text}]
+        }));
+        let backend = screen(&app, 140, 24);
+
+        assert!(backend.to_string().contains("indexed"), "{backend}");
+        assert_eq!(placeholders_shown(&backend), [], "{backend}");
+    }
+
+    #[test]
+    fn session_text_never_puts_the_kitty_placeholder_on_screen() {
+        let held = |text: &str| format!("{text} {KITTY_PLACEHOLDER}");
+        let json = serde_json::json!({
+            "asqr": 2,
+            "title": held("Title"),
+            "intro": held("Intro"),
+            "questions": [{"id": "q", "text": held("Question"), "kind": "single",
+                "options": [{"id": "a", "label": held("Label"), "description": held("Described")}]}]
+        });
+        let app = app(&[("held", &json.to_string())]);
+        assert!(
+            app.active().expect("waiting").session().questions[0]
+                .text
+                .contains(KITTY_PLACEHOLDER)
+        );
+        let backend = screen(&app, 80, 24);
+
+        assert!(backend.to_string().contains("Described"), "{backend}");
+        assert_eq!(placeholders_shown(&backend), [], "{backend}");
+    }
+
+    #[test]
+    fn typed_text_never_puts_the_kitty_placeholder_on_screen() {
+        let mut app = holding(serde_json::json!({"custom": true, "note": false,
+            "text": format!("Which one? {KITTY_PLACEHOLDER}")}));
+        special(&mut app, KeyCode::Down);
+        app.paste(&format!("own {KITTY_PLACEHOLDER}"));
+        let state = app.active().expect("waiting");
+        assert_eq!(
+            state.answers()[0].custom.as_deref(),
+            Some(format!("own {KITTY_PLACEHOLDER}").as_str()),
+            "the answer keeps the character"
+        );
+
+        let backend = screen(&app, 80, 24);
+        assert!(backend.to_string().contains("own"), "{backend}");
+        assert_eq!(placeholders_shown(&backend), [], "{backend}");
+    }
+
+    #[test]
+    fn the_session_list_never_puts_the_kitty_placeholder_on_screen() {
+        let titled = RELEASE.replace(
+            r#""title": "Release 0.2.0""#,
+            &format!(r#""title": "Release {KITTY_PLACEHOLDER}""#),
+        );
+        assert!(titled.contains(KITTY_PLACEHOLDER));
+        let mut app = app(&[("first", RELEASE), ("second", &titled)]);
+        keys(&mut app, "L");
+        let backend = screen(&app, 80, 24);
+
+        assert!(
+            backend.to_string().contains("Waiting sessions"),
+            "{backend}"
+        );
+        assert_eq!(placeholders_shown(&backend), [], "{backend}");
+    }
+
+    #[test]
+    fn the_invalid_dialog_never_puts_the_kitty_placeholder_on_screen() {
+        let mut app = App::default();
+        app.report_invalid(Invalid {
+            id: "broken".into(),
+            errors: vec![format!("unknown field `{KITTY_PLACEHOLDER}`")],
+        });
+        app.set_dialog_shown(true);
+        let backend = screen(&app, 80, 24);
+
+        assert!(backend.to_string().contains("unknown field"), "{backend}");
+        assert_eq!(placeholders_shown(&backend), [], "{backend}");
+    }
+
+    #[test]
+    fn a_notice_never_puts_the_kitty_placeholder_on_screen() {
+        let mut app = App::default();
+        let name = format!("Release {KITTY_PLACEHOLDER}");
+        app.show(Notice::naming(Tone::Success, "✔ sent \"", &name, "\""));
+        let backend = screen(&app, 80, 24);
+
+        assert!(backend.to_string().contains("✔ sent"), "{backend}");
+        assert_eq!(placeholders_shown(&backend), [], "{backend}");
+    }
+
+    /// Cells of a screen by column and row.
+    type Cells = Vec<(u16, u16)>;
+
+    /// The Kitty image of a session beside `text`, drawn at 140×24, with
+    /// the help open over it when `help`: the cells the terminal places at
+    /// the image under [`KITTY_ID`], and every cell holding the character.
+    fn kitty_beside_text(text: &str, help: bool) -> (Cells, Cells) {
+        let file = wide_png(400, 200);
+        let path = file.path().to_str().expect("UTF-8 path");
+        let json = serde_json::json!({
+            "asqr": 2,
+            "questions": [{"id": "q", "text": text, "kind": "single",
+                "context": [{"type": "image", "path": path}],
+                "options": [{"id": "a", "label": "A"}]}]
+        });
+        let mut app = app(&[("pictured", &json.to_string())]);
+        let mut view = kitty_beside();
+        let mut terminal = kept_terminal(140, 24);
+        draw_on(&mut terminal, &mut app, &mut view);
+        if help {
+            keys(&mut app, "?");
+            draw_on(&mut terminal, &mut app, &mut view);
+        }
+        let buf = terminal.backend().buffer();
+        let image = testing::kitty_positions(buf)
+            .into_iter()
+            .filter(|(_, place)| place.is_some_and(|(.., id)| id == KITTY_ID))
+            .map(|(cell, _)| cell)
+            .collect();
+        (image, testing::placeholder_cells(buf))
+    }
+
+    #[test]
+    fn text_beside_a_kitty_image_never_puts_a_placeholder_outside_it() {
+        let (image, all) = kitty_beside_text(&format!("Which {KITTY_PLACEHOLDER} one?"), false);
+
+        assert!(!image.is_empty(), "the image shows");
+        assert_eq!(all, image, "only the image's own cells hold the character");
+    }
+
+    #[test]
+    fn the_kitty_image_keeps_its_placeholders_beside_text_that_holds_one() {
+        for help in [false, true] {
+            let (plain, _) = kitty_beside_text("Which one?", help);
+            let (held, _) = kitty_beside_text(&format!("Which {KITTY_PLACEHOLDER} one?"), help);
+
+            assert!(!plain.is_empty(), "help: {help}");
+            assert_eq!(held, plain, "help: {help}");
+        }
     }
 }

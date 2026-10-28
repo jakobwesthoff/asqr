@@ -88,6 +88,31 @@ pub(super) static DIACRITICS: [char; 297] = [
     '\u{1D1AD}', '\u{1D242}', '\u{1D243}', '\u{1D244}',
 ];
 
+/// What the placeholder character shows as where text holds it.
+const STAND_IN: char = '\u{FFFD}';
+
+/// Replaces the placeholder character with `�` in every cell of `buf`
+/// that is not one of `image`'s placeholders (ADR 67). Kitty draws an
+/// image's cells wherever a cell holds the character in a colour that
+/// names an image, and the text of a session can hold it, in any colour a
+/// code entry's highlighting or an `ansi` entry gives it. Only the image
+/// the frame drew keeps it. The pass runs under every protocol, as the
+/// terminal can be Kitty while asqr draws its images in blocks.
+pub fn disarm_placeholders(buf: &mut Buffer, image: Option<&PlacedImage>) {
+    let area = buf.area;
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let held = buf[(x, y)].symbol().contains(PLACEHOLDER);
+            if held && !image.is_some_and(|image| image.holds(buf, x, y)) {
+                let symbol = buf[(x, y)]
+                    .symbol()
+                    .replace(PLACEHOLDER, &STAND_IN.to_string());
+                buf[(x, y)].set_symbol(&symbol);
+            }
+        }
+    }
+}
+
 /// One Kitty image as a frame drew it: the cells its placeholders cover,
 /// its id, and the transmission its first cell carried, which only the
 /// first draw of an encoding has.
@@ -388,6 +413,66 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Text holding the placeholder character in its cells, one of them
+    /// with the marks of a position.
+    fn text_with_placeholders(buf: &mut Buffer) {
+        let marked = format!("{PLACEHOLDER}{}{}", DIACRITICS[0], DIACRITICS[1]);
+        buf[(0, 0)].set_symbol(&marked);
+        buf[(1, 1)].set_symbol(&PLACEHOLDER.to_string());
+    }
+
+    #[test]
+    fn the_placeholder_character_in_text_turns_into_a_replacement_character() {
+        let (mut buf, placed) = first_draw();
+        let image: Vec<_> = IMAGE.positions().map(|cell| buf[cell].clone()).collect();
+        text_with_placeholders(&mut buf);
+        // A cell inside the image's area in another colour is no cell of it.
+        buf[(3, 1)].set_fg(Color::Indexed(1));
+
+        disarm_placeholders(&mut buf, Some(&placed));
+
+        assert_eq!(
+            buf[(0, 0)].symbol(),
+            format!("\u{FFFD}{}{}", DIACRITICS[0], DIACRITICS[1]),
+            "its marks stay"
+        );
+        assert_eq!(buf[(1, 1)].symbol(), "\u{FFFD}");
+        assert!(buf[(3, 1)].symbol().starts_with('\u{FFFD}'));
+        for (cell, before) in IMAGE.positions().zip(&image) {
+            if cell != (3, 1).into() {
+                assert_eq!(&buf[cell], before, "{cell:?}");
+            }
+        }
+        assert!(
+            buf[(IMAGE.x, IMAGE.y)].symbol().contains("\x1b_G"),
+            "the first cell keeps its transmission"
+        );
+    }
+
+    #[test]
+    fn without_an_image_every_placeholder_character_is_replaced() {
+        let (mut buf, _) = first_draw();
+        text_with_placeholders(&mut buf);
+
+        disarm_placeholders(&mut buf, None);
+
+        assert!(
+            buf.content()
+                .iter()
+                .all(|cell| !cell.symbol().contains(PLACEHOLDER))
+        );
+    }
+
+    /// Either character takes one column, so replacing one keeps every
+    /// cell after it where it was.
+    #[test]
+    fn the_replacement_takes_the_columns_of_the_placeholder() {
+        use ratatui::text::Span;
+
+        let columns = |character: char| Span::raw(character.to_string()).width();
+        assert_eq!((columns(PLACEHOLDER), columns(STAND_IN)), (1, 1));
     }
 
     /// The second draw of an encoding carries no transmission, and nothing

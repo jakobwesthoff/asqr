@@ -34,7 +34,7 @@ pub use image::Image;
 use image::Read;
 use kitty::{IdSource, random_ids};
 pub use kitty::{KittyBook, KittyDeletes, KittyExit};
-pub use placeholders::PlacedImage;
+pub use placeholders::{PlacedImage, disarm_placeholders};
 
 /// The graphics protocol images are sent in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

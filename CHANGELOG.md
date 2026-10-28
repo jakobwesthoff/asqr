@@ -86,6 +86,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was cut off at its start, a tall option showed from its start and its
   later lines only once the cursor was on a later row, and those of the
   last option never.
+- The character U+10EEEE, which the Kitty graphics protocol reserves for
+  placing images, shows as `�` wherever text puts it on the screen, such
+  as in a code or `ansi` entry, so no text can make the terminal draw an
+  image's cells there. Answers keep the character as typed. Before, it
+  reached the terminal as written.
 
 ## [0.13.1] - 2026-10-22
 

@@ -169,6 +169,9 @@ Once asked, asqr fits best when:
     of the question; that goes into the question's `text`.
   - Inline text goes into `content` in every entry, the sides of a diff
     included. The key `text` belongs to questions only.
+  - asqr shows U+10EEEE, the character the Kitty graphics protocol uses
+    to place images, as `�` in every text, so it cannot place an image
+    on the person's screen.
   - `{ "type": "diff", "old": {...}, "new": {...} }`: a change, which asqr
     diffs itself. `old` is the text before the change and `new` the text
     after it, each `{ "path": "..." }` or `{ "content": "..." }`: two
