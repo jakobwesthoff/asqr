@@ -302,6 +302,11 @@ fn check_context(
                 if let Some(file) = check_file(&image.path, &path.field("path"), base_dir, found) {
                     check_decodable(&file, path.field("path"), found);
                 }
+                // The image file gets no size warning, its caption does: it
+                // is text the pane renders like a Markdown entry.
+                if let Some(caption) = &image.caption {
+                    check_size(caption.len() as u64, &path.field("caption"), found);
+                }
             }
             ContextEntry::Code(code) => {
                 let (size, _) = source_size(&code.path, &code.content, &path, base_dir, found);
@@ -686,6 +691,44 @@ mod tests {
     }
 
     const MIB: usize = 1024 * 1024;
+
+    /// The warnings about `entry` that concern a `caption`.
+    fn caption_warnings(entry: &serde_json::Value) -> Vec<String> {
+        warn(&with_context(entry), None)
+            .into_iter()
+            .filter(|warning| warning.contains("caption"))
+            .collect()
+    }
+
+    #[test]
+    fn a_caption_on_an_image_entry_is_a_known_field() {
+        assert_eq!(
+            caption_warnings(&serde_json::json!(
+                {"type": "image", "path": "/a.png", "caption": "Draft 3"})),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_caption_on_a_code_entry_is_an_unknown_field() {
+        // Only image entries take a caption.
+        assert_eq!(
+            caption_warnings(&serde_json::json!(
+                {"type": "code", "content": "x", "caption": "Draft 3"})),
+            ["questions[0].context[0].caption: unknown field"]
+        );
+    }
+
+    #[test]
+    fn a_caption_above_1_mib_gets_the_large_entry_warning() {
+        assert_eq!(
+            caption_warnings(&serde_json::json!(
+                {"type": "image", "path": "/a.png", "caption": "x".repeat(MIB + 1)})),
+            [
+                "questions[0].context[0].caption: 1.1 MiB, more than the 1 MiB an entry should stay under; asqr still shows it"
+            ]
+        );
+    }
 
     #[test]
     fn warns_about_a_code_or_markdown_entry_above_1_mib_inline_or_in_a_file() {

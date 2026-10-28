@@ -90,6 +90,20 @@ mod tests {
     }
 
     #[test]
+    fn the_session_schema_file_gives_an_image_entry_a_caption() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("schema/session.v2.json");
+        let file: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(path).expect("the schema file is readable"),
+        )
+        .expect("the schema file is JSON");
+
+        assert_eq!(
+            file["$defs"]["ImageEntry"]["properties"]["caption"]["type"],
+            json!(["string", "null"])
+        );
+    }
+
+    #[test]
     fn the_session_schema_file_marks_note_deprecated() {
         // Every question and info item takes a note (ADR 68); editors that
         // read the schema flag the field.

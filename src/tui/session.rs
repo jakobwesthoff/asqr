@@ -99,6 +99,11 @@ pub struct EntryKey {
 #[derive(Debug, Clone, Copy)]
 struct FullScreen {
     pane_focus: bool,
+    /// Whether it shows an image without its caption. From a pane it does
+    /// at once, as the caption shows in the pane. From the one-line hint,
+    /// where no pane shows, it first shows image and caption together,
+    /// and `z` then shows the image alone (ADR 69).
+    alone: bool,
 }
 
 /// Where typed keys go.
@@ -593,6 +598,12 @@ impl SessionState {
         self.full_screen.is_some()
     }
 
+    /// Whether the full-screen view shows an image without its caption.
+    pub fn full_screen_alone(&self) -> bool {
+        self.full_screen
+            .is_some_and(|full_screen| full_screen.alone)
+    }
+
     /// Whether the context pane takes the keys.
     pub fn pane_focused(&self) -> bool {
         self.pane_focus
@@ -932,7 +943,9 @@ impl SessionState {
             let effect = match key.code {
                 KeyCode::Tab | KeyCode::BackTab | KeyCode::Esc => self.leave_pane(),
                 KeyCode::Char('q') if !control => self.leave_pane(),
-                KeyCode::Char('z') if !control && self.full_screen.is_some() => self.leave_pane(),
+                KeyCode::Char('z') if !control && self.full_screen.is_some() => {
+                    self.next_full_screen_step()
+                }
                 KeyCode::Char('z') if !control => self.show_full_screen(),
                 KeyCode::Char('?') if !control => {
                     self.help = true;
@@ -975,14 +988,30 @@ impl SessionState {
 
     /// Shows the entry shown full screen, which then takes the keys, so
     /// none of them can move the cursor to another entry while it shows.
+    /// An image's caption shows there only when no pane showed it, as on
+    /// the one-line hint (ADR 69).
     fn show_full_screen(&mut self) -> Effect {
-        if self.shown_entry().is_some() {
+        if let Some(entry) = self.shown_context() {
+            let alone = self.pane_page.is_some() || entry.shown_caption().is_none();
             self.full_screen = Some(FullScreen {
                 pane_focus: self.pane_focus,
+                alone,
             });
             self.pane_focus = true;
         }
         Effect::None
+    }
+
+    /// `z` in the full-screen view: from image and caption on to the
+    /// image alone, from there back to where the focus was.
+    fn next_full_screen_step(&mut self) -> Effect {
+        match &mut self.full_screen {
+            Some(full_screen) if !full_screen.alone => {
+                full_screen.alone = true;
+                Effect::None
+            }
+            _ => self.leave_pane(),
+        }
     }
 
     /// `o`: opens the image shown, or says why it cannot. Outside the
@@ -3264,6 +3293,77 @@ mod tests {
                 (false, true),
                 "{back:?} returns to the pane"
             );
+        }
+    }
+
+    /// A question with an image entry, `caption` beside its path; no pane
+    /// was drawn yet, as in the one-line hint.
+    fn captioned(caption: &str) -> SessionState {
+        let json = format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "single",
+                "context": [{{"type": "image", "path": "/pictures/p.png", "caption": {caption:?}}}],
+                "options": [{{"id": "a", "label": "A"}}]}}]}}"#
+        );
+        SessionState::new(
+            "caption",
+            serde_json::from_str(&json).expect("parses"),
+            None,
+        )
+    }
+
+    #[test]
+    fn z_from_a_pane_shows_a_captioned_image_alone_and_then_goes_back() {
+        let mut state = captioned("Draft 3");
+        state.set_pane_page(Some(PanePage::shown(PANE)));
+
+        press(&mut state, "z");
+        assert_eq!(
+            (state.full_screen(), state.full_screen_alone()),
+            (true, true)
+        );
+
+        press(&mut state, "z");
+        assert!(!state.full_screen());
+    }
+
+    #[test]
+    fn z_from_the_hint_shows_the_caption_then_the_image_alone_then_goes_back() {
+        // Below the size a pane needs, `z` is the only way to the caption.
+        let mut state = captioned("Draft 3");
+
+        press(&mut state, "z");
+        assert_eq!(
+            (state.full_screen(), state.full_screen_alone()),
+            (true, false)
+        );
+        // The full-screen view draws a pane, which the run loop hands on.
+        state.set_pane_page(Some(PanePage::shown(PANE)));
+
+        press(&mut state, "z");
+        assert_eq!(
+            (state.full_screen(), state.full_screen_alone()),
+            (true, true)
+        );
+
+        press(&mut state, "z");
+        assert!(!state.full_screen());
+    }
+
+    #[test]
+    fn z_from_the_hint_shows_an_entry_without_a_caption_in_one_step() {
+        for caption in ["", "  "] {
+            let mut state = captioned(caption);
+
+            press(&mut state, "z");
+            assert_eq!(
+                (state.full_screen(), state.full_screen_alone()),
+                (true, true),
+                "{caption:?}"
+            );
+            state.set_pane_page(Some(PanePage::shown(PANE)));
+
+            press(&mut state, "z");
+            assert!(!state.full_screen(), "{caption:?}");
         }
     }
 

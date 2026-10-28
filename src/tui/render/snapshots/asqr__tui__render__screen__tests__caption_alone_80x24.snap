@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr  pictured                                             default · 1 waiting "
+"                                                                                "
+"   ☐ q  ✔ Review                                                                "
+"──━━━━━─────────────────────────────────────────────────────────────────────────"
+" Which draft?                                                                   "
+" pick one                                                                       "
+"                                                                                "
+" ❯ ( ) 1. This one                                                              "
+"                                                                                "
+" Notes: —                                                                       "
+"                                                                                "
+" ── Draft 3 ─────────────────────────────────────────────────────────────────── "
+" z shows the image                                                              "
+"                                                                                "
+" • note 1                                                                       "
+" • note 2                                                                       "
+" • note 3                                                                       "
+" • note 4                                                                       "
+" • note 5                                                                       "
+" • note 6                                                                       "
+" • note 7                                                                       "
+" ─────────────────────────────────────────────────────────── 1–9 of 14 · tab ── "
+"                                                                                "
+" ↑/↓  move   enter  pick   ←/→  question   tab  context   ?  help   q  quit     "

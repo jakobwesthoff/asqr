@@ -128,12 +128,24 @@ Once asked, asqr fits best when:
     DDS, OpenEXR, HDR and farbfeld. It cannot show SVG or AVIF, so
     convert those to PNG first. The person only sees an error card with
     the reason for an image asqr cannot show, and `validate` and `ask`
-    warn about it. asqr scales an image up to fill the pane, which suits
-    most images: the person sees them larger when the space is there. Add
-    `"enlarge": false` only when the exact pixel size matters, such as
-    pixel art, a screenshot whose size is the point, or an icon at its
-    real size; the image then keeps its natural size and only shrinks
-    when it does not fit.
+    warn about it. asqr scales an image up to fill the pane, apart from
+    the rows a caption takes, which suits most images: the person sees
+    them larger when the space is there. Add `"enlarge": false` only when
+    the exact pixel size matters, such as pixel art, a screenshot whose
+    size is the point, or an icon at its real size; the image then keeps
+    its natural size and only shrinks when it does not fit.
+    Add `"caption"` with one short line of Markdown, two at most, that
+    says only what matters about the image, such as `"caption": "Draft
+    3: warmer palette, thicker outline"`. The person sees it under the
+    image, which takes the rows the caption leaves, so a longer caption
+    makes the image smaller, and one that leaves it too little room
+    hides it from the pane until the person presses `z`. Do not put a
+    prompt paragraph or a list into a caption: longer material, such as
+    the full prompt or a list of notes, goes into the question's `text`
+    or another context entry. `z` shows the image alone where the pane
+    shows. A caption follows the rules of a Markdown entry (a single
+    newline joins the lines). Other entry types ignore a caption, and
+    `validate` and `ask` warn about it as an unknown field.
   - `{ "type": "code", "path": "..." }` or `{ "type": "code", "content":
     "..." }`: text shown exactly as written and highlighted, like a
     fenced code block: source code, a log, terminal output, a
@@ -216,9 +228,9 @@ Once asked, asqr fits best when:
     value. A long line of a code block wraps behind a `↪` marker. Name the
     language of a code block's fence so it is highlighted. A file asqr
     cannot read shows as an error card with the reason.
-  - Keep a code, Markdown, ANSI or diff entry under 1 MiB (both sides of
-    a diff together, escape sequences included); `validate` and `ask`
-    warn above that. Show an excerpt
+  - Keep a code, Markdown, ANSI or diff entry, and an image's caption,
+    under 1 MiB (both sides of a diff together, escape sequences
+    included); `validate` and `ask` warn above that. Show an excerpt
     instead of a whole large file.
   - Paths are absolute. `asqr ask` turns relative paths into absolute
     ones, resolved against the session file. asqr reads a file when it

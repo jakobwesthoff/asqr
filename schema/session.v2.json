@@ -360,6 +360,13 @@
     "ImageEntry": {
       "description": "An image file. PNG, JPEG, GIF (first frame only), WebP, BMP, TIFF,\nICO, TGA, PNM, QOI, DDS, OpenEXR, HDR and farbfeld are shown. SVG and\nAVIF are not.",
       "properties": {
+        "caption": {
+          "description": "Markdown shown under the image in the context pane, which scales the\nimage to the rows the caption leaves, rendered like the content of a\nmarkdown entry: a single newline joins the lines, and raw HTML is\nleft out. One short line, two at most. A caption that is empty or\nonly whitespace is none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "enlarge": {
           "default": true,
           "description": "`false` keeps the image at its natural size where it fits, instead\nof scaling it up to fill the space it gets. A larger image still\nshrinks to fit.",

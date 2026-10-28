@@ -65,7 +65,13 @@ pub fn draw_pane(
     let parts = parts(area, ledge);
     let body = parts.body;
 
-    let (viewer, size) = viewers.laid_out(state.id(), key, entry, body.width, body.height, quote);
+    // The full-screen view reached from a pane shows an image without its
+    // caption, which the pane showed (ADR 69).
+    let (viewer, size) = if state.full_screen_alone() {
+        viewers.laid_out_alone(state.id(), key, entry, body.width, body.height, quote)
+    } else {
+        viewers.laid_out(state.id(), key, entry, body.width, body.height, quote)
+    };
     // Content reports lines wider than the body only where it cuts them, so
     // its size alone says whether the pane scrolls sideways.
     let page = Page {

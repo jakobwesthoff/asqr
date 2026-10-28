@@ -34,6 +34,12 @@ pub(super) fn markdown_content(
     content_of(source, quote, home)
 }
 
+/// The caption of an image entry, `text`, rendered as a Markdown entry's
+/// content is, with quotes in `quote`.
+pub(super) fn caption(text: &str, quote: QuoteStyle) -> Markdown {
+    document(text.to_owned(), false, quote)
+}
+
 /// What the viewer shows of `source`, as read for its entry: its
 /// Markdown with quotes in `quote`, a card when the file cannot be read,
 /// or a note when there is no text at all.
@@ -47,18 +53,24 @@ fn content_of(
         Ok(Source { text, .. }) if text.trim().is_empty() => {
             Content::Note(Placeholder::note("empty"))
         }
-        Ok(Source { text, cut }) => Content::Body(Markdown {
-            source: text,
-            cut,
-            // A document keeps patine's defaults, where a single newline
-            // joins the lines and raw HTML is left out (ADR 35). Only its
-            // quotes take the style the screen asks for.
-            options: RenderOptions::new().with_quote_style(quote),
-            rows: Vec::new(),
-            laid_out: None,
-            #[cfg(test)]
-            renders: 0,
-        }),
+        Ok(Source { text, cut }) => Content::Body(document(text, cut, quote)),
+    }
+}
+
+/// The Markdown `source`, the start of a longer file where `cut`, with
+/// quotes in `quote`, not laid out yet.
+fn document(source: String, cut: bool, quote: QuoteStyle) -> Markdown {
+    Markdown {
+        source,
+        cut,
+        // A document keeps patine's defaults, where a single newline joins
+        // the lines and raw HTML is left out (ADR 35). Only its quotes take
+        // the style the screen asks for.
+        options: RenderOptions::new().with_quote_style(quote),
+        rows: Vec::new(),
+        laid_out: None,
+        #[cfg(test)]
+        renders: 0,
     }
 }
 

@@ -20,7 +20,7 @@ use super::ansi::ansi_content;
 use super::code::code_content;
 use super::diff::diff_content;
 use super::loading::{self, Ahead, Finished, Job, Loaded, Tools, Wake};
-use super::markdown_viewer::markdown_content;
+use super::markdown_viewer::{self, Markdown, markdown_content};
 use super::patine_adapter::colours_on;
 use super::problem::Card;
 use super::source_file::{Unreadable, read_image};
@@ -66,6 +66,13 @@ pub trait Viewer: Send {
     /// body's size, so it never scrolls.
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize;
 
+    /// Lays the content out as `lay_out` does, for the full-screen view
+    /// reached from a pane, which shows an image without its caption (ADR
+    /// 69). Every other viewer shows the same there as in the pane.
+    fn lay_out_alone(&mut self, width: u16, height: u16) -> ContentSize {
+        self.lay_out(width, height)
+    }
+
     /// Draws the content as the last `lay_out` arranged it into `area` of
     /// `buf`, starting at line `offset.top` and column `offset.left`. The
     /// offset never exceeds the size `lay_out` returned.
@@ -88,6 +95,27 @@ pub trait Viewer: Send {
     }
 }
 
+/// What a viewer is laid out for: a body of `width`×`height` cells, and
+/// whether it shows there alone, as an image does without its caption in
+/// the full-screen view reached from a pane (ADR 69).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Room {
+    pub(super) width: u16,
+    pub(super) height: u16,
+    pub(super) alone: bool,
+}
+
+impl Room {
+    /// The room of a pane's body, where everything shows as it is.
+    pub(super) fn pane(width: u16, height: u16) -> Room {
+        Room {
+            width,
+            height,
+            alone: false,
+        }
+    }
+}
+
 /// Which entry of which session a viewer belongs to.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct ViewerKey {
@@ -102,7 +130,7 @@ struct Kept {
     entry: ContextEntry,
     quote: QuoteStyle,
     viewer: Box<dyn Viewer>,
-    laid_out: ((u16, u16), ContentSize),
+    laid_out: (Room, ContentSize),
     /// Whether a frame showed the viewer.
     shown: bool,
 }
@@ -262,11 +290,41 @@ impl Viewers {
         height: u16,
         quote: QuoteStyle,
     ) -> (&mut dyn Viewer, ContentSize) {
+        let room = Room::pane(width, height);
+        self.laid_out_in(session, key, entry, room, quote)
+    }
+
+    /// [`Self::laid_out`] for the full-screen view reached from a pane,
+    /// which shows an image without its caption (ADR 69). The viewer is the
+    /// same one, laid out again, so the file is not read again.
+    pub fn laid_out_alone(
+        &mut self,
+        session: &str,
+        key: EntryKey,
+        entry: &ContextEntry,
+        width: u16,
+        height: u16,
+        quote: QuoteStyle,
+    ) -> (&mut dyn Viewer, ContentSize) {
+        let room = Room {
+            alone: true,
+            ..Room::pane(width, height)
+        };
+        self.laid_out_in(session, key, entry, room, quote)
+    }
+
+    fn laid_out_in(
+        &mut self,
+        session: &str,
+        key: EntryKey,
+        entry: &ContextEntry,
+        size: Room,
+        quote: QuoteStyle,
+    ) -> (&mut dyn Viewer, ContentSize) {
         let key = ViewerKey {
             session: session.to_owned(),
             entry: key,
         };
-        let size = (width, height);
         self.shown = Some(key.clone());
         self.collect();
         if !self.ready(&key, entry, quote, size) {
@@ -279,19 +337,13 @@ impl Viewers {
             kept.shown = true;
             return (kept.viewer.as_mut(), kept.laid_out.1);
         }
-        let content = self.placeholder.lay_out(width, height);
+        let content = self.placeholder.lay_out(size.width, size.height);
         (&mut self.placeholder, content)
     }
 
     /// Whether the viewer kept for `key` shows `entry` with quotes in
     /// `quote`, laid out for `size`.
-    fn ready(
-        &self,
-        key: &ViewerKey,
-        entry: &ContextEntry,
-        quote: QuoteStyle,
-        size: (u16, u16),
-    ) -> bool {
+    fn ready(&self, key: &ViewerKey, entry: &ContextEntry, quote: QuoteStyle, size: Room) -> bool {
         self.viewers.get(key).is_some_and(|kept| {
             kept.entry == *entry && kept.quote == quote && kept.laid_out.0 == size
         })
@@ -307,13 +359,7 @@ impl Viewers {
     /// entry shown goes first, or goes first in the queue while the cap's
     /// jobs run on threads of their own. This runs on every draw while
     /// the entry is not ready, so a job freed of the cap starts then.
-    fn request(
-        &mut self,
-        key: &ViewerKey,
-        entry: &ContextEntry,
-        quote: QuoteStyle,
-        size: (u16, u16),
-    ) {
+    fn request(&mut self, key: &ViewerKey, entry: &ContextEntry, quote: QuoteStyle, size: Room) {
         let current = self
             .viewers
             .get(key)
@@ -354,7 +400,7 @@ impl Viewers {
         key: &ViewerKey,
         entry: &ContextEntry,
         quote: QuoteStyle,
-        size: (u16, u16),
+        size: Room,
         kept: Option<Kept>,
     ) {
         #[cfg(test)]
@@ -391,7 +437,7 @@ impl Viewers {
         key: &ViewerKey,
         entry: &ContextEntry,
         quote: QuoteStyle,
-        size: (u16, u16),
+        size: Room,
         kept: Option<Kept>,
     ) -> Job {
         noted_job(
@@ -436,9 +482,11 @@ impl Viewers {
         let dropped = self.ahead.retain(|job| keys.contains(&job.key));
         forget_dropped(&mut self.loading, &dropped);
         self.window = Some(keys.clone());
-        let Some(size) = size.filter(|_| self.loads_ahead) else {
+        let Some((width, height)) = size.filter(|_| self.loads_ahead) else {
             return;
         };
+        // What loads ahead shows in a pane, with its caption.
+        let size = Room::pane(width, height);
 
         // The queue stays locked while it is rebuilt, so its thread cannot
         // take a job between the look at what waits and the new queue: a
@@ -501,13 +549,7 @@ impl Viewers {
     /// With input waiting behind the draw, there is no wait: the next
     /// draw replaces this one at once. The job keeps its wait for the
     /// first draw without input.
-    fn wait_for(
-        &mut self,
-        key: &ViewerKey,
-        entry: &ContextEntry,
-        quote: QuoteStyle,
-        size: (u16, u16),
-    ) {
+    fn wait_for(&mut self, key: &ViewerKey, entry: &ContextEntry, quote: QuoteStyle, size: Room) {
         if self.input_pending && self.skips_wait_for_input {
             return;
         }
@@ -731,7 +773,7 @@ impl Viewers {
         self.ahead
             .queued_jobs()
             .into_iter()
-            .map(|(key, ticket, size)| (key.entry, ticket, size))
+            .map(|(key, ticket, size)| (key.entry, ticket, (size.width, size.height)))
             .collect()
     }
 
@@ -764,7 +806,7 @@ fn noted_job(
     key: &ViewerKey,
     entry: &ContextEntry,
     quote: QuoteStyle,
-    size: (u16, u16),
+    size: Room,
     kept: Option<Kept>,
 ) -> Job {
     *next_ticket += 1;
@@ -801,7 +843,10 @@ fn viewer_for(
     home: Option<&Path>,
 ) -> Box<dyn Viewer> {
     match entry {
-        ContextEntry::Image(image) => Box::new(image_content(image, images, home)),
+        ContextEntry::Image(image) => match image.shown_caption() {
+            Some(caption) => Box::new(captioned_content(image, caption, images, quote, home)),
+            None => Box::new(image_content(image, images, home)),
+        },
         ContextEntry::Code(code) => Box::new(code_content(code, home)),
         ContextEntry::Markdown(markdown) => Box::new(markdown_content(markdown, quote, home)),
         ContextEntry::Diff(diff) => Box::new(diff_content(diff, home)),
@@ -907,6 +952,179 @@ impl Viewer for Picture {
     /// The offset of an image is always zero, as it never scrolls.
     fn draw(&mut self, area: Rect, buf: &mut Buffer, _offset: Offset) -> Option<PlacedImage> {
         self.image.draw(area, buf)
+    }
+}
+
+// ---------------------------------------------------------------------
+// Images with a caption
+// ---------------------------------------------------------------------
+
+/// The fewest rows an image keeps above its caption. Where the caption
+/// leaves fewer, the pane shows the caption alone, and `z` the image.
+const MIN_IMAGE_ROWS: usize = 3;
+
+/// What stands in the image's place while its caption shows alone.
+const IMAGE_ON_Z: &str = "z shows the image";
+
+/// The viewer of an image entry with a caption (ADR 69): the image scaled
+/// to the rows the caption leaves, a blank row and the caption, rendered
+/// like a Markdown entry, so the two always show together and nothing
+/// scrolls. A caption that leaves the image too few rows shows alone, under
+/// a dim note that `z` shows the image, and scrolls where it is taller
+/// than the body. The full-screen view lays it out alone: the image, or
+/// the card of a file that cannot be shown.
+struct Captioned {
+    shown: Shown,
+    caption: Markdown,
+    note: Placeholder,
+    layout: CaptionLayout,
+}
+
+/// What a captioned image shows in the picture's place.
+enum Shown {
+    Picture(Picture),
+    /// The card of an image file that cannot be shown.
+    Card(Card),
+}
+
+/// How a captioned image was last laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptionLayout {
+    /// The picture or the card alone, as without a caption.
+    Alone,
+    /// The picture in its first `rows` rows, a blank row and the caption.
+    /// A picture that failed to encode takes no rows, and then no blank
+    /// row either.
+    Fit { rows: u16 },
+    /// A head of `rows` rows, the card or the note in the picture's place,
+    /// a blank row and the caption, which scroll together.
+    Stacked { rows: usize },
+}
+
+/// The viewer of the image entry `entry` with the caption `caption`, whose
+/// quotes show in `quote`. The home folder `home` shows as `~` in the path
+/// of an image that cannot be shown.
+fn captioned_content(
+    entry: &ImageEntry,
+    caption: &str,
+    images: &Images,
+    quote: QuoteStyle,
+    home: Option<&Path>,
+) -> Captioned {
+    let shown = match load(entry, images) {
+        Ok(image) => Shown::Picture(Picture {
+            image,
+            enlarge: entry.enlarge,
+        }),
+        Err(unreadable) => Shown::Card(unreadable.card(home)),
+    };
+    Captioned {
+        shown,
+        caption: markdown_viewer::caption(caption, quote),
+        note: Placeholder::note(IMAGE_ON_Z),
+        layout: CaptionLayout::Alone,
+    }
+}
+
+impl Viewer for Captioned {
+    fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
+        let caption = self.caption.lay_out(width, height).lines;
+        // Raw HTML alone renders to nothing, and nothing takes no rows.
+        if caption == 0 {
+            return self.lay_out_alone(width, height);
+        }
+        let head = match &mut self.shown {
+            Shown::Card(card) => card.lay_out_at_top(width).lines,
+            Shown::Picture(picture) => {
+                let left = usize::from(height).saturating_sub(caption + 1);
+                if left >= MIN_IMAGE_ROWS {
+                    let left = u16::try_from(left).expect("fewer rows than the body has");
+                    picture.lay_out(width, left);
+                    let rows = picture.image.size().map_or(0, |size| size.height);
+                    self.layout = CaptionLayout::Fit { rows };
+                    let blank = usize::from(rows > 0);
+                    return ContentSize {
+                        lines: usize::from(rows) + blank + caption,
+                        columns: usize::from(width),
+                    };
+                }
+                // Nothing shows the picture now, so its encoding goes.
+                picture.image.release();
+                self.note.lay_out(width, height).lines
+            }
+        };
+        self.layout = CaptionLayout::Stacked { rows: head };
+        ContentSize {
+            lines: head + 1 + caption,
+            columns: usize::from(width),
+        }
+    }
+
+    fn lay_out_alone(&mut self, width: u16, height: u16) -> ContentSize {
+        self.layout = CaptionLayout::Alone;
+        match &mut self.shown {
+            Shown::Picture(picture) => picture.lay_out(width, height),
+            Shown::Card(card) => card.lay_out(width, height),
+        }
+    }
+
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
+        let (image, caption_row) = match self.layout {
+            CaptionLayout::Alone => {
+                return match &mut self.shown {
+                    Shown::Picture(picture) => picture.draw(area, buf, offset),
+                    Shown::Card(card) => card.draw(area, buf, offset),
+                };
+            }
+            // The content fits the body, so it never scrolls.
+            CaptionLayout::Fit { rows } => {
+                let image = match &mut self.shown {
+                    Shown::Picture(picture) if rows > 0 => {
+                        let picture_area = Rect {
+                            height: rows.min(area.height),
+                            ..area
+                        };
+                        picture.draw(picture_area, buf, Offset::default())
+                    }
+                    Shown::Picture(_) | Shown::Card(_) => None,
+                };
+                let below = if rows > 0 { usize::from(rows) + 1 } else { 0 };
+                (image, below)
+            }
+            CaptionLayout::Stacked { rows } => {
+                let head: &mut dyn Viewer = match &mut self.shown {
+                    Shown::Card(card) => card,
+                    Shown::Picture(_) => &mut self.note,
+                };
+                if offset.top < rows {
+                    let shown = u16::try_from(rows - offset.top).unwrap_or(u16::MAX);
+                    let head_area = Rect {
+                        height: shown.min(area.height),
+                        ..area
+                    };
+                    head.draw(head_area, buf, offset);
+                }
+                (None, rows + 1)
+            }
+        };
+        // The caption starts `caption_row` lines into the content, which
+        // the pane may have scrolled past.
+        let skipped = u16::try_from(caption_row.saturating_sub(offset.top)).unwrap_or(u16::MAX);
+        if skipped < area.height {
+            let caption_area = Rect {
+                y: area.y + skipped,
+                height: area.height - skipped,
+                ..area
+            };
+            let top = offset.top.saturating_sub(caption_row);
+            self.caption
+                .draw(caption_area, buf, Offset { top, left: 0 });
+        }
+        image
+    }
+
+    fn failed(&self) -> bool {
+        matches!(self.shown, Shown::Card(_))
     }
 }
 
@@ -2536,6 +2754,235 @@ mod tests {
             .expect("image written");
         serde_json::from_value(serde_json::json!({"type": "image", "path": path}))
             .expect("test entry parses")
+    }
+
+    // -----------------------------------------------------------------
+    // Captions
+    // -----------------------------------------------------------------
+
+    /// The red square of [`picture`] at `path`, with `caption`.
+    fn captioned(directory: &tempfile::TempDir, caption: &str) -> ContextEntry {
+        let ContextEntry::Image(mut image) = picture(directory, "a.png") else {
+            unreachable!("a picture is an image entry");
+        };
+        image.caption = Some(caption.to_owned());
+        ContextEntry::Image(image)
+    }
+
+    /// The viewer of `entry` in half blocks, as a job builds it.
+    fn built_alone(entry: &ContextEntry) -> Box<dyn Viewer> {
+        viewer_for(entry, &Images::half_blocks(), COLOURED, None)
+    }
+
+    /// The rows of `buf` that show some of the red picture.
+    fn red_rows(buf: &Buffer) -> Vec<u16> {
+        (0..buf.area.height)
+            .filter(|&y| {
+                (0..buf.area.width).any(|x| {
+                    let cell = &buf[(x, y)];
+                    cell.fg == ratatui::style::Color::Rgb(255, 0, 0)
+                        || cell.bg == ratatui::style::Color::Rgb(255, 0, 0)
+                })
+            })
+            .collect()
+    }
+
+    /// `viewer` laid out and drawn into `width`×`height` cells from line
+    /// `top` on: the size it took, its rows as text and the rows of the
+    /// picture.
+    fn shown(
+        viewer: &mut dyn Viewer,
+        width: u16,
+        height: u16,
+        top: usize,
+    ) -> (ContentSize, Vec<String>, Vec<u16>) {
+        let size = viewer.lay_out(width, height);
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        viewer.draw(area, &mut buf, Offset { top, left: 0 });
+        let rows = (0..height).map(|y| row(&buf, y)).collect();
+        (size, rows, red_rows(&buf))
+    }
+
+    #[test]
+    fn a_caption_shows_whole_under_the_image_it_shrinks() {
+        // A square takes twice as many columns as rows at 10×20 pixels a
+        // cell: 20 columns are 10 rows, which a 12-row body keeps beside a
+        // blank row and the caption's line.
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewer = built_alone(&captioned(&directory, "Draft 3"));
+
+        let (size, rows, red) = shown(viewer.as_mut(), 20, 12, 0);
+
+        assert_eq!(red, (0..10).collect::<Vec<_>>());
+        assert_eq!(rows[10], "");
+        assert_eq!(rows[11], "Draft 3");
+        assert_eq!(size.lines, 12, "nothing to scroll");
+    }
+
+    #[test]
+    fn a_caption_renders_like_a_markdown_entry() {
+        // A single newline joins the lines, and raw HTML is left out.
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewer = built_alone(&captioned(&directory, "a\nb <b>x</b>"));
+
+        let (_, rows, _) = shown(viewer.as_mut(), 20, 12, 0);
+
+        assert_eq!(rows[11], "a b x");
+    }
+
+    #[test]
+    fn a_caption_too_tall_for_the_image_shows_alone_and_scrolls() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let items: Vec<String> = (1..=12).map(|n| format!("- {n:02}")).collect();
+        let mut viewer = built_alone(&captioned(&directory, &items.join("\n")));
+
+        let (size, rows, red) = shown(viewer.as_mut(), 20, 10, 0);
+        assert_eq!(red, Vec::<u16>::new(), "no image");
+        assert_eq!(&rows[..3], ["z shows the image", "", "• 01"]);
+        assert_eq!(size.lines, 14, "the note, a blank row and 12 items");
+
+        let (_, rows, _) = shown(viewer.as_mut(), 20, 10, 5);
+        assert_eq!(rows[0], "• 04", "the caption scrolls");
+    }
+
+    #[test]
+    fn the_image_shows_while_the_caption_leaves_it_three_rows() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewer = built_alone(&captioned(&directory, "Draft 3"));
+
+        // Five rows: three for the image, a blank one and the caption's.
+        let (_, rows, red) = shown(viewer.as_mut(), 20, 5, 0);
+        assert_eq!(red, [0, 1, 2]);
+        assert_eq!(rows[4], "Draft 3");
+
+        // Four rows leave the image two, too few for it.
+        let (_, rows, red) = shown(viewer.as_mut(), 20, 4, 0);
+        assert_eq!(red, Vec::<u16>::new());
+        assert_eq!(rows, ["z shows the image", "", "Draft 3", ""]);
+    }
+
+    #[test]
+    fn a_blank_caption_shows_the_image_alone() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewer = built_alone(&captioned(&directory, "  \n "));
+
+        let (size, _, red) = shown(viewer.as_mut(), 20, 12, 0);
+
+        assert_eq!(red, (0..10).collect::<Vec<_>>());
+        assert_eq!(size.lines, 12, "the body, as for any image");
+    }
+
+    #[test]
+    fn a_caption_that_renders_to_nothing_shows_the_image_alone() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewer = built_alone(&captioned(&directory, "<!-- x -->"));
+
+        let (size, _, red) = shown(viewer.as_mut(), 20, 12, 0);
+
+        assert_eq!(red, (0..10).collect::<Vec<_>>());
+        assert_eq!(size.lines, 12, "no blank row for a caption of no rows");
+    }
+
+    #[test]
+    fn the_full_screen_view_from_a_pane_lays_the_image_out_alone() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewer = built_alone(&captioned(&directory, "Draft 3"));
+        let area = Rect::new(0, 0, 24, 12);
+        let mut buf = Buffer::empty(area);
+
+        let size = viewer.lay_out_alone(24, 12);
+        viewer.draw(area, &mut buf, Offset::default());
+
+        assert_eq!(size.lines, 12);
+        assert_eq!(
+            red_rows(&buf),
+            (0..12).collect::<Vec<_>>(),
+            "the whole body"
+        );
+        assert!(!buf_text(&buf).contains("Draft 3"), "no caption");
+    }
+
+    #[test]
+    fn a_caption_whose_image_failed_to_encode_starts_at_the_top() {
+        let mut viewer = Captioned {
+            shown: Shown::Picture(Picture {
+                image: Image::failed(&Images::half_blocks()),
+                enlarge: true,
+            }),
+            caption: markdown_viewer::caption("Draft 3", COLOURED),
+            note: Placeholder::note(IMAGE_ON_Z),
+            layout: CaptionLayout::Alone,
+        };
+
+        let (size, rows, _) = shown(&mut viewer, 20, 12, 0);
+
+        assert_eq!(rows[0], "Draft 3");
+        assert_eq!(size.lines, 1);
+    }
+
+    #[test]
+    fn a_caption_shown_alone_lets_the_kitty_image_go() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let images = Images::kitty();
+        let mut viewer = viewer_for(&captioned(&directory, "Draft 3"), &images, COLOURED, None);
+        viewer.lay_out(20, 12);
+        assert_eq!(images.held(), [1]);
+
+        viewer.lay_out(20, 4);
+
+        assert_eq!(images.dropped(), [1], "the caption shows alone");
+    }
+
+    /// Every row of `buf` as text.
+    fn buf_text(buf: &Buffer) -> String {
+        (0..buf.area.height)
+            .map(|y| row(buf, y))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn an_unreadable_image_shows_its_card_and_the_caption_below_it() {
+        let card_rows = |viewer: &mut dyn Viewer| -> usize {
+            let (_, rows, _) = shown(viewer, 40, 30, 0);
+            rows.iter()
+                .rposition(|row| row.contains('╰'))
+                .expect("the card shows")
+                + 1
+        };
+        let entry = |caption: &str| {
+            entry(&format!(
+                r#"{{"type": "image", "path": "/nowhere/a.png", "caption": {caption:?}}}"#
+            ))
+        };
+
+        let mut viewer = built_alone(&entry("Draft 3"));
+        let card = card_rows(viewer.as_mut());
+        let (size, rows, _) = shown(viewer.as_mut(), 40, 30, 0);
+        assert!(viewer.failed(), "the header marks it");
+        assert_eq!(rows[card], "");
+        assert_eq!(rows[card + 1], "Draft 3");
+        assert_eq!(size.lines, card + 2);
+
+        // A caption that does not fit under the card scrolls with it.
+        let items: Vec<String> = (1..=12).map(|n| format!("- {n:02}")).collect();
+        let mut viewer = built_alone(&entry(&items.join("\n")));
+        let (size, _, _) = shown(viewer.as_mut(), 40, 10, 0);
+        assert_eq!(size.lines, card + 13);
+
+        // The full-screen view from a pane shows the card as an image
+        // without a caption shows it.
+        let area = Rect::new(0, 0, 40, 30);
+        let draw_alone = |viewer: &mut dyn Viewer| {
+            let mut buf = Buffer::empty(area);
+            let size = viewer.lay_out_alone(40, 30);
+            viewer.draw(area, &mut buf, Offset::default());
+            (size, buf)
+        };
+        let (size, buf) = draw_alone(viewer.as_mut());
+        let (bare_size, bare) = draw_alone(built_alone(&entry("")).as_mut());
+        assert_eq!((size, buf), (bare_size, bare));
     }
 
     #[test]

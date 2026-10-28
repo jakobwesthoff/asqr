@@ -43,6 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a refusal changes nothing. `--force` takes the old session also
   while the person is answering it, and moves an unread result of the
   new id aside.
+- An image context entry takes an optional `caption`: Markdown shown
+  under the image in the context pane, rendered like a Markdown entry.
+  The image is scaled to the rows the caption leaves, so both show
+  whole and nothing scrolls; a caption that leaves the image fewer than
+  3 rows shows alone under a dim `z shows the image` and scrolls where
+  it is taller than the pane. `z` from the pane shows the image alone;
+  from the one-line hint it shows image and caption first, then the
+  image alone. `asqr validate` and `asqr ask` warn about a caption above
+  1 MiB.
 
 ### Changed
 

@@ -165,6 +165,37 @@ impl Image {
         }
     }
 
+    /// The cells the image takes as last laid out; `None` before its first
+    /// encoding and once an encoding failed, when it draws nothing.
+    pub fn size(&self) -> Option<Size> {
+        match &self.state {
+            State::Ready {
+                encoding: Some(encoding),
+                ..
+            } => Some(encoding.encoded.size()),
+            State::Ready { encoding: None, .. } | State::Failed => None,
+        }
+    }
+
+    /// Lets the encoding go while nothing shows the image, and with it a
+    /// Kitty id, which goes for deleting after the frame (ADR 42). The
+    /// next lay-out encodes it again from the file as read.
+    pub fn release(&mut self) {
+        if let State::Ready { encoding, .. } = &mut self.state {
+            *encoding = None;
+        }
+    }
+
+    /// An image whose encoding failed, which draws nothing, for viewers
+    /// to be tested with one; no decodable file fails to encode on demand.
+    #[cfg(test)]
+    pub(crate) fn failed(images: &Images) -> Image {
+        Image {
+            images: images.clone(),
+            state: State::Failed,
+        }
+    }
+
     /// Whether the image holds a decoded picture.
     #[cfg(test)]
     pub(crate) fn holds_picture(&self) -> bool {

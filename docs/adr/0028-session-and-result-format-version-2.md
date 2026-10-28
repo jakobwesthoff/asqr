@@ -24,6 +24,8 @@ Amended by [64. Let the asker withdraw a session](0064-let-the-asker-withdraw-a-
 
 Amended by [68. Every item takes a note](0068-every-item-takes-a-note.md)
 
+Amended by [69. Show a Markdown caption with an image entry](0069-show-a-markdown-caption-with-an-image-entry.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

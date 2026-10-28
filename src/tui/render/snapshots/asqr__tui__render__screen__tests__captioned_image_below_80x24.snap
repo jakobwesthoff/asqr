@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: below
+---
+" asqr  pictured                                             default · 1 waiting "
+"                                                                                "
+"   ☐ q  ✔ Review                                                                "
+"──━━━━━─────────────────────────────────────────────────────────────────────────"
+" Which draft?                                                                   "
+" pick one                                                                       "
+"                                                                                "
+" ❯ ( ) 1. This one                                                              "
+"                                                                                "
+" Notes: —                                                                       "
+"                                                                                "
+" ── Draft 3 ─────────────────────────────────────────────────────────────────── "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" Prompt: a chameleon on a branch, warm light                                    "
+" ────────────────────────────────────────────────────────────────────────────── "
+"                                                                                "
+" ↑/↓  move   enter  pick   ←/→  question   tab  context   ?  help   q  quit     "

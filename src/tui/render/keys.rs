@@ -66,11 +66,29 @@ const FULL_SCREEN_HELP: &[(&str, &str)] = &[
     ("?", "this help"),
 ];
 
+/// The keys of the full-screen view reached from the one-line hint while
+/// it shows an image with its caption, where `z` shows the image alone
+/// first (ADR 69).
+const CAPTION_FULL_SCREEN_HELP: &[(&str, &str)] = &[
+    ("↑/↓, k/j", "scroll by line"),
+    ("←/→, h/l", "scroll sideways where lines are cut"),
+    ("pgup/pgdn", "scroll by page"),
+    ("ctrl-u/ctrl-d", "scroll by half a page"),
+    ("g/G", "to the top and the bottom, also home/end"),
+    ("o", "open an image in the system viewer"),
+    ("z", "the image alone"),
+    ("tab/esc/q", "leave the full screen"),
+    ("ctrl-c", "quit, keeping the draft"),
+    ("?", "this help"),
+];
+
 /// The keys that work where the focus is: the full-screen view's, the
 /// pane's while it has the focus, every key otherwise, with `version`,
 /// asqr's name and version, at the left of the frame's bottom edge.
 pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState, version: &str) {
-    let (keys, title) = if state.full_screen() {
+    let (keys, title) = if state.full_screen() && !state.full_screen_alone() {
+        (CAPTION_FULL_SCREEN_HELP, "Keys of the full-screen view")
+    } else if state.full_screen() {
         (FULL_SCREEN_HELP, "Keys of the full-screen view")
     } else if state.pane_focused() {
         (PANE_HELP, "Keys of the context pane")
@@ -227,11 +245,15 @@ fn pane_key_hints(state: &SessionState, page: Page) -> Vec<Hint> {
         hints.push(hint("o", "open", Rank::Cursor));
     }
     hints.push(HELP_HINT);
-    hints.push(if state.full_screen() {
-        hint("z/esc/q", "back", Rank::Leave)
+    if state.full_screen() && !state.full_screen_alone() {
+        // `z` shows the image alone before it goes back.
+        hints.push(hint("z", "image", Rank::Cursor));
+        hints.push(hint("esc/q", "back", Rank::Leave));
+    } else if state.full_screen() {
+        hints.push(hint("z/esc/q", "back", Rank::Leave));
     } else {
-        hint("tab/esc/q", "back", Rank::Leave)
-    });
+        hints.push(hint("tab/esc/q", "back", Rank::Leave));
+    }
     hints
 }
 
@@ -544,6 +566,59 @@ mod tests {
                 ("?", "help"),
                 ("z/esc/q", "back")
             ]
+        );
+    }
+
+    /// A question whose image has a caption, shown full screen from the
+    /// one-line hint, where image and caption show first.
+    fn caption_full_screen_from_the_hint() -> (SessionState, Page) {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "context": [{"type": "image", "path": "/pictures/p.png", "caption": "Draft 3"}],
+            "options": [{"id": "a", "label": "A"}]}]}"#;
+        let mut state =
+            SessionState::new("caption", serde_json::from_str(json).expect("parses"), None);
+        state.handle(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        let page = Page::default();
+        state.set_pane_page(Some(crate::tui::PanePage::shown(page)));
+        (state, page)
+    }
+
+    #[test]
+    fn the_full_screen_view_from_the_hint_says_that_z_shows_the_image() {
+        let (mut state, page) = caption_full_screen_from_the_hint();
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, Some(page))),
+            [
+                ("↑/↓", "scroll"),
+                ("pgup/pgdn", "page"),
+                ("ctrl-u/ctrl-d", "half page"),
+                ("o", "open"),
+                ("?", "help"),
+                ("z", "image"),
+                ("esc/q", "back")
+            ]
+        );
+
+        state.handle(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
+        assert_eq!(
+            pairs(&key_hints(&state, false, Some(page))).last(),
+            Some(&("z/esc/q", "back")),
+            "the image alone goes back on z"
+        );
+    }
+
+    #[test]
+    fn the_full_screen_help_from_the_hint_says_what_z_does_first() {
+        let (state, _) = caption_full_screen_from_the_hint();
+
+        let lines = smallest_help_lines(&state);
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("z ") && line.contains("the image alone")),
+            "{lines:?}"
         );
     }
 

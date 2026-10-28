@@ -217,6 +217,15 @@ fn shown_columns(line: &Line) -> usize {
     columns(line.to_string().trim_end())
 }
 
+impl Card {
+    /// Lays the card out for `width` columns at its own height, from the
+    /// top, where something else follows it below, such as an image's
+    /// caption: in a body of its height it would centre itself.
+    pub(super) fn lay_out_at_top(&mut self, width: u16) -> ContentSize {
+        self.lay_out(width, 0)
+    }
+}
+
 impl Viewer for Card {
     fn lay_out(&mut self, width: u16, height: u16) -> ContentSize {
         let most = width.min(CARD_WIDTH);

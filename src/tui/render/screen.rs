@@ -2636,6 +2636,120 @@ mod tests {
         assert!(green(&backend), "{backend}");
     }
 
+    /// A session with one question showing `image` with `caption`.
+    fn with_captioned_image(image: &str, caption: &str) -> App {
+        app(&[(
+            "pictured",
+            &format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "Which draft?", "kind": "single",
+                    "context": [{{"type": "image", "title": "Draft 3", "path": {image:?}, "caption": {caption:?}}}],
+                    "options": [{{"id": "a", "label": "This one"}}]}}]}}"#
+            ),
+        )])
+    }
+
+    /// Whether `backend` shows anything of a green picture.
+    fn shows_green(backend: &TestBackend) -> bool {
+        backend
+            .buffer()
+            .content()
+            .iter()
+            .any(|cell| [cell.bg, cell.fg].contains(&Color::Rgb(0, 255, 0)))
+    }
+
+    #[test]
+    fn a_caption_shows_under_its_image_in_the_pane() {
+        let file = png();
+        let app = with_captioned_image(
+            file.path().to_str().expect("UTF-8 path"),
+            "Prompt: a chameleon on a branch, warm light",
+        );
+
+        let below = screen(&app, 80, 24);
+        let (_, rows) = image_cells(&below);
+        let (_, caption) = find(below.buffer(), "Prompt: a chameleon");
+        assert_eq!(
+            caption,
+            rows.end() + 2,
+            "a blank row between them:\n{below}"
+        );
+        insta::assert_snapshot!("captioned_image_below_80x24", below);
+        insta::assert_snapshot!("captioned_image_beside_120x30", screen(&app, 120, 30));
+    }
+
+    #[test]
+    fn a_caption_too_long_for_its_image_shows_alone_and_names_z() {
+        let file = png();
+        let items: Vec<String> = (1..=12).map(|n| format!("- note {n}")).collect();
+        let app =
+            with_captioned_image(file.path().to_str().expect("UTF-8 path"), &items.join("\n"));
+
+        let backend = screen(&app, 80, 24);
+
+        assert!(
+            backend.to_string().contains("z shows the image"),
+            "{backend}"
+        );
+        insta::assert_snapshot!("caption_alone_80x24", backend);
+    }
+
+    #[test]
+    fn z_from_a_pane_lays_the_same_image_out_alone() {
+        let file = png();
+        let mut app =
+            with_captioned_image(file.path().to_str().expect("UTF-8 path"), "Draft 3 notes");
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+        let shown = screen_handing_on_pane(&mut app, &mut view, 120, 30);
+        assert!(shown.to_string().contains("Draft 3 notes"), "{shown}");
+
+        // A green picture under the same path would show only if the file
+        // were read again.
+        image::RgbImage::from_pixel(160, 160, image::Rgb([0, 255, 0]))
+            .save(file.path())
+            .expect("png is written");
+        keys(&mut app, "z");
+        let full = screen_handing_on_pane(&mut app, &mut view, 120, 30);
+
+        assert!(!shows_green(&full), "the image as read first:\n{full}");
+        assert!(
+            !full.to_string().contains("Draft 3 notes"),
+            "no caption:\n{full}"
+        );
+        image_cells(&full);
+        insta::assert_snapshot!("captioned_image_full_screen_120x30", full);
+    }
+
+    #[test]
+    fn z_from_the_hint_shows_the_caption_then_the_image_alone() {
+        let file = png();
+        let mut app =
+            with_captioned_image(file.path().to_str().expect("UTF-8 path"), "Draft 3 notes");
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+        let hint = screen_handing_on_pane(&mut app, &mut view, 80, 19);
+        assert!(
+            !hint.to_string().contains("Draft 3 notes"),
+            "only the hint:\n{hint}"
+        );
+
+        keys(&mut app, "z");
+        let first = screen_handing_on_pane(&mut app, &mut view, 80, 19);
+        assert!(first.to_string().contains("Draft 3 notes"), "{first}");
+        assert!(first.to_string().contains(" z  image "), "{first}");
+        insta::assert_snapshot!("captioned_image_full_screen_from_the_hint_80x19", first);
+
+        keys(&mut app, "z");
+        let second = screen_handing_on_pane(&mut app, &mut view, 80, 19);
+        assert!(!second.to_string().contains("Draft 3 notes"), "{second}");
+
+        keys(&mut app, "z");
+        let back = screen_handing_on_pane(&mut app, &mut view, 80, 19);
+        assert!(
+            !back.to_string().contains("Draft 3 notes"),
+            "back at the hint:\n{back}"
+        );
+        assert!(!app.active().expect("waiting").full_screen());
+    }
+
     /// A session with one question showing `image` at its natural size.
     fn with_image_kept_small(image: &str) -> App {
         app(&[(

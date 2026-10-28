@@ -170,7 +170,11 @@ such as a file name:
 - `image`: `path` (required), an image file. `enlarge` (optional,
   default `true`): `false` keeps the image at its natural size where it
   fits, in the pane and full screen, instead of scaling it up; a larger
-  image still shrinks to fit (ADR 32).
+  image still shrinks to fit (ADR 32). `caption` (optional): Markdown
+  shown under the image in the context pane, rendered like the content
+  of a `markdown` entry, inline only; a caption that is empty or only
+  whitespace is none (section 8.8, ADR 69). Other entry types take no
+  caption.
 - `code`: text shown exactly as written and highlighted, like a fenced
   code block: source code, a log, terminal output, a configuration file
   or the source of a Markdown file. From the file at `path` or inline in
@@ -297,7 +301,8 @@ add optional fields.
 - about a `code`, `markdown`, `ansi` or `diff` entry above 1 MiB, from
   its file or inline; for a diff, both sides count together, and for an
   `ansi` entry its escape sequences count. asqr still shows it.
-  Image entries get no such warning.
+  Image files get no such warning; an image entry's `caption` above
+  1 MiB does.
 - about fields of earlier format versions (section 3.6).
 - about `"note": false` on a question or an info item, which is ignored,
   as every question takes a note (section 3.2).
@@ -1265,7 +1270,13 @@ The context pane:
   focused pane. The key bar shows the pane's keys with `z/esc/q back`.
   The help is titled "Keys of the full-screen view" and lists the
   pane's scroll keys, `o`, `ctrl-c`, `?` and `z/tab/esc/q  leave the
-  full screen`.
+  full screen`. An image entry with a caption shows its image alone
+  there when `z` came from a pane, which showed the caption. Where only
+  the one-line hint shows (section 7.4), `z` shows image and caption by
+  the rule of section 8.8 at the full-screen size, the next `z` the image
+  alone and the one after that leaves; the key bar then names `z  image`
+  and `esc/q  back`, and the help `z  the image alone` and `tab/esc/q
+  leave the full screen`.
 
 Overlays and dialogs:
 
@@ -1632,7 +1643,9 @@ Context appears only when a question or one of its options has some
   blanks included, and its rules and edge turn yellow; the position
   stays dim.
 - The full-screen view (`z`) shows the pane with the ledge it has beside
-  the question: `╭`, left edge and `╰`.
+  the question: `╭`, left edge and `╰`. An image with a caption shows
+  alone there, apart from the first step from the one-line hint
+  (section 7.6).
 - Below the header, a viewer shows the entry (sections 8.4 to 8.8).
 - Every entry keeps its scroll position while its session waits: moving
   to an option with another entry shows that entry where the person
@@ -1803,9 +1816,20 @@ scrolling.
   that time are lost. An answer that begins later reaches asqr as typed
   keys, where its digits can pick options.
 - An image is scaled to fill the pane as far as its proportions allow,
-  a small one included, and so is the `z` view. An image entry with
-  `enlarge: false` (section 3.3) keeps its natural size in both, and
-  only shrinks when it does not fit.
+  a small one included, and so is the `z` view, apart from the rows a
+  caption takes. An image entry with `enlarge: false` (section 3.3)
+  keeps its natural size in both, and only shrinks when it does not fit.
+- An image entry with a caption (section 3.3) shows the caption under
+  the image, after a blank row, wrapped at the pane's width and rendered
+  as a Markdown entry is (section 8.7). The image is scaled to the rows
+  the caption leaves, so image and caption always show together and
+  nothing scrolls. Where that leaves the image fewer than 3 rows, the
+  pane shows the caption alone under a dim `z shows the image` and a
+  blank row, and scrolls only where the caption is taller than the pane.
+  An image that cannot be shown puts its card (section 8.3) in the
+  image's place, at the card's height, and card and caption scroll
+  together where they do not fit. A caption that renders to nothing,
+  such as an HTML comment, leaves the image as without one.
 - An image is scaled to its cells with a filter that mixes the pixels
   each one covers. An image the protocol fails to encode stays empty,
   and the log says why, once.

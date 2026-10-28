@@ -45,6 +45,10 @@ the general help's key column leaves its longest description one line on
 the smallest screen, and the key bar names `ctrl-u/ctrl-d` and leaves it
 out before `n`
 
+Amended by [69. Show a Markdown caption with an image entry](0069-show-a-markdown-caption-with-an-image-entry.md):
+the full-screen view shows a captioned image alone, and from the
+one-line hint first with its caption
+
 ## Context
 
 The context area beside or below the question (ADR 30) shows entries of

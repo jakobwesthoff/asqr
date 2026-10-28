@@ -23,7 +23,7 @@ use std::thread;
 use patine::QuoteStyle;
 use tracing::Dispatch;
 
-use super::viewer::{ContentSize, Viewer, ViewerKey};
+use super::viewer::{ContentSize, Room, Viewer, ViewerKey};
 use crate::format::ContextEntry;
 use crate::graphics::Images;
 
@@ -49,7 +49,7 @@ pub(super) struct Job {
     pub(super) ticket: u64,
     pub(super) entry: ContextEntry,
     pub(super) quote: QuoteStyle,
-    pub(super) size: (u16, u16),
+    pub(super) size: Room,
     /// A viewer built before, to be laid out again for another size, or
     /// `None` to build one.
     pub(super) viewer: Option<Box<dyn Viewer>>,
@@ -66,7 +66,7 @@ pub(super) struct Loaded {
     pub(super) ticket: u64,
     pub(super) entry: ContextEntry,
     pub(super) quote: QuoteStyle,
-    pub(super) size: (u16, u16),
+    pub(super) size: Room,
     pub(super) viewer: Box<dyn Viewer>,
     pub(super) content: ContentSize,
     pub(super) shown: bool,
@@ -101,7 +101,16 @@ impl Job {
                 tools.home.as_deref(),
             )
         });
-        let content = viewer.lay_out(self.size.0, self.size.1);
+        let Room {
+            width,
+            height,
+            alone,
+        } = self.size;
+        let content = if alone {
+            viewer.lay_out_alone(width, height)
+        } else {
+            viewer.lay_out(width, height)
+        };
         Loaded {
             key: self.key,
             ticket: self.ticket,
@@ -264,7 +273,7 @@ impl Ahead {
     /// The key, ticket and size of each job not started yet, in their
     /// order.
     #[cfg(test)]
-    pub(super) fn queued_jobs(&self) -> Vec<(ViewerKey, u64, (u16, u16))> {
+    pub(super) fn queued_jobs(&self) -> Vec<(ViewerKey, u64, Room)> {
         self.lock()
             .jobs
             .iter()
@@ -477,7 +486,7 @@ mod tests {
             entry: serde_json::from_str(r#"{"type": "code", "content": "x"}"#)
                 .expect("test entry parses"),
             quote: QuoteStyle::DimBar,
-            size: (40, 10),
+            size: Room::pane(40, 10),
             viewer: None,
             shown: false,
             dispatch: tracing::dispatcher::get_default(Clone::clone),

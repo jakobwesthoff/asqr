@@ -55,6 +55,24 @@ pub struct ImageEntry {
     #[serde(default = "enlarge_by_default", skip_serializing_if = "is_true")]
     #[schemars(extend("default" = true))]
     pub enlarge: bool,
+
+    /// Markdown shown under the image in the context pane, which scales the
+    /// image to the rows the caption leaves, rendered like the content of a
+    /// markdown entry: a single newline joins the lines, and raw HTML is
+    /// left out. One short line, two at most. A caption that is empty or
+    /// only whitespace is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+}
+
+impl ImageEntry {
+    /// The caption to show, if the entry has one that is more than
+    /// whitespace.
+    pub fn shown_caption(&self) -> Option<&str> {
+        self.caption
+            .as_deref()
+            .filter(|caption| !caption.trim().is_empty())
+    }
 }
 
 fn enlarge_by_default() -> bool {
@@ -222,6 +240,18 @@ impl ContextEntry {
         }
     }
 
+    /// The caption of an image entry that shows one; other entries take
+    /// none.
+    pub fn shown_caption(&self) -> Option<&str> {
+        match self {
+            ContextEntry::Image(image) => image.shown_caption(),
+            ContextEntry::Code(_)
+            | ContextEntry::Markdown(_)
+            | ContextEntry::Diff(_)
+            | ContextEntry::Ansi(_) => None,
+        }
+    }
+
     pub fn title(&self) -> Option<&str> {
         match self {
             ContextEntry::Image(image) => image.title.as_deref(),
@@ -251,6 +281,7 @@ mod tests {
                 title: None,
                 path: "/shots/login.png".into(),
                 enlarge: true,
+                caption: None,
             })
         );
         assert_eq!(
@@ -368,6 +399,16 @@ mod tests {
         assert_eq!(
             error.to_string(),
             format!("unknown variant ``, expected one of {}", listed.join(", "))
+        );
+    }
+
+    #[test]
+    fn an_image_entry_writes_its_caption_back() {
+        let entry = json!({"type": "image", "path": "/a.png", "caption": "**Draft 3**: warmer"});
+
+        assert_eq!(
+            serde_json::to_value(parse(entry.clone())).expect("entry serializes"),
+            entry
         );
     }
 
