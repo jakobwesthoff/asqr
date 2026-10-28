@@ -72,8 +72,11 @@ exits with an error is of kind `Other`; with no editor found it is
   off, shows the cursor, leaves the alternate screen and raw mode, and
   notes the terminal's settings. After the editor it puts those settings
   back before raw mode goes on, as crossterm takes whatever is set then
-  for the settings to give back on quitting, enters the alternate screen,
-  turns paste and focus reports on and lets the key reader go on.
+  for the settings to give back on quitting, enters the alternate screen
+  and turns paste and focus reports on. Its last step, in raw mode and on
+  Unix, drops what the terminal sends until 150 ms pass without input, at
+  most for a second, as an answer to a query the editor sent the terminal
+  would reach the key reader as keys. Then the key reader goes on.
 - **The key reader** reads on a thread that looks at a gate between its
   polls of 50 ms; a pause waits until the thread stopped at the gate,
   where it calls neither `poll` nor `read`.
@@ -99,6 +102,9 @@ exits with an error is of kind `Other`; with no editor found it is
   the field unchanged.
 - A kill while the editor runs ends asqr only once the editor exited.
 - Keys typed between `ctrl-g` and the pause reach asqr after the editor.
+- After the editor, on Unix, asqr waits at least 150 ms and at most a
+  second, and drops what the terminal sends then, answers to the
+  editor's queries and keys typed alike.
 - On 80 columns beside a context pane, a field's key bar shows `ctrl-g
   editor` and leaves out `tab  context`; on 60 columns it leaves out
   `ctrl-g  editor`.

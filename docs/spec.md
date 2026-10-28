@@ -1450,9 +1450,12 @@ line (ADR 36).
   the editor (it leaves the alternate screen and raw mode, and stops
   reading the terminal's keys), and takes it back when the editor exits,
   drawing the screen afresh and sending its images, the title and the
-  progress again. While the editor runs asqr does nothing else: what
-  happens in the queue meanwhile shows after it. The file holds the
-  field's text, then:
+  progress again. On Unix, before it reads keys again, it drops what the
+  terminal sends until 150 ms pass without input, at most for a second,
+  as an answer to a query the editor sent the terminal would reach asqr
+  as keys; keys typed then are dropped too. While the editor runs asqr
+  does nothing else: what happens in the queue meanwhile shows after it.
+  The file holds the field's text, then:
 
   ```
   # ------------------------ >8 ------------------------

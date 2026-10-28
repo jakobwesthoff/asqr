@@ -562,6 +562,13 @@ trait TtyModes {
     /// and crossterm takes whatever is set when raw mode goes on for the
     /// settings to give back on quitting.
     fn restore_cooked(&mut self);
+    /// Drops what the terminal sends until 150 ms pass without input, at
+    /// most for a second: an answer to a query the editor sent the
+    /// terminal that arrives after the editor exited would reach the key
+    /// reader as keys. Keys typed meanwhile are dropped with it. Called in
+    /// raw mode, where the terminal hands each byte over as it comes
+    /// rather than a line at a time.
+    fn discard_late_input(&mut self);
 }
 
 /// The terminal's modes through crossterm and termios.
@@ -601,12 +608,24 @@ impl TtyModes for RealTty {
             }
         }
     }
+
+    // TODO: Windows drops nothing; `discard_late_answers` reads a Unix
+    // file descriptor.
+    fn discard_late_input(&mut self) {
+        #[cfg(unix)]
+        match discard_late_answers(io::stdin(), LATE_ANSWER_QUIET, LATE_ANSWER_CAP) {
+            Ok(0) => {}
+            Ok(bytes) => tracing::info!(bytes, "discarded input after the editor"),
+            Err(error) => tracing::warn!(%error, "could not discard input after the editor"),
+        }
+    }
 }
 
 /// Gives the terminal to `editor` and takes it back once it returned,
 /// whatever it returned. The terminal is given back as asqr found it,
 /// focus reports and bracketed paste off and the cursor showing, and set
-/// up again as at start; the next draw hides the cursor. A step that fails
+/// up again as at start; the next draw hides the cursor. What the terminal
+/// sends just after the editor is dropped. A step that fails
 /// is logged and the others go on, so the terminal is never left half set
 /// up.
 fn hand_over(
@@ -644,6 +663,9 @@ fn hand_over(
     if let Err(error) = taken_back {
         tracing::warn!(%error, "could not take the screen back from the editor");
     }
+    // Last, once raw mode is on and before the key reader goes on, which
+    // would take what the editor's queries got back for keys.
+    modes.discard_late_input();
     edited
 }
 
@@ -876,6 +898,10 @@ mod tests {
         fn restore_cooked(&mut self) {
             self.0.borrow_mut().push("<restore>".to_owned());
         }
+
+        fn discard_late_input(&mut self) {
+            self.0.borrow_mut().push("<discard>".to_owned());
+        }
     }
 
     #[test]
@@ -900,7 +926,7 @@ mod tests {
         assert_eq!(
             steps.borrow().concat(),
             "\x1b[?1004l\x1b[?2004l\x1b[?25h\x1b[?1049l<raw off><save><editor>\
-             <restore><raw on>\x1b[?1049h\x1b[?2004h\x1b[?1004h"
+             <restore><raw on>\x1b[?1049h\x1b[?2004h\x1b[?1004h<discard>"
         );
     }
 

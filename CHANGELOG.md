@@ -92,6 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that would be lost stays in its file, which the status line names. A
   field's key bar names `ctrl-g  editor`, and the help names it on the
   line of `esc`. While the editor runs, ctrl-c there does not quit asqr.
+  On Unix, after the editor exits, asqr drops what the terminal sends
+  until 150 ms pass without input, at most for a second, so a late
+  answer to the editor's queries does not become keys; keys typed in
+  that moment are lost.
 
 ### Changed
 
