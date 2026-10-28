@@ -67,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whose file has left the inbox no longer saves a draft for it. When the
   lock stays taken for about 2 seconds, `ask` refuses with "the queue is
   busy", and asqr keeps the answers and says so.
+- A session whose file changes on disk before the person has had it on
+  screen, such as one waiting behind the session being answered, is
+  reloaded without the message "<title> changed on disk and was
+  reloaded", which would tell them nothing. Before, the message came
+  along and stayed hidden under the confirmation of the session finished
+  before it, and the next key cleared both.
 
 ## [0.13.1] - 2026-10-22
 

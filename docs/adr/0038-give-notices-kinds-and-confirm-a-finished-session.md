@@ -10,6 +10,8 @@ Amends [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md)
 
 Amended by [49. Present problems through one component in three forms](0049-present-problems-through-one-component-in-three-forms.md)
 
+Amended by [65. Announce a reload only for a session the person has seen](0065-announce-a-reload-only-for-a-session-the-person-has-seen.md)
+
 ## Context
 
 The line above the key bar shows a notice about the queue or a message

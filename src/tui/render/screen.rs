@@ -96,6 +96,9 @@ pub struct Drawn {
     /// [`App::set_dialog_shown`]: only a dialog the person saw takes the
     /// next key.
     pub invalid_dialog: bool,
+    /// Whether the frame showed the active session with no overlay or
+    /// dialog over it, for [`App::set_session_shown`].
+    pub session_shown: bool,
 }
 
 /// What the screen shows besides the state, and what it keeps from one
@@ -393,6 +396,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 pane_page: Some(pane_page),
                 field_shape,
                 invalid_dialog: false,
+                session_shown: overlay.is_none(),
             };
             (drawn, hints, image)
         }
@@ -429,6 +433,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         draw_invalid(above, frame.buffer_mut(), invalid);
         view.overlay_shown = true;
         drawn.invalid_dialog = true;
+        drawn.session_shown = false;
     }
 
     // The overlays drew over the Kitty image's placeholders, and the
@@ -2313,9 +2318,40 @@ mod tests {
         assert_drawn(closed.buffer(), Glyphs::Quadrant, false, rect);
     }
 
+    /// A frame shows the session only with nothing over it and at a size
+    /// asqr draws it at.
+    #[test]
+    fn a_frame_says_whether_it_showed_the_session() {
+        let shown = |app: &App, width, height| {
+            let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+            measured_in(app, &mut view, width, height).1.session_shown
+        };
+        let opened = |keys_pressed: &str| {
+            let mut app = follow_up();
+            keys(&mut app, keys_pressed);
+            app
+        };
+
+        assert!(shown(&follow_up(), 80, 24), "the tab");
+        assert!(shown(&opened("z"), 80, 24), "the full-screen view");
+        for overlay in ["?", "i", "L"] {
+            assert!(!shown(&opened(overlay), 80, 24), "under {overlay}");
+        }
+        assert!(!shown(&follow_up(), 40, 10), "too small to draw");
+        assert!(!shown(&App::default(), 80, 24), "the empty queue");
+
+        let mut app = follow_up();
+        app.report_invalid(Invalid {
+            id: "broken".into(),
+            errors: vec!["no questions".into()],
+        });
+        assert!(!shown(&app, 80, 24), "under the dialog");
+    }
+
     #[test]
     fn a_reloaded_session_says_so_in_plain_text() {
         let mut app = app(&[("release", RELEASE)]);
+        app.set_session_shown(true);
         let replaced: Session = serde_json::from_str(RELEASE).expect("example parses");
         app.add(SessionState::new("release", replaced, None));
 
@@ -2751,6 +2787,7 @@ mod tests {
             app.set_pane_page(page);
         }
         app.set_dialog_shown(drawn.invalid_dialog);
+        app.set_session_shown(drawn.session_shown);
     }
 
     /// The help, the intro and the session list over the pane, and the

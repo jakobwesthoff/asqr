@@ -1427,8 +1427,16 @@ keeps the session and shows its own notice instead.
   position of every entry that reads as before (section 8.1). A row
   that is gone, such as an own answer turned off, gives way to the row
   in its place, or the last one when fewer are left, which is entered as
-  if the cursor moved there. The message "<title> changed on disk and
-  was reloaded" says so, with the id for a session without a title. An
+  if the cursor moved there. For a session the person has had on screen,
+  the message "<title> changed on disk and was reloaded" says so, with the
+  id for a session without a title. A session counts as on screen from the
+  first frame that shows it without an overlay or the dialog of an invalid
+  session over it. A session not on screen yet, such as one waiting behind
+  the session being answered, is reloaded without the message, as the
+  person never had it on screen and "was reloaded" tells them nothing. A
+  session reloaded after it showed, while the confirmation of a finished
+  session still covers its message, loses the message with the next key,
+  which clears both. An
   open intro overlay closes when the new file has no intro. A session
   list open while a session leaves keeps its cursor on a waiting
   session, and closes when none is left.

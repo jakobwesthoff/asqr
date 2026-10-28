@@ -206,6 +206,8 @@ pub struct SessionState {
     revision: u64,
     /// See [`Self::follows_title`].
     follows_title: Option<String>,
+    /// See [`Self::seen`].
+    seen: bool,
 }
 
 /// Whether `question` or any of its options has context.
@@ -280,6 +282,7 @@ impl SessionState {
             offsets: HashMap::new(),
             revision: 0,
             follows_title: None,
+            seen: false,
         };
         state.arrive();
         state
@@ -301,10 +304,15 @@ impl SessionState {
     /// same entry shows; another entry under them ends both, as the
     /// person did not choose to look at it. Each entry keeps its scroll
     /// position while it reads as before.
+    ///
+    /// A message says that the file was reloaded, but only for a session
+    /// the person has seen (see [`Self::seen`]): they never had any other
+    /// on screen, so "was reloaded" tells them nothing about it.
     pub fn replace_session(&mut self, session: Session) {
         let draft = self.to_draft();
         let mut replaced = SessionState::new(self.id.clone(), session, Some(&draft));
         replaced.revision = self.revision + 1;
+        replaced.seen = self.seen;
 
         if self.on_review() {
             replaced.tab = replaced.session.questions.len();
@@ -348,11 +356,29 @@ impl SessionState {
             .map(|(key, offset)| (*key, *offset))
             .collect();
 
-        replaced.message = Some(Notice::new(
-            Tone::Info,
-            format!("{} changed on disk and was reloaded", replaced.name()),
-        ));
+        if replaced.seen {
+            replaced.message = Some(Notice::new(
+                Tone::Info,
+                format!("{} changed on disk and was reloaded", replaced.name()),
+            ));
+        }
         *self = replaced;
+    }
+
+    /// Whether the person has had the session on screen: a frame showed it
+    /// as the active session, at asqr's minimum size or more, its tab or
+    /// its full-screen view with no overlay and no invalid session's dialog
+    /// over it. It stays seen while it waits, also across reloads. A
+    /// session that only waited in the queue is unseen, and so is one that
+    /// took over and was reloaded before a frame showed it, as when one
+    /// sync takes the session on screen out and reloads the next one.
+    pub fn seen(&self) -> bool {
+        self.seen
+    }
+
+    /// Notes that a frame showed the session (see [`Self::seen`]).
+    pub fn mark_seen(&mut self) {
+        self.seen = true;
     }
 
     /// Takes over the focus of `old`, the state this one replaces, on the
@@ -3493,8 +3519,46 @@ mod tests {
     }
 
     #[test]
+    fn a_session_not_yet_seen_is_reloaded_without_a_message() {
+        let mut state = state();
+        press(&mut state, "j");
+        let titled = SESSION.replacen(r#"{"asqr": 2,"#, r#"{"asqr": 2, "title": "Batch 3","#, 1);
+
+        state.replace_session(serde_json::from_str(&titled).expect("parses"));
+
+        assert!(!state.seen());
+        assert_eq!(state.message(), None);
+        assert_eq!(
+            (state.name(), state.revision(), state.row()),
+            ("Batch 3", 1, 1),
+            "the reload itself took effect"
+        );
+    }
+
+    #[test]
+    fn a_seen_session_stays_seen_across_reloads() {
+        let mut state = state();
+        state.mark_seen();
+
+        state.replace_session(serde_json::from_str(SESSION).expect("parses"));
+        press(&mut state, "j");
+        assert_eq!(state.message(), None, "a key clears the message");
+        state.replace_session(serde_json::from_str(SESSION).expect("parses"));
+
+        assert!(state.seen());
+        assert_eq!(
+            state.message(),
+            Some(&Notice::new(
+                Tone::Info,
+                "batch changed on disk and was reloaded"
+            ))
+        );
+    }
+
+    #[test]
     fn a_replaced_session_keeps_where_the_person_was_and_says_so() {
         let mut state = with_pane();
+        state.mark_seen();
         state.handle(code(KeyCode::PageDown));
         press(&mut state, "j");
         state.handle(code(KeyCode::PageDown));
@@ -3542,6 +3606,7 @@ mod tests {
     #[test]
     fn a_replaced_session_keeps_the_review_and_the_field_typed_in() {
         let mut state = state();
+        state.mark_seen();
         review_row(&mut state, Row::Reject);
         press(&mut state, "stale");
         let titled = SESSION.replacen(r#"{"asqr": 2,"#, r#"{"asqr": 2, "title": "Batch 3","#, 1);

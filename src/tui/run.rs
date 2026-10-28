@@ -154,6 +154,7 @@ where
             app.set_pane_page(page);
         }
         app.set_dialog_shown(drawn.invalid_dialog);
+        app.set_session_shown(drawn.session_shown);
         // A field entered from above finds its first row only in its first
         // draw, and its text cursor goes there; that draw showed it
         // elsewhere.
@@ -379,6 +380,45 @@ mod tests {
             harness.host.alerts.is_empty(),
             "waiting sessions are no news"
         );
+    }
+
+    /// A frame of the loop shows the active session, so its reload says
+    /// so; the session waiting behind it was never on screen and reloads
+    /// without a word.
+    #[test]
+    fn a_reload_names_itself_only_for_a_session_already_shown() {
+        let mut harness = Harness::new();
+        harness.put("a");
+        harness.put("b");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        harness
+            .run_started(&mut app, &mut inbox, vec![])
+            .expect("runs");
+        let inbox_dir = harness.location.inbox();
+        let rewrite = |id: &str, text: &str| {
+            let path = inbox_dir.join(format!("{id}.json"));
+            fs::write(path, SESSION.replace("Pick one", text)).expect("written");
+        };
+
+        rewrite("a", "Pick again");
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::InboxChanged])
+            .expect("runs");
+        let reloaded = "a changed on disk and was reloaded";
+        assert_eq!(
+            app.active()
+                .and_then(crate::tui::SessionState::message)
+                .map(|message| message.text.as_str()),
+            Some(reloaded)
+        );
+        assert!(harness.screen().contains(reloaded), "{}", harness.screen());
+
+        rewrite("b", "Pick later");
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::InboxChanged])
+            .expect("runs");
+        assert_eq!(app.sessions()[1].session().questions[0].text, "Pick later");
+        assert_eq!(app.sessions()[1].message(), None);
     }
 
     #[test]

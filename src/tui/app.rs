@@ -233,6 +233,14 @@ impl App {
         self.dialog_seen = shown;
     }
 
+    /// Takes whether the last frame showed the active session with nothing
+    /// over it, which makes the session seen (see [`SessionState::seen`]).
+    pub fn set_session_shown(&mut self, shown: bool) {
+        if shown && let Some(state) = self.sessions.get_mut(self.active) {
+            state.mark_seen();
+        }
+    }
+
     /// Closes the dialog in front if the last frame showed it, and says
     /// whether it did. The next dialog waits for a frame of its own.
     fn close_seen_dialog(&mut self) -> bool {
@@ -480,6 +488,24 @@ mod tests {
 
         assert_eq!(active_id(&app), Some("first"));
         assert_eq!(app.sessions().len(), 2);
+    }
+
+    #[test]
+    fn a_shown_frame_marks_only_the_active_session_seen() {
+        let mut app = app(&["first", "second"]);
+
+        app.set_session_shown(false);
+        assert!(app.sessions().iter().all(|state| !state.seen()));
+        app.set_session_shown(true);
+        assert_eq!(
+            app.sessions()
+                .iter()
+                .map(SessionState::seen)
+                .collect::<Vec<_>>(),
+            [true, false]
+        );
+
+        App::default().set_session_shown(true);
     }
 
     #[test]

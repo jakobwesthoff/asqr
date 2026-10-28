@@ -1211,6 +1211,49 @@ mod tests {
         assert_eq!(app.current_notice(), None);
     }
 
+    /// The session waiting behind the one answered was never on screen, so
+    /// its reload says nothing to the person and comes without a message.
+    #[test]
+    fn a_reload_of_a_session_not_yet_seen_brings_no_message() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let next = put(&location, "next.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let titled = SESSION.replacen(r#"{"asqr": 2,"#, r#"{"asqr": 2, "title": "Next","#, 1);
+        fs::write(&next, titled).expect("written");
+        inbox.sync(&mut app).expect("synced");
+
+        answer_and(&mut app, &mut inbox, false);
+
+        let state = app.active().expect("the next session takes over");
+        assert_eq!((state.id(), state.name()), ("next", "Next"));
+        assert_eq!(state.message(), None);
+        assert_notice(&app, Tone::Success, |text| {
+            text.starts_with("✔ sent \"batch\"")
+        });
+    }
+
+    /// One sync can take the session on screen out and reload the one that
+    /// takes over before any frame showed it.
+    #[test]
+    fn a_session_that_takes_over_and_is_reloaded_in_one_sync_brings_no_message() {
+        let (_scratch, location) = queue();
+        let batch = put(&location, "batch.json", SESSION);
+        let next = put(&location, "next.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        fs::remove_file(&batch).expect("removed");
+        let titled = SESSION.replacen(r#"{"asqr": 2,"#, r#"{"asqr": 2, "title": "Next","#, 1);
+        fs::write(&next, titled).expect("written");
+
+        inbox.sync(&mut app).expect("synced");
+
+        let state = app.active().expect("the next session takes over");
+        assert_eq!((state.id(), state.name()), ("next", "Next"));
+        assert_eq!(state.message(), None);
+    }
+
     #[test]
     fn a_session_changed_on_disk_is_not_sent_but_reloaded() {
         let (_scratch, location) = queue();
