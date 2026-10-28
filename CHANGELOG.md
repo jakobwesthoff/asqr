@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A removed line of a diff shows in a red fill and an added line in a
   green fill to the pane's edge, numbers and sign included, in place of
   red and green text. Changed lines show without syntax colours.
+- A question of a `kind` asqr does not know is refused with an error
+  that names the kind as not supported by this asqr and its version,
+  lists the supported kinds, and says that a newer asqr may support it.
+  New kinds are added within format version 2, as context entry types
+  are, so an asqr that runs while a newer one is installed can meet one.
+  `asqr validate` and `asqr ask` print it, and the dialog and the error
+  result of an invalid session in the queue carry it. Before, the
+  message was the parser's `unknown variant`.
 
 ## [0.13.1] - 2026-10-22
 

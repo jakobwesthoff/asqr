@@ -13,8 +13,8 @@ use std::fmt;
 use thiserror::Error;
 
 use super::{
-    CONTEXT_ENTRY_TYPES, ContextEntry, DiffSide, Kind, Length, MAX_SESSION_ID_BYTES, Question,
-    Session, is_valid_session_id, same_session_id,
+    CONTEXT_ENTRY_TYPES, ContextEntry, DiffSide, Kind, Length, MAX_SESSION_ID_BYTES,
+    QUESTION_KINDS, Question, Session, is_valid_session_id, same_session_id,
 };
 
 /// The only format version this asqr reads and writes.
@@ -116,9 +116,19 @@ pub enum Problem {
     #[error(
         "{0:?} is not supported by this asqr (version {version}), which supports {types}; a newer asqr may support it",
         version = env!("CARGO_PKG_VERSION"),
-        types = EntryTypeList
+        types = NameList(&CONTEXT_ENTRY_TYPES)
     )]
     UnknownEntryType(String),
+
+    /// A question of a kind this asqr does not know. New kinds are added
+    /// within format version 2 (ADR 61), so the kind may be one a newer
+    /// asqr shows.
+    #[error(
+        "{0:?} is not supported by this asqr (version {version}), which supports {kinds}; a newer asqr may support it",
+        version = env!("CARGO_PKG_VERSION"),
+        kinds = NameList(&QUESTION_KINDS)
+    )]
+    UnknownKind(String),
 
     /// A diff without sides, or with `path` or `content` on the entry
     /// itself. Both come from an agent that has not learned that asqr
@@ -130,14 +140,14 @@ pub enum Problem {
     DiffSides,
 }
 
-/// The entry types this asqr knows, written as a message lists them:
-/// `"image", "code", "markdown", "diff" and "ansi"`.
-struct EntryTypeList;
+/// Names this asqr knows, such as its entry types, written as a message
+/// lists them: `"image", "code", "markdown", "diff" and "ansi"`.
+struct NameList(&'static [&'static str]);
 
-impl fmt::Display for EntryTypeList {
+impl fmt::Display for NameList {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let last = CONTEXT_ENTRY_TYPES.len() - 1;
-        for (index, name) in CONTEXT_ENTRY_TYPES.iter().enumerate() {
+        let last = self.0.len() - 1;
+        for (index, name) in self.0.iter().enumerate() {
             let separator = match index {
                 0 => "",
                 _ if index == last => " and ",

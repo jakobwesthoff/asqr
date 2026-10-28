@@ -23,9 +23,9 @@ use super::{
 #[derive(Debug, Error)]
 pub enum ParseError {
     /// The file names a format version other than this asqr's, or has
-    /// entries whose `type` the parser would only report as unknown. Each
-    /// error says what to write instead, or that a newer asqr may know the
-    /// type.
+    /// questions whose `kind` or entries whose `type` the parser would only
+    /// report as unknown. Each error says what to write instead, or that a
+    /// newer asqr may know the kind or type.
     #[error("{}", .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
     Refused(Vec<ValidationError>),
 
@@ -84,8 +84,9 @@ impl std::fmt::Display for ShapeError {
 /// only mislead. An entry of `type: "text"`, a natural guess for an agent
 /// that wants to show text, would only be an unknown variant, while the
 /// error here says which of the two text types to pick. An entry of any
-/// other type this asqr does not know would be an unknown variant too,
-/// while the error here says that a newer asqr may support it. A version
+/// other type, or a question of a kind, this asqr does not know would be
+/// an unknown variant too, while the error here says that a newer asqr may
+/// support it. A version
 /// that is no unsigned integer, such as `2.0` or `"2"`, would only be a
 /// type error of the parser.
 pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
@@ -113,9 +114,9 @@ pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
             problem,
         }]));
     }
-    let refused_entries = refused_entries(&raw);
-    if !refused_entries.is_empty() {
-        return Err(ParseError::Refused(refused_entries));
+    let refused = refused_names(&raw);
+    if !refused.is_empty() {
+        return Err(ParseError::Refused(refused));
     }
     let session = serde_path_to_error::deserialize(raw.clone()).map_err(|error| {
         ParseError::Shape(ShapeError {
@@ -126,15 +127,17 @@ pub fn parse_session(bytes: &[u8]) -> Result<(Value, Session), ParseError> {
     Ok((raw, session))
 }
 
-/// An error for every context entry whose `type` is `"text"` or another
+/// An error for every question whose `kind` is a string this asqr does not
+/// know, and for every context entry whose `type` is `"text"` or another
 /// string this asqr does not know, on questions and options alike:
-/// question by question, the question's context before its options'.
+/// question by question, its kind, then its context, then its options'.
 ///
-/// A missing `type`, one that is no string, and a `context` that is no
-/// list are left to the parser, as none of them names a type.
-fn refused_entries(raw: &Value) -> Vec<ValidationError> {
+/// A missing `kind` or `type`, one that is no string, and a `context` that
+/// is no list are left to the parser, as none of them names a kind or a
+/// type.
+fn refused_names(raw: &Value) -> Vec<ValidationError> {
     let mut found = Vec::new();
-    let mut check = |holder: &Value, path: FieldPath| {
+    let check = |found: &mut Vec<ValidationError>, holder: &Value, path: FieldPath| {
         let entries = holder["context"].as_array().into_iter().flatten();
         for (index, entry) in entries.enumerate() {
             let problem = match entry["type"].as_str() {
@@ -153,10 +156,18 @@ fn refused_entries(raw: &Value) -> Vec<ValidationError> {
     let questions = raw["questions"].as_array().into_iter().flatten();
     for (index, question) in questions.enumerate() {
         let path = FieldPath::root("questions").index(index);
-        check(question, path.clone());
+        if let Some(kind) = question["kind"].as_str()
+            && !QUESTION_KINDS.contains(&kind)
+        {
+            found.push(ValidationError {
+                path: path.field("kind"),
+                problem: Problem::UnknownKind(kind.to_owned()),
+            });
+        }
+        check(&mut found, question, path.clone());
         let options = question["options"].as_array().into_iter().flatten();
         for (index, option) in options.enumerate() {
-            check(option, path.field("options").index(index));
+            check(&mut found, option, path.field("options").index(index));
         }
     }
     found
@@ -261,6 +272,11 @@ where
 {
     Ok(Option::<Vec<ContextEntry>>::deserialize(deserializer)?.unwrap_or_default())
 }
+
+/// The question kinds this asqr knows, as the file writes them. New kinds
+/// are added within format version 2 (ADR 61), so a file may name one a
+/// newer asqr knows.
+pub const QUESTION_KINDS: [&str; 3] = ["single", "multi", "text"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -602,6 +618,70 @@ mod tests {
         );
     }
 
+    /// The error for a question of kind `rank`, which this asqr does not
+    /// know, as a person reads it after the question's path.
+    fn rank_unknown() -> String {
+        format!(
+            r#""rank" is not supported by this asqr (version {}), which supports "single", "multi" and "text"; a newer asqr may support it"#,
+            env!("CARGO_PKG_VERSION")
+        )
+    }
+
+    #[test]
+    fn an_unknown_kind_is_refused_as_one_a_newer_asqr_may_support() {
+        let error = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "rank"}]}"#,
+        )
+        .expect_err("the unknown kind is refused");
+
+        assert_eq!(
+            error.to_string(),
+            format!("questions[0].kind: {}", rank_unknown())
+        );
+    }
+
+    #[test]
+    fn unknown_kinds_and_entry_types_are_listed_together() {
+        // Question by question: the kind first, then the question's
+        // context, then its options'.
+        let error = parse_session(
+            br#"{"asqr": 2, "questions": [
+                {"id": "q", "text": "?", "kind": "rank",
+                 "context": [{"type": "video", "content": "x"}]},
+                {"id": "r", "text": "?", "kind": "single",
+                 "options": [{"id": "a", "label": "A", "context": [{"type": "video", "content": "x"}]}]}]}"#,
+        )
+        .expect_err("the kind and both entries are refused");
+
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "questions[0].kind: {}; questions[0].context[0].type: {}; questions[1].options[0].context[0].type: {}",
+                rank_unknown(),
+                video_unknown(),
+                video_unknown()
+            )
+        );
+    }
+
+    #[test]
+    fn the_question_kinds_are_those_the_parser_knows() {
+        // serde lists every variant it knows, in their order, for a name it
+        // does not know. A kind missing from the list would be refused
+        // before the parser could read it.
+        let error = serde_json::from_value::<Kind>(serde_json::json!(""))
+            .expect_err("an empty kind is no variant");
+        let listed: Vec<String> = QUESTION_KINDS
+            .iter()
+            .map(|name| format!("`{name}`"))
+            .collect();
+
+        assert_eq!(
+            error.to_string(),
+            format!("unknown variant ``, expected one of {}", listed.join(", "))
+        );
+    }
+
     #[test]
     fn an_ansi_entry_is_a_known_type() {
         let parsed = parse_session(
@@ -632,9 +712,13 @@ mod tests {
 
     #[test]
     fn a_file_that_is_no_session_says_so() {
+        // A missing kind, or one that is no string, names no kind a newer
+        // asqr could know, so the parser reports it.
         for bytes in [
             &b"[1, 2"[..],
             br#"{"asqr": 2, "questions": [{"id": "q"}]}"#,
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?"}]}"#,
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": 3}]}"#,
             b"{}",
         ] {
             let error = parse_session(bytes).expect_err("not a session");

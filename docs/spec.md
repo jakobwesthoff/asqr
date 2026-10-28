@@ -115,8 +115,9 @@ Text fields (`intro`, question `text`, option `label` and option
 - `id` (required, unique within the session), `text` (required),
   `header` (optional, a short label for the question's tab).
 - `kind`: `single` (pick one), `multi` (pick several, with optional `min`
-  and `max`) or `text` (typed answer, no options). Format version 2 has
-  no other kinds.
+  and `max`) or `text` (typed answer, no options). New kinds are added
+  within format version 2, so an asqr can meet a kind a newer asqr knows
+  (section 3.4).
 - `options` (required for `single` and `multi`, not allowed for `text`):
   each option has an `id` (unique within the question), a `label`, the
   short handle the person picks the option by, shown in full and
@@ -230,6 +231,13 @@ fields, these are validation errors:
   checked before the rest of the file, and every such entry is listed.
   A missing `type`, or one that is no string, leaves the file not shaped
   like a session.
+- a question whose `kind` is a string other than `single`, `multi` and
+  `text`: the error names the kind as not supported by this asqr and its
+  version, lists the kinds, and says that a newer asqr may support it.
+  Like the version and the entry types, it is checked before the rest of
+  the file, and every such question is listed, its kind before the
+  entries of its context. A missing `kind`, or one that is no string,
+  leaves the file not shaped like a session.
 - in the inbox: an `id` that differs from the file stem
 
 A file that is not JSON, or not shaped like a session, gets the message
@@ -611,11 +619,11 @@ is reported with a notice.
 A session of an earlier format version is invalid in the same way
 (section 3.6).
 
-So is a session with a context entry of a type this asqr does not know.
-The asqr that shows a queue runs as a long-lived process: when asqr is
-updated while it runs, the new `asqr ask` accepts a session with a type
-the running asqr does not know, and its error result says that a newer
-asqr may support the type.
+So is a session with a context entry of a type, or a question of a kind,
+this asqr does not know. The asqr that shows a queue runs as a
+long-lived process: when asqr is updated while it runs, the new `asqr
+ask` accepts a session with a type or a kind the running asqr does not
+know, and its error result says that a newer asqr may support it.
 
 ### 5.9 Cleaning up
 
@@ -1713,8 +1721,9 @@ The skill teaches:
 - as a variant for agents that run commands in the background: `asqr ask
   --wait` in the background
 - the exit codes, the "no asqr is watching" warning and an error naming
-  a context type the skill describes as not supported, both of which the
-  agent should pass on to the person, and `asqr status --json` to find
+  a context type or a question kind the skill describes as not
+  supported, both of which the agent should pass on to the person, and
+  `asqr status --json` to find
   sessions it lost track of
 - longer sessions: batches, follow-up rounds with `follows`, and keeping
   a record of the answers

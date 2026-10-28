@@ -627,6 +627,32 @@ mod tests {
     }
 
     #[test]
+    fn a_question_of_an_unknown_kind_gets_an_error_result_naming_it() {
+        // An asqr that runs while a newer one is installed meets kinds the
+        // newer `asqr ask` accepted (ADR 61).
+        let (_scratch, location) = queue();
+        put(
+            &location,
+            "ranked.json",
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "rank"}]}"#,
+        );
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        let errors = &app.invalid_shown().expect("a dialog").errors;
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(
+            errors[0].starts_with(r#"questions[0].kind: "rank" is not supported by this asqr"#),
+            "{errors:?}"
+        );
+        assert_eq!(
+            result(&location, "ranked").error.as_deref(),
+            Some(errors[0].as_str())
+        );
+    }
+
+    #[test]
     fn a_session_of_format_version_1_still_waiting_gets_an_error_result() {
         // Sessions an earlier asqr would have shown can wait in a queue
         // across an upgrade. Their askers learn from the result what to

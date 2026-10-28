@@ -233,10 +233,11 @@ Schema. `asqr ask` refuses an invalid file with exit code 11 and lists the
 errors on stderr, so nothing broken reaches the person. Files of an
 earlier format version, such as `"asqr": 1`, are refused as well: write
 them in the format shown here. A context entry of a `type` this asqr
-does not know is refused too, with the types it supports. When that
-error names a type described here, the asqr that read the file is older
-than this skill: tell the person, who can update or restart it, and ask
-again once they have.
+does not know is refused too, with the types it supports, and so is a
+question of a `kind` it does not know, with the kinds it supports. When
+such an error names a type or a kind described here, the asqr that read
+the file is older than this skill: tell the person, who can update or
+restart it, and ask again once they have.
 
 ## Asking and waiting
 

@@ -287,6 +287,32 @@ fn refuses_an_unknown_entry_type_as_one_a_newer_asqr_may_support() {
 }
 
 #[test]
+fn refuses_an_unknown_kind_as_one_a_newer_asqr_may_support() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "rank.json",
+        r#"{"asqr": 2, "id": "rank", "questions": [{"id": "q", "text": "?", "kind": "rank"}]}"#,
+    );
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(11));
+    assert_eq!(
+        stderr(&output),
+        format!(
+            r#"error: questions[0].kind: "rank" is not supported by this asqr (version {}), which supports "single", "multi" and "text"; a newer asqr may support it
+"#,
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+    assert!(!sandbox.queue_dir().join("inbox").join("rank.json").exists());
+}
+
+#[test]
 fn refuses_an_invalid_session() {
     let sandbox = Sandbox::new();
     let file = sandbox.file("bad.json", r#"{"asqr": 3, "id": "bad", "questions": []}"#);

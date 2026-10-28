@@ -223,6 +223,32 @@ fn validate_refuses_an_unknown_entry_type_as_one_a_newer_asqr_may_support() {
 }
 
 #[test]
+fn validate_refuses_an_unknown_kind_as_one_a_newer_asqr_may_support() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "rank.json",
+        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "rank"}]}"#,
+    );
+
+    let output = sandbox
+        .asqr()
+        .arg("validate")
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(11));
+    assert_eq!(
+        stderr(&output),
+        format!(
+            r#"error: questions[0].kind: "rank" is not supported by this asqr (version {}), which supports "single", "multi" and "text"; a newer asqr may support it
+"#,
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+}
+
+#[test]
 fn validate_warns_without_failing() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(

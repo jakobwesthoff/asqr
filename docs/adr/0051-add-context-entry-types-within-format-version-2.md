@@ -8,6 +8,8 @@ Accepted
 
 Amends [28. Session and result format version 2](0028-session-and-result-format-version-2.md)
 
+Amended by [61. Add question kinds within format version 2](0061-add-question-kinds-within-format-version-2.md)
+
 ## Context
 
 Format version 2 has four context entry types: `image`, `code`,

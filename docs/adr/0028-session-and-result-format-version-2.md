@@ -16,6 +16,8 @@ Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-w
 
 Amended by [60. Highlight a diff's unchanged lines and fill its changed ones](0060-highlight-a-diffs-unchanged-lines-and-fill-its-changed-ones.md)
 
+Amended by [61. Add question kinds within format version 2](0061-add-question-kinds-within-format-version-2.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,
