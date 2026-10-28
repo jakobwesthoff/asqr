@@ -17,11 +17,7 @@ use image::ImageError;
 
 use super::problem::Card;
 use super::source_line::Note;
-
-/// How much of a file a viewer reads. The read happens while the person
-/// waits for the screen, and a viewer keeps all of it, so a log that grew
-/// to gigabytes must not stall asqr or fill its memory.
-pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
+pub use crate::format::MAX_BYTES;
 
 /// What a viewer shows above the text when it got only the first
 /// [`MAX_BYTES`] of a file.

@@ -11,6 +11,7 @@ mod id;
 mod result;
 mod schema;
 mod session;
+mod text_limits;
 mod validate;
 mod warnings;
 
@@ -20,5 +21,6 @@ pub use id::*;
 pub use result::*;
 pub use schema::*;
 pub use session::*;
+pub use text_limits::*;
 pub use validate::*;
 pub use warnings::*;
