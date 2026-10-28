@@ -24,10 +24,10 @@ use super::patine_adapter::source_line;
 use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
-use super::viewer::{Content, ContentSize, Viewer};
+use super::viewer::{Content, ContentSize, DiffShape, Viewer};
 use crate::format::{DiffEntry, DiffSide};
 use crate::graphics::PlacedImage;
-use crate::tui::Offset;
+use crate::tui::{DiffLayout, Offset};
 
 /// Unchanged lines shown before and after each change, as `diff -u` does.
 const CONTEXT_LINES: usize = 3;
@@ -98,24 +98,73 @@ fn text_of(side: Option<&Source>) -> Option<&str> {
 // The diff's rows
 // ---------------------------------------------------------------------
 
-/// The rows of a diff, and how many digits its line numbers take.
+/// The note under the last line of a side that ends without a newline.
+const NO_NEWLINE: Note = Note::new("no newline at end of file");
+
+/// The rows of a diff, unified and side by side, and how many digits its
+/// line numbers take. Both layouts are made when the viewer is built, so
+/// a switch between them only lays the viewer out again.
 pub(super) struct Rows {
+    /// The rows of the unified diff.
     rows: Vec<Row>,
+    /// The lines the rows show, each once, so the unified rows and the
+    /// pairs of side by side share them.
+    lines: Vec<LineRow>,
     digits: usize,
+    /// The rows side by side.
+    pairs: Vec<Pair>,
+    /// For each unified row, the pair that shows it.
+    pair_of_row: Vec<usize>,
+    /// For each pair, the first unified row it shows.
+    first_row_of_pair: Vec<usize>,
+    /// Whether the last lay-out was side by side.
+    side_by_side: bool,
+    /// The width of the body of the last lay-out.
+    width: u16,
 }
 
 enum Row {
-    /// A line of either side, or of both for an unchanged one.
-    Line {
-        tag: ChangeTag,
-        old: Option<usize>,
-        new: Option<usize>,
-        text: SourceLine,
-    },
+    /// A line of either side, or of both for an unchanged one, by its
+    /// index into the lines.
+    Line(usize),
     /// The gap between two hunks.
     Separator,
     /// Something to know about the diff that is no line of it.
     Note(Note),
+    /// [`NO_NEWLINE`] under the line before it, which side by side shows in
+    /// that line's column.
+    NoNewline,
+}
+
+/// One line of the diff: a removed, an added or an unchanged one, with its
+/// number on each side it is on.
+struct LineRow {
+    tag: ChangeTag,
+    old: Option<usize>,
+    new: Option<usize>,
+    text: SourceLine,
+}
+
+/// A row of the diff side by side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pair {
+    /// What the old and the new column show; `None` leaves a column
+    /// blank, facing a line the other side has more of.
+    Sides {
+        old: Option<Half>,
+        new: Option<Half>,
+    },
+    /// A separator or a note across both columns, by its unified row.
+    Whole(usize),
+}
+
+/// What one column of a [`Pair`] shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Half {
+    /// The line with this index into the lines.
+    Line(usize),
+    /// [`NO_NEWLINE`], under that side's last line.
+    NoNewline,
 }
 
 impl Rows {
@@ -131,25 +180,41 @@ impl Rows {
             (Some(_), None) => Some(Note::new("deleted file")),
             _ => None,
         };
-        let (change, digits) = Rows::change(old, new, created_or_deleted.is_some(), language);
-        let rows = created_or_deleted
+        let (change, lines, digits) =
+            Rows::change(old, new, created_or_deleted.is_some(), language);
+        let rows: Vec<Row> = created_or_deleted
             .map(Row::Note)
             .into_iter()
             .chain(between_cut_notes(cut, change, Row::Note))
             .collect();
-        Rows { rows, digits }
+        let SideBySide {
+            pairs,
+            pair_of_row,
+            first_row_of_pair,
+        } = pairs_of(&rows, &lines);
+        Rows {
+            rows,
+            lines,
+            digits,
+            pairs,
+            pair_of_row,
+            first_row_of_pair,
+            side_by_side: false,
+            width: 0,
+        }
     }
 
-    /// The rows of the change from `old` to `new`, and how many digits
-    /// their line numbers take. Text alike on both sides of a new or
-    /// deleted file is an empty file.
+    /// The rows of the change from `old` to `new`, the lines they show,
+    /// and how many digits their line numbers take. Text alike on both
+    /// sides of a new or deleted file is an empty file.
     fn change(
         old: Option<&str>,
         new: Option<&str>,
         created_or_deleted: bool,
         language: Option<&str>,
-    ) -> (Vec<Row>, usize) {
+    ) -> (Vec<Row>, Vec<LineRow>, usize) {
         let mut rows = Vec::new();
+        let mut lines = Vec::new();
         // The two sides count together, as read, as the size warning counts
         // them, and a diff past the limit shows plain as a code entry does.
         let size = old.map_or(0, str::len) + new.map_or(0, str::len);
@@ -178,7 +243,7 @@ impl Rows {
                 "no changes"
             })));
             rows.extend(endings.map(Row::Note));
-            return (rows, 0);
+            return (rows, lines, 0);
         }
         rows.extend(endings.map(Row::Note));
 
@@ -202,15 +267,16 @@ impl Rows {
             }
             for op in hunk {
                 for change in diff.iter_changes(op) {
-                    rows.push(line_row(&change, &highlighted));
+                    rows.push(Row::Line(lines.len()));
+                    lines.push(line_row(&change, &highlighted));
                     if newline_differs && change.missing_newline() {
-                        rows.push(Row::Note(Note::new("no newline at end of file")));
+                        rows.push(Row::NoNewline);
                     }
                 }
             }
         }
         let longest = diff.old_len().max(diff.new_len());
-        (rows, longest.to_string().len())
+        (rows, lines, longest.to_string().len())
     }
 
     /// The columns before a line's text: both numbers, each followed by a
@@ -218,20 +284,85 @@ impl Rows {
     fn gutter_width(&self) -> usize {
         2 * (self.digits + 1) + 2
     }
+
+    /// Draws `row` of the unified diff into `area`, its text from column
+    /// `left` on. Separators and notes show the same side by side, across
+    /// both columns.
+    fn draw_row(&self, row: &Row, area: Rect, buf: &mut Buffer, left: usize) {
+        let width = usize::from(area.width);
+        match row {
+            Row::Separator => {
+                let separator = SEPARATOR.repeat(width);
+                buf.set_stringn(area.x, area.y, separator, width, theme::secondary());
+            }
+            Row::Note(note) => note.render(area, buf),
+            Row::NoNewline => NO_NEWLINE.render(area, buf),
+            Row::Line(index) => {
+                let line = &self.lines[*index];
+                let digits = self.digits;
+                let numbers = format!(
+                    "{:>digits$} {:>digits$} ",
+                    number(line.old),
+                    number(line.new)
+                );
+                draw_line(line, numbers, area, buf, left);
+            }
+        }
+    }
+}
+
+/// `number` as the gutter shows it, or nothing for a side without the line.
+fn number(number: Option<usize>) -> String {
+    number.map_or_else(String::new, |number| number.to_string())
+}
+
+/// Draws `line` into `area` behind the gutter `numbers`, then its sign and
+/// a blank, the text from column `left` on. A changed line fills the whole
+/// of `area`, numbers, cut markers and the blanks after its text included,
+/// so the change stands out at once. Dim is lifted in the fill, as under
+/// the focus fill.
+fn draw_line(line: &LineRow, numbers: String, area: Rect, buf: &mut Buffer, left: usize) {
+    let sign = match line.tag {
+        ChangeTag::Equal => " ",
+        ChangeTag::Delete => "-",
+        ChangeTag::Insert => "+",
+    };
+    let gutter = Line::from(vec![
+        Span::styled(numbers, theme::secondary()),
+        Span::styled(sign, line_style(line.tag)),
+        Span::from(" "),
+    ]);
+    GutterRow {
+        gutter,
+        line: &line.text,
+        left,
+    }
+    .render(area, buf);
+    if line.tag != ChangeTag::Equal {
+        buf.set_style(
+            area,
+            line_style(line.tag)
+                .add_modifier(Modifier::REVERSED)
+                .remove_modifier(Modifier::DIM),
+        );
+    }
 }
 
 impl Viewer for Rows {
     /// Lines never wrap, so only notes, which never scroll, depend on the
     /// width.
     fn lay_out(&mut self, width: u16, _height: u16) -> ContentSize {
+        self.side_by_side = false;
+        self.width = width;
         let columns = self
             .rows
             .iter()
             .map(|row| match row {
-                Row::Line { text, .. } => self.gutter_width() + text.width(),
+                Row::Line(index) => self.gutter_width() + self.lines[*index].text.width(),
                 // The separator fills whatever width the body has.
                 Row::Separator => 0,
                 Row::Note(note) => note.columns(usize::from(width)),
+                Row::NoNewline => NO_NEWLINE.columns(usize::from(width)),
             })
             .max()
             .unwrap_or(0);
@@ -241,56 +372,82 @@ impl Viewer for Rows {
         }
     }
 
+    /// Lays the pairs out in two columns where the body has room for them,
+    /// and the unified rows where it has not. Both columns scroll sideways
+    /// together, as far as the line that runs furthest past its column
+    /// needs; separators and notes never scroll.
+    fn lay_out_side_by_side(&mut self, width: u16, height: u16) -> ContentSize {
+        if !self.fits_side_by_side(width) {
+            return self.lay_out(width, height);
+        }
+        self.side_by_side = true;
+        self.width = width;
+        let (old, _, new) = columns_of(Rect::new(0, 0, width, 1));
+        let gutter = self.half_gutter_width();
+        let (old_room, new_room) = (
+            usize::from(old.width) - gutter,
+            usize::from(new.width) - gutter,
+        );
+        let overflow = self
+            .pairs
+            .iter()
+            .map(|pair| match pair {
+                Pair::Sides { old, new } => self
+                    .overflow(*old, old_room)
+                    .max(self.overflow(*new, new_room)),
+                Pair::Whole(_) => 0,
+            })
+            .max()
+            .unwrap_or(0);
+        ContentSize {
+            lines: self.pairs.len(),
+            columns: usize::from(width) + overflow,
+        }
+    }
+
+    fn diff_shape(&self) -> Option<DiffShape> {
+        Some(DiffShape {
+            layout: if self.side_by_side {
+                DiffLayout::SideBySide
+            } else {
+                DiffLayout::Unified
+            },
+            fits_side_by_side: self.fits_side_by_side(self.width),
+        })
+    }
+
+    /// A unified row shows side by side in the pair that holds it; a pair
+    /// shows unified from the first row it holds, so a row facing a blank
+    /// keeps its line on top. A top past the end counts as the last row.
+    fn top_from(&self, top: usize, from: DiffLayout) -> usize {
+        let last = |rows: &[usize]| rows.get(top.min(rows.len().saturating_sub(1))).copied();
+        let translated = match (from, self.side_by_side) {
+            (DiffLayout::Unified, true) => last(&self.pair_of_row),
+            (DiffLayout::SideBySide, false) => last(&self.first_row_of_pair),
+            _ => None,
+        };
+        translated.unwrap_or(top)
+    }
+
     /// Draws the rows from `offset.top` on, each line with its numbers in a
-    /// dim gutter and its sign after them.
+    /// dim gutter and its sign after them. Side by side, each line shows in
+    /// its side's column with its number there, and a dim divider stands
+    /// between the columns.
     fn draw(&mut self, area: Rect, buf: &mut Buffer, offset: Offset) -> Option<PlacedImage> {
-        let width = usize::from(area.width);
-        let digits = self.digits;
-        for (row_area, row) in rows_from(area, &self.rows, offset.top) {
-            match row {
-                Row::Separator => {
-                    let separator = SEPARATOR.repeat(width);
-                    buf.set_stringn(row_area.x, row_area.y, separator, width, theme::secondary());
-                }
-                Row::Note(note) => note.render(row_area, buf),
-                Row::Line {
-                    tag,
-                    old,
-                    new,
-                    text,
-                } => {
-                    let number = |number: &Option<usize>| {
-                        number.map_or_else(String::new, |number| number.to_string())
-                    };
-                    let numbers = format!("{:>digits$} {:>digits$} ", number(old), number(new));
-                    let sign = match tag {
-                        ChangeTag::Equal => " ",
-                        ChangeTag::Delete => "-",
-                        ChangeTag::Insert => "+",
-                    };
-                    let gutter = Line::from(vec![
-                        Span::styled(numbers, theme::secondary()),
-                        Span::styled(sign, line_style(*tag)),
-                        Span::from(" "),
-                    ]);
-                    GutterRow {
-                        gutter,
-                        line: text,
-                        left: offset.left,
-                    }
-                    .render(row_area, buf);
-                    // A changed line fills its whole row, numbers, cut
-                    // markers and the blanks after its text included, so
-                    // the change stands out at once. Dim is lifted in the
-                    // fill, as under the focus fill.
-                    if *tag != ChangeTag::Equal {
-                        buf.set_style(
-                            row_area,
-                            line_style(*tag)
-                                .add_modifier(Modifier::REVERSED)
-                                .remove_modifier(Modifier::DIM),
-                        );
-                    }
+        if !self.side_by_side {
+            for (row_area, row) in rows_from(area, &self.rows, offset.top) {
+                self.draw_row(row, row_area, buf, offset.left);
+            }
+            return None;
+        }
+        for (row_area, pair) in rows_from(area, &self.pairs, offset.top) {
+            match pair {
+                Pair::Whole(row) => self.draw_row(&self.rows[*row], row_area, buf, offset.left),
+                Pair::Sides { old, new } => {
+                    let (old_area, divider, new_area) = columns_of(row_area);
+                    self.draw_half(*old, |line| line.old, old_area, buf, offset.left);
+                    buf.set_string(divider.x, divider.y, "│", theme::secondary());
+                    self.draw_half(*new, |line| line.new, new_area, buf, offset.left);
                 }
             }
         }
@@ -298,19 +455,225 @@ impl Viewer for Rows {
     }
 }
 
+// ---------------------------------------------------------------------
+// Side by side
+// ---------------------------------------------------------------------
+
+/// The fewest columns of text each side keeps beside its gutter. Below
+/// that, two columns cannot show a line, and the diff shows unified.
+const MIN_TEXT: usize = 8;
+
+/// The rows of a diff side by side, and how they relate to the unified
+/// rows.
+struct SideBySide {
+    pairs: Vec<Pair>,
+    pair_of_row: Vec<usize>,
+    first_row_of_pair: Vec<usize>,
+}
+
+/// One line of a run of changed lines, by its unified row and its index
+/// into the lines, with the unified row of the note under it, if any.
+struct Item {
+    row: usize,
+    line: usize,
+    note: Option<usize>,
+}
+
+/// The pairs that show the unified `rows`, whose lines are `lines`, side
+/// by side. An unchanged line shows on both sides. Within a run of changed
+/// lines the k-th removed line faces the k-th added one, whatever order
+/// the run has them in, and the side with more lines faces blanks with the
+/// rest. The note of a line without a newline takes a row of its own
+/// under that line, in its column, so the other side's lines after it
+/// keep facing blanks. Separators and notes span both columns.
+fn pairs_of(rows: &[Row], lines: &[LineRow]) -> SideBySide {
+    let mut side_by_side = SideBySide {
+        pairs: Vec::new(),
+        pair_of_row: vec![0; rows.len()],
+        first_row_of_pair: Vec::new(),
+    };
+    let (mut old, mut new): (Vec<Item>, Vec<Item>) = (Vec::new(), Vec::new());
+    // Whether the changed line seen last was a removed one: a note under
+    // it belongs to its side.
+    let mut last_old = false;
+    for (row, shown) in rows.iter().enumerate() {
+        match shown {
+            Row::Line(line) => {
+                let item = Item {
+                    row,
+                    line: *line,
+                    note: None,
+                };
+                match lines[*line].tag {
+                    ChangeTag::Delete => {
+                        old.push(item);
+                        last_old = true;
+                    }
+                    ChangeTag::Insert => {
+                        new.push(item);
+                        last_old = false;
+                    }
+                    ChangeTag::Equal => {
+                        side_by_side.flush(&mut old, &mut new);
+                        let half = Some(Half::Line(*line));
+                        side_by_side.push(Pair::Sides {
+                            old: half,
+                            new: half,
+                        });
+                        side_by_side.show(row, row);
+                    }
+                }
+            }
+            Row::NoNewline => {
+                let side = if last_old { &mut old } else { &mut new };
+                if let Some(item) = side.last_mut() {
+                    item.note = Some(row);
+                }
+            }
+            Row::Separator | Row::Note(_) => {
+                side_by_side.flush(&mut old, &mut new);
+                side_by_side.push(Pair::Whole(row));
+                side_by_side.show(row, row);
+            }
+        }
+    }
+    side_by_side.flush(&mut old, &mut new);
+    side_by_side
+}
+
+impl SideBySide {
+    fn push(&mut self, pair: Pair) {
+        self.pairs.push(pair);
+    }
+
+    /// Notes that the last pair shows the unified `row`, and that `first`
+    /// is the first unified row it shows.
+    fn show(&mut self, row: usize, first: usize) {
+        let pair = self.pairs.len() - 1;
+        self.pair_of_row[row] = pair;
+        if self.first_row_of_pair.len() == pair {
+            self.first_row_of_pair.push(first);
+        }
+    }
+
+    /// Pairs the removed lines `old` with the added lines `new` of a run,
+    /// and empties both for the next run.
+    fn flush(&mut self, old: &mut Vec<Item>, new: &mut Vec<Item>) {
+        for index in 0..old.len().max(new.len()) {
+            let (old, new) = (old.get(index), new.get(index));
+            self.push(Pair::Sides {
+                old: old.map(|item| Half::Line(item.line)),
+                new: new.map(|item| Half::Line(item.line)),
+            });
+            let first = [old, new]
+                .into_iter()
+                .flatten()
+                .map(|item| item.row)
+                .min()
+                .expect("a pair of a run has a line on one side at least");
+            for item in [old, new].into_iter().flatten() {
+                self.show(item.row, first);
+            }
+            if let Some(note) = old.and_then(|item| item.note) {
+                self.push(Pair::Sides {
+                    old: Some(Half::NoNewline),
+                    new: None,
+                });
+                self.show(note, note);
+            }
+            if let Some(note) = new.and_then(|item| item.note) {
+                self.push(Pair::Sides {
+                    old: None,
+                    new: Some(Half::NoNewline),
+                });
+                self.show(note, note);
+            }
+        }
+        old.clear();
+        new.clear();
+    }
+}
+
+impl Rows {
+    /// The columns before a line's text in one column side by side: its
+    /// number and a blank, then the sign and a blank.
+    fn half_gutter_width(&self) -> usize {
+        self.digits + 3
+    }
+
+    /// Whether a body `width` columns wide has room for two columns, each
+    /// with its gutter and [`MIN_TEXT`] columns of text, and the divider.
+    fn fits_side_by_side(&self, width: u16) -> bool {
+        usize::from(width) > 2 * (self.half_gutter_width() + MIN_TEXT)
+    }
+
+    /// The width of the text of `half` beyond the `room` its column leaves
+    /// for text, which sideways scrolling has to reach.
+    fn overflow(&self, half: Option<Half>, room: usize) -> usize {
+        match half {
+            Some(Half::Line(line)) => self.lines[line].text.width().saturating_sub(room),
+            Some(Half::NoNewline) | None => 0,
+        }
+    }
+
+    /// Draws `half` into its column `area`, the line's number on that side
+    /// taken by `number`; `None` leaves the column blank.
+    fn draw_half(
+        &self,
+        half: Option<Half>,
+        side: fn(&LineRow) -> Option<usize>,
+        area: Rect,
+        buf: &mut Buffer,
+        left: usize,
+    ) {
+        match half {
+            Some(Half::Line(index)) => {
+                let line = &self.lines[index];
+                let digits = self.digits;
+                let numbers = format!("{:>digits$} ", number(side(line)));
+                draw_line(line, numbers, area, buf, left);
+            }
+            Some(Half::NoNewline) => NO_NEWLINE.render(area, buf),
+            None => {}
+        }
+    }
+}
+
+/// The old and the new column of a body `area` side by side, and the
+/// divider between them: the old column takes the smaller half of what
+/// the divider leaves.
+fn columns_of(area: Rect) -> (Rect, Rect, Rect) {
+    let old_width = (area.width - 1) / 2;
+    let old = Rect {
+        width: old_width,
+        ..area
+    };
+    let divider = Rect {
+        x: area.x + old_width,
+        width: 1,
+        ..area
+    };
+    let new = Rect {
+        x: divider.x + 1,
+        width: area.width - old_width - 1,
+        ..area
+    };
+    (old, divider, new)
+}
+
 /// The row of one line of the diff, numbered from 1 on each side it is on.
 /// An unchanged line takes its colours from `highlighted`, the new side's
 /// lines highlighted from its start, by its number there. A changed line
 /// takes its colour whole, with nothing marked inside it (ADR 33), and no
 /// syntax colours, which its fill would make unreadable (ADR 60).
-fn line_row(change: &Change<&str>, highlighted: &[StyledLine]) -> Row {
+fn line_row(change: &Change<&str>, highlighted: &[StyledLine]) -> LineRow {
     let value = change.value();
     let text = value.strip_suffix('\n').unwrap_or(value);
     let unchanged = change
         .new_index()
         .filter(|_| change.tag() == ChangeTag::Equal)
         .and_then(|index| highlighted.get(index));
-    Row::Line {
+    LineRow {
         tag: change.tag(),
         old: change.old_index().map(|index| index + 1),
         new: change.new_index().map(|index| index + 1),
@@ -449,7 +812,7 @@ mod tests {
 
     use super::super::code::HIGHLIGHT_LIMIT;
     use super::super::source_file::MAX_BYTES;
-    use super::super::test_support::{drawn, row, shown};
+    use super::super::test_support::{drawn, row, rows, shown};
     use super::*;
 
     /// The viewer of the change from `old` to `new`, given inline.
@@ -1375,5 +1738,413 @@ impl Fetcher {
             rows.iter().any(|row| row.contains("│ logo.png ")),
             "{rows:#?}"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Side by side
+    // -----------------------------------------------------------------
+
+    /// `viewer` laid out side by side for `width`×`height` cells and drawn
+    /// into them from `offset` on, as the pane draws a diff switched to
+    /// side by side.
+    fn drawn_side_by_side(
+        viewer: &mut Content<Rows>,
+        width: u16,
+        height: u16,
+        offset: Offset,
+    ) -> Buffer {
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        viewer.lay_out_side_by_side(width, height);
+        viewer.draw(area, &mut buf, offset);
+        buf
+    }
+
+    /// Every row of `viewer` side by side, `width` columns wide, each in
+    /// quotes so its width shows.
+    fn shown_side_by_side(viewer: &mut Content<Rows>, width: u16) -> String {
+        let lines = viewer.lay_out_side_by_side(width, 1).lines;
+        let height = u16::try_from(lines).expect("a test's content is short");
+        rows(&drawn_side_by_side(
+            viewer,
+            width,
+            height,
+            Offset::default(),
+        ))
+        .iter()
+        .map(|row| format!("\"{row}\""))
+        .collect::<Vec<_>>()
+        .join("\n")
+    }
+
+    /// Where the divider stands in a body as wide as `buf`.
+    fn divider_at(buf: &Buffer) -> u16 {
+        (buf.area.width - 1) / 2
+    }
+
+    /// Row `y` of `buf` split at the divider: the old column and the new
+    /// one, each without the blanks after it.
+    fn halves(buf: &Buffer, y: u16) -> (String, String) {
+        let divider = divider_at(buf);
+        let text = |columns: std::ops::Range<u16>| {
+            columns
+                .map(|x| buf[(x, y)].symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        };
+        (text(0..divider), text(divider + 1..buf.area.width))
+    }
+
+    fn pair(old: &str, new: &str) -> (String, String) {
+        (old.to_owned(), new.to_owned())
+    }
+
+    #[test]
+    fn side_by_side_shows_old_left_and_new_right() {
+        let new = new_fetcher();
+        let mut viewer = inline(Some(OLD_FETCHER), Some(&new));
+
+        let buf = drawn_side_by_side(&mut viewer, 100, 15, Offset::default());
+
+        assert_eq!(
+            halves(&buf, 1),
+            pair(" 3   pub struct Fetcher {", " 3   pub struct Fetcher {")
+        );
+        assert_eq!(buf[(divider_at(&buf), 1)].symbol(), "│");
+        insta::assert_snapshot!(
+            "two_hunks_side_by_side",
+            shown_side_by_side(&mut viewer, 100)
+        );
+    }
+
+    #[test]
+    fn a_longer_run_faces_blank_rows() {
+        let mut viewer = inline(Some("x\na\ny\n"), Some("x\nb\nc\nd\ny\n"));
+
+        let buf = drawn_side_by_side(&mut viewer, 30, 5, Offset::default());
+
+        assert_eq!(halves(&buf, 1), pair("2 - a", "2 + b"));
+        assert_eq!(halves(&buf, 2), pair("", "3 + c"));
+        assert_eq!(halves(&buf, 3), pair("", "4 + d"));
+        assert_eq!(halves(&buf, 4), pair("3   y", "5   y"));
+        assert!(
+            (0..divider_at(&buf)).all(|x| buf[(x, 2)].modifier.is_empty()),
+            "a blank row has no fill"
+        );
+    }
+
+    #[test]
+    fn a_changed_half_is_filled_up_to_the_divider() {
+        let mut viewer = inline(Some("a\nb\n"), Some("a\nc\n"));
+
+        let buf = drawn_side_by_side(&mut viewer, 30, 2, Offset::default());
+
+        assert_eq!(halves(&buf, 1), pair("2 - b", "2 + c"));
+        let divider = divider_at(&buf);
+        for x in 0..divider {
+            assert_eq!(buf[(x, 1)].modifier, Modifier::REVERSED, "column {x}");
+            assert_eq!(buf[(x, 1)].fg, Color::Red, "column {x}");
+        }
+        assert_eq!(buf[(divider, 1)].symbol(), "│");
+        assert_eq!(buf[(divider, 1)].modifier, Modifier::DIM, "the divider");
+        for x in divider + 1..30 {
+            assert_eq!(buf[(x, 1)].modifier, Modifier::REVERSED, "column {x}");
+            assert_eq!(buf[(x, 1)].fg, Color::Green, "column {x}");
+        }
+    }
+
+    #[test]
+    fn an_unchanged_line_is_highlighted_on_both_sides() {
+        let mut viewer = rust_change(serde_json::json!({"name": "fetch.rs"}));
+
+        let buf = drawn_side_by_side(&mut viewer, 40, 4, Offset::default());
+
+        assert_eq!(halves(&buf, 0), pair("1   fn a() {}", "1   fn a() {}"));
+        assert_eq!(buf[(4, 0)].fg, Color::Indexed(5), "the old side's keyword");
+        assert_eq!(buf[(24, 0)].fg, Color::Indexed(5), "the new side's keyword");
+    }
+
+    #[test]
+    fn the_separator_spans_both_columns() {
+        let new = new_fetcher();
+        let mut viewer = inline(Some(OLD_FETCHER), Some(&new));
+
+        let buf = drawn_side_by_side(&mut viewer, 100, 15, Offset::default());
+
+        assert_eq!(buf[(divider_at(&buf), 6)].symbol(), "│", "the row above");
+        assert_eq!(row(&buf, 7), "┈".repeat(100));
+    }
+
+    #[test]
+    fn a_file_note_spans_both_columns() {
+        let mut viewer = inline(None, Some("fn main() {\n}\n"));
+
+        let buf = drawn_side_by_side(&mut viewer, 30, 3, Offset::default());
+
+        assert_eq!(row(&buf, 0), "new file");
+        assert_eq!(halves(&buf, 1), pair("", "1 + fn main() {"));
+    }
+
+    #[test]
+    fn the_cut_notes_span_both_columns() {
+        let mut viewer = of_rows("a\n", "b\n", true);
+
+        let buf = drawn_side_by_side(&mut viewer, 40, 3, Offset::default());
+
+        assert_eq!(row(&buf, 0), "first 8 MiB shown");
+        assert_eq!(halves(&buf, 1), pair("1 - a", "1 + b"));
+        assert_eq!(row(&buf, 2), "… the rest is cut after 8 MiB");
+    }
+
+    #[test]
+    fn a_missing_newline_note_stands_in_its_sides_column() {
+        let mut viewer = inline(Some("a\nb"), Some("a\nb\n"));
+
+        let buf = drawn_side_by_side(&mut viewer, 60, 3, Offset::default());
+
+        assert_eq!(halves(&buf, 1), pair("2 - b", "2 + b"));
+        assert_eq!(halves(&buf, 2), pair("no newline at end of file", ""));
+        assert_eq!(buf[(divider_at(&buf), 2)].symbol(), "│");
+    }
+
+    #[test]
+    fn a_missing_newline_note_faces_a_blank_before_the_rest() {
+        let mut viewer = inline(Some("a\nb"), Some("a\nc\nd\n"));
+
+        let buf = drawn_side_by_side(&mut viewer, 60, 4, Offset::default());
+
+        assert_eq!(halves(&buf, 1), pair("2 - b", "2 + c"));
+        assert_eq!(halves(&buf, 2), pair("no newline at end of file", ""));
+        assert_eq!(halves(&buf, 3), pair("", "3 + d"));
+    }
+
+    #[test]
+    fn a_missing_newline_note_on_the_new_side_starts_its_column() {
+        let mut viewer = inline(Some("a\nb\n"), Some("a\nc"));
+
+        let buf = drawn_side_by_side(&mut viewer, 60, 3, Offset::default());
+
+        assert_eq!(halves(&buf, 2), pair("", "no newline at end of file"));
+        assert_eq!(buf[(divider_at(&buf) + 1, 2)].symbol(), "n");
+    }
+
+    #[test]
+    fn side_by_side_fits_a_short_diff_at_its_minimum_and_not_below() {
+        let mut viewer = inline(Some("a\n"), Some("b\n"));
+
+        // One digit: two columns of a number, a blank, the sign, a blank
+        // and 8 columns of text, and the divider.
+        let buf = drawn_side_by_side(&mut viewer, 25, 1, Offset::default());
+        assert_eq!(halves(&buf, 0), pair("1 - a", "1 + b"));
+
+        let narrow = drawn_side_by_side(&mut viewer, 24, 2, Offset::default());
+        let unified = drawn(&mut viewer, 24, 2, Offset::default());
+        assert_eq!(narrow, unified, "unified below the minimum");
+    }
+
+    #[test]
+    fn side_by_side_fits_a_long_diff_at_its_minimum_and_not_below() {
+        let filler = "x\n".repeat(10_000);
+        let mut viewer = inline(Some(&format!("{filler}a\n")), Some(&format!("{filler}b\n")));
+
+        // Five digits: 2 × (5 + 3 + 8) + 1.
+        let buf = drawn_side_by_side(&mut viewer, 33, 4, Offset::default());
+        assert_eq!(halves(&buf, 3), pair("10001 - a", "10001 + b"));
+
+        let narrow = drawn_side_by_side(&mut viewer, 32, 4, Offset::default());
+        let unified = drawn(&mut viewer, 32, 4, Offset::default());
+        assert_eq!(narrow, unified, "unified below the minimum");
+    }
+
+    #[test]
+    fn side_by_side_counts_its_pair_rows() {
+        let new = new_fetcher();
+        let mut viewer = inline(Some(OLD_FETCHER), Some(&new));
+
+        // The unified 16 rows less the removed line, which stands beside
+        // its replacement.
+        assert_eq!(viewer.lay_out_side_by_side(100, 10).lines, 15);
+    }
+
+    #[test]
+    fn side_by_side_reports_the_overflow_of_the_widest_side() {
+        let new = new_fetcher();
+        let mut viewer = inline(Some(OLD_FETCHER), Some(&new));
+
+        let size = viewer.lay_out_side_by_side(100, 10);
+
+        // The old column is 49 wide, 44 of them for text behind its gutter
+        // of `NN - `; its widest line is a context line.
+        let widest = "    pub fn fetch(&self, url: &str) -> Result<Response> {".len();
+        assert_eq!(size.columns, 100 + widest - 44);
+    }
+
+    /// A long line changed into another long line.
+    fn long_change() -> Content<Rows> {
+        let line = |text: &str| format!("let message = \"{}\";\n", text.repeat(4));
+        inline(Some(&line("an old text ")), Some(&line("a new text ")))
+    }
+
+    #[test]
+    fn both_texts_scroll_together_under_gutters_that_stay() {
+        let mut viewer = long_change();
+
+        let buf = drawn_side_by_side(&mut viewer, 60, 2, Offset { top: 0, left: 8 });
+
+        let (old, new) = halves(&buf, 0);
+        assert!(old.starts_with("1 - ‹ge = \"an old"), "{old:?}");
+        assert!(new.starts_with("1 + ‹ge = \"a new"), "{new:?}");
+    }
+
+    #[test]
+    fn each_column_marks_a_hidden_start() {
+        let mut viewer = long_change();
+
+        let buf = drawn_side_by_side(&mut viewer, 60, 2, Offset { top: 0, left: 8 });
+
+        let divider = divider_at(&buf);
+        for x in [4, divider + 1 + 4] {
+            assert_eq!(buf[(x, 0)].symbol(), "‹", "column {x}");
+        }
+    }
+
+    #[test]
+    fn each_column_marks_a_cut_end() {
+        let mut viewer = long_change();
+
+        let buf = drawn_side_by_side(&mut viewer, 60, 2, Offset::default());
+
+        let divider = divider_at(&buf);
+        for x in [divider - 1, 59] {
+            assert_eq!(buf[(x, 0)].symbol(), "›", "column {x}");
+        }
+        assert_eq!(buf[(divider, 0)].symbol(), "│");
+    }
+
+    #[test]
+    fn an_even_and_an_odd_body_split_around_the_divider() {
+        let mut viewer = inline(Some("a\n"), Some("b\n"));
+
+        for (width, divider) in [(30, 14), (31, 15)] {
+            let buf = drawn_side_by_side(&mut viewer, width, 1, Offset::default());
+
+            assert_eq!(buf[(divider, 0)].symbol(), "│", "{width} columns");
+            assert_eq!(buf[(divider + 1, 0)].symbol(), "1", "{width} columns");
+        }
+    }
+
+    #[test]
+    fn a_wide_character_at_the_old_columns_edge_shows_as_blanks() {
+        let mut viewer = inline(Some("abcdefghi世\n"), Some("x\n"));
+
+        let buf = drawn_side_by_side(&mut viewer, 30, 1, Offset::default());
+
+        assert_eq!(halves(&buf, 0).0, "1 - abcdefghi›");
+        assert_eq!(buf[(14, 0)].symbol(), "│");
+    }
+
+    #[test]
+    fn a_new_file_side_by_side_leaves_the_old_column_blank() {
+        let mut viewer = inline(None, Some("a\nb\n"));
+
+        let buf = drawn_side_by_side(&mut viewer, 30, 3, Offset::default());
+
+        for y in 1..3 {
+            assert_eq!(halves(&buf, y).0, "", "row {y}");
+            assert!(
+                (0..divider_at(&buf)).all(|x| buf[(x, y)].modifier.is_empty()),
+                "row {y} has no fill on the old side"
+            );
+        }
+        assert_eq!(halves(&buf, 2).1, "2 + b");
+    }
+
+    /// A line of the diff with `tag`, for hand-built rows.
+    fn line_of(tag: ChangeTag) -> LineRow {
+        LineRow {
+            tag,
+            old: None,
+            new: None,
+            text: SourceLine::new([("x", Style::new())]),
+        }
+    }
+
+    #[test]
+    fn pairs_of_pairs_a_run_whatever_its_order() {
+        // An added line before a removed one, and the note of the removed
+        // one after them.
+        let lines = [line_of(ChangeTag::Insert), line_of(ChangeTag::Delete)];
+        let rows = [Row::Line(0), Row::Line(1), Row::NoNewline];
+
+        let side_by_side = pairs_of(&rows, &lines);
+
+        assert_eq!(
+            side_by_side.pairs,
+            [
+                Pair::Sides {
+                    old: Some(Half::Line(1)),
+                    new: Some(Half::Line(0)),
+                },
+                Pair::Sides {
+                    old: Some(Half::NoNewline),
+                    new: None,
+                },
+            ]
+        );
+        assert_eq!(side_by_side.pair_of_row, [0, 0, 1]);
+        assert_eq!(side_by_side.first_row_of_pair, [0, 2]);
+    }
+
+    #[test]
+    fn a_top_maps_from_unified_to_side_by_side() {
+        let new = new_fetcher();
+        let mut fetcher = inline(Some(OLD_FETCHER), Some(&new));
+        fetcher.lay_out_side_by_side(100, 10);
+        let mut note = inline(Some("a\nb"), Some("a\nc\nd\n"));
+        note.lay_out_side_by_side(60, 10);
+
+        // The added field, the separator, the removed call, its
+        // replacement and the line after them.
+        for (unified, paired) in [(3, 3), (7, 7), (11, 11), (12, 11), (13, 12)] {
+            assert_eq!(fetcher.top_from(unified, DiffLayout::Unified), paired);
+        }
+        // The note, the line beside the removed one and the one after.
+        for (unified, paired) in [(2, 2), (3, 1), (4, 3)] {
+            assert_eq!(note.top_from(unified, DiffLayout::Unified), paired);
+        }
+        assert_eq!(note.top_from(99, DiffLayout::Unified), 3, "past the end");
+    }
+
+    #[test]
+    fn a_top_maps_from_side_by_side_to_unified() {
+        let mut note = inline(Some("a\nb"), Some("a\nc\nd\n"));
+        note.lay_out(60, 10);
+
+        // The removed line beside its replacement, the note, and the added
+        // line beside a blank.
+        for (paired, unified) in [(1, 1), (2, 2), (3, 4)] {
+            assert_eq!(note.top_from(paired, DiffLayout::SideBySide), unified);
+        }
+        assert_eq!(note.top_from(99, DiffLayout::SideBySide), 4, "past the end");
+        assert_eq!(note.top_from(3, DiffLayout::Unified), 3, "the same layout");
+    }
+
+    #[test]
+    fn diff_shape_says_the_layout_used_and_whether_it_fits() {
+        let mut viewer = inline(Some("a\n"), Some("b\n"));
+        let shape = |layout, fits_side_by_side| {
+            Some(DiffShape {
+                layout,
+                fits_side_by_side,
+            })
+        };
+
+        viewer.lay_out(30, 5);
+        assert_eq!(viewer.diff_shape(), shape(DiffLayout::Unified, true));
+        viewer.lay_out_side_by_side(30, 5);
+        assert_eq!(viewer.diff_shape(), shape(DiffLayout::SideBySide, true));
+        viewer.lay_out_side_by_side(24, 5);
+        assert_eq!(viewer.diff_shape(), shape(DiffLayout::Unified, false));
     }
 }

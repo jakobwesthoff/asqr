@@ -105,8 +105,11 @@ impl Job {
             width,
             height,
             alone,
+            side_by_side,
         } = self.size;
-        let content = if alone {
+        let content = if side_by_side {
+            viewer.lay_out_side_by_side(width, height)
+        } else if alone {
             viewer.lay_out_alone(width, height)
         } else {
             viewer.lay_out(width, height)

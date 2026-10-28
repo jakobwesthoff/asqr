@@ -28,7 +28,7 @@ use super::theme;
 use super::wrap::wrap;
 use crate::format::{ContextEntry, ImageEntry};
 use crate::graphics::{Graphics, Image, Images, KittyBook, PlacedImage};
-use crate::tui::{EntryKey, Offset};
+use crate::tui::{DiffLayout, EntryKey, Offset};
 use patine::QuoteStyle;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect, Size};
@@ -73,6 +73,25 @@ pub trait Viewer: Send {
         self.lay_out(width, height)
     }
 
+    /// Lays the content out as `lay_out` does, for a diff the person
+    /// switched to side by side (ADR 70). Only a diff has two layouts.
+    fn lay_out_side_by_side(&mut self, width: u16, height: u16) -> ContentSize {
+        self.lay_out(width, height)
+    }
+
+    /// For a diff shown, the layout the last lay-out used and whether the
+    /// body has room for two columns; `None` for every other content.
+    fn diff_shape(&self) -> Option<DiffShape> {
+        None
+    }
+
+    /// The row of the current layout that shows the line at row `top` of
+    /// the layout `from`, so a switch keeps the line at the top in view.
+    /// Content with one layout keeps its rows.
+    fn top_from(&self, top: usize, _from: DiffLayout) -> usize {
+        top
+    }
+
     /// Draws the content as the last `lay_out` arranged it into `area` of
     /// `buf`, starting at line `offset.top` and column `offset.left`. The
     /// offset never exceeds the size `lay_out` returned.
@@ -95,14 +114,24 @@ pub trait Viewer: Send {
     }
 }
 
-/// What a viewer is laid out for: a body of `width`×`height` cells, and
+/// How a diff shows: the layout its viewer last used, and whether the body
+/// it was laid out for has room for two columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffShape {
+    pub layout: DiffLayout,
+    pub fits_side_by_side: bool,
+}
+
+/// What a viewer is laid out for: a body of `width`×`height` cells,
 /// whether it shows there alone, as an image does without its caption in
-/// the full-screen view reached from a pane (ADR 69).
+/// the full-screen view reached from a pane (ADR 69), and whether a diff
+/// shows side by side (ADR 70).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Room {
     pub(super) width: u16,
     pub(super) height: u16,
     pub(super) alone: bool,
+    pub(super) side_by_side: bool,
 }
 
 impl Room {
@@ -112,8 +141,31 @@ impl Room {
             width,
             height,
             alone: false,
+            side_by_side: false,
         }
     }
+
+    /// The room of `entry` in a body of `width`×`height` cells, shown as
+    /// `shape` asks. Side by side counts for a diff only, so a switch never
+    /// lays out any other entry again, which would send an image to the
+    /// terminal once more.
+    pub(super) fn for_entry(entry: &ContextEntry, width: u16, height: u16, shape: Shape) -> Room {
+        Room {
+            width,
+            height,
+            alone: shape.alone,
+            side_by_side: shape.side_by_side && matches!(entry, ContextEntry::Diff(_)),
+        }
+    }
+}
+
+/// How the pane asks for an entry: alone, as the full-screen view reached
+/// from a pane shows an image (ADR 69), and side by side, as a diff the
+/// person switched shows (ADR 70).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) struct Shape {
+    pub(super) alone: bool,
+    pub(super) side_by_side: bool,
 }
 
 /// Which entry of which session a viewer belongs to.
@@ -306,10 +358,26 @@ impl Viewers {
         height: u16,
         quote: QuoteStyle,
     ) -> (&mut dyn Viewer, ContentSize) {
-        let room = Room {
+        let shape = Shape {
             alone: true,
-            ..Room::pane(width, height)
+            side_by_side: false,
         };
+        self.laid_out_shaped(session, key, entry, (width, height), shape, quote)
+    }
+
+    /// [`Self::laid_out`] for an entry shown as `shape` asks in a body of
+    /// `size`, width and height: alone in the full-screen view reached
+    /// from a pane, and a diff side by side.
+    pub(super) fn laid_out_shaped(
+        &mut self,
+        session: &str,
+        key: EntryKey,
+        entry: &ContextEntry,
+        size: (u16, u16),
+        shape: Shape,
+        quote: QuoteStyle,
+    ) -> (&mut dyn Viewer, ContentSize) {
+        let room = Room::for_entry(entry, size.0, size.1, shape);
         self.laid_out_in(session, key, entry, room, quote)
     }
 
@@ -887,6 +955,28 @@ impl<T: Viewer> Viewer for Content<T> {
             Content::Body(body) => body.lay_out(width, height),
             Content::Note(placeholder) => placeholder.lay_out(width, height),
             Content::Problem(card) => card.lay_out(width, height),
+        }
+    }
+
+    /// A note or a card has one layout, its content's own.
+    fn lay_out_side_by_side(&mut self, width: u16, height: u16) -> ContentSize {
+        match self {
+            Content::Body(body) => body.lay_out_side_by_side(width, height),
+            Content::Note(_) | Content::Problem(_) => self.lay_out(width, height),
+        }
+    }
+
+    fn diff_shape(&self) -> Option<DiffShape> {
+        match self {
+            Content::Body(body) => body.diff_shape(),
+            Content::Note(_) | Content::Problem(_) => None,
+        }
+    }
+
+    fn top_from(&self, top: usize, from: DiffLayout) -> usize {
+        match self {
+            Content::Body(body) => body.top_from(top, from),
+            Content::Note(_) | Content::Problem(_) => top,
         }
     }
 
@@ -3448,6 +3538,66 @@ mod tests {
         );
 
         assert_eq!(drawn(&diff, 40, 2, 0), ["1   - get(url)", "  1 + get(uri)"]);
+    }
+
+    /// How the pane asks for a diff the person switched to side by side.
+    const SIDE_BY_SIDE: Shape = Shape {
+        alone: false,
+        side_by_side: true,
+    };
+
+    #[test]
+    fn a_diff_is_laid_out_side_by_side_when_asked() {
+        let diff = entry(
+            r#"{"type": "diff", "old": {"content": "get(url)\n"}, "new": {"content": "get(uri)\n"}}"#,
+        );
+        let mut viewers = viewers();
+        let area = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(area);
+
+        let (viewer, size) =
+            viewers.laid_out_shaped("s", QUESTION, &diff, (40, 1), SIDE_BY_SIDE, COLOURED);
+        viewer.draw(area, &mut buf, Offset::default());
+
+        assert_eq!(size.lines, 1, "the removed and the added line in one row");
+        assert_eq!(row(&buf, 0), "1 - get(url)       │1 + get(uri)");
+    }
+
+    /// A pin of [`Room::for_entry`]: an image the person cannot switch is
+    /// never laid out again for a shape that only a diff takes, which
+    /// would send it to the terminal under a new id.
+    #[test]
+    fn side_by_side_never_lays_out_an_image_again() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let mut viewers = kitty_viewers();
+        let image = picture(&directory, "a.png");
+        built(&mut viewers, "s", QUESTION, &image);
+
+        viewers.laid_out_shaped("s", QUESTION, &image, (40, 10), SIDE_BY_SIDE, COLOURED);
+
+        assert_eq!(viewers.dropped_images(), Vec::<u32>::new());
+
+        let (mut viewers, shared) = recording();
+        let code = entry(r#"{"type": "code", "content": "notes"}"#);
+        built(&mut viewers, "s", QUESTION, &code);
+        viewers.laid_out_shaped("s", QUESTION, &code, (40, 10), SIDE_BY_SIDE, COLOURED);
+        assert_eq!(calls(&shared).lay_outs, [(40, 10)], "a code entry neither");
+    }
+
+    #[test]
+    fn content_with_one_layout_keeps_it_and_its_rows() {
+        let code = entry(r#"{"type": "code", "content": "one\ntwo"}"#);
+        let card =
+            entry(r#"{"type": "diff", "old": {"path": "/nowhere/a"}, "new": {"content": "b"}}"#);
+
+        for entry in [code, card] {
+            let mut viewer = viewer_for(&entry, &Images::half_blocks(), COLOURED, None);
+            let unified = viewer.lay_out(40, 10);
+
+            assert_eq!(viewer.lay_out_side_by_side(40, 10), unified, "{entry:?}");
+            assert_eq!(viewer.diff_shape(), None, "{entry:?}");
+            assert_eq!(viewer.top_from(3, DiffLayout::Unified), 3, "{entry:?}");
+        }
     }
 
     // -----------------------------------------------------------------

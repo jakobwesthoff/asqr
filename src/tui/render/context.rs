@@ -25,7 +25,7 @@ use super::viewer::Viewers;
 use super::wrap::cut;
 use crate::format::ContextEntry;
 use crate::graphics::PlacedImage;
-use crate::tui::{Extent, Offset, Page, SessionState};
+use crate::tui::{DrawnDiff, Extent, Offset, Page, SessionState};
 
 /// What the pane showed: how far it scrolls, whether its entry was still
 /// loading, and the Kitty image it drew, which the screen mends once the
@@ -34,6 +34,7 @@ pub struct DrawnPane {
     pub page: Page,
     pub loading: bool,
     pub image: Option<PlacedImage>,
+    pub diff: Option<DrawnDiff>,
 }
 
 /// Which form of the ledge a pane takes, by where it stands.
@@ -84,8 +85,23 @@ pub fn draw_pane(
             total: size.columns,
         },
     };
+    // A diff's offset counts the rows of the layout it was last drawn in.
+    // Drawn in the other one, it shows from the row that holds the same
+    // line, or, while nothing scrolled since the last switch, from where
+    // that switch came from, so switching back and forth keeps the line
+    // at the top.
+    let stored = state.pane_offset();
+    let shape = viewer.diff_shape();
+    let tag = state.pane_layout_tag();
+    let translated = shape
+        .filter(|shape| shape.layout != tag.layout)
+        .map(|_| match tag.back {
+            Some((set, from)) if set == stored.top => (from, stored.top),
+            _ => (viewer.top_from(stored.top, tag.layout), stored.top),
+        });
+    let top = translated.map_or(stored.top, |(top, _)| top);
     // A smaller terminal may have left the offset past the end.
-    let offset = page.clamp(state.pane_offset());
+    let offset = page.clamp(Offset { top, ..stored });
     let image = viewer.draw(body, buf, offset);
 
     // The focused pane fills its name and draws its lines in the focus
@@ -106,6 +122,11 @@ pub fn draw_pane(
         page,
         loading: viewer.loading(),
         image,
+        diff: shape.map(|shape| DrawnDiff {
+            layout: shape.layout,
+            fits_side_by_side: shape.fits_side_by_side,
+            translated,
+        }),
     })
 }
 
@@ -369,6 +390,7 @@ pub fn context_hint(entry: Option<&ContextEntry>, key: &str, width: u16) -> Line
 #[cfg(test)]
 mod tests {
     use crate::graphics::Images;
+    use crate::tui::DiffLayout;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::{Color, Modifier};
 
@@ -747,6 +769,89 @@ mod tests {
             ledge,
         );
         buf
+    }
+
+    /// What the pane of `state` drawn into `area` showed of a diff, and
+    /// where its body starts with its first row.
+    fn drawn_diff(state: &SessionState, area: Rect) -> (Option<DrawnDiff>, String) {
+        let mut buf = Buffer::empty(area);
+        let mut viewers = Viewers::for_tests(Images::half_blocks());
+        let drawn = draw_pane(
+            area,
+            &mut buf,
+            state,
+            &mut viewers,
+            quote_style(false),
+            Ledge::Beside,
+        )
+        .expect("a pane shows");
+        (drawn.diff, row(&buf, 1))
+    }
+
+    /// A diff whose old side ends without a newline, so side by side has
+    /// a note of its own and a line facing a blank: unified rows `a`, `b`,
+    /// the note, `c` and `d`; side by side `a|a`, `b|c`, the note and `|d`.
+    const NOTED_DIFF: &str =
+        r#"{"type": "diff", "old": {"content": "a\nb"}, "new": {"content": "a\nc\nd\n"}}"#;
+
+    #[test]
+    fn the_pane_hands_back_the_diff_it_drew() {
+        let diff = session(NOTED_DIFF);
+
+        assert_eq!(
+            drawn_diff(&diff, Rect::new(0, 0, 40, 8)).0,
+            Some(DrawnDiff {
+                layout: DiffLayout::Unified,
+                fits_side_by_side: true,
+                translated: None,
+            })
+        );
+        let code = session(r#"{"type": "code", "content": "x"}"#);
+        assert_eq!(drawn_diff(&code, Rect::new(0, 0, 40, 8)).0, None);
+    }
+
+    /// The session of [`NOTED_DIFF`] whose offset a draw side by side set
+    /// to `top`, translated from the unified row `from`.
+    fn drawn_side_by_side_at(top: usize, from: usize) -> SessionState {
+        let mut state = session(NOTED_DIFF);
+        let page = Page {
+            rows: Extent { shown: 1, total: 4 },
+            columns: Extent::default(),
+        };
+        state.set_pane_page(Some(crate::tui::PanePage {
+            page,
+            loading: false,
+            diff: Some(DrawnDiff {
+                layout: DiffLayout::SideBySide,
+                fits_side_by_side: true,
+                translated: Some((top, from)),
+            }),
+        }));
+        state
+    }
+
+    #[test]
+    fn a_diff_back_in_its_layout_shows_the_line_it_came_from() {
+        // The note's row side by side, reached from `d`'s unified row.
+        let state = drawn_side_by_side_at(2, 4);
+
+        let (diff, first) = drawn_diff(&state, Rect::new(0, 0, 40, 3));
+
+        assert_eq!(first, "│   3 + d");
+        assert_eq!(diff.and_then(|diff| diff.translated), Some((4, 2)));
+    }
+
+    #[test]
+    fn a_diff_scrolled_since_its_switch_shows_the_line_of_its_top() {
+        let mut state = drawn_side_by_side_at(2, 4);
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        state.handle(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+
+        let (diff, first) = drawn_diff(&state, Rect::new(0, 0, 40, 3));
+
+        // Side by side row 3, `|d`, holds the unified row 4.
+        assert_eq!(first, "│   3 + d");
+        assert_eq!(diff.and_then(|diff| diff.translated), Some((4, 3)));
     }
 
     #[test]

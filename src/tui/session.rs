@@ -160,11 +160,13 @@ struct Working {
 }
 
 /// What the context pane showed in a draw: how far its entry scrolls,
-/// and whether the entry was still loading, with `loading…` in its place.
+/// whether the entry was still loading, with `loading…` in its place, and
+/// for a diff that showed, how it was laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PanePage {
     pub page: Page,
     pub loading: bool,
+    pub diff: Option<DrawnDiff>,
 }
 
 #[cfg(test)]
@@ -174,8 +176,40 @@ impl PanePage {
         PanePage {
             page,
             loading: false,
+            diff: None,
         }
     }
+}
+
+/// How a diff entry is laid out (spec section 8.5): unified, the removed
+/// lines above the added ones, or side by side, the old text left of the
+/// new.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiffLayout {
+    #[default]
+    Unified,
+    SideBySide,
+}
+
+/// What a draw of the pane showed of a diff: the layout its viewer used,
+/// whether the body had room for two columns, and, where the entry's
+/// offset counted rows of the other layout, the top the draw translated it
+/// to and the top it came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DrawnDiff {
+    pub layout: DiffLayout,
+    pub fits_side_by_side: bool,
+    pub translated: Option<(usize, usize)>,
+}
+
+/// The layout whose rows an entry's offset counts, and the way back of the
+/// translation that set it: the top it set and the top it came from. The
+/// rows of a unified and a side-by-side diff differ, so a top kept as a
+/// number would show another line in the other layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LayoutTag {
+    pub layout: DiffLayout,
+    pub back: Option<(usize, usize)>,
 }
 
 // ---------------------------------------------------------------------
@@ -247,6 +281,9 @@ pub struct SessionState {
     /// entries have nothing to do with each other, so each entry keeps its
     /// own, and one shown for the first time starts at its top.
     offsets: HashMap<EntryKey, Offset>,
+    /// The layout whose rows each offset of a diff counts. An entry without
+    /// one counts unified rows, as every entry but a diff does.
+    offset_layouts: HashMap<EntryKey, LayoutTag>,
     /// See [`Self::revision`].
     revision: u64,
     /// See [`Self::follows_title`].
@@ -332,6 +369,7 @@ impl SessionState {
             pane_focus: false,
             pane_page: None,
             offsets: HashMap::new(),
+            offset_layouts: HashMap::new(),
             revision: 0,
             follows_title: None,
             seen: false,
@@ -409,14 +447,22 @@ impl SessionState {
             replaced.pane_focus = self.pane_focus;
             replaced.full_screen = self.full_screen;
         }
+        // An offset and the layout it counts in go together.
+        let reads_as_before = |key: &EntryKey| {
+            entry_at(&self.session, *key)
+                .is_some_and(|entry| entry_at(&replaced.session, *key) == Some(entry))
+        };
         replaced.offsets = self
             .offsets
             .iter()
-            .filter(|(key, _)| {
-                entry_at(&self.session, **key)
-                    .is_some_and(|entry| entry_at(&replaced.session, **key) == Some(entry))
-            })
+            .filter(|(key, _)| reads_as_before(key))
             .map(|(key, offset)| (*key, *offset))
+            .collect();
+        replaced.offset_layouts = self
+            .offset_layouts
+            .iter()
+            .filter(|(key, _)| reads_as_before(key))
+            .map(|(key, tag)| (*key, *tag))
             .collect();
 
         if replaced.seen {
@@ -616,14 +662,40 @@ impl SessionState {
             .unwrap_or_default()
     }
 
+    /// The layout whose rows the offset of the entry shown counts.
+    pub fn pane_layout_tag(&self) -> LayoutTag {
+        self.shown_entry()
+            .and_then(|(key, _)| self.offset_layouts.get(&key).copied())
+            .unwrap_or_default()
+    }
+
     /// Takes what the last draw of the context pane showed, which depends
     /// on the size of the terminal. Without a pane there is nothing to
     /// focus or show full screen, so the question gets the keys back.
+    ///
+    /// A diff drawn in another layout than its offset counted in was drawn
+    /// from the translated top, which becomes the entry's offset from now
+    /// on, together with the way back. Its column stays. Every other draw
+    /// leaves the offsets as they are, also one the draw had to clamp, so a
+    /// terminal made larger and smaller again shows the same lines again.
     pub fn set_pane_page(&mut self, page: Option<PanePage>) {
         self.pane_page = page;
         if page.is_none() {
             self.pane_focus = false;
             self.full_screen = None;
+        }
+        let drawn = page.and_then(|page| page.diff);
+        if let (Some(diff), Some((key, _))) = (drawn, self.shown_entry())
+            && let Some((top, from)) = diff.translated
+        {
+            self.offsets.entry(key).or_default().top = top;
+            self.offset_layouts.insert(
+                key,
+                LayoutTag {
+                    layout: diff.layout,
+                    back: Some((top, from)),
+                },
+            );
         }
     }
 
@@ -1042,7 +1114,7 @@ impl SessionState {
     /// placeholder's one line, not the entry's: the key is taken and the
     /// entry keeps where the person left it.
     fn scroll_pane(&mut self, key: KeyEvent, focused: bool) -> bool {
-        let (Some(PanePage { page, loading }), Some((entry, _))) =
+        let (Some(PanePage { page, loading, .. }), Some((entry, _))) =
             (self.pane_page, self.shown_entry())
         else {
             return false;
@@ -3071,6 +3143,7 @@ mod tests {
         state.set_pane_page(Some(PanePage {
             page: loading,
             loading: true,
+            diff: None,
         }));
 
         assert_eq!(state.handle(code(KeyCode::PageDown)), Effect::None);
@@ -3185,6 +3258,55 @@ mod tests {
                 top(state)
             })
             .collect()
+    }
+
+    /// `state`'s pane drawn as `PANE`, a diff in it in `layout`, its top
+    /// translated to `translated` where the draw did.
+    fn drawn_diff(
+        state: &mut SessionState,
+        layout: DiffLayout,
+        translated: Option<(usize, usize)>,
+    ) {
+        state.set_pane_page(Some(PanePage {
+            diff: Some(DrawnDiff {
+                layout,
+                fits_side_by_side: true,
+                translated,
+            }),
+            ..PanePage::shown(PANE)
+        }));
+    }
+
+    #[test]
+    fn a_draw_in_another_layout_takes_the_top_it_translated_to() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::Tab));
+        press(&mut state, "jjl");
+
+        drawn_diff(&mut state, DiffLayout::SideBySide, Some((1, 2)));
+
+        assert_eq!(state.pane_offset(), Offset { top: 1, left: 4 });
+        assert_eq!(
+            state.pane_layout_tag(),
+            LayoutTag {
+                layout: DiffLayout::SideBySide,
+                back: Some((1, 2)),
+            }
+        );
+    }
+
+    /// A pin of the offsets a draw does not translate: they stay as the
+    /// keys left them, also past what the draw could show.
+    #[test]
+    fn a_draw_in_the_same_layout_leaves_the_offset() {
+        let mut state = with_pane();
+        state.handle(code(KeyCode::Tab));
+        press(&mut state, "G");
+
+        drawn_diff(&mut state, DiffLayout::Unified, None);
+
+        assert_eq!(top(&state), 30);
+        assert_eq!(state.pane_layout_tag(), LayoutTag::default());
     }
 
     #[test]

@@ -374,7 +374,15 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                     page,
                     loading,
                     image,
-                }) => (Some(PanePage { page, loading }), image),
+                    diff,
+                }) => (
+                    Some(PanePage {
+                        page,
+                        loading,
+                        diff,
+                    }),
+                    image,
+                ),
                 None => (None, None),
             };
             view.image_shown = pane_page.is_some()
