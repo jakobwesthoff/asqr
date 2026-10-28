@@ -48,6 +48,9 @@ pub enum Event {
     /// A period of the keep-alive passed: the terminal clears the progress
     /// unless it gets it again (ADR 73).
     KeepAlive,
+    /// The key reader ended, with the reason it gives: nothing reads the
+    /// terminal's input any more.
+    InputEnded(String),
 }
 
 impl Event {
@@ -59,7 +62,11 @@ impl Event {
         match self {
             Event::Key(key) => key.kind == KeyEventKind::Press,
             Event::Paste(_) | Event::Resize | Event::Quit => true,
-            Event::InboxChanged | Event::FocusGained | Event::Loaded | Event::KeepAlive => false,
+            Event::InboxChanged
+            | Event::FocusGained
+            | Event::Loaded
+            | Event::KeepAlive
+            | Event::InputEnded(_) => false,
         }
     }
 }
@@ -307,7 +314,8 @@ where
         // in front would hide a key behind it. A wake-up only asks for
         // the draw that comes anyway, so it goes. Keep-alives pile up
         // while the loop waits on the host, as for the editor, and one
-        // sends what they all would.
+        // sends what they all would. Everything else stays, the end of
+        // the input included.
         while let Ok(event) = events.try_recv() {
             let piled_up = event == Event::KeepAlive && ahead.contains(&Event::KeepAlive);
             if event != Event::Loaded && !piled_up {
@@ -389,6 +397,12 @@ where
             Event::Resize | Event::Loaded | Event::KeepAlive => continue,
             // The caller gives the terminal back, as after `q`.
             Event::Quit => return Ok(()),
+            // The other senders keep the channel open, so without this
+            // asqr would stay on screen and ignore every key. The caller
+            // gives the terminal back and exits with 1.
+            Event::InputEnded(reason) => {
+                return Err(anyhow::Error::msg(reason)).context("reading the terminal's input");
+            }
             // Coming back into view is when a transfer lost in the
             // background can be repeated, where one can be lost at all,
             // the progress included: tmux drops passthrough from a pane no
@@ -1064,10 +1078,48 @@ mod tests {
             (Event::InboxChanged, false),
             (Event::FocusGained, false),
             (Event::Loaded, false),
+            (Event::InputEnded("the terminal is gone".to_owned()), false),
         ];
         for (event, input) in cases {
             assert_eq!(event.is_input(), input, "{event:?}");
         }
+    }
+
+    // -----------------------------------------------------------------
+    // The end of the terminal's input
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn the_run_ends_with_an_error_when_input_ended() {
+        let mut harness = Harness::new();
+        harness.put("s");
+
+        let ended = harness.run(vec![Event::InputEnded("the terminal is gone".to_owned())]);
+
+        assert_eq!(
+            ended.map_err(|error| format!("{error:#}")),
+            Err("reading the terminal's input: the terminal is gone".to_owned())
+        );
+    }
+
+    /// The events taken ahead of a draw drop wake-ups and a second
+    /// keep-alive; the end of the input is neither.
+    #[test]
+    fn input_ended_behind_wake_ups_still_ends_the_run() {
+        let mut harness = Harness::new();
+        harness.put("s");
+
+        let ended = harness.run(vec![
+            Event::KeepAlive,
+            Event::Loaded,
+            Event::InputEnded("the terminal is gone".to_owned()),
+            Event::KeepAlive,
+        ]);
+
+        assert_eq!(
+            ended.map_err(|error| format!("{error:#}")),
+            Err("reading the terminal's input: the terminal is gone".to_owned())
+        );
     }
 
     // -----------------------------------------------------------------

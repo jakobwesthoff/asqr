@@ -35,6 +35,9 @@ pub const POLL_WAIT: Duration = Duration::from_millis(50);
 /// own, so a thread that polls while another program reads the terminal
 /// takes keys meant for that program. A paused thread calls neither
 /// `poll` nor `read`.
+///
+/// A `poll` or `read` that fails, or panics, ends the thread, which then
+/// sends [`Event::InputEnded`].
 #[derive(Clone)]
 pub struct KeyReader {
     shared: Shared,
@@ -63,13 +66,23 @@ enum Reading {
 }
 
 /// Marks the thread ended when it returns, also by a panic, so a pause
-/// waiting for it is let go.
-struct Ended(Shared);
+/// waiting for it is let go. A thread that ends by a panic also tells the
+/// run loop that nothing reads the terminal's input any more; one that
+/// returns has told it already, or found it gone.
+struct Ended {
+    shared: Shared,
+    sender: Sender<Event>,
+}
 
 impl Drop for Ended {
     fn drop(&mut self) {
-        lock(&self.0).ended = true;
-        self.0.1.notify_all();
+        lock(&self.shared).ended = true;
+        self.shared.1.notify_all();
+        if std::thread::panicking() {
+            let _ = self.sender.send(Event::InputEnded(
+                "the thread reading the terminal panicked".to_owned(),
+            ));
+        }
     }
 }
 
@@ -89,16 +102,25 @@ impl KeyReader {
         let shared = Shared::default();
         let gate = Arc::clone(&shared);
         std::thread::spawn(move || {
-            let _ended = Ended(Arc::clone(&gate));
+            let _ended = Ended {
+                shared: Arc::clone(&gate),
+                sender: sender.clone(),
+            };
+            // A terminal whose input fails once is not read again. The run
+            // loop learns why and ends; a loop that is gone needs nothing.
+            let input_ended = |error: io::Error| {
+                let _ = sender.send(Event::InputEnded(error.to_string()));
+            };
             loop {
                 wait_at_the_gate(&gate);
                 match source.poll(POLL_WAIT) {
                     Ok(true) => {}
                     Ok(false) => continue,
-                    Err(_) => return,
+                    Err(error) => return input_ended(error),
                 }
-                let Ok(event) = source.read() else {
-                    return;
+                let event = match source.read() {
+                    Ok(event) => event,
+                    Err(error) => return input_ended(error),
                 };
                 let event = match event {
                     TerminalEvent::Key(key) => Event::Key(key),
@@ -454,6 +476,41 @@ mod tests {
         tty.wait_for_the_reader_to_end();
 
         assert!(reader.pause(PATIENCE), "nothing reads any more");
+    }
+
+    /// What the run loop gets once the reader's `poll` failed as `failure`.
+    fn last_word_after(failure: Failure) -> Event {
+        let tty = FakeTty::default();
+        let (_reader, events) = reading(&tty);
+        tty.wait_for_the_reader_to_poll();
+
+        tty.fail_next_poll(failure);
+
+        events.recv_timeout(PATIENCE).expect("an event arrives")
+    }
+
+    #[test]
+    fn a_failed_poll_tells_the_run_loop_that_input_ended() {
+        assert_eq!(
+            last_word_after(Failure::Error),
+            Event::InputEnded("the terminal is gone".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_failed_read_tells_the_run_loop_that_input_ended() {
+        assert_eq!(
+            last_word_after(Failure::Read),
+            Event::InputEnded("read without a poll".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_panicking_poll_tells_the_run_loop_that_input_ended() {
+        assert_eq!(
+            last_word_after(Failure::Panic),
+            Event::InputEnded("the thread reading the terminal panicked".to_owned())
+        );
     }
 
     #[test]

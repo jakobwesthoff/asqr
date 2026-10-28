@@ -180,6 +180,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Sixel or iTerm2 draws the screen afresh without asking the terminal
   where its cursor is. Before, a terminal that did not answer within 2
   seconds ended asqr with an error.
+- When asqr can no longer read the terminal's input, it gives the
+  terminal back, names the error and exits with 1. Before, it stayed on
+  screen and ignored every key.
 
 ## [0.13.1] - 2026-10-22
 
