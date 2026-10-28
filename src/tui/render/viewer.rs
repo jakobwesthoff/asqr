@@ -3545,7 +3545,7 @@ mod tests {
         viewer.draw(area, &mut buf, Offset::default());
 
         assert_eq!(size.lines, 1, "the removed and the added line in one row");
-        assert_eq!(row(&buf, 0), "1 - get(url)       │1 + get(uri)");
+        assert_eq!(row(&buf, 0), "1 - get(url)       │ 1 + get(uri)");
     }
 
     /// A pin of [`Room::for_entry`]: an image the person cannot switch is

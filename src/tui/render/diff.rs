@@ -604,7 +604,7 @@ impl Rows {
     /// Whether a body `width` columns wide has room for two columns, each
     /// with its gutter and [`MIN_TEXT`] columns of text, and the divider.
     fn fits_side_by_side(&self, width: u16) -> bool {
-        usize::from(width) > 2 * (self.half_gutter_width() + MIN_TEXT)
+        usize::from(width) >= 2 * (self.half_gutter_width() + MIN_TEXT) + usize::from(DIVIDER_WIDTH)
     }
 
     /// The width of the text of `half` beyond the `room` its column leaves
@@ -639,23 +639,27 @@ impl Rows {
     }
 }
 
+/// The columns a divider takes: the line and a blank after it, so a line
+/// number of the new column never touches the line.
+const DIVIDER_WIDTH: u16 = 2;
+
 /// The old and the new column of a body `area` side by side, and the
 /// divider between them: the old column takes the smaller half of what
 /// the divider leaves.
 fn columns_of(area: Rect) -> (Rect, Rect, Rect) {
-    let old_width = (area.width - 1) / 2;
+    let old_width = (area.width - DIVIDER_WIDTH) / 2;
     let old = Rect {
         width: old_width,
         ..area
     };
     let divider = Rect {
         x: area.x + old_width,
-        width: 1,
+        width: DIVIDER_WIDTH,
         ..area
     };
     let new = Rect {
-        x: divider.x + 1,
-        width: area.width - old_width - 1,
+        x: divider.x + DIVIDER_WIDTH,
+        width: area.width - old_width - DIVIDER_WIDTH,
         ..area
     };
     (old, divider, new)
@@ -1779,7 +1783,7 @@ impl Fetcher {
 
     /// Where the divider stands in a body as wide as `buf`.
     fn divider_at(buf: &Buffer) -> u16 {
-        (buf.area.width - 1) / 2
+        (buf.area.width - 2) / 2
     }
 
     /// Row `y` of `buf` split at the divider: the old column and the new
@@ -1793,7 +1797,7 @@ impl Fetcher {
                 .trim_end()
                 .to_owned()
         };
-        (text(0..divider), text(divider + 1..buf.area.width))
+        (text(0..divider), text(divider + 2..buf.area.width))
     }
 
     fn pair(old: &str, new: &str) -> (String, String) {
@@ -1848,7 +1852,12 @@ impl Fetcher {
         }
         assert_eq!(buf[(divider, 1)].symbol(), "│");
         assert_eq!(buf[(divider, 1)].modifier, Modifier::DIM, "the divider");
-        for x in divider + 1..30 {
+        assert_eq!(
+            buf[(divider + 1, 1)].modifier,
+            Modifier::empty(),
+            "its blank"
+        );
+        for x in divider + 2..30 {
             assert_eq!(buf[(x, 1)].modifier, Modifier::REVERSED, "column {x}");
             assert_eq!(buf[(x, 1)].fg, Color::Green, "column {x}");
         }
@@ -1862,7 +1871,7 @@ impl Fetcher {
 
         assert_eq!(halves(&buf, 0), pair("1   fn a() {}", "1   fn a() {}"));
         assert_eq!(buf[(4, 0)].fg, Color::Indexed(5), "the old side's keyword");
-        assert_eq!(buf[(24, 0)].fg, Color::Indexed(5), "the new side's keyword");
+        assert_eq!(buf[(25, 0)].fg, Color::Indexed(5), "the new side's keyword");
     }
 
     #[test]
@@ -1880,7 +1889,7 @@ impl Fetcher {
     fn a_file_note_spans_both_columns() {
         let mut viewer = inline(None, Some("fn main() {\n}\n"));
 
-        let buf = drawn_side_by_side(&mut viewer, 30, 3, Offset::default());
+        let buf = drawn_side_by_side(&mut viewer, 32, 3, Offset::default());
 
         assert_eq!(row(&buf, 0), "new file");
         assert_eq!(halves(&buf, 1), pair("", "1 + fn main() {"));
@@ -1926,7 +1935,7 @@ impl Fetcher {
         let buf = drawn_side_by_side(&mut viewer, 60, 3, Offset::default());
 
         assert_eq!(halves(&buf, 2), pair("", "no newline at end of file"));
-        assert_eq!(buf[(divider_at(&buf) + 1, 2)].symbol(), "n");
+        assert_eq!(buf[(divider_at(&buf) + 2, 2)].symbol(), "n");
     }
 
     #[test]
@@ -1934,12 +1943,12 @@ impl Fetcher {
         let mut viewer = inline(Some("a\n"), Some("b\n"));
 
         // One digit: two columns of a number, a blank, the sign, a blank
-        // and 8 columns of text, and the divider.
-        let buf = drawn_side_by_side(&mut viewer, 25, 1, Offset::default());
+        // and 8 columns of text, and the divider with its blank.
+        let buf = drawn_side_by_side(&mut viewer, 26, 1, Offset::default());
         assert_eq!(halves(&buf, 0), pair("1 - a", "1 + b"));
 
-        let narrow = drawn_side_by_side(&mut viewer, 24, 2, Offset::default());
-        let unified = drawn(&mut viewer, 24, 2, Offset::default());
+        let narrow = drawn_side_by_side(&mut viewer, 25, 2, Offset::default());
+        let unified = drawn(&mut viewer, 25, 2, Offset::default());
         assert_eq!(narrow, unified, "unified below the minimum");
     }
 
@@ -1948,12 +1957,12 @@ impl Fetcher {
         let filler = "x\n".repeat(10_000);
         let mut viewer = inline(Some(&format!("{filler}a\n")), Some(&format!("{filler}b\n")));
 
-        // Five digits: 2 × (5 + 3 + 8) + 1.
-        let buf = drawn_side_by_side(&mut viewer, 33, 4, Offset::default());
+        // Five digits: 2 × (5 + 3 + 8) + 2.
+        let buf = drawn_side_by_side(&mut viewer, 34, 4, Offset::default());
         assert_eq!(halves(&buf, 3), pair("10001 - a", "10001 + b"));
 
-        let narrow = drawn_side_by_side(&mut viewer, 32, 4, Offset::default());
-        let unified = drawn(&mut viewer, 32, 4, Offset::default());
+        let narrow = drawn_side_by_side(&mut viewer, 33, 4, Offset::default());
+        let unified = drawn(&mut viewer, 33, 4, Offset::default());
         assert_eq!(narrow, unified, "unified below the minimum");
     }
 
@@ -2004,7 +2013,7 @@ impl Fetcher {
         let buf = drawn_side_by_side(&mut viewer, 60, 2, Offset { top: 0, left: 8 });
 
         let divider = divider_at(&buf);
-        for x in [4, divider + 1 + 4] {
+        for x in [4, divider + 2 + 4] {
             assert_eq!(buf[(x, 0)].symbol(), "‹", "column {x}");
         }
     }
@@ -2023,14 +2032,26 @@ impl Fetcher {
     }
 
     #[test]
+    fn a_blank_keeps_the_new_columns_numbers_off_the_divider() {
+        let new = new_fetcher();
+        let mut viewer = inline(Some(OLD_FETCHER), Some(&new));
+
+        let buf = drawn_side_by_side(&mut viewer, 100, 15, Offset::default());
+
+        // The first row after the separator, the first with numbers of
+        // two digits on both sides.
+        assert!(row(&buf, 8).contains("│ 11       }"), "{:?}", row(&buf, 8));
+    }
+
+    #[test]
     fn an_even_and_an_odd_body_split_around_the_divider() {
         let mut viewer = inline(Some("a\n"), Some("b\n"));
 
-        for (width, divider) in [(30, 14), (31, 15)] {
+        for (width, divider, new) in [(30, 14, 16), (31, 14, 16)] {
             let buf = drawn_side_by_side(&mut viewer, width, 1, Offset::default());
 
             assert_eq!(buf[(divider, 0)].symbol(), "│", "{width} columns");
-            assert_eq!(buf[(divider + 1, 0)].symbol(), "1", "{width} columns");
+            assert_eq!(buf[(new, 0)].symbol(), "1", "{width} columns");
         }
     }
 
@@ -2144,7 +2165,7 @@ impl Fetcher {
         assert_eq!(viewer.diff_shape(), shape(DiffLayout::Unified, true));
         viewer.lay_out_side_by_side(30, 5);
         assert_eq!(viewer.diff_shape(), shape(DiffLayout::SideBySide, true));
-        viewer.lay_out_side_by_side(24, 5);
+        viewer.lay_out_side_by_side(25, 5);
         assert_eq!(viewer.diff_shape(), shape(DiffLayout::Unified, false));
     }
 }

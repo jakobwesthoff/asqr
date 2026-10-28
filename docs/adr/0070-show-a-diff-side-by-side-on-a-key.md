@@ -45,7 +45,7 @@ versions next to each other instead.
 - **Narrow panes:** side by side is allowed wherever two columns can be
   drawn at all; whether they read well there is the person's call. Two
   columns need each its gutter and at least 8 columns of text, and the
-  divider. Below that the diff shows unified and `s` says why: "too
+  divider with its blank. Below that the diff shows unified and `s` says why: "too
   narrow for side by side; z shows it full screen", in the full-screen
   view "too narrow for side by side". `s` back to unified always works.
 - **Beside the one-line hint,** where no pane shows, `s` switches the
@@ -56,7 +56,9 @@ versions next to each other instead.
   that cannot be read (ADR 49), and "nothing to show side by side here"
   where no entry shows.
 - **The columns:** the old text left, the new text right, a dim `│`
-  between them; of an odd width the left column takes the smaller half.
+  and a blank between them, so a line number of the new column never
+  touches the line; the left column takes the smaller half of what they
+  leave.
   Each column has its own gutter: its side's line number, right-aligned
   to the digits both sides share, and the sign. An unchanged line shows
   on both sides, its old number left and its new number right.

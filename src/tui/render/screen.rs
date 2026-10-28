@@ -5438,7 +5438,7 @@ mod tests {
         );
 
         assert!(
-            first_body_row(&side_by_side).contains("│ 1   ctx"),
+            first_body_row(&side_by_side).ends_with(" │  1   ctx"),
             "{side_by_side}"
         );
         insta::assert_snapshot!("diff_side_by_side_full_screen_120x30", side_by_side);

@@ -1785,8 +1785,10 @@ Code entries, ANSI entries and diffs show lines of source:
   diff shows unified when it comes back. A replaced session file keeps
   it while the same entry shows. asqr does not keep it when it quits.
 - Side by side, the old text shows in the left column and the new text
-  in the right one, with a dim `│` between them; of an odd width, the
-  left column takes the smaller half. Each column has its own gutter:
+  in the right one, with a dim `│` and a blank between them, so a line
+  number of the new column never touches the line; the left column
+  takes the smaller half of what they leave. Each column has its own
+  gutter:
   its side's line number and the sign. An unchanged line shows on both
   sides, its old number left and its new number right, highlighted on
   both as in the unified diff. In a run of changed lines, the first
@@ -1803,7 +1805,8 @@ Code entries, ANSI entries and diffs show lines of source:
   switching back before scrolling shows the line the switch started
   from.
 - Side by side needs room for two columns, each with its gutter and at
-  least 8 columns of text, and the divider. In a narrower body the diff
+  least 8 columns of text, and the divider with its blank. In a narrower
+  body the diff
   shows unified, and `s` says "too narrow for side by side; z shows it
   full screen", in the full-screen view "too narrow for side by side";
   `s` back to unified always works. On an entry that is no diff, `s`
