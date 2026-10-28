@@ -1325,8 +1325,9 @@ The context pane:
   the one-line hint shows (section 7.4), `z` shows image and caption by
   the rule of section 8.8 at the full-screen size, the next `z` the image
   alone and the one after that leaves; the key bar then names `z  image`
-  and `esc/q  back`, and the help `z  the image alone` and `tab/esc/q
-  leave the full screen`.
+  and `esc/q  back`, which a bar too narrow for every hint keeps
+  longest after `?  help`, and the help `z  the image alone` and
+  `tab/esc/q  leave the full screen`.
 
 Overlays and dialogs:
 

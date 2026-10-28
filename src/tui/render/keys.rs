@@ -166,7 +166,8 @@ pub(super) enum Rank {
     LeftRight,
     Cursor,
     /// Quitting, going back from the context pane or the full-screen view,
-    /// closing an overlay.
+    /// closing an overlay, and `z  image`, the step before going back from
+    /// an image shown with its caption.
     Leave,
     Help,
 }
@@ -249,8 +250,11 @@ fn pane_key_hints(state: &SessionState, page: Page) -> Vec<Hint> {
     }
     hints.push(HELP_HINT);
     if state.full_screen() && !state.full_screen_alone() {
-        // `z` shows the image alone before it goes back.
-        hints.push(hint("z", "image", Rank::Cursor));
+        // `z` shows the image alone before it goes back. The view comes
+        // from the one-line hint, so from a narrow terminal, and the bar
+        // must still say what the next `z` does (ADR 69): the hint ranks
+        // with the way back.
+        hints.push(hint("z", "image", Rank::Leave));
         hints.push(hint("esc/q", "back", Rank::Leave));
     } else if state.full_screen() {
         hints.push(hint("z/esc/q", "back", Rank::Leave));
@@ -795,6 +799,17 @@ mod tests {
             Some(&("z/esc/q", "back")),
             "the image alone goes back on z"
         );
+    }
+
+    #[test]
+    fn a_narrow_key_bar_from_the_hint_keeps_z_image_and_the_way_back() {
+        let (state, page) = caption_full_screen_from_the_hint();
+
+        // The view occurs below 101 columns, where the one-line hint shows.
+        let bar = bar_of(&state, page, 60);
+
+        assert!(bar.contains(" z  image "), "{bar}");
+        assert!(bar.contains(" esc/q  back"), "{bar}");
     }
 
     #[test]
