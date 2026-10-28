@@ -9,6 +9,7 @@
 mod alert;
 mod app;
 mod inbox;
+mod progress;
 pub mod render;
 mod run;
 mod scroll;
@@ -19,6 +20,7 @@ mod watch;
 pub use alert::*;
 pub use app::*;
 pub use inbox::*;
+pub use progress::*;
 pub use run::*;
 pub use scroll::{Extent, Offset, Page};
 pub use session::*;

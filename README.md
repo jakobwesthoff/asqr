@@ -63,7 +63,9 @@ In another terminal, or from an agent, ask:
 
 asqr shows the session as soon as it arrives, with a desktop
 notification and the terminal bell (`--no-notify`, `--no-bell`), and the
-terminal title counts the waiting sessions (`--no-title`). Answer
+terminal title counts the waiting sessions (`--no-title`). Ghostty,
+iTerm2, Windows Terminal and kitty inside tmux also show how much of the
+session is answered. Answer
 with the keyboard: `↑`/`↓` and `←`/`→` (or `hjkl`) move, `enter` picks,
 typing goes straight into the answer fields, `n` adds a note, and the
 last tab reviews everything before you submit or reject. `?` shows every

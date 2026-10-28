@@ -18,7 +18,7 @@ use ratatui::backend::Backend;
 use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
 
 use super::render::{Drawn, View, draw};
-use super::{App, Applied, Inbox, Tone};
+use super::{App, Applied, Inbox, Tone, session_progress};
 use crate::graphics::KittyDeletes;
 use crate::queue::QueueLocation;
 
@@ -40,6 +40,9 @@ pub enum Event {
     Loaded,
     /// SIGTERM, SIGINT or SIGHUP asked asqr to quit (spec section 7.1).
     Quit,
+    /// A period of the keep-alive passed: the terminal clears the progress
+    /// unless it gets it again (ADR 73).
+    KeepAlive,
 }
 
 impl Event {
@@ -51,7 +54,7 @@ impl Event {
         match self {
             Event::Key(key) => key.kind == KeyEventKind::Press,
             Event::Paste(_) | Event::Resize | Event::Quit => true,
-            Event::InboxChanged | Event::FocusGained | Event::Loaded => false,
+            Event::InboxChanged | Event::FocusGained | Event::Loaded | Event::KeepAlive => false,
         }
     }
 }
@@ -68,6 +71,31 @@ pub trait Host {
     /// Ask the terminal to delete the Kitty images `deletes` names, which
     /// the frame just written no longer shows (ADR 42).
     fn delete_images(&mut self, deletes: &KittyDeletes) -> io::Result<()>;
+    /// Show `percent` as the terminal's progress, or remove the progress
+    /// for `None`, where the terminal is known to show it (ADR 73).
+    fn progress(&mut self, percent: Option<u8>);
+}
+
+/// What the run loop last sent as the progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SentProgress {
+    /// The terminal may show anything, as after a focus gain under tmux;
+    /// the next pass sends what is current, a remove included.
+    Unknown,
+    /// The terminal shows no progress.
+    Removed,
+    Shown(u8),
+}
+
+impl SentProgress {
+    fn of(percent: Option<u8>) -> Self {
+        percent.map_or(SentProgress::Removed, SentProgress::Shown)
+    }
+
+    /// Whether `percent` has to go out to bring the terminal to it.
+    fn differs_from(self, percent: Option<u8>) -> bool {
+        self != SentProgress::of(percent)
+    }
 }
 
 /// The terminal title for the state of `app`, so a tab in the background
@@ -100,6 +128,10 @@ where
     // Every key draws again, but the title goes to the terminal only when
     // its text changes. No title is empty, so the first pass sends one.
     let mut sent_title = String::new();
+    // The progress goes out only when it changes too. The terminal shows
+    // none before asqr sends one, so a queue that starts empty sends
+    // nothing.
+    let mut sent_progress = SentProgress::Removed;
     // The events taken from the channel before they are handled, one a
     // pass with a draw between, as each key may depend on what the draw
     // before it measured.
@@ -110,13 +142,21 @@ where
             host.title(&title);
             sent_title = title;
         }
+        let progress = session_progress(app);
+        if sent_progress.differs_from(progress) {
+            host.progress(progress);
+            sent_progress = SentProgress::of(progress);
+        }
         // A draw with input waiting behind it does not wait for its entry
         // (ADR 46). All that arrived is looked at, as the load threads
         // send their wake-ups into the same channel as the keys and one
         // in front would hide a key behind it. A wake-up only asks for
-        // the draw that comes anyway, so it goes.
+        // the draw that comes anyway, so it goes. Keep-alives pile up
+        // while the loop waits on the host, as for the editor, and one
+        // sends what they all would.
         while let Ok(event) = events.try_recv() {
-            if event != Event::Loaded {
+            let piled_up = event == Event::KeepAlive && ahead.contains(&Event::KeepAlive);
+            if event != Event::Loaded && !piled_up {
                 ahead.push_back(event);
             }
         }
@@ -167,12 +207,22 @@ where
         if app.set_field_shape(drawn.field_shape) {
             continue;
         }
-        let event = match ahead.pop_front() {
-            Some(event) => event,
-            None => match events.recv() {
-                Ok(event) => event,
-                Err(_) => return Ok(()),
-            },
+        // A keep-alive only sends the progress again, which needs no
+        // frame, so the loop takes the next event without drawing.
+        let event = loop {
+            let event = match ahead.pop_front() {
+                Some(event) => event,
+                None => match events.recv() {
+                    Ok(event) => event,
+                    Err(_) => return Ok(()),
+                },
+            };
+            if event != Event::KeepAlive {
+                break event;
+            }
+            if let SentProgress::Shown(percent) = sent_progress {
+                host.progress(Some(percent));
+            }
         };
         let effect = match event {
             // Terminals that report releases and repeats (the kitty
@@ -180,13 +230,17 @@ where
             Event::Key(key) if key.kind != KeyEventKind::Press => continue,
             Event::Key(key) => app.handle(key),
             Event::Paste(text) => app.paste(&text),
-            Event::Resize | Event::Loaded => continue,
+            // A keep-alive was taken above and never gets here.
+            Event::Resize | Event::Loaded | Event::KeepAlive => continue,
             // The caller gives the terminal back, as after `q`.
             Event::Quit => return Ok(()),
             // Coming back into view is when a transfer lost in the
-            // background can be repeated, where one can be lost at all.
+            // background can be repeated, where one can be lost at all,
+            // the progress included: tmux drops passthrough from a pane no
+            // client shows (spec section 8.9).
             Event::FocusGained => {
                 view.focus_gained();
+                sent_progress = SentProgress::Unknown;
                 continue;
             }
             // The inbox coming back or not is out of asqr's hands; the
@@ -253,9 +307,15 @@ mod tests {
         /// Where the Kitty images the loop deletes go, among the frames a
         /// [`Logging`] backend notes.
         log: Log,
+        /// Every progress the loop sent, in order.
+        progress: Vec<Option<u8>>,
     }
 
     impl Host for Recorder {
+        fn progress(&mut self, percent: Option<u8>) {
+            self.progress.push(percent);
+        }
+
         fn delete_images(&mut self, deletes: &KittyDeletes) -> io::Result<()> {
             if self.refuse_deletes {
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "terminal gone"));
@@ -823,6 +883,117 @@ mod tests {
         for (event, input) in cases {
             assert_eq!(event.is_input(), input, "{event:?}");
         }
+    }
+
+    // -----------------------------------------------------------------
+    // The progress (ADR 73)
+    // -----------------------------------------------------------------
+
+    /// Two questions to pick from, the first option of each with `1`.
+    const TWO_QUESTIONS: &str = r#"{"asqr": 2, "questions": [
+        {"id": "q1", "text": "First?", "kind": "single", "options": [{"id": "a", "label": "A"}]},
+        {"id": "q2", "text": "Second?", "kind": "single", "options": [{"id": "a", "label": "A"}]}]}"#;
+
+    fn two_questions() -> Harness {
+        let harness = Harness::new();
+        fs::write(harness.location.inbox().join("two.json"), TWO_QUESTIONS).expect("written");
+        harness
+    }
+
+    #[test]
+    fn the_progress_is_sent_when_it_changes_and_only_then() {
+        let mut harness = two_questions();
+
+        // `1` picks and moves on, the second time to the review, where
+        // `enter` submits; the resizes draw without a change.
+        harness
+            .run(vec![
+                Event::Resize,
+                key(KeyCode::Char('1')),
+                Event::Resize,
+                key(KeyCode::Char('1')),
+                Event::Resize,
+                key(KeyCode::Enter),
+                Event::Resize,
+            ])
+            .expect("runs");
+
+        assert_eq!(harness.host.progress, [Some(0), Some(50), Some(100), None]);
+    }
+
+    #[test]
+    fn an_empty_queue_sends_no_progress() {
+        let mut harness = Harness::new();
+
+        harness.run(vec![Event::Resize]).expect("runs");
+
+        assert_eq!(harness.host.progress, []);
+    }
+
+    #[test]
+    fn gaining_the_focus_sends_the_progress_again() {
+        let mut harness = two_questions();
+
+        harness.run(vec![Event::FocusGained]).expect("runs");
+
+        assert_eq!(harness.host.progress, [Some(0), Some(0)]);
+    }
+
+    #[test]
+    fn the_progress_goes_when_the_session_leaves() {
+        let mut harness = two_questions();
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        harness
+            .run_started(&mut app, &mut inbox, vec![])
+            .expect("runs");
+
+        fs::remove_file(harness.location.inbox().join("two.json")).expect("removed");
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::InboxChanged])
+            .expect("runs");
+
+        assert_eq!(harness.host.progress, [Some(0), Some(0), None]);
+    }
+
+    #[test]
+    fn a_keep_alive_sends_the_progress_again() {
+        let mut harness = two_questions();
+
+        harness.run(vec![Event::KeepAlive]).expect("runs");
+
+        assert_eq!(harness.host.progress, [Some(0), Some(0)]);
+    }
+
+    #[test]
+    fn keep_alives_waiting_together_send_the_progress_once() {
+        let mut harness = two_questions();
+
+        harness
+            .run(vec![Event::KeepAlive, Event::KeepAlive, Event::KeepAlive])
+            .expect("runs");
+
+        assert_eq!(harness.host.progress, [Some(0), Some(0)]);
+    }
+
+    #[test]
+    fn a_keep_alive_without_a_progress_sends_nothing() {
+        let mut harness = Harness::new();
+
+        harness.run(vec![Event::KeepAlive]).expect("runs");
+
+        assert_eq!(harness.host.progress, []);
+    }
+
+    #[test]
+    fn a_keep_alive_draws_no_frame() {
+        let session = SESSION.replace(
+            r#"{"type": "image", "path": "/nowhere/cat.png"}"#,
+            r#"{"type": "code", "content": "fn main() {}"}"#,
+        );
+
+        let log = logged(&session, Images::half_blocks(), vec![Event::KeepAlive]);
+
+        assert_eq!(log, ["frame"]);
     }
 
     #[test]

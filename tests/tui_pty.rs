@@ -1364,3 +1364,69 @@ fn inside_tmux_kitty_images_pass_from_a_hidden_pane_until_asqr_quits() {
         assert_eq!(sets, expected, "{answer:?}: {commands}");
     }
 }
+
+/// Starts asqr inside a stand-in tmux whose one client answered XTVERSION
+/// with `termtype`, asks the session of [`SESSION`] and waits until it
+/// shows.
+fn answering_under(sandbox: &Sandbox, termtype: &str) -> Tui {
+    let dir = sandbox.queue_dir();
+    let tui = Tui::start(
+        sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+        &format!("off\t1\t{termtype}"),
+    );
+    tui.wait_for("Nothing to answer");
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("Pick a fruit");
+    tui
+}
+
+/// Waits until `tui`'s output holds `needle` at least `count` times.
+fn wait_for_output(tui: &Tui, needle: &str, count: usize) {
+    let start = Instant::now();
+    while tui.output().matches(needle).count() < count {
+        assert!(
+            start.elapsed() < PATIENCE,
+            "{needle:?} never came {count} times: {:?}",
+            tui.output()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Ghostty inside tmux gets the progress in the passthrough wrapper, again
+/// every second while it shows, as it clears it after a while without an
+/// update, and its removal before asqr leaves the alternate screen.
+#[test]
+fn progress_reaches_a_terminal_that_shows_it_through_tmux() {
+    let sandbox = Sandbox::new();
+    let mut tui = answering_under(&sandbox, "ghostty 1.2.0");
+    let set = wrapped("\x1b]9;4;1;0\x1b\\");
+
+    // No key is pressed: the second one is the keep-alive's.
+    wait_for_output(&tui, &set, 2);
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let output = tui.output();
+    let removed = last(&output, &wrapped("\x1b]9;4;0\x1b\\"));
+    assert!(
+        last(&output, &set) < removed && removed < last(&output, "\x1b[?1049l"),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn a_terminal_not_known_to_show_progress_gets_none() {
+    let sandbox = Sandbox::new();
+    let mut tui = answering_under(&sandbox, "");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    assert!(!tui.output().contains("]9;4"), "{:?}", tui.output());
+}

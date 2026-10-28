@@ -934,8 +934,9 @@ the terminal as asqr had set it up.
 asqr asks the terminal for bracketed paste (section 7.7) and for focus
 reports (section 8.8). It turns both off again when it quits or panics,
 not when SIGKILL ends it. A terminal that refuses either runs asqr
-without it. On quitting it also resets the terminal title (section
-7.9), deletes the Kitty images it sent (section 8.8) and restores the
+without it. On quitting it also removes the progress it shows and
+resets the terminal title (section 7.9), deletes the Kitty images it
+sent (section 8.8) and restores the
 pane's passthrough setting inside tmux (section 8.9).
 
 ### 7.2 The screen
@@ -1490,6 +1491,31 @@ keeps the session and shows its own notice instead.
   as a title of their own (ADR 40). Inside tmux these go to tmux
   plainly; tmux shows the title as the pane's. `--no-title` switches the
   title off, and asqr then writes none of these sequences.
+- The terminal shows how much of the session being answered has an
+  answer, through OSC 9;4 (ADR 73): the share of its questions with an
+  answer, in percent and rounded down, an untouched default counted as
+  answered and info items counted neither way. The review tab keeps the
+  share, so it reads 100 % once every question is answered. There is no
+  progress while no session waits, or for a session of info items only.
+  asqr writes `ESC ] 9 ; 4 ; 1 ; <percent> ESC \` when the share
+  changes, `ESC ] 9 ; 4 ; 0 ESC \` when the progress goes, and both
+  again after a focus gain.
+  - Only terminals known to show it get it: Ghostty from 1.2.0 and
+    iTerm2 from 3.6.6, which show a bar in the window (iTerm2 from 3.7.0
+    also on the tab), Windows Terminal (`WT_SESSION`), which shows a
+    ring on the tab, and inside tmux kitty from 0.39.0, which shows the
+    percentage in the tab's title. Windows Terminal names no version, so
+    one before 1.6 is not told apart. Every other terminal, and one
+    whose version cannot be read, gets nothing: several show any OSC 9
+    as a desktop notification.
+  - Ghostty clears the bar after a while without an update, so it gets
+    the progress again every second while one shows.
+  - Inside tmux the client's terminal decides, from its answer to
+    XTVERSION, and only while one client is attached; asqr asks tmux
+    again before every write and writes nothing where the check fails.
+    The sequence goes out in tmux's passthrough wrapper (section 8.9).
+  - When asqr quits, also after a panic, it removes a progress it
+    shows, before it leaves the alternate screen.
 - A replaced session file keeps the answers that still fit (section
   5.4) and where the person was: the question shown, found again by its
   id, or the review; the row with its focus, so a field left with `esc`
@@ -1981,7 +2007,8 @@ scrolling.
 - Known limitation: the pane's passthrough is on while the query runs,
   or `all` while asqr runs, and asqr killed in that window leaves it so.
 - Talqi's glyphs inside tmux follow the client's terminal (section 7.5),
-  and the terminal title goes to tmux plainly (section 7.9).
+  and so does the progress, which goes out in the passthrough wrapper;
+  the terminal title goes to tmux plainly (section 7.9).
 
 ### 8.10 Text with ANSI colours
 

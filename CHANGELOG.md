@@ -64,6 +64,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparing image variants, deciding before implementing and going
   through review findings. Each pattern names what a session can hold,
   as a starting point an agent adapts or leaves aside.
+- asqr reports how much of the session being answered has an answer
+  through OSC 9;4: Ghostty from 1.2.0 and iTerm2 from 3.6.6 show it as a
+  bar in the window (iTerm2 from 3.7.0 also on the tab), Windows
+  Terminal as a ring on the tab, and kitty from 0.39.0 inside tmux in the
+  tab's title. The share counts the questions with an answer, a default
+  included, and reads 100 % on the review once all are answered. An
+  empty queue shows none, and asqr removes it when it quits. Inside tmux
+  it goes out in the passthrough wrapper while one client is attached.
+  Other terminals get nothing, as several show any OSC 9 as a desktop
+  notification.
 
 ### Changed
 

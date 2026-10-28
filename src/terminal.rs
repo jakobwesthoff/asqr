@@ -28,7 +28,10 @@ use asqr::graphics::{
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
-use asqr::tui::{Alerts, Event, Host, alert, run, start, watch_inbox};
+use asqr::tui::{
+    Alerts, Event, Host, KeepAlive, ProgressTerminal, SleepClock, alert, progress_sequence,
+    progress_terminal, run, start, watch_inbox,
+};
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
     Event as TerminalEvent,
@@ -89,10 +92,12 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // the images exist, asqr's own hook runs before ratatui's.
     let mut terminal = ratatui::try_init().context("setting up the terminal")?;
     let title_pushed = Arc::new(AtomicBool::new(false));
+    let progress = ShownProgress::new(env.in_tmux_pane());
     let _guard = TerminalGuard {
         out: io::stdout(),
         restore: ratatui::restore,
         title_pushed: Arc::clone(&title_pushed),
+        progress: progress.clone(),
     };
     // SIGTERM, SIGINT and SIGHUP would end the process without the guard.
     // Caught, they end the run as `q` does, and the guard runs. SIGKILL
@@ -133,7 +138,11 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     log_window_size();
 
     let images = Images::new(graphics);
-    hook_in_before_ratatui_on_panic(images.kitty_book().clone(), Arc::clone(&title_pushed));
+    hook_in_before_ratatui_on_panic(
+        images.kitty_book().clone(),
+        Arc::clone(&title_pushed),
+        progress.clone(),
+    );
     // What is left at the end is dropped in the reverse order it was made
     // in: the view first, whose images hand their ids on as they go, then
     // `_kitty_exit`, which deletes the images while the alternate screen is
@@ -157,6 +166,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     }
 
     let loaded = sender.clone();
+    let ticks = sender.clone();
     // The thread blocks in `read` for the life of the process; it ends
     // with it.
     std::thread::spawn(move || {
@@ -185,6 +195,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         alerts: watch.alerts(),
         title: watch.title(),
         title_pushed,
+        progress: ProgressOut::new(env.clone(), run_tmux, progress, ticks),
         env,
     };
     let mut view = View::new(&queue, watch.layout(), images)
@@ -259,6 +270,8 @@ struct TerminalGuard<W: Write> {
     /// Whether [`write_title`] pushed the terminal's title, shared with
     /// the [`TerminalHost`] that writes the titles and the panic hook.
     title_pushed: Arc<AtomicBool>,
+    /// The progress the [`TerminalHost`] shows, which goes on quitting.
+    progress: ShownProgress,
 }
 
 /// Saves the window and the icon title on the terminal's title stack.
@@ -281,10 +294,16 @@ fn write_title(out: &mut impl Write, title: &str, pushed: &AtomicBool) -> io::Re
     out.flush()
 }
 
-/// Gives back the title asqr pushed and turns focus reports and bracketed
-/// paste off, before the alternate screen is left. On a panic the hook
-/// and then the guard both run it; the title is given back once.
-fn give_back_title_and_modes(out: &mut impl Write, title_pushed: &AtomicBool) {
+/// Removes the progress asqr shows, gives back the title asqr pushed and
+/// turns focus reports and bracketed paste off, before the alternate
+/// screen is left. On a panic the hook and then the guard both run it;
+/// the progress and the title are given back once.
+fn give_back_title_and_modes(
+    out: &mut impl Write,
+    title_pushed: &AtomicBool,
+    progress: &ShownProgress,
+) {
+    progress.remove_once(out);
     // Only a push is popped. The empty title comes first: a terminal
     // without a title stack keeps it instead of asqr's, and one with a
     // stack then takes back the pushed title. The other way round, the
@@ -309,7 +328,7 @@ fn give_back_title_and_modes(out: &mut impl Write, title_pushed: &AtomicBool) {
 
 impl<W: Write> Drop for TerminalGuard<W> {
     fn drop(&mut self) {
-        give_back_title_and_modes(&mut self.out, &self.title_pushed);
+        give_back_title_and_modes(&mut self.out, &self.title_pushed, &self.progress);
         (self.restore)();
     }
 }
@@ -324,7 +343,11 @@ impl<W: Write> Drop for TerminalGuard<W> {
 /// The hook stays for the rest of the process, as ratatui's does. After
 /// the run the book is empty and the title given back, so it only turns
 /// the modes off again.
-fn hook_in_before_ratatui_on_panic(book: KittyBook, title_pushed: Arc<AtomicBool>) {
+fn hook_in_before_ratatui_on_panic(
+    book: KittyBook,
+    title_pushed: Arc<AtomicBool>,
+    progress: ShownProgress,
+) {
     let ratatui_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         // A panic while loading a context entry is handed to the drawing
@@ -333,19 +356,25 @@ fn hook_in_before_ratatui_on_panic(book: KittyBook, title_pushed: Arc<AtomicBool
         if loader_panicked(info) {
             return;
         }
-        give_back_on_panic(&mut io::stdout(), &book, &title_pushed);
+        give_back_on_panic(&mut io::stdout(), &book, &title_pushed, &progress);
         ratatui_hook(info);
     }));
 }
 
-/// Deletes the Kitty images, those still shown included, gives the title
-/// back and turns focus reports and bracketed paste off, on a panic.
+/// Deletes the Kitty images, those still shown included, removes the
+/// progress, gives the title back and turns focus reports and bracketed
+/// paste off, on a panic.
 ///
 /// The hook runs before the unwinding lets go of a lock, so it only tries
 /// the book: after a panic while the book was locked, the exit guard
 /// writes the deletes, once the alternate screen is gone already. What
 /// the hook took, the exit guard does not write again.
-fn give_back_on_panic(out: &mut impl Write, book: &KittyBook, title_pushed: &AtomicBool) {
+fn give_back_on_panic(
+    out: &mut impl Write,
+    book: &KittyBook,
+    title_pushed: &AtomicBool,
+    progress: &ShownProgress,
+) {
     if let Some(deletes) = book.try_drain().filter(|deletes| !deletes.is_empty()) {
         let deleted = out
             .write_all(&deletes.to_bytes())
@@ -354,7 +383,115 @@ fn give_back_on_panic(out: &mut impl Write, book: &KittyBook, title_pushed: &Ato
             tracing::warn!(%error, "could not delete the images");
         }
     }
-    give_back_title_and_modes(out, title_pushed);
+    give_back_title_and_modes(out, title_pushed, progress);
+}
+
+/// Whether asqr shows a progress, and the bytes that remove it, shared by
+/// the [`ProgressOut`] that writes the progress, the guard and the panic
+/// hook.
+#[derive(Clone)]
+struct ShownProgress {
+    shown: Arc<AtomicBool>,
+    remove: Arc<[u8]>,
+}
+
+impl ShownProgress {
+    /// Nothing shown yet; the remove goes through tmux's passthrough when
+    /// `tmux`, as the progress does.
+    fn new(tmux: bool) -> Self {
+        ShownProgress {
+            shown: Arc::new(AtomicBool::new(false)),
+            remove: progress_sequence(None, tmux).into(),
+        }
+    }
+
+    /// Removes the progress, once, when asqr shows one.
+    fn remove_once(&self, out: &mut impl Write) {
+        if self.shown.swap(false, Ordering::Relaxed) {
+            let removed = out.write_all(&self.remove).and_then(|()| out.flush());
+            if let Err(error) = removed {
+                tracing::warn!(%error, "could not remove the progress");
+            }
+        }
+    }
+}
+
+/// Writes the progress to terminals known to show it (ADR 73).
+struct ProgressOut {
+    env: TerminalEnv,
+    /// What the terminal does with the progress outside tmux, which the
+    /// environment of the process decides once.
+    outside: ProgressTerminal,
+    /// [`run_tmux`]; tests pass a function that answers for tmux.
+    ask_tmux: fn(&[&str]) -> Option<String>,
+    shown: ShownProgress,
+    /// Started for the first terminal that clears the progress after a
+    /// while, and kept for the run.
+    keep_alive: Option<KeepAlive>,
+    /// Where the keep-alive's ticks go: the run loop.
+    ticks: mpsc::Sender<Event>,
+}
+
+impl ProgressOut {
+    fn new(
+        env: TerminalEnv,
+        ask_tmux: fn(&[&str]) -> Option<String>,
+        shown: ShownProgress,
+        ticks: mpsc::Sender<Event>,
+    ) -> Self {
+        ProgressOut {
+            outside: progress_terminal(&env, None),
+            env,
+            ask_tmux,
+            shown,
+            keep_alive: None,
+            ticks,
+        }
+    }
+
+    /// What the terminal does with the progress right now. Inside tmux the
+    /// client may have changed since the last write, as after a detach and
+    /// an attach from another terminal, so tmux is asked again each time.
+    fn terminal(&self) -> ProgressTerminal {
+        if !self.env.in_tmux_pane() {
+            return self.outside;
+        }
+        let state = (self.ask_tmux)(&["display-message", "-p", TmuxState::FORMAT])
+            .map(|answer| TmuxState::parse(&answer));
+        progress_terminal(&self.env, state.as_ref())
+    }
+
+    /// Shows `percent`, or removes the progress for `None`, where the
+    /// terminal is known to show it. Where it is not, nothing is written,
+    /// a remove neither, as the terminal may show any OSC 9 as a
+    /// notification, and the progress counts as gone.
+    fn write(&mut self, out: &mut impl Write, percent: Option<u8>) -> io::Result<()> {
+        let terminal = self.terminal();
+        if terminal == ProgressTerminal::None {
+            self.shown.shown.store(false, Ordering::Relaxed);
+            self.keep(false);
+            return Ok(());
+        }
+        out.write_all(&progress_sequence(percent, self.env.in_tmux_pane()))?;
+        out.flush()?;
+        self.shown.shown.store(percent.is_some(), Ordering::Relaxed);
+        self.keep(terminal == ProgressTerminal::KeepAlive && percent.is_some());
+        Ok(())
+    }
+
+    /// Lets the keep-alive's ticks come or stops them, starting it the
+    /// first time it is needed.
+    fn keep(&mut self, alive: bool) {
+        if alive && self.keep_alive.is_none() {
+            let ticks = self.ticks.clone();
+            self.keep_alive = Some(KeepAlive::spawn(SleepClock, move || {
+                ticks.send(Event::KeepAlive).is_ok()
+            }));
+        }
+        if let Some(keep_alive) = &self.keep_alive {
+            keep_alive.set_active(alive);
+        }
+    }
 }
 
 /// Sends [`Event::Quit`] on `sender` for every SIGTERM, SIGINT and SIGHUP.
@@ -464,10 +601,18 @@ struct TerminalHost {
     /// title, and so no push the guard would pop.
     title: bool,
     title_pushed: Arc<AtomicBool>,
+    progress: ProgressOut,
     env: TerminalEnv,
 }
 
 impl Host for TerminalHost {
+    fn progress(&mut self, percent: Option<u8>) {
+        let mut stdout = io::stdout().lock();
+        if let Err(error) = self.progress.write(&mut stdout, percent) {
+            tracing::warn!(%error, "could not write the progress");
+        }
+    }
+
     fn alert(&mut self, arrived: &[String]) {
         let mut stdout = io::stdout().lock();
         if let Err(error) = alert(&mut stdout, self.alerts, &self.env, arrived) {
@@ -535,13 +680,178 @@ mod tests {
     /// What dropping a guard writes, when asqr did or did not push the
     /// title.
     fn dropped(pushed: bool) -> String {
+        dropped_showing(pushed, false)
+    }
+
+    /// What dropping a guard writes, when asqr did or did not push the
+    /// title and did or did not show a progress.
+    fn dropped_showing(pushed: bool, progress: bool) -> String {
         let mut written = Vec::new();
+        let shown = ShownProgress::new(false);
+        shown.shown.store(progress, Ordering::Relaxed);
         drop(TerminalGuard {
             out: &mut written,
             restore: note_restore,
             title_pushed: Arc::new(AtomicBool::new(pushed)),
+            progress: shown,
         });
         String::from_utf8(written).expect("escape sequences are ASCII")
+    }
+
+    const REMOVE_PROGRESS: &str = "\x1b]9;4;0\x1b\\";
+
+    #[test]
+    fn the_guard_removes_the_progress_only_after_one_was_shown() {
+        assert!(
+            dropped_showing(false, true).starts_with(REMOVE_PROGRESS),
+            "the progress goes first"
+        );
+        assert!(!dropped_showing(false, false).contains("]9;4"));
+    }
+
+    #[test]
+    fn a_panic_removes_the_progress_once() {
+        let (book, _shown) = book_with_an_image();
+        let pushed = AtomicBool::new(false);
+        let progress = ShownProgress::new(false);
+        progress.shown.store(true, Ordering::Relaxed);
+        let mut written = Vec::new();
+
+        give_back_on_panic(&mut written, &book, &pushed, &progress);
+        give_back_on_panic(&mut written, &book, &pushed, &progress);
+
+        let written = String::from_utf8(written).expect("escape sequences are ASCII");
+        assert_eq!(written.matches(REMOVE_PROGRESS).count(), 1, "{written:?}");
+    }
+
+    #[test]
+    fn a_progress_that_cannot_be_removed_is_not_tried_again() {
+        let progress = ShownProgress::new(false);
+        progress.shown.store(true, Ordering::Relaxed);
+        // A full buffer fails every write with `WriteZero`.
+        let mut full: [u8; 0] = [];
+
+        progress.remove_once(&mut &mut full[..]);
+
+        assert!(!progress.shown.load(Ordering::Relaxed));
+    }
+
+    // -----------------------------------------------------------------
+    // Writing the progress
+    // -----------------------------------------------------------------
+
+    thread_local! {
+        /// How often the stand-in tmux was asked.
+        static ASKED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// tmux's answer for a pane whose one client is Ghostty 1.2.0 the
+    /// first time it is asked, and WezTerm, which shows no progress, from
+    /// then on, as after an attach from another terminal.
+    fn ghostty_then_wezterm(_: &[&str]) -> Option<String> {
+        let asked = ASKED.get();
+        ASKED.set(asked + 1);
+        let termtype = if asked == 0 {
+            "ghostty 1.2.0"
+        } else {
+            "WezTerm 20240203-110809-5046fc22"
+        };
+        Some(format!("on\t1\t{termtype}\t1\t1\t0\t3.5\n"))
+    }
+
+    fn no_tmux(_: &[&str]) -> Option<String> {
+        None
+    }
+
+    /// A writer of the progress for a terminal whose environment holds
+    /// `vars`, and the channel its keep-alive ticks into.
+    fn progress_out(
+        vars: &[(&str, &str)],
+        ask_tmux: fn(&[&str]) -> Option<String>,
+    ) -> (ProgressOut, mpsc::Receiver<Event>) {
+        let env = TerminalEnv::from_pairs(vars);
+        let (ticks, ticked) = mpsc::channel();
+        let shown = ShownProgress::new(env.in_tmux_pane());
+        (ProgressOut::new(env, ask_tmux, shown, ticks), ticked)
+    }
+
+    fn written_by(out: &mut ProgressOut, percent: Option<u8>) -> String {
+        let mut written = Vec::new();
+        out.write(&mut written, percent).expect("written");
+        String::from_utf8(written).expect("escape sequences are ASCII")
+    }
+
+    #[test]
+    fn a_terminal_that_shows_progress_gets_it_and_its_removal() {
+        let (mut out, _ticked) = progress_out(&[("WT_SESSION", "1")], no_tmux);
+
+        assert_eq!(written_by(&mut out, Some(40)), "\x1b]9;4;1;40\x1b\\");
+        assert!(out.shown.shown.load(Ordering::Relaxed));
+        assert_eq!(written_by(&mut out, None), REMOVE_PROGRESS);
+        assert!(!out.shown.shown.load(Ordering::Relaxed));
+        assert!(out.keep_alive.is_none(), "Windows Terminal keeps it");
+    }
+
+    #[test]
+    fn a_terminal_not_known_to_show_progress_gets_nothing() {
+        let (mut out, _ticked) = progress_out(&[("TERM_PROGRAM", "WezTerm")], no_tmux);
+
+        assert_eq!(written_by(&mut out, Some(40)), "");
+        assert_eq!(written_by(&mut out, None), "");
+        assert!(!out.shown.shown.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn ghostty_keeps_the_progress_alive_while_one_shows() {
+        let ghostty = [
+            ("TERM_PROGRAM", "ghostty"),
+            ("TERM_PROGRAM_VERSION", "1.2.0"),
+        ];
+        let (mut out, _ticked) = progress_out(&ghostty, no_tmux);
+
+        written_by(&mut out, Some(40));
+        assert!(out.keep_alive.as_ref().is_some_and(KeepAlive::is_active));
+        written_by(&mut out, None);
+        assert!(
+            out.keep_alive
+                .as_ref()
+                .is_some_and(|keep| !keep.is_active())
+        );
+    }
+
+    #[test]
+    fn inside_tmux_the_client_is_asked_before_each_write() {
+        ASKED.set(0);
+        let (mut out, _ticked) = progress_out(
+            &[("TMUX", "/tmp/tmux-501/default,1,0")],
+            ghostty_then_wezterm,
+        );
+
+        assert_eq!(
+            written_by(&mut out, Some(40)),
+            "\x1bPtmux;\x1b\x1b]9;4;1;40\x1b\x1b\\\x1b\\"
+        );
+        assert!(out.keep_alive.as_ref().is_some_and(KeepAlive::is_active));
+
+        assert_eq!(written_by(&mut out, Some(60)), "", "WezTerm attached");
+        assert_eq!(ASKED.get(), 2);
+        assert!(
+            !out.shown.shown.load(Ordering::Relaxed),
+            "nothing to remove on quitting"
+        );
+        assert!(
+            out.keep_alive
+                .as_ref()
+                .is_some_and(|keep| !keep.is_active())
+        );
+    }
+
+    #[test]
+    fn a_progress_the_terminal_refuses_is_an_error() {
+        let (mut out, _ticked) = progress_out(&[("WT_SESSION", "1")], no_tmux);
+        let mut full: [u8; 0] = [];
+
+        assert!(out.write(&mut &mut full[..], Some(40)).is_err());
     }
 
     #[test]
@@ -624,8 +934,8 @@ mod tests {
         let pushed = AtomicBool::new(true);
         let mut written = Vec::new();
 
-        give_back_on_panic(&mut written, &book, &pushed);
-        give_back_on_panic(&mut written, &book, &pushed);
+        give_back_on_panic(&mut written, &book, &pushed, &ShownProgress::new(false));
+        give_back_on_panic(&mut written, &book, &pushed, &ShownProgress::new(false));
 
         let written = String::from_utf8(written).expect("escape sequences are ASCII");
         let modes = "\x1b[?1004l\x1b[?2004l";
@@ -646,7 +956,12 @@ mod tests {
         // A full buffer fails every write with `WriteZero`.
         let mut full: [u8; 0] = [];
 
-        give_back_on_panic(&mut &mut full[..], &book, &pushed);
+        give_back_on_panic(
+            &mut &mut full[..],
+            &book,
+            &pushed,
+            &ShownProgress::new(false),
+        );
 
         assert!(book.drain().is_empty(), "the deletes were taken");
         assert!(
@@ -688,6 +1003,7 @@ mod tests {
             out: &mut full[..],
             restore: note_restore,
             title_pushed: Arc::new(AtomicBool::new(true)),
+            progress: ShownProgress::new(false),
         });
         assert!(RESTORED.get());
     }

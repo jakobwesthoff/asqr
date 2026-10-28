@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 /// The variables a [`TerminalEnv`] holds. A reader of another variable
 /// adds it here, or it always reads as unset.
-const NAMES: [&str; 12] = [
+const NAMES: [&str; 13] = [
     "TMUX",
     "TERM",
     "TERM_PROGRAM",
@@ -29,6 +29,7 @@ const NAMES: [&str; 12] = [
     "KITTY_WINDOW_ID",
     "ALACRITTY_WINDOW_ID",
     "ZELLIJ",
+    "WT_SESSION",
 ];
 
 /// The environment variables that name the terminal and tmux, as they

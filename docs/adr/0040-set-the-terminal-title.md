@@ -10,6 +10,9 @@ Amended by [42. Delete Kitty images the terminal no longer shows](0042-delete-ki
 on a panic, the title is given back before asqr leaves the alternate
 screen
 
+Amended by [73. Report progress through OSC 9;4](0073-report-progress-through-osc-94.md):
+progress through OSC 9;4 goes to the terminals known to show it
+
 ## Context
 
 asqr runs in a terminal of its own, often in a tab the person does not
