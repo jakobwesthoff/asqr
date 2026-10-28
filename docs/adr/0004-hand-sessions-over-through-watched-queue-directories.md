@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [63. Keep draft saves and replacements apart with a drafts lock](0063-keep-draft-saves-and-replacements-apart-with-a-drafts-lock.md)
+
 ## Context
 
 An asker, such as an agent or a script, has to hand questions to an asqr

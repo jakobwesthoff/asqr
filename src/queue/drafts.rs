@@ -6,9 +6,10 @@
 //! answered, in `drafts/<id>.json`.
 
 use std::io;
+use std::path::Path;
 
 use super::atomic::write_atomically;
-use super::{QueueLocation, find_session_file};
+use super::{Gate, QueueLocation, Step, find_session_file, lock_drafts};
 use crate::format::SessionResult;
 
 pub fn load_draft(location: &QueueLocation, id: &str) -> io::Result<Option<SessionResult>> {
@@ -30,6 +31,38 @@ pub fn save_draft(location: &QueueLocation, draft: &SessionResult) -> io::Result
     };
     let json = serde_json::to_vec_pretty(draft).map_err(io::Error::other)?;
     write_atomically(&path, &json)
+}
+
+/// Saves `draft` while its session still waits in the inbox at
+/// `session`, and says whether it did. A session that has left, such as one
+/// withdrawn or taken back by hand, gets no draft, so none is left behind
+/// for it. The check and the write run under the drafts lock (spec section
+/// 4.3).
+pub fn save_draft_while_waiting(
+    location: &QueueLocation,
+    session: &Path,
+    draft: &SessionResult,
+) -> io::Result<bool> {
+    save_draft_while_waiting_with(location, session, draft, Gate::default())
+}
+
+/// [`save_draft_while_waiting`] with the lock taken and observed through
+/// `gate`.
+pub fn save_draft_while_waiting_with(
+    location: &QueueLocation,
+    session: &Path,
+    draft: &SessionResult,
+    mut gate: Gate<'_>,
+) -> io::Result<bool> {
+    let _lock = lock_drafts(location, gate.attempts)?;
+    let waiting = session.try_exists()?;
+    (gate.step)(Step::Checked);
+    if !waiting {
+        return Ok(false);
+    }
+    save_draft(location, draft)?;
+    (gate.step)(Step::DraftWritten);
+    Ok(true)
 }
 
 /// Removes the draft of `id`, if there is one.
@@ -95,6 +128,40 @@ mod tests {
         delete_draft(&location, "batch-01").expect("draft is deleted");
         assert_eq!(load_draft(&location, "batch-01").expect("readable"), None);
         delete_draft(&location, "batch-01").expect("deleting a missing draft is fine");
+    }
+
+    #[test]
+    fn a_draft_is_saved_under_the_drafts_lock_at_every_step() {
+        let (_scratch, location) = queue();
+        let session = location.inbox().join("batch-01.json");
+        fs::write(&session, "{}").expect("written");
+        let seen = std::cell::RefCell::new(Vec::new());
+
+        let saved = save_draft_while_waiting_with(
+            &location,
+            &session,
+            &draft("batch-01", vec![Answer::new("q1")]),
+            crate::queue::recording_gate(&location, &seen),
+        )
+        .expect("saved");
+
+        assert!(saved);
+        assert_eq!(
+            seen.into_inner(),
+            [(Step::Checked, true), (Step::DraftWritten, true)]
+        );
+    }
+
+    #[test]
+    fn no_draft_is_saved_for_a_session_that_left() {
+        let (_scratch, location) = queue();
+        let gone = location.inbox().join("batch-01.json");
+
+        let saved = save_draft_while_waiting(&location, &gone, &draft("batch-01", Vec::new()))
+            .expect("no error");
+
+        assert!(!saved);
+        assert_eq!(load_draft(&location, "batch-01").expect("readable"), None);
     }
 
     #[test]

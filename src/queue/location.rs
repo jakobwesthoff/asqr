@@ -129,6 +129,12 @@ impl QueueLocation {
         self.dir.join("lock")
     }
 
+    /// The lock that keeps a draft save apart from a command changing the
+    /// same waiting session (spec section 5.6).
+    pub fn drafts_lock_file(&self) -> PathBuf {
+        self.dir.join("drafts.lock")
+    }
+
     /// Creates the four queue directories. Every command that touches a
     /// queue calls it, so a queue exists from its first use on.
     pub fn create_layout(&self) -> std::io::Result<()> {

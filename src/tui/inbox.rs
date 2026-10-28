@@ -20,8 +20,9 @@ use crate::format::{
     validate,
 };
 use crate::queue::{
-    QueueLocation, Recovery, Rejected, Waiting, archive_invalid_stem, archived_title, finish,
-    load_draft, recover, reject_invalid, save_draft, scan_inbox, session_sha256,
+    DRAFTS_LOCK_ATTEMPTS, Finished, Gate, QueueLocation, Recovery, Rejected, Waiting,
+    archive_invalid_stem, archived_title, finish_unchanged_with, load_draft, recover_with,
+    reject_invalid_with, save_draft_while_waiting_with, scan_inbox, session_sha256,
 };
 
 /// A session the app shows, with the bytes it was read from.
@@ -52,6 +53,9 @@ pub struct Inbox {
     location: QueueLocation,
     known: Vec<Known>,
     ignored: HashSet<PathBuf>,
+    /// How often the drafts lock is tried; tests that hold it lower this,
+    /// so the busy path needs no waiting.
+    lock_attempts: u32,
 }
 
 impl Inbox {
@@ -60,6 +64,15 @@ impl Inbox {
             location,
             known: Vec::new(),
             ignored: HashSet::new(),
+            lock_attempts: DRAFTS_LOCK_ATTEMPTS,
+        }
+    }
+
+    /// The gate for an operation under the drafts lock.
+    fn gate(&self) -> Gate<'static> {
+        Gate {
+            attempts: self.lock_attempts,
+            ..Gate::default()
         }
     }
 
@@ -82,7 +95,7 @@ impl Inbox {
         // Recovery runs on every sync, not only at the start: it is also
         // what archives a session dropped by hand next to an unread result
         // under its id (spec section 5.7).
-        for recovery in recover(&self.location)? {
+        for recovery in recover_with(&self.location, self.gate())? {
             match recovery {
                 Recovery::Completed(id) => {
                     tracing::info!(%id, "completed an interrupted finish");
@@ -249,12 +262,13 @@ impl Inbox {
         let id = &waiting.id;
         let message = errors.join("; ");
         tracing::warn!(%id, %message, "rejected an invalid session");
-        match reject_invalid(
+        match reject_invalid_with(
             &self.location,
             &waiting.path,
             bytes,
             &message,
             &now_rfc3339(),
+            self.gate(),
         ) {
             // The dialog lists the errors and the status line says what
             // happened while it shows, so no notice repeats it.
@@ -267,6 +281,10 @@ impl Inbox {
                  that id is in the outbox: {message}"
             )),
             Err(error) => app.notice(Tone::Error, format!("cannot reject the invalid {id}: {error}")),
+            // The file left or changed while it was validated, as when the
+            // asker withdrew or replaced it; the next sync sees what is
+            // there now.
+            Ok(Rejected::Left) => tracing::info!(%id, "an invalid session left before its rejection"),
         }
     }
 
@@ -276,7 +294,15 @@ impl Inbox {
         match effect {
             AppEffect::None => {}
             AppEffect::SaveDraft(draft) => {
-                if let Err(error) = save_draft(&self.location, &draft) {
+                // A session that left the inbox gets no draft; the sync the
+                // watcher sends next takes it out of the app.
+                let Some(index) = self.known(&draft.id) else {
+                    return Applied::Continue;
+                };
+                let session = &self.known[index].path;
+                if let Err(error) =
+                    save_draft_while_waiting_with(&self.location, session, &draft, self.gate())
+                {
                     app.notice(
                         Tone::Error,
                         format!("cannot save the draft of {}: {error}", draft.id),
@@ -295,23 +321,6 @@ impl Inbox {
             return;
         };
         let known = &self.known[index];
-
-        // The result has to answer the bytes the person saw. A file that
-        // changed since the last sync is loaded again instead, so the
-        // person sees the new version before answering it.
-        let current = std::fs::read(&known.path).map(|bytes| session_sha256(&bytes));
-        if current.as_ref().ok() != Some(&known.sha256) {
-            app.notice(
-                Tone::Warning,
-                format!("{id} changed on disk and was not sent; check the new version"),
-            );
-            // The status line holds one notice, so an inbox that cannot be
-            // read replaces the warning with its error.
-            if let Err(error) = self.sync(app) {
-                app.notice(Tone::Error, format!("cannot read the inbox: {error}"));
-            }
-            return;
-        }
 
         // The confirmation is worded before the finish, as `forget` takes
         // the session's state, and with it its title and counts, out of
@@ -333,8 +342,31 @@ impl Inbox {
                 answers,
             } => SessionResult::cancelled(&known.id, &known.sha256, &at, reason, note, answers),
         };
-        match finish(&self.location, &known.path, &result) {
-            Ok(()) => {
+        // The result has to answer the bytes the person saw. A file that
+        // changed since the last sync is loaded again instead, so the
+        // person sees the new version before answering it. The sync runs
+        // once the finish let go of the drafts lock, which its recovery
+        // takes again.
+        let finished = finish_unchanged_with(
+            &self.location,
+            &known.path,
+            &known.sha256,
+            &result,
+            self.gate(),
+        );
+        match finished {
+            Ok(Finished::Changed) => {
+                app.notice(
+                    Tone::Warning,
+                    format!("{id} changed on disk and was not sent; check the new version"),
+                );
+                // The status line holds one notice, so an inbox that cannot
+                // be read replaces the warning with its error.
+                if let Err(error) = self.sync(app) {
+                    app.notice(Tone::Error, format!("cannot read the inbox: {error}"));
+                }
+            }
+            Ok(Finished::Done) => {
                 tracing::info!(%id, status = ?result.status, "finished a session");
                 self.forget(app, id);
                 // Only a key or a paste clears a notice, so the
@@ -378,7 +410,7 @@ mod tests {
 
     use super::*;
     use crate::format::{Answer, Status};
-    use crate::queue::{Archived, archive_name, drop_session, parse_archive_name};
+    use crate::queue::{Archived, archive_name, drop_session, parse_archive_name, save_draft};
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
@@ -1248,6 +1280,26 @@ mod tests {
     }
 
     #[test]
+    fn a_rejection_of_a_file_that_changed_since_it_was_read_does_nothing() {
+        let (_scratch, location) = queue();
+        let path = put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        let waiting = Waiting {
+            id: "batch".into(),
+            path,
+            modified: std::time::SystemTime::UNIX_EPOCH,
+        };
+
+        // Read as "{" and found invalid, then replaced by a valid file.
+        inbox.reject(&mut app, &waiting, b"{", &["broken".to_owned()]);
+
+        assert_eq!(app.current_notice(), None);
+        assert_eq!(app.invalid_shown(), None, "no dialog");
+        assert_eq!(names(&location.outbox()), Vec::<String>::new());
+        assert_eq!(names(&location.inbox()), ["batch.json"]);
+    }
+
+    #[test]
     fn a_finish_with_the_inbox_gone_reports_both() {
         let (_scratch, location) = queue();
         put(&location, "batch.json", SESSION);
@@ -1263,6 +1315,111 @@ mod tests {
             text.starts_with("cannot read the inbox")
         });
         assert_eq!(names(&location.outbox()), Vec::<String>::new());
+    }
+
+    // -----------------------------------------------------------------
+    // The drafts lock
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn a_key_after_the_session_left_saves_no_draft() {
+        let (_scratch, location) = queue();
+        let path = put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        // Taken out before the watcher's sync told the app.
+        fs::remove_file(path).expect("removed");
+
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        assert_eq!(names(&location.drafts()), Vec::<String>::new());
+        assert_eq!(app.current_notice(), None);
+    }
+
+    #[test]
+    fn a_draft_of_a_session_the_inbox_does_not_know_is_not_saved() {
+        let (_scratch, location) = queue();
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+
+        let draft = SessionResult::draft("unknown", "q", vec![Answer::new("q")]);
+        inbox.apply(&mut app, AppEffect::SaveDraft(draft));
+
+        assert_eq!(names(&location.drafts()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_busy_drafts_lock_keeps_the_answers_and_says_so() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        inbox.lock_attempts = 1;
+        let _held = crate::queue::lock_drafts(&location, 1).expect("locks");
+
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        assert_notice(&app, Tone::Error, |text| {
+            text == "cannot save the draft of batch: the queue is busy"
+        });
+        assert_eq!(names(&location.drafts()), Vec::<String>::new());
+        assert_eq!(app.active().expect("active").answers()[0].selected, ["b"]);
+    }
+
+    #[test]
+    fn a_submit_while_the_drafts_lock_is_busy_keeps_the_session() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        inbox.lock_attempts = 1;
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+        let _held = crate::queue::lock_drafts(&location, 1).expect("locks");
+
+        let effect = app.handle(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        inbox.apply(&mut app, effect);
+
+        assert_notice(&app, Tone::Error, |text| {
+            text == "cannot finish batch: the queue is busy"
+        });
+        assert_eq!(ids(&app), ["batch"]);
+        assert_eq!(names(&location.outbox()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_sync_loads_the_inbox_while_the_drafts_lock_is_busy() {
+        let (_scratch, location) = queue();
+        put(&location, "waiting.json", SESSION);
+        // A finish interrupted after its result was written, which recovery
+        // completes once the lock is free again.
+        put(&location, "done.json", SESSION);
+        let done = SessionResult::submitted(
+            "done",
+            &session_sha256(SESSION.as_bytes()),
+            "2026-09-27T17:05:12+02:00",
+            None,
+            vec![Answer::skipped("q")],
+        );
+        fs::write(
+            location.outbox().join("done.json"),
+            serde_json::to_vec(&done).expect("serializes"),
+        )
+        .expect("written");
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.lock_attempts = 1;
+        let held = crate::queue::lock_drafts(&location, 1).expect("locks");
+
+        inbox.sync(&mut app).expect("synced");
+
+        assert!(ids(&app).contains(&"waiting"), "{:?}", ids(&app));
+        assert_eq!(names(&location.inbox()), ["done.json", "waiting.json"]);
+        assert_eq!(app.current_notice(), None);
+
+        drop(held);
+        inbox.sync(&mut app).expect("synced");
+        assert_eq!(ids(&app), ["waiting"], "recovered once the lock is free");
     }
 
     #[test]

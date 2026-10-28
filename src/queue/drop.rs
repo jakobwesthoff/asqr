@@ -15,7 +15,10 @@ use thiserror::Error;
 use ulid::Ulid;
 
 use super::atomic::{write_atomically, write_new_atomically};
-use super::{Archived, QueueLocation, archive_name, find_session_file, has_answered_draft};
+use super::{
+    Archived, Gate, QueueLocation, Step, archive_name, find_session_file, has_answered_draft,
+    lock_drafts,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dropped {
@@ -50,13 +53,28 @@ pub enum DropError {
 ///   holds no answer. The replacement keeps the waiting file's name.
 /// - Otherwise the file is placed without overwriting anything, so of two
 ///   askers racing for a new id exactly one wins.
+///
+/// The checks and the writes run under the drafts lock, so a draft the TUI
+/// saves in between cannot slip past the check.
 pub fn drop_session(
     location: &QueueLocation,
     id: &str,
     bytes: &[u8],
     force: bool,
 ) -> Result<Dropped, DropError> {
+    drop_session_with(location, id, bytes, force, Gate::default())
+}
+
+/// [`drop_session`] with the lock taken and observed through `gate`.
+pub fn drop_session_with(
+    location: &QueueLocation,
+    id: &str,
+    bytes: &[u8],
+    force: bool,
+    mut gate: Gate<'_>,
+) -> Result<Dropped, DropError> {
     location.create_layout()?;
+    let _lock = lock_drafts(location, gate.attempts)?;
 
     // Every refusal comes before the first change, so a refused drop
     // leaves the queue as it was.
@@ -64,24 +82,29 @@ pub fn drop_session(
     if waiting.is_some() && has_answered_draft(location, id) {
         return Err(DropError::BeingAnswered(id.to_owned()));
     }
-    if let Some(result) = find_session_file(&location.outbox(), id)? {
-        if !force {
-            return Err(DropError::UnreadResult(id.to_owned()));
-        }
+    let result = find_session_file(&location.outbox(), id)?;
+    if result.is_some() && !force {
+        return Err(DropError::UnreadResult(id.to_owned()));
+    }
+    (gate.step)(Step::Checked);
+    if let Some(result) = result {
         archive_result(location, &result)?;
+        (gate.step)(Step::Archived);
     }
 
-    match waiting {
+    let dropped = match waiting {
         Some(waiting) => {
             write_atomically(&waiting, bytes)?;
-            Ok(Dropped::Replaced(waiting))
+            Dropped::Replaced(waiting)
         }
         None => {
             let target = location.inbox().join(format!("{id}.json"));
             place_new(&target, id, bytes)?;
-            Ok(Dropped::New(target))
+            Dropped::New(target)
         }
-    }
+    };
+    (gate.step)(Step::SessionWritten);
+    Ok(dropped)
 }
 
 fn place_new(target: &Path, id: &str, bytes: &[u8]) -> Result<(), DropError> {
@@ -284,6 +307,75 @@ mod tests {
             place_new(&target, "x", b"x"),
             Err(DropError::Io(_))
         ));
+    }
+
+    // ---------------------------------------------------------------------
+    // Under the drafts lock
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn a_replacement_holds_the_drafts_lock_at_every_step() {
+        let (_scratch, location) = queue();
+        drop_session(&location, "batch-01", b"one", false).expect("dropped");
+        fs::write(location.outbox().join("batch-01.json"), b"unread").expect("written");
+        let seen = std::cell::RefCell::new(Vec::new());
+
+        drop_session_with(
+            &location,
+            "batch-01",
+            b"two",
+            true,
+            crate::queue::recording_gate(&location, &seen),
+        )
+        .expect("replaced");
+
+        assert_eq!(
+            seen.into_inner(),
+            [
+                (Step::Checked, true),
+                (Step::Archived, true),
+                (Step::SessionWritten, true)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_new_drop_holds_the_drafts_lock_at_every_step() {
+        let (_scratch, location) = queue();
+        let seen = std::cell::RefCell::new(Vec::new());
+
+        drop_session_with(
+            &location,
+            "batch-01",
+            b"one",
+            false,
+            crate::queue::recording_gate(&location, &seen),
+        )
+        .expect("dropped");
+
+        assert_eq!(
+            seen.into_inner(),
+            [(Step::Checked, true), (Step::SessionWritten, true)]
+        );
+    }
+
+    #[test]
+    fn a_drop_while_the_drafts_lock_is_busy_is_refused() {
+        let (_scratch, location) = queue();
+        location.create_layout().expect("layout");
+        let _held = lock_drafts(&location, 1).expect("locks");
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(|step| panic!("no step while the lock is busy: {step:?}")),
+        };
+
+        let busy = drop_session_with(&location, "batch-01", b"one", false, gate);
+
+        assert!(
+            matches!(&busy, Err(DropError::Io(error)) if error.kind() == io::ErrorKind::WouldBlock),
+            "{busy:?}"
+        );
+        assert_eq!(files(&location.inbox()), Vec::<String>::new());
     }
 
     #[test]

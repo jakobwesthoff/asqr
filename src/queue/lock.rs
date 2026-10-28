@@ -109,6 +109,115 @@ pub fn lock_holder(location: &QueueLocation) -> io::Result<Option<String>> {
     }
 }
 
+// =========================================================================
+// The drafts lock
+// =========================================================================
+//
+// The TUI and the commands that change a waiting session are separate
+// processes. Each of them checks the queue's files and then writes, and a
+// check-then-write between two processes races: a draft saved between
+// `ask`'s look at the draft and its replacement of the session is never
+// seen. Every such check and the writes that follow it therefore run under
+// an exclusive lock on `<queue>/drafts.lock` (spec section 5.6, ADR 63).
+// It is held for a few file operations only, apart from the instance lock
+// that the TUI holds for its whole run.
+
+/// How often, and how far apart, the drafts lock is tried before an
+/// operation gives up: about 2 s, so a holder that stopped can hold up the
+/// TUI or an asker's command only that long.
+pub const DRAFTS_LOCK_ATTEMPTS: u32 = 100;
+
+/// The held drafts lock; dropping it lets the next operation in.
+#[derive(Debug)]
+pub struct DraftsLock {
+    _file: File,
+}
+
+/// Takes the drafts lock, trying `attempts` times. A lock still held after
+/// the last attempt is an error of kind [`io::ErrorKind::WouldBlock`]
+/// saying that the queue is busy.
+pub fn lock_drafts(location: &QueueLocation, attempts: u32) -> io::Result<DraftsLock> {
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(location.drafts_lock_file())?;
+    let mut tried = 1;
+    while !acquired(file.try_lock())? {
+        if tried >= attempts {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "the queue is busy",
+            ));
+        }
+        tried += 1;
+        std::thread::sleep(LOCK_RETRY);
+    }
+    Ok(DraftsLock { _file: file })
+}
+
+/// A step of an operation under the drafts lock, after which the
+/// operation's [`Gate`] is called.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// The operation looked at the files it decides on.
+    Checked,
+    /// A draft was written.
+    DraftWritten,
+    /// A result was written into the outbox.
+    ResultWritten,
+    /// A session or a result was moved into the archive.
+    Archived,
+    /// A draft was deleted.
+    DraftDeleted,
+    /// A session file was written into the inbox.
+    SessionWritten,
+}
+
+/// How an operation takes the drafts lock, and what it calls after each
+/// [`Step`] while it holds the lock. Tests use the call to look at the lock
+/// from outside at every step, which needs no timing; the operations
+/// themselves pass the [`Default`], which tries [`DRAFTS_LOCK_ATTEMPTS`]
+/// times and calls nothing.
+pub struct Gate<'a> {
+    pub attempts: u32,
+    pub step: Box<dyn FnMut(Step) + 'a>,
+}
+
+impl Default for Gate<'_> {
+    fn default() -> Self {
+        Gate {
+            attempts: DRAFTS_LOCK_ATTEMPTS,
+            step: Box::new(|_| {}),
+        }
+    }
+}
+
+/// Test support: whether someone holds the drafts lock of `location`, seen
+/// from another open file, as another process would see it.
+#[cfg(test)]
+pub(crate) fn drafts_lock_is_held(location: &QueueLocation) -> bool {
+    let file = File::open(location.drafts_lock_file()).expect("the drafts lock file exists");
+    !acquired(file.try_lock()).expect("the drafts lock can be tried")
+}
+
+/// Test support: a [`Gate`] that tries once and records, after each step,
+/// whether the drafts lock was held.
+#[cfg(test)]
+pub(crate) fn recording_gate<'a>(
+    location: &'a QueueLocation,
+    seen: &'a std::cell::RefCell<Vec<(Step, bool)>>,
+) -> Gate<'a> {
+    Gate {
+        attempts: 1,
+        step: Box::new(move |step| {
+            seen.borrow_mut()
+                .push((step, drafts_lock_is_held(location)));
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,6 +320,56 @@ mod tests {
             lock_holder(&location).expect("readable").as_deref(),
             Some("unknown process")
         );
+    }
+
+    #[test]
+    fn the_drafts_lock_is_exclusive_and_ends_with_its_holder() {
+        let (_scratch, location) = queue();
+        location.create_layout().expect("layout");
+
+        let held = lock_drafts(&location, 1).expect("locks");
+        assert!(drafts_lock_is_held(&location), "held while the guard lives");
+
+        drop(held);
+        assert!(!drafts_lock_is_held(&location), "free after the guard");
+    }
+
+    #[test]
+    fn a_busy_drafts_lock_gives_up_after_its_attempts() {
+        let (_scratch, location) = queue();
+        location.create_layout().expect("layout");
+        let _held = lock_drafts(&location, 1).expect("locks");
+
+        let busy = lock_drafts(&location, 1).expect_err("held by the guard above");
+
+        assert_eq!(
+            (busy.kind(), busy.to_string()),
+            (io::ErrorKind::WouldBlock, "the queue is busy".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_held_drafts_lock_is_tried_again_before_the_queue_counts_as_busy() {
+        let (_scratch, location) = queue();
+        location.create_layout().expect("layout");
+        let _held = lock_drafts(&location, 1).expect("locks");
+
+        // Held through both tries, so the outcome does not depend on the
+        // pause between them.
+        let busy = lock_drafts(&location, 2).expect_err("held by the guard above");
+
+        assert_eq!(busy.kind(), io::ErrorKind::WouldBlock);
+    }
+
+    #[test]
+    fn a_drafts_lock_file_that_cannot_be_opened_is_an_error() {
+        let (_scratch, location) = queue();
+        std::fs::create_dir_all(location.drafts_lock_file())
+            .expect("a directory where the drafts lock file goes");
+
+        let failed = lock_drafts(&location, 1).expect_err("a directory is no lock file");
+
+        assert_ne!(failed.kind(), io::ErrorKind::WouldBlock);
     }
 
     #[test]

@@ -436,7 +436,10 @@ A draft has the result format with `"status": "draft"`, no
 question the cursor is on (the last question while the review tab is
 shown), `note`, the session note typed so far, and `reason`, the reject
 reason typed so far, each when there is one and as typed.
-It is written on every change. On restore, answers are matched by
+It is written on every change while the session waits in the inbox; a
+change to a session whose file has left the inbox writes no draft. The
+look at the inbox and the write run under the drafts lock (section 5.6).
+On restore, answers are matched by
 question id and option id, and anything that no longer fits (a question
 or option that is gone) is dropped. A draft that cannot be read is
 logged and ignored, and the session starts fresh, with only its defaults
@@ -462,6 +465,7 @@ away.
   archive/<id>.<ulid>.result.json     results moved aside by `ask --force` (section 5.5)
   archive/invalid.<ulid>.json         files whose stem is no valid id (section 5.8)
   lock                                the instance lock (section 5.6)
+  drafts.lock                         the drafts lock (section 5.6)
 ```
 
 The four directories are created on first use.
@@ -559,6 +563,11 @@ being answered and an unread result are refused before anything moves,
 even with `--force`. Only the loser of a race under `--force` has
 already archived the old result.
 
+The checks and the writes of `ask` run under the drafts lock (section
+5.6), so a draft the TUI saves between the look at the draft and the
+replacement cannot slip past the check. When the lock stays taken, `ask`
+refuses with "the queue is busy".
+
 These are rules of `asqr ask`, not of the queue. A file someone drops
 into the inbox by hand replaces whatever is there, draft or not. A
 replacement is never an error in itself; a replacing file that fails
@@ -586,6 +595,28 @@ takes an exclusive advisory lock on it (flock on Unix).
   moment to see whether an asqr is watching. A starting TUI tries for
   those 200 ms, so such a test never makes it refuse to start.
 
+The drafts lock, `<queue>/drafts.lock`, is a second exclusive advisory
+lock, apart from the instance lock (ADR 63). The TUI and the commands
+that change a waiting session are separate processes, and each of them
+looks at the queue's files and then writes. Each such look and the
+writes after it run under the drafts lock, held for those few file
+operations:
+
+- the TUI's draft save, which writes only while the session's file is
+  still in the inbox (section 4.3);
+- the TUI's finish of a session, from reading the session file again to
+  deleting the draft (section 5.7);
+- recovery, for each waiting session on its own (section 5.7);
+- the error result of an invalid session (section 5.8);
+- `ask`, from its look at the draft to its write into the inbox
+  (section 5.5).
+
+The lock is tried for about 2 seconds. When it stays taken, the
+operation does nothing and says "the queue is busy": `ask` refuses, the
+TUI keeps the answers and shows the error as a notice, and recovery
+leaves the session to its next run. The file stays after use, like
+`lock`. A TUI of an asqr from before the drafts lock does not take it.
+
 ### 5.7 Finishing a session
 
 Submit, reject (both on the review tab) and an error result take one
@@ -606,7 +637,11 @@ and stops the finish with a conflict, which the TUI shows as a notice.
 Before step 1 the TUI reads the session file again. When it changed
 since it was shown, nothing is written: the new version is loaded, and a
 notice says the session changed on disk and was not sent. A result
-therefore always answers the bytes the person saw.
+therefore always answers the bytes the person saw. A file that left the
+inbox counts as changed. The reading and steps 1 to 3 run under the
+drafts lock (section 5.6); when it stays taken, nothing is written, the
+session stays, and a notice says "cannot finish <id>: the queue is
+busy".
 
 Recovery runs whenever asqr reads the inbox, on start and after every
 change. For an inbox session whose outbox result has the same
@@ -615,6 +650,10 @@ completed and the session is not shown again. With a different hash, the
 file is a new session colliding with an unread result. It is moved to
 the archive and logged, the TUI shows a notice, and no result is
 written. A file that cannot be read is left for the scan to report.
+Each session is recovered under the drafts lock of its own. A session
+whose lock stays taken is logged and left for the next recovery, which
+the next change of the inbox starts; until then the TUI shows it like a
+waiting session.
 
 Apart from this recovery, the TUI does not read the outbox or the
 archive back after a submit. It reads the archive only for the title
@@ -629,7 +668,10 @@ handled once. The TUI shows the file in a dialog (section 7.9).
 
 An error result never overwrites an existing `outbox/<id>.json`: in that
 case the file is archived without a result and the conflict is logged
-and shown. A file whose stem is not a valid id gets no result at all,
+and shown. The error result answers the bytes that failed validation, so
+it is written under the drafts lock (section 5.6) and only while the
+file still holds them; a file that left the inbox or changed in between
+gets nothing, and the next scan handles what is there. A file whose stem is not a valid id gets no result at all,
 since no asker can be waiting on that name. It is logged with its
 original name and archived as `invalid.<ulid>.json`, without a notice.
 
@@ -1322,7 +1364,8 @@ keeps the session and shows its own notice instead.
   status line (ADR 38):
   - error, red, after a `✗`: an operation failed and nothing was done,
     such as an inbox or a session file that cannot be read, a draft or a
-    result that cannot be written, or an image that cannot be opened;
+    result that cannot be written, also while the queue is busy (section
+    5.6), or an image that cannot be opened;
   - warning, yellow, after a `!`: asqr refused an action or set
     something aside on purpose, such as a refused key or paste, a
     session archived next to an unread result, an invalid session
