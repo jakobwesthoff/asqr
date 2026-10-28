@@ -818,6 +818,40 @@ mod tests {
         assert_eq!(drawn_diff(&code, Rect::new(0, 0, 40, 8)).0, None);
     }
 
+    #[test]
+    fn a_diff_switched_side_by_side_shows_so_again_once_two_columns_fit() {
+        let mut state = session(NOTED_DIFF);
+        let wide = Rect::new(0, 0, 40, 8);
+        let (fits, _) = drawn_diff(&state, wide);
+        state.set_pane_page(Some(crate::tui::PanePage {
+            diff: fits,
+            ..crate::tui::PanePage::shown(Page::default())
+        }));
+        // The text question's field has the keys; the focused pane takes `s`.
+        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        state.handle(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert!(state.side_by_side());
+
+        // The terminal shrinks, and the draw is handed back as the run
+        // loop does.
+        let (narrow, _) = drawn_diff(&state, Rect::new(0, 0, 20, 8));
+        assert_eq!(
+            narrow.map(|diff| (diff.layout, diff.fits_side_by_side)),
+            Some((DiffLayout::Unified, false))
+        );
+        state.set_pane_page(Some(crate::tui::PanePage {
+            diff: narrow,
+            ..crate::tui::PanePage::shown(Page::default())
+        }));
+
+        let (widened, _) = drawn_diff(&state, wide);
+
+        assert_eq!(
+            widened.map(|diff| diff.layout),
+            Some(DiffLayout::SideBySide)
+        );
+    }
+
     /// The session of [`NOTED_DIFF`] whose offset a draw side by side set
     /// to `top`, translated from the unified row `from`.
     fn drawn_side_by_side_at(top: usize, from: usize) -> SessionState {

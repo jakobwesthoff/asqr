@@ -16,7 +16,7 @@ use super::screen::MIN_WIDTH;
 use super::source_line::columns;
 use super::theme;
 use crate::format::Kind;
-use crate::tui::{DrawnDiff, Extent, Focus, Page, Row, SessionState};
+use crate::tui::{DiffLayout, DrawnDiff, Extent, Focus, Page, Row, SessionState};
 
 /// Every key, in the 13 lines the help has on the smallest screen.
 const HELP: &[(&str, &str)] = &[
@@ -268,13 +268,18 @@ pub(super) fn with_diff_hint(
     diff: Option<DrawnDiff>,
 ) -> Vec<Hint> {
     // Beside a card or `loading…` there is nothing to switch, and a body
-    // too narrow for two columns refuses side by side; the way back to
-    // unified always works. Over the help any key only closes it.
-    let switches = diff.is_some_and(|diff| diff.fits_side_by_side || state.side_by_side());
+    // too narrow for two columns refuses side by side. The bar follows
+    // the layout the draw used, not the switch: a diff switched side by
+    // side in a body too narrow for it shows unified, and `s` there only
+    // turns the switch off, so no hint promises a change. Over the help
+    // any key only closes it.
+    let drawn = diff.map(|diff| diff.layout);
+    let switches =
+        diff.is_some_and(|diff| diff.fits_side_by_side) || drawn == Some(DiffLayout::SideBySide);
     if !(state.pane_focused() && switches) || state.help() {
         return hints;
     }
-    let what = if state.side_by_side() {
+    let what = if drawn == Some(DiffLayout::SideBySide) {
         "unified"
     } else {
         "side by side"
@@ -605,6 +610,16 @@ mod tests {
         })
     }
 
+    /// A diff drawn side by side, which only a body with room for two
+    /// columns draws.
+    fn side_by_side() -> Option<DrawnDiff> {
+        Some(DrawnDiff {
+            layout: crate::tui::DiffLayout::SideBySide,
+            fits_side_by_side: true,
+            translated: None,
+        })
+    }
+
     /// The key bar's hints for `state`, whose pane drew `diff`.
     fn diff_hints(
         state: &SessionState,
@@ -635,10 +650,22 @@ mod tests {
         );
         state.handle(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
         assert!(
-            diff_hints(&state, unified(true)).contains(&("s", "unified")),
+            diff_hints(&state, side_by_side()).contains(&("s", "unified")),
             "{:?}",
-            diff_hints(&state, unified(true))
+            diff_hints(&state, side_by_side())
         );
+    }
+
+    #[test]
+    fn the_key_bar_names_no_s_while_side_by_side_is_too_narrow() {
+        let mut state = focused_diff();
+        state.handle(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert!(state.side_by_side());
+
+        // The body became too narrow: the draw fell back to unified.
+        let hints = diff_hints(&state, unified(false));
+
+        assert!(!hints.iter().any(|(key, _)| *key == "s"), "{hints:?}");
     }
 
     #[test]

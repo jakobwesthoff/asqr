@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full-screen view and on the question's rows, and holds for the entry
   while it shows. Switching keeps the line at the top in view. A pane
   without room for two columns of at least 8 characters each keeps the
-  diff unified and says so.
+  diff unified and says so; a diff switched side by side shows so again
+  once the pane is wide enough.
 - An option with `default: true` shows `◀ default` in bold cyan at the
   right end of its first line, also after another option is picked, so
   the person can tell the asker's recommendation from their own pick. A

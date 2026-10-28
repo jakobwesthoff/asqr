@@ -1165,6 +1165,12 @@ impl SessionState {
     /// Side by side asks the last draw whether two columns fit; where no
     /// pane shows, as beside the one-line hint, the switch holds for the
     /// full-screen view, and while the diff loads, its draw decides.
+    ///
+    /// A diff switched side by side in a body too narrow for two columns
+    /// shows unified while the switch stays on. `s` there turns the switch
+    /// off, which changes nothing on screen, so it says why the diff stays
+    /// unified. The last draw's room decides, not its layout: a second `s`
+    /// before any draw meets a page laid out unified that has the room.
     fn switch_side_by_side(&mut self) -> Effect {
         let refusal = match self.shown_entry() {
             None => Some("nothing to show side by side here"),
@@ -1173,6 +1179,18 @@ impl SessionState {
             }
             Some(_) if self.side_by_side() => {
                 self.side_by_side = None;
+                if let Some(PanePage {
+                    diff: Some(diff), ..
+                }) = self.pane_page
+                    && !diff.fits_side_by_side
+                {
+                    let message = if self.full_screen.is_some() {
+                        "too narrow for side by side, switched to unified"
+                    } else {
+                        "too narrow for side by side, switched to unified; z shows it full screen"
+                    };
+                    self.message = Some(Notice::new(Tone::Warning, message));
+                }
                 return Effect::None;
             }
             Some(_) => match self.pane_page {
@@ -3907,13 +3925,44 @@ mod tests {
     }
 
     #[test]
-    fn s_shows_unified_again_where_two_columns_do_not_fit() {
+    fn s_where_side_by_side_no_longer_fits_turns_it_off_and_says_why() {
         let mut state = diffs(Some(diff_page(true)));
         press(&mut state, "s");
         assert!(state.side_by_side());
         state.set_pane_page(Some(diff_page(false)));
 
         press(&mut state, "s");
+
+        assert!(!state.side_by_side());
+        assert_eq!(
+            state.message(),
+            Some(&refused(
+                "too narrow for side by side, switched to unified; z shows it full screen"
+            ))
+        );
+    }
+
+    #[test]
+    fn s_in_a_full_screen_view_where_side_by_side_no_longer_fits_says_why() {
+        let mut state = diffs(Some(diff_page(true)));
+        press(&mut state, "zs");
+        assert!(state.side_by_side());
+        state.set_pane_page(Some(diff_page(false)));
+
+        press(&mut state, "s");
+
+        assert!(!state.side_by_side());
+        assert_eq!(
+            state.message(),
+            Some(&refused("too narrow for side by side, switched to unified"))
+        );
+    }
+
+    #[test]
+    fn s_twice_before_a_draw_switches_back_without_a_message() {
+        let mut state = diffs(Some(diff_page(true)));
+
+        press(&mut state, "ss");
 
         assert!(!state.side_by_side());
         assert_eq!(state.message(), None);

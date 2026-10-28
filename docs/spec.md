@@ -1954,20 +1954,25 @@ Code entries, ANSI entries and diffs show lines of source:
   from.
 - Side by side needs room for two columns, each with its gutter and at
   least 8 columns of text, and the divider with its blank. In a narrower
-  body the diff
-  shows unified, and `s` says "too narrow for side by side; z shows it
-  full screen", in the full-screen view "too narrow for side by side";
-  `s` back to unified always works. On an entry that is no diff, `s`
-  says "only a diff shows side by side", on a diff that cannot be read
-  "this diff cannot be shown side by side", and where no entry shows
-  "nothing to show side by side here". Beside the one-line hint
-  (section 7.4), `s` switches the diff and says "side by side shows with
-  z".
+  body the diff shows unified, and `s` says "too narrow for side by
+  side; z shows it full screen", in the full-screen view "too narrow for
+  side by side". A diff switched side by side whose body becomes too
+  narrow, such as on a smaller terminal, shows unified and keeps the
+  switch, so it shows side by side again once two columns fit. `s` there
+  turns the switch off and says "too narrow for side by side, switched
+  to unified; z shows it full screen", in the full-screen view "too
+  narrow for side by side, switched to unified". `s` back to unified
+  always works. On an entry that is no diff, `s` says "only a diff shows
+  side by side", on a diff that cannot be read "this diff cannot be
+  shown side by side", and where no entry shows "nothing to show side by
+  side here". Beside the one-line hint (section 7.4), `s` switches the
+  diff and says "side by side shows with z".
 - While the focused pane or the full-screen view shows a diff that `s`
   can switch, the key bar names `s  side by side`, or `s  unified`
-  while it shows side by side, before `?  help`. The help of the pane
-  and of the full-screen view lists `s  a diff side by side or
-  unified`.
+  while it shows side by side, before `?  help`. A diff that shows
+  unified because two columns do not fit names no `s`, also while the
+  switch is on. The help of the pane and of the full-screen view lists
+  `s  a diff side by side or unified`.
 - The pane shows the hunks only, never the whole file.
 - Computing a diff may take up to a second. Past that, asqr shows a
   diff that is still correct but may mark more lines as changed than

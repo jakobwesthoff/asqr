@@ -45,9 +45,14 @@ versions next to each other instead.
 - **Narrow panes:** side by side is allowed wherever two columns can be
   drawn at all; whether they read well there is the person's call. Two
   columns need each its gutter and at least 8 columns of text, and the
-  divider with its blank. Below that the diff shows unified and `s` says why: "too
-  narrow for side by side; z shows it full screen", in the full-screen
-  view "too narrow for side by side". `s` back to unified always works.
+  divider with its blank. Below that the diff shows unified and `s` says
+  why: "too narrow for side by side; z shows it full screen", in the
+  full-screen view "too narrow for side by side". A diff switched side
+  by side whose body becomes too narrow shows unified and keeps the
+  switch, so it shows side by side again once two columns fit; `s` there
+  turns the switch off and says "too narrow for side by side, switched
+  to unified", with "; z shows it full screen" outside the full-screen
+  view. `s` back to unified always works.
 - **Beside the one-line hint,** where no pane shows, `s` switches the
   diff and says "side by side shows with z", as the switch belongs to
   the entry.
@@ -83,10 +88,12 @@ versions next to each other instead.
   highlighted from the new text, and nothing marked inside a line.
 - **The key bar and the help:** while the focused pane or the
   full-screen view shows a diff that `s` can switch, the key bar names
-  `s  side by side`, or `s  unified`, before `?  help`. The help of the
-  pane and of the full-screen view lists `s  a diff side by side or
-  unified`; the general help names `s` on the line of `o` and `z`, as
-  it has room for 13 lines on the smallest screen.
+  `s  side by side`, or `s  unified` while it shows side by side, before
+  `?  help`. A diff that shows unified because two columns do not fit
+  names no `s`, also while the switch is on. The help of the pane and of
+  the full-screen view lists `s  a diff side by side or unified`; the
+  general help names `s` on the line of `o` and `z`, as it has room for
+  13 lines on the smallest screen.
 - **Switching lays the viewer out again,** as a resize does, behind the
   pane's wait for a viewer (ADR 46); the diff is computed and
   highlighted once, when the viewer is built, for both layouts. Only a
