@@ -51,8 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   goes into `draft`. A session answered already is refused. A
   withdrawal without `--force` never takes a session whose draft holds
   an answer, also while the person is typing in it. asqr shows
-  `↩ withdrawn "<title>" by the asker` when a waiting session is
-  withdrawn, with `, with your answers so far` when the result carries
+  `↩ withdrawn "<title>" by the asker` when a session the person has
+  had on screen or entered answers into is withdrawn, with `, with your answers so far` when the result carries
   them and `; your answers to it are dropped` when it does not.
   `asqr status` lists a withdrawn session under answered, with status
   `withdrawn`.

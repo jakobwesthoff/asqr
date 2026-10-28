@@ -1651,8 +1651,12 @@ keeps the session and shows its own notice instead.
   asker. The third, a warning, shows when the TUI held answers the
   result does not carry, as when the person typed while the withdrawal
   ran. An untouched default is no answer here (section 4.3). Only a
-  session the TUI showed gets a notice; when several leave at once, the
-  last one's shows.
+  session the person has had on screen, in the sense of the reload
+  message above, one they entered answers into, or one whose result
+  carries a `draft` gets a notice. One that only waited in the queue
+  leaves without a word, as one withdrawn while asqr was not running
+  does, so the status line keeps what it shows. When several leave at
+  once, the last one's notice shows.
 - A session colliding with an unread result (section 5.7) and a failure
   to write a draft or a result trigger a notice. A failure never ends
   asqr; answers stay in the TUI.

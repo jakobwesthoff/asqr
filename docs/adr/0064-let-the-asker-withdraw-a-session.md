@@ -67,7 +67,11 @@ to stop its own `asqr wait` separately.
 - The TUI's notice goes by the result: with a `draft`, it says the
   person's answers went with the withdrawal; without one, while the TUI
   held answers, it says they are dropped; otherwise it only names the
-  session.
+  session. Only a session the person has seen (ADR 65), or one that
+  holds their answers or whose result carries a `draft`, gets the
+  notice. Of any other session, "withdrawn" tells the person nothing,
+  as "was reloaded" tells them nothing in ADR 65, and the notice would
+  take the place of the one the status line shows.
 
 ## Consequences
 
