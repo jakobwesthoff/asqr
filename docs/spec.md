@@ -587,7 +587,7 @@ refuses with "the queue is busy".
 
 `ask --replaces <old-id>` withdraws the waiting session `<old-id>`
 (section 5.10) and drops the new session in its place, for a session
-rebuilt under another id (ADR 61). It holds the drafts lock once for
+rebuilt under another id (ADR 64). It holds the drafts lock once for
 both: first the refusals of the new session above, then those of the
 withdrawal, and only then the withdrawal and the drop, so a refusal of
 either leaves the queue as it was. Without `--force`, the old session is
