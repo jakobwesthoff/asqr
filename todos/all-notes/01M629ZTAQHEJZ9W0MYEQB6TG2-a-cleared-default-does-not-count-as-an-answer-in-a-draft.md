@@ -15,12 +15,13 @@ unanswered, and the person's decision goes with the session.
 
 ## Problem
 
-`draft_has_answer` in `src/queue/drafts.rs` counts a selection, typed
-text that is not blank, or a note. A default cleared with `backspace` on
-a `single` (ADR 0071), or toggled off on a `multi`, leaves an answer
-with no selection and no `defaulted` flag (`SessionState::answers` in
-`src/tui/session.rs`), so nothing in the draft says the person touched
-the question.
+`person_entered` in `src/queue/drafts.rs`, which `draft_has_answer`
+applies to every answer, counts a selection without the `defaulted`
+flag, typed text that is not blank, or a note that is not blank. A
+default cleared with `backspace` on a `single` (ADR 0071), or toggled
+off on a `multi`, leaves an answer with no selection and no `defaulted`
+flag (`SessionState::answers` in `src/tui/session.rs`), so nothing in
+the draft says the person touched the question.
 
 `withdraw_locked` in `src/queue/withdraw.rs`, which serves
 `asqr withdraw` and the old session of `asqr ask --replaces`, refuses
@@ -30,15 +31,17 @@ comes from `rejected_answers`, which leaves out a skipped answer without
 a note, so the cleared default does not show there either.
 
 ADR 0071 records this under Consequences, and spec section 4.3 defines
-"has an answer" by selections, text and notes. The same section gives
-the reason a selection counts: "it is still work a replacement would
-throw away". A cleared default is such work too.
+"has an answer" by selections the person made, text and notes. The same
+section gives the reason a selection counts: "it is still work a
+replacement would throw away". A cleared default is such work too.
 
-The reverse also holds: an untouched default is a selection, so it
-counts. A draft is written on every change (spec section 4.3), so a
-draft whose only content is untouched defaults, for example after a note
-was typed and deleted again, counts as answered and blocks a withdrawal
-without `--force`.
+The same gap shows when a session starts from its draft, as after a
+restart of asqr. An untouched question without a default and a question
+whose default the person cleared leave the same answer in a draft: no
+selection, no `defaulted`. `restored` in `src/tui/session.rs` restores
+both as touched, so a default the session file gained since is not
+picked on either. A running session's reload knows which questions were
+touched and has no such gap.
 
 Read in the code on 2026-10-28, not reproduced.
 
@@ -47,12 +50,12 @@ Read in the code on 2026-10-28, not reproduced.
 An asker that withdraws or replaces the session without `--force` drops
 the person's decision to skip a defaulted question without being
 refused, and a replacement starts with its defaults selected again. A
-note or any other answer in the draft prevents it.
+note or any other answer in the draft prevents it. After a restart, a
+default added to an untouched question without one stays unpicked.
 
 ## Suggested direction
 
 Give the draft a mark for a question the person changed, as
-`custom_unpicked` marks unpicked own text in drafts only, and count it
-in `draft_has_answer`. Whether an untouched default keeps counting
-belongs to the same decision. Either change amends spec section 4.3 and
-ADR 0071.
+`custom_unpicked` marks unpicked own text in drafts only, count it in
+`person_entered`, and restore a question without it as untouched. The
+change amends spec section 4.3 and ADR 0071.

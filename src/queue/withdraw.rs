@@ -17,7 +17,8 @@ use super::finish::{archive_session, finish_steps, stem};
 use super::names::entries_if_present;
 use super::{
     DropError, Dropped, FinishError, Gate, QueueLocation, Step, delete_draft, find_session_file,
-    has_answered_draft, load_draft, lock_drafts, parse_archive_name, session_sha256,
+    has_answered_draft, load_draft, lock_drafts, parse_archive_name, person_entered,
+    session_sha256,
 };
 use crate::format::{
     SessionResult, Status, UnsentDraft, now_rfc3339, parse_session, rejected_answers,
@@ -221,10 +222,12 @@ fn read_result(path: &Path) -> Option<SessionResult> {
 }
 
 /// What the person entered into session `id` and never sent, in the shape
-/// of a rejected result: the questions with an answer or a note, and the
-/// note to the whole session, trimmed. None without a readable draft, for
-/// a session file that is no valid session, and for a draft that holds
-/// nothing.
+/// of a rejected result: the questions they answered or noted, and the
+/// note to the whole session, trimmed. A rejected result keeps an
+/// untouched default, flagged; here it goes, as it is the asker's own
+/// preset and nothing the person entered (spec section 4.1). None without
+/// a readable draft, for a session file that is no valid session, and for
+/// a draft that holds nothing the person entered.
 fn unsent_draft(location: &QueueLocation, id: &str, bytes: &[u8]) -> Option<UnsentDraft> {
     let draft = load_draft(location, id).ok().flatten()?;
     let (_, session) = parse_session(bytes).ok()?;
@@ -234,7 +237,10 @@ fn unsent_draft(location: &QueueLocation, id: &str, bytes: &[u8]) -> Option<Unse
         .map(str::trim)
         .filter(|note| !note.is_empty())
         .map(str::to_owned);
-    let answers = rejected_answers(&session, &draft.answers);
+    let answers: Vec<_> = rejected_answers(&session, &draft.answers)
+        .into_iter()
+        .filter(person_entered)
+        .collect();
     (note.is_some() || !answers.is_empty()).then_some(UnsentDraft { note, answers })
 }
 
@@ -481,6 +487,29 @@ mod tests {
         save_draft(&location, &blank).expect("saved");
 
         let withdrawn = withdraw_session(&location, "batch-01", false).expect("withdrawn");
+
+        assert!(
+            matches!(&withdrawn, Withdrawn::Now(result) if result.draft.is_none()),
+            "{withdrawn:?}"
+        );
+    }
+
+    #[test]
+    fn a_forced_withdrawal_leaves_an_untouched_default_out_of_the_draft() {
+        let (_scratch, location) = queue();
+        asked(&location, "batch-01");
+        let browsed = SessionResult::draft(
+            "batch-01",
+            "q",
+            vec![Answer {
+                selected: vec!["a".into()],
+                defaulted: true,
+                ..Answer::new("q")
+            }],
+        );
+        save_draft(&location, &browsed).expect("saved");
+
+        let withdrawn = withdraw_session(&location, "batch-01", true).expect("withdrawn");
 
         assert!(
             matches!(&withdrawn, Withdrawn::Now(result) if result.draft.is_none()),

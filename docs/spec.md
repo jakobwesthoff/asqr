@@ -399,8 +399,10 @@ rules are validation's alone.
   - `error`: the file was invalid, and `error` holds the message
   - `withdrawn`: the asker withdrew the session (section 5.10). What the
     person had entered and not sent is in `draft`: `note`, the session
-    note trimmed and absent when blank, and `answers`, the questions
-    with an answer or a note in the shape of a cancelled result. These
+    note trimmed and absent when blank, and `answers`, the questions the
+    person answered or noted, in the shape of a cancelled result but
+    without an untouched default, which is the asker's preset and
+    nothing the person entered (section 4.3). These
     are no decisions: the person never sent them, and an asker uses
     them at most as presets of a replacement session. `draft` is absent
     when the person had entered nothing.
@@ -489,12 +491,16 @@ or option that is gone) is dropped. A draft that cannot be read is
 logged and ignored, and the session starts fresh, with only its defaults
 selected.
 
-A draft "has an answer" (section 5.5) when any question has a selection,
-typed text that is not blank or a note that is not blank, when the
-session note is not blank, or when the draft cannot be read. The reject
-reason does not count. A selection counts even where it does not answer
-the question yet, since it is still work a replacement would throw
-away.
+A draft "has an answer" (section 5.5) when any question has a selection
+the person made, typed text that is not blank or a note that is not
+blank, when the session note is not blank, or when the draft cannot be
+read. The reject reason does not count. A selection counts even where
+it does not answer the question yet, since it is still work a
+replacement would throw away. An untouched default (`"defaulted":
+true`) is the asker's preset and does not count, so the draft of a
+session the person only moved through, saved as they went from one
+question to the next, has no answer. A default the person picked again, a toggle or a note on the
+question removes the flag (section 4.2) and counts.
 
 ## 5. Queues and files
 
@@ -1641,9 +1647,9 @@ keeps the session and shows its own notice instead.
   result carries a `draft`, so what the person entered went to the
   asker. The third, a warning, shows when the TUI held answers the
   result does not carry, as when the person typed while the withdrawal
-  ran. An untouched default is no answer here. Only a session the TUI
-  showed gets a notice; when several leave at once, the last one's
-  shows.
+  ran. An untouched default is no answer here (section 4.3). Only a
+  session the TUI showed gets a notice; when several leave at once, the
+  last one's shows.
 - A session colliding with an unread result (section 5.7) and a failure
   to write a draft or a result trigger a notice. A failure never ends
   asqr; answers stay in the TUI.

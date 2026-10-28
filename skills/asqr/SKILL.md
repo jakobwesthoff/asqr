@@ -350,8 +350,9 @@ asqr withdraw "$id"
   this skill does not know the status: its `wait` ends with exit 1 and
   "not a result file" instead.
 - When the person has started answering, `withdraw` refuses with exit
-  code 1. Ask them before you take the session away; `--force` withdraws
-  it anyway, and asqr tells them that you withdrew it.
+  code 1. A default you set that they left as it is does not count as
+  starting. Ask them before you take the session away; `--force`
+  withdraws it anyway, and asqr tells them that you withdrew it.
 - The result of such a withdrawal carries what they had entered in
   `draft`: their `note` and the `answers` they had given so far. These
   are not decisions: they never sent them, and they might have rejected

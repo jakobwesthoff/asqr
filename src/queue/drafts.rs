@@ -10,7 +10,7 @@ use std::path::Path;
 
 use super::atomic::write_atomically;
 use super::{Gate, QueueLocation, Step, find_session_file, lock_drafts};
-use crate::format::SessionResult;
+use crate::format::{Answer, SessionResult};
 
 pub fn load_draft(location: &QueueLocation, id: &str) -> io::Result<Option<SessionResult>> {
     let Some(path) = find_session_file(&location.drafts(), id)? else {
@@ -73,18 +73,28 @@ pub fn delete_draft(location: &QueueLocation, id: &str) -> io::Result<()> {
     }
 }
 
-/// Whether the person entered anything: a selection, typed text, or a note
-/// to a question or to the whole session. A selection counts even where it
-/// does not answer the question yet (a `multi` below `min`), since it is
-/// still work that a replacement would throw away. The reject reason does
-/// not count (spec section 5.5).
+/// Whether `answer` holds something the person entered: a selection they
+/// made, typed text or a note that is not blank (spec section 4.3). An
+/// untouched default is the asker's preset, not the person's input. A
+/// selection counts even where it does not answer the question yet (a
+/// `multi` below `min`), since it is still work that a replacement would
+/// throw away. A default picked again, a toggle or a note removes the
+/// `defaulted` flag (section 4.2), so each of them counts.
+pub fn person_entered(answer: &Answer) -> bool {
+    (!answer.selected.is_empty() && !answer.defaulted)
+        || filled(&answer.custom)
+        || filled(&answer.note)
+}
+
+/// Whether the person entered anything into `draft`: an answer that
+/// [`person_entered`], or a note to the whole session. The reject reason
+/// does not count (spec section 5.5).
 pub fn draft_has_answer(draft: &SessionResult) -> bool {
-    let filled =
-        |text: &Option<String>| text.as_deref().is_some_and(|text| !text.trim().is_empty());
-    filled(&draft.note)
-        || draft.answers.iter().any(|answer| {
-            !answer.selected.is_empty() || filled(&answer.custom) || filled(&answer.note)
-        })
+    filled(&draft.note) || draft.answers.iter().any(person_entered)
+}
+
+fn filled(text: &Option<String>) -> bool {
+    text.as_deref().is_some_and(|text| !text.trim().is_empty())
 }
 
 /// Whether the draft of `id` holds an answer. A draft that cannot be read
@@ -101,7 +111,6 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::format::Answer;
 
     fn queue() -> (tempfile::TempDir, QueueLocation) {
         let scratch = tempfile::tempdir().expect("temp dir");
@@ -216,6 +225,17 @@ mod tests {
         }
         assert!(!draft_has_answer(&draft("d", vec![blank])));
         assert!(!draft_has_answer(&draft("d", Vec::new())));
+    }
+
+    #[test]
+    fn an_untouched_default_is_no_answer() {
+        let defaulted = Answer {
+            selected: vec!["a".into()],
+            defaulted: true,
+            ..Answer::new("q")
+        };
+
+        assert!(!draft_has_answer(&draft("d", vec![defaulted])));
     }
 
     #[test]

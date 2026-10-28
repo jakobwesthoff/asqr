@@ -21,8 +21,9 @@ use crate::format::{
 };
 use crate::queue::{
     DRAFTS_LOCK_ATTEMPTS, Finished, Gate, QueueLocation, Recovery, Rejected, Waiting,
-    archive_invalid_stem, archived_title, find_session_file, finish_unchanged_with, load_draft,
-    recover_with, reject_invalid_with, save_draft_while_waiting_with, scan_inbox, session_sha256,
+    archive_invalid_stem, archived_title, draft_has_answer, find_session_file,
+    finish_unchanged_with, load_draft, recover_with, reject_invalid_with,
+    save_draft_while_waiting_with, scan_inbox, session_sha256,
 };
 
 /// A session the app shows, with the bytes it was read from.
@@ -126,7 +127,7 @@ impl Inbox {
         }
         let (tone, after) = if result.draft.is_some() {
             (Tone::Warning, "\" by the asker, with your answers so far")
-        } else if holds_answers(&state.to_draft()) {
+        } else if draft_has_answer(&state.to_draft()) {
             (
                 Tone::Warning,
                 "\" by the asker; your answers to it are dropped",
@@ -428,20 +429,6 @@ impl Inbox {
             Err(error) => app.notice(Tone::Error, format!("cannot finish {id}: {error}")),
         }
     }
-}
-
-/// Whether the person entered anything into `draft`: a selection they
-/// made, typed text, or a note. An untouched default is the asker's own
-/// preset, not something the person entered.
-fn holds_answers(draft: &SessionResult) -> bool {
-    let filled =
-        |text: &Option<String>| text.as_deref().is_some_and(|text| !text.trim().is_empty());
-    filled(&draft.note)
-        || draft.answers.iter().any(|answer| {
-            (!answer.selected.is_empty() && !answer.defaulted)
-                || filled(&answer.custom)
-                || filled(&answer.note)
-        })
 }
 
 /// The status line's word that `state` was finished as `outcome`, since
@@ -1624,6 +1611,90 @@ mod tests {
             app.current_notice(),
             Some(&withdrawn(Tone::Info, "batch", "\" by the asker"))
         );
+    }
+
+    /// A frame of `app`, handed back to it as the run loop does, so the
+    /// session it shows counts as seen.
+    fn shown(app: &mut App) {
+        use crate::graphics::Images;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        use crate::tui::render::{Drawn, PaneLayout, View, draw};
+
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).expect("test terminal");
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
+        let mut drawn = Drawn::default();
+        terminal
+            .draw(|frame| drawn = draw(frame, app, &mut view))
+            .expect("draws");
+        app.set_session_shown(drawn.session_shown);
+    }
+
+    /// A session whose option `a` is the asker's default.
+    fn with_default() -> String {
+        SESSION.replace(r#""label": "A""#, r#""label": "A", "default": true"#)
+    }
+
+    /// Shows the session of [`with_default`] and moves on to the review,
+    /// which saves its draft with the default untouched.
+    fn browsed(location: &QueueLocation) -> (Inbox, App) {
+        put(location, "batch.json", &with_default());
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        shown(&mut app);
+        let effect = app.handle(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        inbox.apply(&mut app, effect);
+        assert!(
+            load_draft(location, "batch").expect("readable").is_some(),
+            "the move saved a draft"
+        );
+        (inbox, app)
+    }
+
+    #[test]
+    fn a_draft_saved_by_a_tab_move_holds_no_answer() {
+        let (_scratch, location) = queue();
+        browsed(&location);
+
+        assert!(!crate::queue::has_answered_draft(&location, "batch"));
+    }
+
+    #[test]
+    fn a_session_only_browsed_is_withdrawn_without_force() {
+        let (_scratch, location) = queue();
+        browsed(&location);
+
+        let withdrawn = withdraw_session(&location, "batch", false);
+
+        assert!(matches!(withdrawn, Ok(Withdrawn::Now(_))), "{withdrawn:?}");
+    }
+
+    #[test]
+    fn a_session_only_browsed_leaves_with_the_plain_notice() {
+        let (_scratch, location) = queue();
+        let (mut inbox, mut app) = browsed(&location);
+
+        withdraw_session(&location, "batch", true).expect("withdrawn");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(Tone::Info, "batch", "\" by the asker"))
+        );
+    }
+
+    #[test]
+    fn a_re_picked_default_still_counts() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", &with_default());
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+
+        let effect = app.handle(key('1'));
+        inbox.apply(&mut app, effect);
+
+        assert!(crate::queue::has_answered_draft(&location, "batch"));
     }
 
     #[test]

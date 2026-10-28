@@ -46,7 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   later `asqr result` print too, exiting with 14. A session the person
   has started answering is refused unless `--force`; the result of a
   forced withdrawal carries what they had entered in a separate `draft`
-  field, never in `answers`. A session answered already is refused. A
+  field, never in `answers`. A default the person left untouched is not
+  something they entered: it neither counts as starting to answer nor
+  goes into `draft`. A session answered already is refused. A
   withdrawal without `--force` never takes a session whose draft holds
   an answer, also while the person is typing in it. asqr shows
   `↩ withdrawn "<title>" by the asker` when a waiting session is
@@ -143,6 +145,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whose file has left the inbox no longer saves a draft for it. When the
   lock stays taken for about 2 seconds, `ask` refuses with "the queue is
   busy", and asqr keeps the answers and says so.
+- `asqr ask` replaces a waiting session whose draft holds only defaults
+  the person left untouched, as after they only moved between its
+  questions, and `asqr status` no longer reports such a draft under
+  `draft_has_answers`. Before, moving to another question saved the
+  default into the draft, and `ask` refused as if the person had
+  started answering.
 - A session whose file changes on disk before the person has had it on
   screen, such as one waiting behind the session being answered, is
   reloaded without the message "<title> changed on disk and was

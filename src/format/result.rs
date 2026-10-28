@@ -76,8 +76,9 @@ pub struct UnsentDraft {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 
-    /// The questions with an answer, an untouched default included, or a
-    /// note, in session order and in the shape of a submitted result.
+    /// The questions the person answered or noted, in session order and in
+    /// the shape of a submitted result. An untouched default is the
+    /// asker's preset, not the person's answer, and is left out.
     #[serde(default)]
     pub answers: Vec<Answer>,
 }
