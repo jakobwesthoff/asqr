@@ -131,21 +131,16 @@ impl PlacedImage {
     /// transmission whose cell was drawn over moves to the first cell of
     /// the image still drawn, or to the first cell of `buf` where none is.
     pub fn mend(&self, buf: &mut Buffer) {
-        let [high, red, green, blue] = self.id.to_be_bytes();
-        let colour = Color::Rgb(red, green, blue);
-        let ours = |buf: &Buffer, x: u16, y: u16| {
-            let cell = &buf[(x, y)];
-            cell.fg == colour && cell.symbol().contains(PLACEHOLDER)
-        };
+        let [high, ..] = self.id.to_be_bytes();
 
         let mut first_drawn = None;
         for y in self.area.top()..self.area.bottom() {
             for x in self.area.left()..self.area.right() {
-                if !ours(buf, x, y) {
+                if !self.holds(buf, x, y) {
                     continue;
                 }
                 first_drawn.get_or_insert((x, y));
-                let after_gap = x == self.area.left() || !ours(buf, x - 1, y);
+                let after_gap = x == self.area.left() || !self.holds(buf, x - 1, y);
                 let cell = &mut buf[(x, y)];
                 // The first cell of each row carries its marks already.
                 if after_gap && cell.symbol().ends_with(PLACEHOLDER) {
@@ -177,6 +172,17 @@ impl PlacedImage {
         let symbol = format!("{transmission}{}", cell.symbol());
         cell.set_symbol(&symbol)
             .set_diff_option(CellDiffOption::ForcedWidth(width));
+    }
+
+    /// Whether the cell at `x`, `y` of `buf` is one of this image's
+    /// placeholders: inside its area, in the colour that names its id,
+    /// holding the placeholder character.
+    fn holds(&self, buf: &Buffer, x: u16, y: u16) -> bool {
+        let [_, red, green, blue] = self.id.to_be_bytes();
+        let cell = &buf[(x, y)];
+        self.area.contains((x, y).into())
+            && cell.fg == Color::Rgb(red, green, blue)
+            && cell.symbol().contains(PLACEHOLDER)
     }
 
     #[cfg(test)]
