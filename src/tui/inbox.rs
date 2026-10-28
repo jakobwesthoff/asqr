@@ -59,6 +59,10 @@ pub struct Inbox {
     /// How often the drafts lock is tried; tests that hold it lower this,
     /// so the busy path needs no waiting.
     lock_attempts: u32,
+    /// By session id, the start of the notice that names the file holding
+    /// a text written in the editor while the session left (see
+    /// [`Inbox::keep_text_for`]).
+    kept_texts: Vec<(String, String)>,
 }
 
 impl Inbox {
@@ -68,6 +72,7 @@ impl Inbox {
             known: Vec::new(),
             ignored: HashSet::new(),
             lock_attempts: DRAFTS_LOCK_ATTEMPTS,
+            kept_texts: Vec::new(),
         }
     }
 
@@ -105,22 +110,38 @@ impl Inbox {
     /// only waited in the queue, or one withdrawn while asqr was not
     /// running, leaves without a word.
     fn leave(&mut self, app: &mut App, id: &str) {
-        let notice = self.withdrawn_notice(app, id);
+        let kept = self
+            .kept_texts
+            .iter()
+            .position(|(kept, _)| same_session_id(kept, id))
+            .map(|index| self.kept_texts.remove(index).1);
+        let notice = self.withdrawn_notice(app, id, kept.as_deref());
         self.forget(app, id);
         if let Some(notice) = notice {
             app.show(notice);
         }
     }
 
+    /// Notes where the text of session `id`'s field lies, which the
+    /// person wrote in their editor while the session left the inbox
+    /// (ADR 74). `kept` is the start of the status line's notice that names
+    /// the file. The notice of the sync that sees the session leave takes
+    /// the place of that one, so a withdrawn notice names the file first.
+    pub fn keep_text_for(&mut self, id: &str, kept: String) {
+        self.kept_texts.push((id.to_owned(), kept));
+    }
+
     /// The notice for session `id` when its result says the asker withdrew
     /// it. The notice says what became of what the person entered: the
     /// result's `draft` took it to the asker, or nothing did, as when the
-    /// person typed while the withdrawal ran.
+    /// person typed while the withdrawal ran. `kept` names the file that
+    /// holds the text the person wrote in their editor meanwhile, in front,
+    /// as the status line is cut at the screen's edge.
     ///
     /// A session the person never saw and entered nothing into gets none,
     /// as "withdrawn" tells them nothing about it (ADR 65), and the notice
     /// would take the place of the one the status line shows.
-    fn withdrawn_notice(&self, app: &App, id: &str) -> Option<Notice> {
+    fn withdrawn_notice(&self, app: &App, id: &str, kept: Option<&str>) -> Option<Notice> {
         let state = app
             .sessions()
             .iter()
@@ -134,17 +155,28 @@ impl Inbox {
         if !state.seen() && !holds_answers && result.draft.is_none() {
             return None;
         }
-        let (tone, after) = if result.draft.is_some() {
-            (Tone::Warning, "\" by the asker, with your answers so far")
+        let (tone, answers) = if result.draft.is_some() {
+            (Tone::Warning, ", with your answers so far")
         } else if holds_answers {
-            (
-                Tone::Warning,
-                "\" by the asker; your answers to it are dropped",
-            )
+            (Tone::Warning, "; your answers to it are dropped")
         } else {
-            (Tone::Info, "\" by the asker")
+            (Tone::Info, "")
         };
-        Some(Notice::naming(tone, "↩ withdrawn \"", state.name(), after))
+        let name = state.name();
+        Some(match kept {
+            Some(kept) => Notice::naming(
+                Tone::Warning,
+                &format!("{kept}\""),
+                name,
+                &format!("\" withdrawn by the asker{answers}"),
+            ),
+            None => Notice::naming(
+                tone,
+                "↩ withdrawn \"",
+                name,
+                &format!("\" by the asker{answers}"),
+            ),
+        })
     }
 
     /// Brings `app` in line with the inbox. A failure with a single file
@@ -221,6 +253,13 @@ impl Inbox {
             let title = self.follows_title(app, &id);
             app.set_follows_title(&id, title);
         }
+        // A kept text waits for the sync that sees its session leave, and
+        // `leave` took it there. One left over belongs to a session this
+        // sync found waiting again, as after a replacement under its id, or
+        // to one that left without `leave`, as a session archived next to
+        // an unread result does under a notice of its own. Neither may name
+        // the file in a later withdrawal.
+        self.kept_texts.clear();
         Ok(synced)
     }
 

@@ -92,7 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exits. On a field left with `esc` it gives the field the keys again
   first. When no editor is found, the editor fails, or the cut line is
   gone, the field stays as it was and the status line says why; a text
-  that would be lost stays in its file, which the status line names. A
+  that would be lost stays in its file, which the status line names,
+  also in the notice of a session withdrawn while the editor ran. A
   field's key bar names `ctrl-g  editor`, and the help names it on the
   line of `esc`. While the editor runs, ctrl-c there does not quit asqr.
   On Unix, after the editor exits, asqr drops what the terminal sends

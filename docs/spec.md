@@ -1504,9 +1504,12 @@ line (ADR 36).
   - the cut line is gone: "your text is in <path>: the >8 line is gone,
     field unchanged", a warning.
 
-  A session that left while the editor ran gets the text, and the status
-  line warns "your text is in <path>: "<title>" left while the editor
-  ran". In these two warnings asqr keeps the file; `<path>` names the
+  A session that left while the editor ran does not take the text, and
+  the status line warns "your text is in <path>: "<title>" left while
+  the editor ran". When the asker withdrew it, the notice of the
+  withdrawal (section 7.9), which takes the place of that warning, names
+  the file first: "your text is in <path>: "<title>" withdrawn by the
+  asker". In these warnings asqr keeps the file; `<path>` names the
   temp directory `$TMPDIR` where that variable names it, and the log has
   the whole path. An editor that returns at once, as `code` without
   `-w`, leaves the field unchanged.
@@ -1653,13 +1656,16 @@ keeps the session and shows its own notice instead.
   result carries a `draft`, so what the person entered went to the
   asker. The third, a warning, shows when the TUI held answers the
   result does not carry, as when the person typed while the withdrawal
-  ran. An untouched default is no answer here (section 4.3). Only a
-  session the person has had on screen, in the sense of the reload
-  message above, one they entered answers into, or one whose result
-  carries a `draft` gets a notice. One that only waited in the queue
-  leaves without a word, as one withdrawn while asqr was not running
-  does, so the status line keeps what it shows. When several leave at
-  once, the last one's notice shows.
+  ran. An untouched default is no answer here (section 4.3). A session
+  withdrawn while the person wrote one of its fields in their editor
+  gets the form of section 7.7, a warning that names the kept file
+  first, with the same endings. Only a session the person has had on
+  screen, in the sense of the reload message above, one they entered
+  answers into, or one whose result carries a `draft` gets a notice.
+  One that only waited in the queue leaves without a word, as one
+  withdrawn while asqr was not running does, so the status line keeps
+  what it shows. When several leave at once, the last one's notice
+  shows.
 - A session colliding with an unread result (section 5.7) and a failure
   to write a draft or a result trigger a notice. A failure never ends
   asqr; answers stay in the TUI.

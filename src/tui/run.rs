@@ -154,7 +154,10 @@ fn edit_in_editor(
         return true;
     };
     // A session withdrawn or finished elsewhere while the editor ran keeps
-    // no draft, so its field would take the text along when it leaves.
+    // no draft, so the text stays in its file and not in the field, which
+    // leaves with the session. The sync that sees the session leave shows
+    // a notice of its own in the status line's one place, so the inbox
+    // names the file there again.
     let id = &request.about.id;
     if !inbox.waiting(id) {
         let name = request.about.title.as_deref().unwrap_or(id);
@@ -165,6 +168,10 @@ fn edit_in_editor(
             name,
             "\" left while the editor ran",
         ));
+        if !kept.is_empty() {
+            inbox.keep_text_for(id, kept);
+        }
+        return true;
     }
     let effect = app.edited(&text);
     // The edited text asks for a draft save at most, which says nothing
@@ -1453,6 +1460,95 @@ mod tests {
                 .starts_with("written meanwhile\n"),
         );
         fs::remove_file(kept).expect("cleaned up");
+    }
+
+    /// The status line on the screen of `harness`.
+    fn status_line(harness: &Harness) -> String {
+        let screen = harness.screen();
+        let rows: Vec<&str> = screen.lines().collect();
+        rows[rows.len() - 2].trim_end().to_owned()
+    }
+
+    #[test]
+    fn a_withdrawal_while_the_editor_ran_names_the_kept_file() {
+        let mut harness = text_question();
+        let location = harness.location.clone();
+        let mut write = writing("written meanwhile");
+        harness.host.editor = Some(Box::new(move |path: &Path| {
+            crate::queue::withdraw_session(&location, "text", true).map_err(io::Error::other)?;
+            write(path)
+        }));
+
+        // The watcher's sync of the withdrawal waits in the channel while
+        // the editor runs.
+        harness
+            .run(vec![ctrl('g'), Event::InboxChanged])
+            .expect("runs");
+
+        let kept = &harness.host.edited[0];
+        assert_eq!(
+            status_line(&harness),
+            format!(
+                "! your text is in {}: \"Release\" withdrawn by the asker",
+                as_shown(kept)
+            )
+        );
+        fs::remove_file(kept).expect("cleaned up");
+    }
+
+    #[test]
+    fn the_text_of_a_session_that_left_does_not_go_into_its_field() {
+        let mut harness = text_question();
+        let inbox_file = harness.location.inbox().join("text.json");
+        let mut write = writing("written meanwhile");
+        harness.host.editor = Some(Box::new(move |path: &Path| {
+            fs::remove_file(&inbox_file)?;
+            write(path)
+        }));
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+
+        harness
+            .run_started(&mut app, &mut inbox, vec![ctrl('g')])
+            .expect("runs");
+
+        let state = app.active().expect("shown until the next sync");
+        assert_eq!(state.answers()[0].custom, None);
+        fs::remove_file(&harness.host.edited[0]).expect("cleaned up");
+    }
+
+    /// A session file away from the inbox while the editor ran and back
+    /// before the next sync is the same session again: a later withdrawal
+    /// of it says nothing of the file kept back then.
+    #[test]
+    fn a_session_back_in_the_inbox_drops_the_kept_file_from_its_notice() {
+        let mut harness = text_question();
+        let inbox_file = harness.location.inbox().join("text.json");
+        let aside = harness.location.dir().join("aside.json");
+        let (from, to) = (inbox_file.clone(), aside.clone());
+        let mut write = writing("written meanwhile");
+        harness.host.editor = Some(Box::new(move |path: &Path| {
+            fs::rename(&from, &to)?;
+            write(path)
+        }));
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        harness
+            .run_started(&mut app, &mut inbox, vec![ctrl('g')])
+            .expect("runs");
+
+        fs::rename(&aside, &inbox_file).expect("moved back");
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::InboxChanged])
+            .expect("runs");
+        crate::queue::withdraw_session(&harness.location, "text", false).expect("withdrawn");
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::InboxChanged])
+            .expect("runs");
+
+        assert_eq!(
+            status_line(&harness),
+            "↩ withdrawn \"Release\" by the asker"
+        );
+        fs::remove_file(&harness.host.edited[0]).expect("cleaned up");
     }
 
     #[test]

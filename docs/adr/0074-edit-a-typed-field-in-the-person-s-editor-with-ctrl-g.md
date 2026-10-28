@@ -65,7 +65,10 @@ exits with an error is of kind `Other`; with no editor found it is
   session left while the editor ran, asqr keeps the file and the status
   line names it first, the temp directory as `$TMPDIR` where that
   variable names it, as the status line is cut at the screen's edge. The
-  log has the whole path.
+  log has the whole path. The text does not go into the field of a
+  session that left. When the asker withdrew it, the notice of the
+  withdrawal takes the status line's one place next, so it names the
+  file first as well.
 - **The hand-over:** asqr finds the editor and pauses the key reader
   before it touches the terminal; a reader that does not stop within a
   second calls the pause off. It turns focus reports and bracketed paste
