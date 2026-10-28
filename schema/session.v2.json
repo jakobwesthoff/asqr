@@ -559,7 +559,8 @@
         },
         "note": {
           "default": true,
-          "description": "Whether the person may add a note to this question.",
+          "deprecated": true,
+          "description": "Ignored: every question and info item takes a note. A file that sets\nit stays valid.",
           "type": "boolean"
         },
         "options": {

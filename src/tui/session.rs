@@ -344,11 +344,12 @@ impl SessionState {
     /// The question shown is found again by its id, as a draft finds it,
     /// and the review stays the review. Where the row is found again, the
     /// focus stays as it was: a field left with `esc` stays without the
-    /// keys, a field typed in keeps its text cursor, and an open note stays
-    /// open while the question still takes notes, else the row takes the
-    /// keys as after the note. A row that is gone, such as an own answer
-    /// turned off, gives way to the row in its place, or the last row when
-    /// the tab has fewer, which is entered as if moved to. The pane's
+    /// keys, and a field typed in keeps its text cursor. A row that is gone,
+    /// such as an own answer turned off, gives way to the row in its place,
+    /// or the last row when the tab has fewer, which is entered as if moved
+    /// to. An open note stays open with its text cursor while its question
+    /// shows, whatever row the cursor is on, as every question takes a
+    /// note (ADR 68) and the note belongs to no row. The pane's
     /// focus and the full-screen view stay while the
     /// same entry shows; another entry under them ends both, as the
     /// person did not choose to look at it. Each entry keeps its scroll
@@ -391,6 +392,9 @@ impl SessionState {
                     replaced.row = self.row.min(replaced.rows().len().saturating_sub(1));
                 }
                 replaced.arrive();
+                if same_tab && self.focus == Focus::Note {
+                    replaced.keep_note(self);
+                }
             }
         }
 
@@ -500,25 +504,28 @@ impl SessionState {
     /// place as far as the text still reaches; where the field was drawn
     /// is learned again from the next draw.
     fn keep_focus(&mut self, old: &SessionState) {
-        let cursor = old.field_cursor().unwrap_or_default();
-        let takes_notes = self.question().is_some_and(|question| question.note);
         match old.focus {
             Focus::None => {
                 self.focus = Focus::None;
                 self.field = None;
             }
             Focus::Field => {
+                let cursor = old.field_cursor().unwrap_or_default();
                 let text = self.row_text().unwrap_or_default();
                 self.field = Some(TextField::with_cursor(text, cursor));
                 self.focus = Focus::Field;
             }
-            Focus::Note if takes_notes => {
-                let note = &self.working[self.tab].note;
-                self.field = Some(TextField::with_cursor(note, cursor));
-                self.focus = Focus::Note;
-            }
-            Focus::Note => self.arrive(),
+            Focus::Note => self.keep_note(old),
         }
+    }
+
+    /// Opens the note of the current question again with the text cursor
+    /// `old`'s note had, as far as the note still reaches.
+    fn keep_note(&mut self, old: &SessionState) {
+        let cursor = old.field_cursor().unwrap_or_default();
+        let note = &self.working[self.tab].note;
+        self.field = Some(TextField::with_cursor(note, cursor));
+        self.focus = Focus::Note;
     }
 
     /// How often the session file was replaced while open, so what was
@@ -1251,17 +1258,10 @@ impl SessionState {
         }
     }
 
+    /// Opens the note of the current question; every question and info
+    /// item takes one (ADR 68). The review has no `n`.
     fn open_note(&mut self) -> Effect {
-        let Some(question) = self.question() else {
-            return Effect::None;
-        };
-        if !question.note {
-            let refusal = if question.kind == Kind::Info {
-                "this item takes no note"
-            } else {
-                "this question takes no note"
-            };
-            self.message = Some(Notice::new(Tone::Warning, refusal));
+        if self.question().is_none() {
             return Effect::None;
         }
         self.field = Some(TextField::new(&self.working[self.tab].note));
@@ -1365,8 +1365,8 @@ impl SessionState {
         }
         if self.focus == Focus::None {
             if !self.current_row().is_some_and(Row::is_field) {
-                let notes = self.question().is_some_and(|question| question.note);
-                let message = if notes {
+                // Every question takes a note (ADR 68); the review has none.
+                let message = if self.question().is_some() {
                     "a paste goes into a field; press n for a note"
                 } else {
                     "a paste goes into a field"
@@ -2156,24 +2156,22 @@ mod tests {
     }
 
     #[test]
-    fn questions_without_notes_say_so() {
+    fn n_opens_the_note_on_a_question_that_sets_note_false() {
+        // Every question takes a note (ADR 68); the field is ignored.
         let mut state = state();
         go_to_tab(&mut state, 3);
 
-        assert_eq!(press(&mut state, "n"), Effect::None);
+        press(&mut state, "n");
 
-        assert_eq!(
-            state.message(),
-            Some(&refused("this question takes no note"))
-        );
-        assert_eq!(state.focus(), Focus::None);
+        assert_eq!(state.message(), None);
+        assert_eq!(state.focus(), Focus::Note);
     }
 
     #[test]
     fn a_message_lasts_until_the_next_key() {
         let mut state = state();
         go_to_tab(&mut state, 3);
-        press(&mut state, "n");
+        state.paste("1");
 
         press(&mut state, "k");
 
@@ -2469,8 +2467,8 @@ mod tests {
     // Info items
     // ---------------------------------------------------------------
 
-    /// An info item with context, a question, and an info item that takes
-    /// no note; the review follows them.
+    /// An info item with context, a question, and an info item whose file
+    /// sets `note: false`; the review follows them.
     const WITH_INFO: &str = r#"{"asqr": 2, "questions": [
         {"id": "checks", "text": "All checks passed.", "kind": "info",
          "context": [{"type": "markdown", "content": "| a | b |"}]},
@@ -2555,14 +2553,14 @@ mod tests {
     }
 
     #[test]
-    fn an_info_item_without_notes_says_so() {
+    fn n_opens_the_note_on_an_info_item_that_sets_note_false() {
         let mut state = with_info();
         go_to_tab(&mut state, 2);
 
         press(&mut state, "n");
 
-        assert_eq!(state.message(), Some(&refused("this item takes no note")));
-        assert_eq!(state.focus(), Focus::None);
+        assert_eq!(state.message(), None);
+        assert_eq!(state.focus(), Focus::Note);
     }
 
     #[test]
@@ -3507,8 +3505,8 @@ mod tests {
         state.paste("1");
         assert_eq!(
             state.message(),
-            Some(&refused("a paste goes into a field")),
-            "a question without notes"
+            Some(&refused("a paste goes into a field; press n for a note")),
+            "a question whose file sets note: false takes a note all the same"
         );
         review_row(&mut state, Row::Submit);
         state.paste("1");
@@ -3852,7 +3850,7 @@ mod tests {
     }
 
     #[test]
-    fn a_replaced_session_keeps_an_open_note_while_the_question_takes_notes() {
+    fn a_replaced_session_keeps_an_open_note_open() {
         let mut state = state();
         press(&mut state, "nwhy");
         state.handle(code(KeyCode::Left));
@@ -3862,14 +3860,35 @@ mod tests {
         assert_eq!(state.field_cursor(), Some((0, 2)));
         assert_eq!(state.note_text().as_deref(), Some("why"));
 
-        let without_notes = SESSION.replacen(
+        // A file that sets `note: false` changes nothing (ADR 68).
+        let note_false = SESSION.replacen(
             r#""kind": "single", "custom": true,"#,
             r#""kind": "single", "custom": true, "note": false,"#,
             1,
         );
-        state.replace_session(serde_json::from_str(&without_notes).expect("parses"));
-        assert_eq!(state.focus(), Focus::None, "back on the option row");
-        assert_eq!(state.current_row(), Some(Row::Option(0)));
+        state.replace_session(serde_json::from_str(&note_false).expect("parses"));
+        assert_eq!(state.focus(), Focus::Note);
+        assert_eq!(state.field_cursor(), Some((0, 2)));
+        assert_eq!(state.note_text().as_deref(), Some("why"));
+    }
+
+    #[test]
+    fn a_replaced_session_keeps_an_open_note_open_where_its_row_is_gone() {
+        // The note belongs to the question, not to a row, so the own
+        // answer turned off under it leaves it open; the cursor's row
+        // falls back as it does without a note.
+        let mut state = state();
+        press(&mut state, "jj");
+        state.handle(code(KeyCode::Esc));
+        press(&mut state, "nwhy");
+        assert_eq!(state.current_row(), Some(Row::Own));
+
+        let no_custom = SESSION.replacen(r#""custom": true,"#, "", 1);
+        state.replace_session(serde_json::from_str(&no_custom).expect("parses"));
+
+        assert_eq!(state.focus(), Focus::Note);
+        assert_eq!(state.note_text().as_deref(), Some("why"));
+        assert_eq!(state.current_row(), Some(Row::Option(1)));
     }
 
     #[test]

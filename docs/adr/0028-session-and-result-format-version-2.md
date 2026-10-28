@@ -22,6 +22,8 @@ Amended by [62. Show text and context without asking through an info item](0062-
 
 Amended by [64. Let the asker withdraw a session](0064-let-the-asker-withdraw-a-session.md)
 
+Amended by [68. Every item takes a note](0068-every-item-takes-a-note.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

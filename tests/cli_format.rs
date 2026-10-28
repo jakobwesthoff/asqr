@@ -249,6 +249,28 @@ fn validate_refuses_an_unknown_kind_as_one_a_newer_asqr_may_support() {
 }
 
 #[test]
+fn validate_warns_that_note_false_is_ignored() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "quiet.json",
+        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "note": false}]}"#,
+    );
+
+    let output = sandbox
+        .asqr()
+        .arg("validate")
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        stderr(&output),
+        "warning: questions[0].note: false is ignored; every question takes a note\n"
+    );
+}
+
+#[test]
 fn validate_warns_without_failing() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(

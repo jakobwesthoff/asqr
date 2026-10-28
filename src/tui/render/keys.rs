@@ -133,8 +133,8 @@ pub(super) struct Hint {
 /// rank stays longer. The help stays longest, as it names every other
 /// key, then the ways out, as quitting or going back is what a lost
 /// person looks for. The keys that act where the cursor is come next,
-/// then `←/→`, then the context pane's `tab`, then a note, which is
-/// optional on every question, and `ctrl-u`/`ctrl-d` last.
+/// then `←/→`, then the context pane's `tab`, then a note, which the
+/// person may or may not write, and `ctrl-u`/`ctrl-d` last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Rank {
     /// `ctrl-u`/`ctrl-d`, beside the page keys and after `tab`.
@@ -162,18 +162,15 @@ const HELP_HINT: Hint = hint("?", "help", Rank::Help);
 const QUIT_HINT: Hint = hint("q", "quit", Rank::Leave);
 const HALF_PAGE_HINT: Hint = hint("ctrl-u/ctrl-d", "half page", Rank::HalfPage);
 
-/// The keys worth showing right now, without `n` where no note is taken.
-/// `pane` is what the context pane showed in this draw: where one shows,
-/// `tab` leads into it and `ctrl-u`/`ctrl-d` scroll it, and while it has
-/// the focus its own keys show.
+/// The keys worth showing right now. `pane` is what the context pane
+/// showed in this draw: where one shows, `tab` leads into it and
+/// `ctrl-u`/`ctrl-d` scroll it, and while it has the focus its own keys
+/// show.
 pub(super) fn key_hints(state: &SessionState, list: bool, pane: Option<Page>) -> Vec<Hint> {
     if let Some(page) = pane.filter(|_| state.pane_focused() && !list && !state.help()) {
         return pane_key_hints(state, page);
     }
     let mut hints = all_key_hints(state, list);
-    if state.question().is_some_and(|question| !question.note) {
-        hints.retain(|hint| hint.rank != Rank::Note);
-    }
     if pane.is_some() && !list && !state.help() {
         // `tab` and the half-page keys: before the help, or last in a
         // field, whose keys have no help.
@@ -693,7 +690,7 @@ mod tests {
     }
 
     #[test]
-    fn the_note_shows_where_one_is_taken_and_tab_where_a_pane_shows() {
+    fn the_note_shows_on_every_question_and_tab_where_a_pane_shows() {
         let session = |note: bool, kind: &str| {
             let json = format!(
                 r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "{kind}",
@@ -720,12 +717,13 @@ mod tests {
                 ("↑/↓", "move"),
                 ("enter", "pick"),
                 ("←/→", "question"),
+                ("n", "note"),
                 ("tab", "context"),
                 ("ctrl-u/ctrl-d", "half page"),
                 ("?", "help"),
                 ("q", "quit")
             ],
-            "no note, and tab before the help"
+            "a note though the file sets note: false, and tab before the help"
         );
         let mut typing = session(true, "text");
         typing.handle(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));

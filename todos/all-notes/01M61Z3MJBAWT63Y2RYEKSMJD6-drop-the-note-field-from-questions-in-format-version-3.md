@@ -8,8 +8,7 @@ origin: request
 # Drop the note field from questions in format version 3
 
 Every question and every info item takes a note (decided by the user on
-2026-10-28; recorded in the ADR "Every item takes a note" once that work
-lands). Format version 2 keeps reading `"note": false` only so that
+2026-10-28; ADR 68, "Every item takes a note"). Format version 2 keeps reading `"note": false` only so that
 released session files stay valid: the field has no effect, and
 `validate` and `ask` warn that it is ignored. The user asked on
 2026-10-28 that a format version 3, whenever there is one, drops the

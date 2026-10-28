@@ -57,6 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asqr validate` and `asqr ask` print it, and the dialog and the error
   result of an invalid session in the queue carry it. Before, the
   message was the parser's `unknown variant`.
+- Every question and info item takes a note. `"note": false` is still
+  read but has no effect: `asqr validate` and `asqr ask` warn that it is
+  ignored, the schema marks the field deprecated, and `asqr ask` drops it
+  from the copy it puts into the inbox. Before, it turned the question's
+  note off, and `n` said that the question takes no note. An open note
+  stays open on a replaced session file while its question shows, also
+  where its row is gone.
 
 ### Fixed
 

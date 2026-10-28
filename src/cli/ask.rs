@@ -59,6 +59,7 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
     let raw = &mut session_file.raw;
     raw["id"] = Value::from(id.as_str());
     make_paths_absolute(raw, file);
+    drop_note_false(raw);
     let mut bytes = serde_json::to_vec_pretty(raw).expect("a serde_json Value always serializes");
     bytes.push(b'\n');
 
@@ -140,6 +141,19 @@ fn make_paths_absolute(raw: &mut Value, file: &Path) {
         make_context_absolute(question, base);
         for option in array_mut(question, "options") {
             make_context_absolute(option, base);
+        }
+    }
+}
+
+/// Removes `"note": false` from every question. Every question takes a
+/// note (ADR 68) and this asqr ignores the field, but an older asqr watching
+/// the queue would still turn the note off.
+fn drop_note_false(raw: &mut Value) {
+    for question in array_mut(raw, "questions") {
+        if let Some(fields) = question.as_object_mut()
+            && fields.get("note") == Some(&Value::Bool(false))
+        {
+            fields.remove("note");
         }
     }
 }

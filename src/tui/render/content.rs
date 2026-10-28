@@ -651,21 +651,19 @@ fn question_content(
         content.push_row(lines, current, text_cursor);
     }
 
-    if question.note {
-        content.lines.push(Line::default());
-        let editing = live && state.focus() == Focus::Note;
-        // A note has no length to count against, and its head is never
-        // filled.
-        let row = FieldRow {
-            head: vec![Span::styled("Notes: ", theme::strong())],
-            text: answer.note.as_deref().unwrap_or_default(),
-            editing,
-            fill: false,
-            limits: None,
-        };
-        let (note_lines, text_cursor) = live_field(state, row, width, &mut content.shape);
-        content.push_row(note_lines, editing, text_cursor);
-    }
+    // Every question and info item takes a note (ADR 68).
+    content.lines.push(Line::default());
+    let editing = live && state.focus() == Focus::Note;
+    // A note has no length to count against, and its head is never filled.
+    let row = FieldRow {
+        head: vec![Span::styled("Notes: ", theme::strong())],
+        text: answer.note.as_deref().unwrap_or_default(),
+        editing,
+        fill: false,
+        limits: None,
+    };
+    let (note_lines, text_cursor) = live_field(state, row, width, &mut content.shape);
+    content.push_row(note_lines, editing, text_cursor);
     content
 }
 
@@ -1132,6 +1130,21 @@ mod tests {
     }
 
     #[test]
+    fn the_notes_line_shows_where_the_file_sets_note_false() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "note": false, "options": [{"id": "a", "label": "A"}]}]}"#;
+        let state = SessionState::new("notes", serde_json::from_str(json).expect("parses"), None);
+
+        let (_, buf) = tab_of(&state);
+
+        assert_eq!(
+            test_support::row(&buf, buf.area.height - 1),
+            "Notes: —",
+            "every question takes a note (ADR 68)"
+        );
+    }
+
+    #[test]
     fn only_a_field_counts_its_length_while_it_has_the_keys() {
         // The text question takes the keys on arrival.
         let (content, buf) = tab_of(&after("labcd"));
@@ -1183,12 +1196,12 @@ mod tests {
         );
     }
 
-    /// A multi question of two options, without notes, after `keys`.
+    /// A multi question of two options after `keys`.
     fn multi_after(keys: &str) -> (Content, Buffer) {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
         let json = r#"{"asqr": 2, "questions": [{"id": "m", "text": "?", "kind": "multi",
-            "note": false, "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
+            "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
         let mut state =
             SessionState::new("marks", serde_json::from_str(json).expect("parses"), None);
         for key in keys.chars() {
@@ -1326,7 +1339,7 @@ mod tests {
         // too. The cursor ends on B, so neither A nor the own answer is
         // under the fill.
         let json = r#"{"asqr": 2, "questions": [{"id": "m", "text": "?", "kind": "multi",
-            "custom": true, "note": false,
+            "custom": true,
             "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
         let mut state =
             SessionState::new("multi", serde_json::from_str(json).expect("parses"), None);
@@ -1617,18 +1630,18 @@ mod tests {
     // Option labels
     // -----------------------------------------------------------------
 
-    /// A single question without a note whose options carry `options`,
-    /// a JSON list.
+    /// A single question whose options carry `options`, a JSON list.
     fn labelled(options: &str) -> SessionState {
         let json = format!(
             r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "single",
-                "note": false, "options": {options}}}]}}"#
+                "options": {options}}}]}}"#
         );
         SessionState::new("labels", serde_json::from_str(&json).expect("parses"), None)
     }
 
-    /// The lines of the question of `state` from its first option's row
-    /// on, `width` columns wide, counted without a cursor.
+    /// The lines of the options of the question of `state`, `width`
+    /// columns wide, counted without a cursor: from the first option's row
+    /// to the blank row before the notes line every question ends with.
     fn option_rows(state: &SessionState, width: usize) -> Vec<Line<'static>> {
         let lines = question_content(state, 0, width, Pass::Counted, quote_style(false)).lines;
         let first = lines
@@ -1637,7 +1650,15 @@ mod tests {
                 test_support::line_texts(std::slice::from_ref(line))[0].starts_with("  ( ) 1.")
             })
             .expect("the first option shows");
-        lines[first..].to_vec()
+        // The empty notes line wraps in a narrow pane like any field.
+        let notes = resting_lines(
+            vec![Span::styled("Notes: ", theme::strong())],
+            false,
+            "",
+            width,
+        )
+        .len();
+        lines[first..lines.len() - notes - 1].to_vec()
     }
 
     #[test]

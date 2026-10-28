@@ -41,8 +41,8 @@ Design goals:
   whole.
 - **Question**: one thing to decide, or, of kind `info`, something to
   read. It has a kind (section 3.2), text,
-  optional options (each with optional context), optional context, and
-  optional custom entry and note.
+  optional options (each with optional context), optional context, an
+  optional custom entry, and a note the person may write.
 - **Context**: material shown next to a question that helps to answer
   it: an image, code, Markdown, text in ANSI colours or a diff (section
   3.3).
@@ -79,8 +79,7 @@ Design goals:
         { "id": "new2", "label": "New 2", "description": "Snappy ... -- ..." },
         { "id": "more", "label": "More",  "description": "None of these; new variations next batch." }
       ],
-      "custom": { "label": "Own line", "length": { "target": [80, 125], "warn": 145 } },
-      "note": true
+      "custom": { "label": "Own line", "length": { "target": [80, 125], "warn": 145 } }
     }
   ]
 }
@@ -138,15 +137,19 @@ Text fields (`intro`, question `text`, option `label` and option
 - `context` (optional): material that helps to answer the question,
   shown next to it (section 8). Most questions have none. A list of at
   most one entry (section 3.3).
-- `note` (optional, default `true`): whether the person may add a note.
-  One note per question.
+- `note` (optional): ignored. Every question and info item takes a note,
+  one per question (ADR 68). A file that sets `"note": false` stays
+  valid; `validate` and `ask` warn that it is ignored (section 3.4), and
+  the schema marks the field deprecated. asqr 0.13.1 and earlier turn
+  the note off for `"note": false`, so `asqr ask` drops the field from
+  the copy it puts into the inbox (section 5.5).
 
 Every question is optional (section 4.2, ADR 28): there is no way to
 force an answer, and a skipped question comes back as `skipped: true`.
 
 An info item, a question of kind `info` (ADR 62), shows its `text` and
 `context` like any question and takes no answer: it has no `options`,
-`custom` or `length`, and `note` works as on a question. A result lists
+`custom` or `length`, and takes a note like every question. A result lists
 it only when the person wrote a note on it (section 4.1). A session may
 consist of info items only, as a report the person can answer with
 notes. asqr 0.13.1 and earlier know no `info` kind and refuse a session
@@ -296,6 +299,8 @@ add optional fields.
   `ansi` entry its escape sequences count. asqr still shows it.
   Image entries get no such warning.
 - about fields of earlier format versions (section 3.6).
+- about `"note": false` on a question or an info item, which is ignored,
+  as every question takes a note (section 3.2).
 
 `asqr validate <file>` prints `<file>: valid` and exits with 0, or lists
 every error and exits with 11. Warnings never fail it. A file that is
@@ -560,7 +565,8 @@ dotfiles, editor swap and backup files, `.DS_Store`.
 `.tmp` suffix the watcher ignores, and renames it into place.
 
 What `ask` drops is a copy of the asker's file: pretty-printed, with the
-`id` filled in and the paths of context entries made absolute. The
+`id` filled in, the paths of context entries made absolute and
+`"note": false` removed from its questions (section 3.2). The
 asker's own file is never changed. `session_sha256` in the result
 (section 5.7) is the hash of that copy.
 
@@ -1209,8 +1215,6 @@ On an option row (vim style plus arrows):
 - A selection beyond `max` in a `multi` is refused with the message "at
   most N options".
 - `enter` on the last question moves on to the review tab.
-- `n` on a question with `note: false` says that the question takes no
-  note.
 - Inside a field every key that produces text types, so `n`, `q` and
   the others work again after `esc` (section 7.7). `ctrl-c` quits
   everywhere, except over the help and over the dialog of an invalid
@@ -1344,8 +1348,8 @@ line (ADR 36).
   answer, the session note, the reject reason), a paste gives the field
   the keys again, with the text cursor at the end of its text, and goes
   in there. On any other row it puts nothing in and says "a paste goes
-  into a field; press n for a note" on a question that takes notes, and
-  "a paste goes into a field" otherwise. In the focused context pane
+  into a field; press n for a note" on a question, and "a paste goes
+  into a field" on the review. In the focused context pane
   the message is "a paste goes into a field; esc leaves the pane", in
   the full-screen view "a paste goes into a field; z/esc leave the full
   screen". Over the help and over the dialog of an invalid session, a
@@ -1452,9 +1456,9 @@ keeps the session and shows its own notice instead.
   5.4) and where the person was: the question shown, found again by its
   id, or the review; the row with its focus, so a field left with `esc`
   stays without the keys, a field typed in keeps its text cursor, and an
-  open note stays open while the question still takes notes (otherwise
-  the row takes the keys as after the note); the part of the question's
-  area scrolled to for that row (section 7.4); the context pane's focus
+  open note stays open with its text cursor while its question shows,
+  also where its row is gone; the part of the question's area scrolled
+  to for that row (section 7.4); the context pane's focus
   and the full-screen view while the same entry shows; and the scroll
   position of every entry that reads as before (section 8.1). A row
   that is gone, such as an own answer turned off, gives way to the row

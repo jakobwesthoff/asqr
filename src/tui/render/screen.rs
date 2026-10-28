@@ -1276,13 +1276,13 @@ mod tests {
         so a server that stops answering keeps the whole queue waiting until someone \
         kills the process by hand, and the log only says that a request was sent again.";
 
-    /// A single question without a note: "Short" and then `label`, both
+    /// A single question: "Short" and then `label`, both
     /// with a description.
     fn long_label_app(label: &str) -> App {
         let json = serde_json::json!({
             "asqr": 2,
             "questions": [{"id": "q", "text": "Which remark do you agree with?", "kind": "single",
-                "note": false, "options": [
+                "options": [
                     {"id": "a", "label": "Short", "description": "A short one."},
                     {"id": "b", "label": label, "description": "The long one."}
                 ]}]
@@ -1379,7 +1379,7 @@ mod tests {
     #[test]
     fn a_label_of_two_lines_moves_the_descriptions_below() {
         let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Which one?", "kind": "single",
-            "note": false, "options": [
+            "options": [
                 {"id": "a", "label": "Short\nsecond line"},
                 {"id": "b", "label": "Beta", "description": "Described here."}]}]}"#;
         let backend = screen(&app(&[("lines", json)]), 80, 24);
@@ -1397,7 +1397,7 @@ mod tests {
         let label = [LONG_LABEL; 3].join(" ");
         let json = serde_json::json!({
             "asqr": 2,
-            "questions": [{"id": "q", "text": "Which one?", "kind": "single", "note": false,
+            "questions": [{"id": "q", "text": "Which one?", "kind": "single",
                 "options": [{"id": "a", "label": label}]}]
         });
         let backend = screen(&app(&[("tall", &json.to_string())]), 60, 15);
@@ -3139,9 +3139,9 @@ mod tests {
     }
 
     #[test]
-    fn a_left_own_answer_row_stays_highlighted_without_notes() {
+    fn a_left_own_answer_row_stays_highlighted_above_the_notes() {
         let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Name it", "kind": "single",
-            "note": false, "custom": true, "options": [{"id": "a", "label": "asqr"}]}]}"#;
+            "custom": true, "options": [{"id": "a", "label": "asqr"}]}]}"#;
         let mut app = app(&[("name", json)]);
         keys(&mut app, "jmine");
         special(&mut app, KeyCode::Esc);
@@ -5037,7 +5037,7 @@ mod tests {
 
     #[test]
     fn typed_text_never_puts_the_kitty_placeholder_on_screen() {
-        let mut app = holding(serde_json::json!({"custom": true, "note": false,
+        let mut app = holding(serde_json::json!({"custom": true,
             "text": format!("Which one? {KITTY_PLACEHOLDER}")}));
         special(&mut app, KeyCode::Down);
         app.paste(&format!("own {KITTY_PLACEHOLDER}"));

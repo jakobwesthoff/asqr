@@ -83,22 +83,24 @@ Once asked, asqr fits best when:
   and `max`), `text` (typed answer, no options) or `info` (nothing to
   answer).
 - An `info` item shows its `text` and `context` like a question and asks
-  nothing: it takes no `options`, `custom` or `length`, and `note` works
-  as on a question. Use it for what the person should read before or
-  between the questions, such as results so far or a problem you ran
-  into, instead of a made-up question with options like "OK". Keep its
-  text to a few lines: on a small terminal a longer text shows a few
-  lines at a time while the person scrolls through it with `↑`. Put
-  longer material, such as a table of results, into a `markdown` entry
-  of its `context`, which scrolls and shows full screen with `z`. A
-  session may hold only info items, as a report the person can answer
-  with notes.
+  nothing: it takes no `options`, `custom` or `length`, and the person
+  may add a note to it as to any question. Use it for what the person
+  should read before or between the questions, such as results so far
+  or a problem you ran into, instead of a made-up question with options
+  like "OK". Keep its text to a few lines: on a small terminal a longer
+  text shows a few lines at a time while the person scrolls through it
+  with `↑`. Put longer material, such as a table of results, into a
+  `markdown` entry of its `context`, which scrolls and shows full screen
+  with `z`. A session may hold only info items, as a report the person
+  can answer with notes.
 - `custom: true`, or `{ "label": ..., "length": ... }`, adds an own
   answer to a `single` or `multi` question.
 - `length` gives a target range and a `warn` limit for typed text. It
   guides with a counter; nothing the person types is refused.
-- `note` (default `true`) lets the person add a note to any question;
-  set `"note": false` to turn it off.
+- Do not set `note`; it has no effect. The person can add a note to
+  every question and info item: a condition on an answer, why they
+  skipped, or that a question is wrong. Read every note before you act
+  on the answers.
 - Every question is optional: the person may skip any of them, and a
   skipped question may still carry a note explaining why.
 - `min` and `max` count the picked options; the own answer of a `multi`

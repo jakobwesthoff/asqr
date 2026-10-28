@@ -173,6 +173,41 @@ fn makes_every_context_path_absolute_and_keeps_unknown_fields() {
 }
 
 #[test]
+fn ask_warns_that_note_false_is_ignored_and_drops_the_field() {
+    // Every question takes a note (ADR 68). Without the field, an older
+    // asqr watching the queue offers the note too.
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "quiet.json",
+        r#"{"asqr": 2, "id": "quiet", "questions": [
+            {"id": "q", "text": "?", "kind": "text", "note": false},
+            {"id": "r", "text": "?", "kind": "text", "note": true},
+            {"id": "s", "text": "?", "kind": "text"}]}"#,
+    );
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let warnings = stderr(&output);
+    assert!(
+        warnings.contains(
+            "warning: questions[0].note: false is ignored; every question takes a note\n"
+        ),
+        "{warnings}"
+    );
+    assert!(!warnings.contains("questions[1].note"), "{warnings}");
+    let dropped = inbox_file(&sandbox, "quiet");
+    let questions = dropped["questions"].as_array().expect("questions");
+    assert!(questions[0].get("note").is_none(), "{dropped}");
+    assert_eq!(questions[1]["note"], true, "a true stays as written");
+    assert!(questions[2].get("note").is_none(), "no field is added");
+}
+
+#[test]
 fn warnings_name_a_missing_file_by_its_absolute_path() {
     let sandbox = Sandbox::new();
     let file = sandbox.file(

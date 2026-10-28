@@ -13,6 +13,8 @@ the session note takes several lines
 
 Amended by [66. Let the cursor keys reach every line of the question](0066-let-the-cursor-keys-reach-every-line-of-the-question.md)
 
+Amended by [68. Every item takes a note](0068-every-item-takes-a-note.md)
+
 ## Context
 
 asqr has five typed fields: the own answer, the answer of a `text`

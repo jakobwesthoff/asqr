@@ -248,8 +248,12 @@ pub struct Question {
     #[schemars(with = "Option<Vec<ContextEntry>>", length(max = MAX_CONTEXT_ENTRIES))]
     pub context: Vec<ContextEntry>,
 
-    /// Whether the person may add a note to this question.
+    /// Ignored: every question and info item takes a note. A file that sets
+    /// it stays valid.
+    // Parsed, so a value that is no boolean is a shape error, and
+    // `asqr validate` and `asqr ask` warn about `false` (ADR 68).
     #[serde(default = "note_allowed_by_default")]
+    #[schemars(extend("deprecated" = true))]
     pub note: bool,
 
     /// Bounds on the number of selected options of a `multi` question.
@@ -421,7 +425,6 @@ mod tests {
         assert_eq!(text.kind, Kind::Text);
         assert!(text.options.is_none());
         assert_eq!(text.length.as_ref().and_then(|l| l.warn), Some(500));
-        assert!(!text.note);
     }
 
     #[test]
@@ -433,8 +436,8 @@ mod tests {
 
         assert_eq!(session.id, None);
         let question = &session.questions[0];
-        // Notes are allowed unless the asker switches them off (spec
-        // section 3.2).
+        // The field reads as `true` when left out; it changes nothing
+        // either way (ADR 68).
         assert!(question.note);
         assert_eq!(question.custom, None);
         assert!(question.context.is_empty());

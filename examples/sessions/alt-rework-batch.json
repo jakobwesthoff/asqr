@@ -18,8 +18,7 @@
         { "id": "new2", "label": "New 2", "description": "Snappy in holly -- the second new line." },
         { "id": "more", "label": "More", "description": "None of these; new variations next batch." }
       ],
-      "custom": { "label": "Own line", "length": { "target": [80, 125], "warn": 145 } },
-      "note": true
+      "custom": { "label": "Own line", "length": { "target": [80, 125], "warn": 145 } }
     },
     {
       "id": "extras",
@@ -38,8 +37,7 @@
       "id": "comment",
       "text": "Anything else?",
       "kind": "text",
-      "length": { "warn": 500 },
-      "note": false
+      "length": { "warn": 500 }
     }
   ]
 }

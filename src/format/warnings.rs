@@ -31,6 +31,9 @@ pub enum WarningKind {
     /// An agent working from an older skill writes it, and the generic
     /// unknown-field warning would not tell it where the image goes.
     ImageField,
+    /// `"note": false` on a question or an info item: every one takes a
+    /// note, so the field is ignored (ADR 68).
+    NoteIgnored,
     RelativePath,
     FileNotFound(PathBuf),
     /// The path exists but names a directory or another file that is not
@@ -56,6 +59,9 @@ impl fmt::Display for Warning {
             WarningKind::ImageField => formatter.write_str(
                 r#"ignored; since format version 2 an image is a context entry: "context": [{"type": "image", "path": ...}]"#,
             ),
+            WarningKind::NoteIgnored => {
+                formatter.write_str("false is ignored; every question takes a note")
+            }
             WarningKind::RelativePath => formatter.write_str(
                 "relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
             ),
@@ -88,6 +94,7 @@ pub fn warnings(raw: &Value, session: &Session, base_dir: Option<&Path>) -> Vec<
     let mut found = Vec::new();
     unknown_fields(raw, &mut found);
     image_fields(raw, &mut found);
+    note_fields(raw, &mut found);
     context_files(session, base_dir, &mut found);
     found
 }
@@ -204,6 +211,20 @@ fn unknown_fields(raw: &Value, found: &mut Vec<Warning>) {
             &known.length,
             Some(&path.field("length")),
         );
+    }
+}
+
+/// Reports `"note": false` on a question, which no longer turns the note
+/// off (ADR 68). `true` changes nothing either way and gets no warning.
+fn note_fields(raw: &Value, found: &mut Vec<Warning>) {
+    let questions = raw["questions"].as_array().into_iter().flatten();
+    for (index, question) in questions.enumerate() {
+        if question.get("note") == Some(&Value::Bool(false)) {
+            found.push(Warning {
+                path: FieldPath::root("questions").index(index).field("note"),
+                kind: WarningKind::NoteIgnored,
+            });
+        }
     }
 }
 
@@ -814,6 +835,30 @@ mod tests {
                 format!("questions[0].options[0].image: {moved}"),
             ]
         );
+    }
+
+    #[test]
+    fn note_false_is_ignored_with_a_warning() {
+        let json = r#"{"asqr": 2, "questions": [
+            {"id": "q", "text": "?", "kind": "text", "note": false},
+            {"id": "i", "text": "Done.", "kind": "info", "note": false}]}"#;
+
+        let ignored = "false is ignored; every question takes a note";
+        assert_eq!(
+            warn(json, None),
+            [
+                format!("questions[0].note: {ignored}"),
+                format!("questions[1].note: {ignored}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn note_true_changes_nothing_and_gets_no_warning() {
+        let json =
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "note": true}]}"#;
+
+        assert_eq!(warn(json, None), Vec::<String>::new());
     }
 
     #[test]

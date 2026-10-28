@@ -14,6 +14,6 @@ expression: backend
 "          the whole queue waiting until someone kills the   "
 "          process by hand, and the log only says that a     "
 "          request was sent again.                           "
-"       The long one.                                        "
+"       The long one.                                 ↓ more "
 "                                                            "
 " ↑/↓  move   enter  pick   ←/→  question   ?  help   q  quit"

@@ -468,9 +468,9 @@ mod tests {
 
     /// One question whose options are `options`, a JSON list, below the
     /// text `text`.
-    fn question(text: &str, options: serde_json::Value, note: bool) -> serde_json::Value {
+    fn question(text: &str, options: serde_json::Value) -> serde_json::Value {
         serde_json::json!({"asqr": 2, "questions": [
-            {"id": "q", "text": text, "kind": "single", "note": note, "options": options}]})
+            {"id": "q", "text": text, "kind": "single", "options": options}]})
     }
 
     /// Presses `code` once and returns the screen drawn after it.
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn down_reaches_the_tail_of_the_last_option_taller_than_the_area() {
         let options = serde_json::json!([{"id": "a", "label": words('w', 300)}]);
-        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options, false));
+        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options));
 
         let mut screen = String::new();
         for _ in 0..60 {
@@ -505,7 +505,7 @@ mod tests {
         let options = serde_json::json!([
             {"id": "a", "label": words('w', 300)},
             {"id": "b", "label": "Other"}]);
-        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options, false));
+        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options));
         press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
         assert_eq!(app.active().expect("waiting").row(), 0, "j scrolled");
 
@@ -520,7 +520,7 @@ mod tests {
         let options = serde_json::json!([
             {"id": "a", "label": words('w', 300)},
             {"id": "b", "label": "Other"}]);
-        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options, false));
+        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options));
         harness
             .run_started(&mut app, &mut inbox, vec![])
             .expect("runs");
@@ -546,9 +546,14 @@ mod tests {
         let options = serde_json::json!([
             {"id": "a", "label": words('w', 300)},
             {"id": "b", "label": "Other"}]);
-        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options, false));
+        let (mut harness, mut app, mut inbox) = small_with(&question("Which one?", options));
+        // Down to the second option and no further: below it, `j` would
+        // scroll on to the notes line, and the next `k` would scroll back.
         for _ in 0..60 {
             press(&mut harness, &mut app, &mut inbox, KeyCode::Char('j'));
+            if app.active().expect("waiting").row() == 1 {
+                break;
+            }
         }
         assert_eq!(app.active().expect("waiting").row(), 1);
 
@@ -572,8 +577,7 @@ mod tests {
     #[test]
     fn up_on_the_first_option_reaches_the_start_of_a_long_question_text() {
         let options = serde_json::json!([{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]);
-        let (mut harness, mut app, mut inbox) =
-            small_with(&question(&words('t', 200), options, false));
+        let (mut harness, mut app, mut inbox) = small_with(&question(&words('t', 200), options));
 
         let mut screen = String::new();
         for _ in 0..40 {
@@ -590,8 +594,7 @@ mod tests {
     #[test]
     fn down_scrolls_back_through_the_question_text_before_moving_on() {
         let options = serde_json::json!([{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]);
-        let (mut harness, mut app, mut inbox) =
-            small_with(&question(&words('t', 200), options, false));
+        let (mut harness, mut app, mut inbox) = small_with(&question(&words('t', 200), options));
         for _ in 0..40 {
             press(&mut harness, &mut app, &mut inbox, KeyCode::Char('k'));
         }
@@ -608,7 +611,7 @@ mod tests {
     #[test]
     fn up_in_the_answer_of_a_text_question_reaches_the_start_of_its_text() {
         let session = serde_json::json!({"asqr": 2, "questions": [
-            {"id": "q", "text": words('t', 200), "kind": "text", "note": false}]});
+            {"id": "q", "text": words('t', 200), "kind": "text"}]});
         let (mut harness, mut app, mut inbox) = small_with(&session);
 
         let mut screen = String::new();
@@ -627,8 +630,7 @@ mod tests {
     #[test]
     fn down_on_the_last_option_reaches_the_end_of_its_note() {
         let options = serde_json::json!([{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]);
-        let (mut harness, mut app, mut inbox) =
-            small_with(&question(&words('t', 200), options, true));
+        let (mut harness, mut app, mut inbox) = small_with(&question(&words('t', 200), options));
         let ctrl_j = Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL));
         let mut typed = vec![key(KeyCode::Char('j')), key(KeyCode::Char('n'))];
         for line in 1..=6 {
