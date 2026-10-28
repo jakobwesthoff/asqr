@@ -2030,7 +2030,10 @@ scrolling.
   An image that cannot be shown puts its card (section 8.3) in the
   image's place, at the card's height, and card and caption scroll
   together where they do not fit. A caption that renders to nothing,
-  such as an HTML comment, leaves the image as without one.
+  such as an HTML comment, leaves the image as without one. Only from
+  the one-line hint does `z` still count it as a caption: the
+  full-screen view shows the image with `z  image` in the key bar, the
+  next `z` the same image alone and the one after that leaves.
 - An image is scaled to its cells with a filter that mixes the pixels
   each one covers. An image the protocol fails to encode stays empty,
   and the log says why, once.
