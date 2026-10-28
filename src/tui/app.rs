@@ -728,15 +728,17 @@ mod tests {
         assert_eq!(scrolled(key('k')), 1);
         assert_eq!(scrolled(code(KeyCode::Up)), 0);
         assert_eq!(scrolled(key('k')), 0, "stops at the start");
-        assert_eq!(scrolled(code(KeyCode::PageDown)), 10);
-        assert_eq!(scrolled(code(KeyCode::PageDown)), 20);
+        // A page of 10 lines moves 8, keeping 2 of them in view.
+        assert_eq!(scrolled(code(KeyCode::PageDown)), 8);
+        assert_eq!(scrolled(code(KeyCode::PageDown)), 16);
+        assert_eq!(scrolled(code(KeyCode::PageDown)), 24);
         assert_eq!(
             scrolled(code(KeyCode::PageDown)),
             30,
             "the last page ends with the last line"
         );
         assert_eq!(scrolled(key('j')), 30, "stops at the end");
-        assert_eq!(scrolled(code(KeyCode::PageUp)), 20);
+        assert_eq!(scrolled(code(KeyCode::PageUp)), 22);
         assert_eq!(scrolled(key('g')), 0);
         assert_eq!(scrolled(key('G')), 30);
         assert_eq!(scrolled(code(KeyCode::Home)), 0);

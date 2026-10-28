@@ -74,7 +74,7 @@ image, highlighted code, rendered Markdown, text in the colours of its
 escape sequences or a diff, shows in a pane beside the question on a
 wide terminal and below it on a tall one;
 `--layout beside` or `--layout below` (or `ASQR_LAYOUT`) fixes where it
-goes. `pgup`/`pgdn` scroll the pane by a page from anywhere and
+goes. `pgup`/`pgdn` scroll the pane by a page less 2 lines from anywhere and
 `ctrl-u`/`ctrl-d` by half a page, `tab` moves into it to scroll with
 the arrow keys and back out, and `z` shows it full screen.
 

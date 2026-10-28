@@ -13,6 +13,9 @@ Amends [31. Make the context area a pane with a header, focus and scrolling](003
 Amended by [58. Name ctrl-u and ctrl-d in the general help and the key bar](0058-name-ctrl-u-and-ctrl-d-in-the-general-help-and-the-key-bar.md):
 the general help names how far `ctrl-u` and `ctrl-d` scroll
 
+Amended by [72. Keep two lines of overlap when pgup and pgdn scroll a page](0072-keep-two-lines-of-overlap-when-pgup-and-pgdn-scroll-a-page.md):
+`pgup` and `pgdn` move by a page less 2 lines
+
 ## Context
 
 `ctrl-u` and `ctrl-d` scrolled the context pane, the full-screen view

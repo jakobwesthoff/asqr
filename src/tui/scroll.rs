@@ -29,6 +29,14 @@ impl Extent {
         (self.shown / 2).max(1)
     }
 
+    /// How far `pgup` and `pgdn` move: what shows less [`PAGE_OVERLAP`]
+    /// lines, so the lines at the edge show again at the other end, as
+    /// with Vim's `ctrl-f`, and at least one line, so a view of a few
+    /// rows still moves on.
+    fn page(self) -> usize {
+        self.shown.saturating_sub(PAGE_OVERLAP).max(1)
+    }
+
     /// Which lines show from `start` on, counted from 1, as "4–15 of 120";
     /// `None` where all of them fit, as then there is nothing to say.
     pub fn position(self, start: usize) -> Option<String> {
@@ -69,11 +77,15 @@ pub struct Offset {
 /// does, loses the place in it.
 const SIDEWAYS_STEP: usize = 4;
 
+/// How many lines a page that `pgup` or `pgdn` turns shares with the page
+/// before it (ADR 72).
+const PAGE_OVERLAP: usize = 2;
+
 /// The offset after `key` in a view that showed `page` from `offset` on,
 /// or `None` when `key` does not scroll.
 ///
-/// `pgup`/`pgdn` scroll by a page and `ctrl-u`/`ctrl-d` by half a page, as
-/// in Vim and `less`, in any case, as they do not type text. The line,
+/// `pgup`/`pgdn` scroll by a page less two lines and `ctrl-u`/`ctrl-d` by
+/// half a page, as in Vim, in any case, as they do not type text. The line,
 /// sideways and end keys (`↑`/`↓`, `j`/`k`, `←`/`→`, `h`/`l`, `g`/`G`,
 /// `home`/`end`) only scroll a view that is `focused`, as elsewhere they
 /// move the cursor or type. The result never goes past either end, and
@@ -86,8 +98,8 @@ pub fn scroll(key: KeyEvent, offset: Offset, page: Page, focused: bool) -> Optio
     let (top, left) = match key.code {
         KeyCode::Char('u') if control => (top.saturating_sub(page.rows.half()), left),
         KeyCode::Char('d') if control => (top + page.rows.half(), left),
-        KeyCode::PageUp => (top.saturating_sub(page.rows.shown), left),
-        KeyCode::PageDown => (top + page.rows.shown, left),
+        KeyCode::PageUp => (top.saturating_sub(page.rows.page()), left),
+        KeyCode::PageDown => (top + page.rows.page(), left),
         _ if control || !focused => return None,
         KeyCode::Char('k') | KeyCode::Up => (top.saturating_sub(1), left),
         KeyCode::Char('j') | KeyCode::Down => (top + 1, left),
@@ -139,7 +151,7 @@ mod tests {
             (code(KeyCode::Down), at(5, 8), at(6, 8)),
             (key('k'), at(5, 8), at(4, 8)),
             (code(KeyCode::Up), at(0, 8), at(0, 8)),
-            (code(KeyCode::PageDown), at(5, 8), at(15, 8)),
+            (code(KeyCode::PageDown), at(5, 8), at(13, 8)),
             (code(KeyCode::PageUp), at(5, 8), at(0, 8)),
             (key('g'), at(25, 8), at(0, 8)),
             (code(KeyCode::Home), at(25, 8), at(0, 8)),
@@ -190,11 +202,11 @@ mod tests {
     fn an_unfocused_view_scrolls_only_by_the_page_keys() {
         assert_eq!(
             scroll(code(KeyCode::PageDown), at(0, 0), PAGE, false),
-            Some(at(10, 0))
+            Some(at(8, 0))
         );
         assert_eq!(
             scroll(code(KeyCode::PageUp), at(10, 0), PAGE, false),
-            Some(at(0, 0))
+            Some(at(2, 0))
         );
         for event in [key('j'), key('G'), code(KeyCode::Right), code(KeyCode::End)] {
             assert_eq!(scroll(event, at(5, 0), PAGE, false), None, "{event:?}");
@@ -236,13 +248,44 @@ mod tests {
         assert_eq!(steps(ctrl('d'), ctrl('u'), 10, false), (5, 5));
     }
 
+    /// How far `pgdn` and `pgup` move a view that shows `shown` lines.
+    fn page_steps(shown: usize, focused: bool) -> (usize, usize) {
+        steps(
+            code(KeyCode::PageDown),
+            code(KeyCode::PageUp),
+            shown,
+            focused,
+        )
+    }
+
     #[test]
-    fn pgup_and_pgdn_move_a_whole_view() {
-        let (down, up) = (code(KeyCode::PageDown), code(KeyCode::PageUp));
-        assert_eq!(
-            [10, 11, 1].map(|shown| steps(down, up, shown, true)),
-            [(10, 10), (11, 11), (1, 1)]
-        );
+    fn pgup_and_pgdn_keep_two_lines_of_an_even_view() {
+        assert_eq!(page_steps(10, true), (8, 8));
+    }
+
+    #[test]
+    fn pgup_and_pgdn_keep_two_lines_of_an_odd_view() {
+        assert_eq!(page_steps(11, true), (9, 9));
+    }
+
+    #[test]
+    fn pgdn_moves_on_by_a_line_in_a_view_of_three_rows() {
+        assert_eq!(page_steps(3, true), (1, 1));
+    }
+
+    #[test]
+    fn pgdn_moves_on_by_a_line_in_a_view_of_two_rows() {
+        assert_eq!(page_steps(2, true), (1, 1));
+    }
+
+    #[test]
+    fn pgdn_moves_on_by_a_line_in_a_view_of_one_row() {
+        assert_eq!(page_steps(1, true), (1, 1));
+    }
+
+    #[test]
+    fn pgup_and_pgdn_keep_the_overlap_also_unfocused() {
+        assert_eq!(page_steps(10, false), (8, 8));
     }
 
     #[test]

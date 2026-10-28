@@ -52,6 +52,9 @@ one-line hint first with its caption
 Amended by [70. Show a diff side by side on a key](0070-show-a-diff-side-by-side-on-a-key.md):
 the focused pane, the full-screen view and the question's rows take `s`
 
+Amended by [72. Keep two lines of overlap when pgup and pgdn scroll a page](0072-keep-two-lines-of-overlap-when-pgup-and-pgdn-scroll-a-page.md):
+`pgup` and `pgdn` move by a page less 2 lines
+
 ## Context
 
 The context area beside or below the question (ADR 30) shows entries of

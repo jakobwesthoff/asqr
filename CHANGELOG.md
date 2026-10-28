@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   note off, and `n` said that the question takes no note. An open note
   stays open on a replaced session file while its question shows, also
   where its row is gone.
+- `pgup` and `pgdn` scroll the context pane, the full-screen view and
+  the intro by their height less 2 lines, so the last 2 lines before the
+  jump show again at the other end, as with Vim's `ctrl-f`; in a view of
+  3 rows or fewer they move by 1 line. Before, they moved by the whole
+  height.
 
 ### Fixed
 

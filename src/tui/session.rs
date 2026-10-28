@@ -3497,7 +3497,7 @@ mod tests {
         let mut state = with_pane();
         state.handle(code(KeyCode::PageDown));
         state.handle(code(KeyCode::PageDown));
-        assert_eq!(top(&state), 20);
+        assert_eq!(top(&state), 16);
         let loading = Page {
             rows: Extent {
                 shown: 10,
@@ -3514,7 +3514,7 @@ mod tests {
         assert_eq!(state.handle(code(KeyCode::PageDown)), Effect::None);
         assert_eq!(state.handle(ctrl('u')), Effect::None);
 
-        assert_eq!(top(&state), 20);
+        assert_eq!(top(&state), 16);
     }
 
     #[test]
@@ -3596,7 +3596,7 @@ mod tests {
         assert_eq!(scrolled(code(KeyCode::Char('j'))).top, 1);
         assert_eq!(scrolled(code(KeyCode::Down)).top, 2);
         assert_eq!(scrolled(code(KeyCode::Char('k'))).top, 1);
-        assert_eq!(scrolled(code(KeyCode::PageDown)).top, 11);
+        assert_eq!(scrolled(code(KeyCode::PageDown)).top, 9);
         assert_eq!(scrolled(code(KeyCode::Char('G'))).top, 30);
         assert_eq!(
             scrolled(code(KeyCode::Char('j'))).top,
@@ -4148,7 +4148,7 @@ mod tests {
             state.handle(event);
             tops.push(top(&state));
         }
-        assert_eq!(tops, [10, 15, 10, 5, 0]);
+        assert_eq!(tops, [8, 13, 8, 3, 0]);
         assert_eq!(
             state.field_text().as_deref(),
             Some("ab"),
@@ -4180,22 +4180,22 @@ mod tests {
     fn each_entry_keeps_its_own_position() {
         let mut state = with_pane();
         state.handle(code(KeyCode::PageDown));
-        assert_eq!(top(&state), 10);
+        assert_eq!(top(&state), 8);
 
         press(&mut state, "j");
         assert_eq!(top(&state), 0, "the option's entry starts at its top");
         state.handle(code(KeyCode::PageDown));
         state.handle(code(KeyCode::PageDown));
-        assert_eq!(top(&state), 20);
+        assert_eq!(top(&state), 16);
 
         press(&mut state, "k");
-        assert_eq!(top(&state), 10, "back on the question's entry");
+        assert_eq!(top(&state), 8, "back on the question's entry");
         state.handle(code(KeyCode::Right));
         state.handle(code(KeyCode::Esc));
         state.handle(code(KeyCode::Left));
-        assert_eq!(top(&state), 10, "kept while moving between questions");
+        assert_eq!(top(&state), 8, "kept while moving between questions");
         press(&mut state, "j");
-        assert_eq!(top(&state), 20, "and the option's too");
+        assert_eq!(top(&state), 16, "and the option's too");
     }
 
     #[test]
@@ -4552,7 +4552,7 @@ mod tests {
 
         assert_eq!((state.tab(), state.row()), (0, 1));
         assert_eq!((state.pane_focused(), state.full_screen()), (true, true));
-        assert_eq!(top(&state), 10, "option b's entry is where it was");
+        assert_eq!(top(&state), 8, "option b's entry is where it was");
         assert_eq!(
             state.message(),
             Some(&Notice::new(

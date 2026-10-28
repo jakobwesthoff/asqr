@@ -22,6 +22,9 @@ stands between question and pane
 Amended by [58. Name ctrl-u and ctrl-d in the general help and the key bar](0058-name-ctrl-u-and-ctrl-d-in-the-general-help-and-the-key-bar.md):
 the intro overlay's key bar names `ctrl-u/ctrl-d`
 
+Amended by [72. Keep two lines of overlap when pgup and pgdn scroll a page](0072-keep-two-lines-of-overlap-when-pgup-and-pgdn-scroll-a-page.md):
+`pgup` and `pgdn` move the intro overlay by a page less 2 lines
+
 ## Context
 
 Over the full width of a terminal of about 230 columns, question texts,
