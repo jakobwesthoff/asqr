@@ -1839,6 +1839,15 @@ For code, Markdown, ANSI entries and diffs:
   removed or added. When the 8 MiB limit falls between the `\r` and the
   `\n` of a line end, the read stops before the `\r`, so the note on
   line endings names no `CR` end the file does not use.
+- A text of more than 500,000 lines, inline or in what is read of a
+  file, shows its first 500,000 lines. A dim "first 500,000 lines
+  shown" heads the content and a dim "… the rest is cut after 500,000
+  lines" ends it. A line ends at `\n`, `\r\n` or a lone `\r`; in an ANSI
+  entry only at `\n`. An image's caption is cut the same way. Each side
+  of a diff counts on its own. The notes do not name the side; a diff
+  whose sides are cut by different limits shows the notes of both,
+  those of 8 MiB first. A Markdown text or a caption whose first 500,000
+  lines are blank shows only the two notes.
 
 ### 8.4 Lines of source
 

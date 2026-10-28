@@ -15,7 +15,9 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
 
 use super::patine_adapter::markdown_rows;
-use super::source_file::{Cut, Source, Unreadable, between_cut_notes, read_source};
+use super::source_file::{
+    Cut, LineBreaks, Source, Unreadable, between_cut_notes, inline, read_source,
+};
 use super::source_line::{Note, SourceLine, rows_from};
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
 use crate::format::MarkdownEntry;
@@ -30,19 +32,26 @@ pub(super) fn markdown_content(
     quote: QuoteStyle,
     home: Option<&Path>,
 ) -> Content<Markdown> {
-    let source = read_source(entry.path.as_deref(), entry.content.as_deref());
+    let source = read_source(
+        entry.path.as_deref(),
+        entry.content.as_deref(),
+        LineBreaks::Any,
+    );
     content_of(source, quote, home)
 }
 
 /// The caption of an image entry, `text`, rendered as a Markdown entry's
-/// content is, with quotes in `quote`.
+/// content is, cut by the same line limit, with quotes in `quote`.
 pub(super) fn caption(text: &str, quote: QuoteStyle) -> Markdown {
-    document(text.to_owned(), None, quote)
+    let Source { text, cut } = inline(text, LineBreaks::Any);
+    document(text, cut, quote)
 }
 
 /// What the viewer shows of `source`, as read for its entry: its
 /// Markdown with quotes in `quote`, a card when the file cannot be read,
-/// or a note when there is no text at all.
+/// or a note when there is no text at all. A cut text whose kept lines
+/// are all blank has more after them, so it shows the notes of its cut
+/// rather than "empty".
 fn content_of(
     source: Result<Source, Unreadable>,
     quote: QuoteStyle,
@@ -50,7 +59,7 @@ fn content_of(
 ) -> Content<Markdown> {
     match source {
         Err(unreadable) => Content::Problem(unreadable.card(home)),
-        Ok(Source { text, .. }) if text.trim().is_empty() => {
+        Ok(Source { text, cut: None }) if text.trim().is_empty() => {
             Content::Note(Placeholder::note("empty"))
         }
         Ok(Source { text, cut }) => Content::Body(document(text, cut, quote)),
@@ -60,6 +69,14 @@ fn content_of(
 /// The Markdown `source`, the start of a longer text where the limit `cut`
 /// ended it, with quotes in `quote`, not laid out yet.
 fn document(source: String, cut: Option<Cut>, quote: QuoteStyle) -> Markdown {
+    // A blank text renders to no rows, but patine still takes its time
+    // over it: 500,000 blank lines took 40 s and 418 MB (release build).
+    // Only a cut text gets here blank, and it then shows its notes alone.
+    let source = if source.trim().is_empty() {
+        String::new()
+    } else {
+        source
+    };
     Markdown {
         source,
         cut,
@@ -169,6 +186,50 @@ mod tests {
     }
 
     const NOTES: &str = "# Retries\n\nA failed request is tried **again** up to three times, with `delay` doubling.\n\n## Settings\n\n- tries: 3\n- delay: 100 ms\n\n```rust\nlet delay = Duration::from_millis(100);\n```\n";
+
+    /// 500,000 line ends and then `x`: a text of 500,001 lines whose
+    /// first 500,000 are blank. Rendering many lines of text takes minutes
+    /// in a test build, so the tests of the line limit cut blank lines.
+    fn blank_lines_then_x() -> String {
+        format!("{}x", "\n".repeat(super::super::source_file::MAX_LINES))
+    }
+
+    #[test]
+    fn a_text_cut_at_the_line_limit_says_so_first_and_last() {
+        let mut viewer = content_of(
+            Ok(Source {
+                text: "**Plan**\n".into(),
+                cut: Some(Cut::Lines),
+            }),
+            quote_style(false),
+            None,
+        );
+
+        let buf = drawn(&mut viewer, 40, 3, Offset::default());
+        assert_eq!(row(&buf, 0), "first 500,000 lines shown");
+        assert_eq!(row(&buf, 1), "Plan");
+        assert_eq!(row(&buf, 2), "… the rest is cut after 500,000 lines");
+    }
+
+    #[test]
+    fn a_cut_text_of_blank_lines_shows_its_notes() {
+        let mut viewer = inline(&blank_lines_then_x());
+
+        assert_eq!(viewer.lay_out(40, 2).lines, 2);
+        let buf = drawn(&mut viewer, 40, 2, Offset::default());
+        assert_eq!(row(&buf, 0), "first 500,000 lines shown");
+        assert_eq!(row(&buf, 1), "… the rest is cut after 500,000 lines");
+    }
+
+    #[test]
+    fn a_caption_above_the_line_limit_says_so() {
+        let mut viewer = caption(&blank_lines_then_x(), quote_style(false));
+
+        assert_eq!(viewer.lay_out(40, 2).lines, 2);
+        let buf = drawn(&mut viewer, 40, 2, Offset::default());
+        assert_eq!(row(&buf, 0), "first 500,000 lines shown");
+        assert_eq!(row(&buf, 1), "… the rest is cut after 500,000 lines");
+    }
 
     #[test]
     fn markdown_renders_wrapped_to_the_body() {

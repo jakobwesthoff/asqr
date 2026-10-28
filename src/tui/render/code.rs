@@ -14,7 +14,7 @@ use ratatui::text::Line;
 use ratatui::widgets::Widget;
 
 use super::patine_adapter::source_line;
-use super::source_file::{Cut, Source, Unreadable, between_cut_notes, read_source};
+use super::source_file::{Cut, LineBreaks, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
@@ -26,7 +26,11 @@ use crate::tui::Offset;
 /// nothing of it depends on the body's size. The home folder `home` shows
 /// as `~` in the path of a file that cannot be read.
 pub(super) fn code_content(entry: &CodeEntry, home: Option<&Path>) -> Content<Lines> {
-    let source = read_source(entry.path.as_deref(), entry.content.as_deref());
+    let source = read_source(
+        entry.path.as_deref(),
+        entry.content.as_deref(),
+        LineBreaks::Any,
+    );
     content_of(entry, source, home)
 }
 
@@ -174,6 +178,7 @@ mod tests {
 
     use ratatui::style::{Color, Modifier};
 
+    use super::super::source_file::MAX_LINES;
     use super::super::test_support::{drawn, row, shown, style_at};
     use super::*;
 
@@ -440,6 +445,27 @@ mod tests {
         let buf = drawn(&mut viewer, 10, 4, Offset::default());
         assert_eq!(row(&buf, 0), "first 8 Mi", "cut at the width");
         assert_eq!(row(&buf, 3), "… the rest");
+    }
+
+    #[test]
+    fn a_code_entry_above_the_line_limit_shows_its_first_lines() {
+        let json = serde_json::json!({"type": "code", "content": "x\n".repeat(MAX_LINES + 1)});
+        let mut viewer = built(&json.to_string());
+
+        assert_eq!(viewer.lay_out(40, 3).lines, MAX_LINES + 2, "two notes");
+        let buf = drawn(&mut viewer, 40, 1, Offset::default());
+        assert_eq!(row(&buf, 0), "first 500,000 lines shown");
+        let buf = drawn(
+            &mut viewer,
+            40,
+            2,
+            Offset {
+                top: MAX_LINES,
+                left: 0,
+            },
+        );
+        assert_eq!(row(&buf, 0), "500000 x");
+        assert_eq!(row(&buf, 1), "… the rest is cut after 500,000 lines");
     }
 
     #[test]

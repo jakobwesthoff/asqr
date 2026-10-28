@@ -5,7 +5,8 @@
 //! The text a viewer shows, from a file or given inline (spec section
 //! 8.3). Every viewer of text reads it the same way: a relative path is
 //! never resolved, only a regular file is read and only its first 8 MiB,
-//! a binary file is not shown, and bytes that are not UTF-8 show as `�`.
+//! a binary file is not shown, bytes that are not UTF-8 show as `�`, and
+//! a text, inline or from a file, keeps at most its first 500,000 lines.
 //! The image viewer opens a path by the same rule and refuses an image
 //! file larger than 64 MiB.
 
@@ -17,7 +18,8 @@ use image::ImageError;
 
 use super::problem::Card;
 use super::source_line::Note;
-pub use crate::format::MAX_BYTES;
+use crate::format::line_cut;
+pub use crate::format::{LineBreaks, MAX_BYTES, MAX_LINES};
 
 /// The limit that ended the text of a source, which the notes around the
 /// text name.
@@ -27,6 +29,9 @@ pub enum Cut {
     /// first `MAX_BYTES` bytes, or one fewer where the limit falls inside
     /// a `\r\n`.
     Bytes,
+    /// The text, inline or as read of its file, has more than
+    /// [`MAX_LINES`] lines, and the text holds its first `MAX_LINES`.
+    Lines,
 }
 
 impl Cut {
@@ -34,6 +39,7 @@ impl Cut {
     fn head(self) -> Note {
         match self {
             Cut::Bytes => Note::new("first 8 MiB shown"),
+            Cut::Lines => Note::new("first 500,000 lines shown"),
         }
     }
 
@@ -42,6 +48,7 @@ impl Cut {
     fn end(self) -> Note {
         match self {
             Cut::Bytes => Note::new("… the rest is cut after 8 MiB"),
+            Cut::Lines => Note::new("… the rest is cut after 500,000 lines"),
         }
     }
 }
@@ -284,22 +291,47 @@ fn bytes_within(path: &str, reader: impl Read, limit: u64) -> Result<Vec<u8>, Un
 
 /// The text of a source given as `content` or as the file at `path`.
 /// Validation lets exactly one of the two through; a source with neither
-/// never reaches the pane, and would show as empty. Inline content is
-/// taken whole, as it already sits in memory with the session.
-pub fn read_source(path: Option<&str>, content: Option<&str>) -> Result<Source, Unreadable> {
-    let whole = |text: String| Source { text, cut: None };
+/// never reaches the pane, and would show as empty. Lines end at `breaks`.
+pub fn read_source(
+    path: Option<&str>,
+    content: Option<&str>,
+    breaks: LineBreaks,
+) -> Result<Source, Unreadable> {
     if let Some(content) = content {
-        return Ok(whole(content.to_owned()));
+        return Ok(inline(content, breaks));
     }
     let Some(path) = path else {
-        return Ok(whole(String::new()));
+        return Ok(inline("", breaks));
     };
-    text_within(path, open_regular(path)?, MAX_BYTES)
+    text_within(path, open_regular(path)?, MAX_BYTES, breaks)
 }
 
-/// The text in `reader` up to `limit` bytes: all of it, or the start of a
-/// longer text, marked as cut. `path` names the file a failure is about.
-fn text_within(path: &str, reader: impl Read, limit: u64) -> Result<Source, Unreadable> {
+/// The text of a source given inline, whose lines end at `breaks`. It
+/// already sits in memory with the session, so no byte limit applies.
+pub fn inline(text: &str, breaks: LineBreaks) -> Source {
+    // Only the lines kept are copied, so a cut text holds no memory for
+    // the rest.
+    match line_cut(text.as_bytes(), MAX_LINES, breaks) {
+        Some(end) => Source {
+            text: text[..end].to_owned(),
+            cut: Some(Cut::Lines),
+        },
+        None => Source {
+            text: text.to_owned(),
+            cut: None,
+        },
+    }
+}
+
+/// The text in `reader` up to `limit` bytes and [`MAX_LINES`] lines ended
+/// at `breaks`: all of it, or the start of a longer text, marked with the
+/// limit that cut it. `path` names the file a failure is about.
+fn text_within(
+    path: &str,
+    reader: impl Read,
+    limit: u64,
+    breaks: LineBreaks,
+) -> Result<Source, Unreadable> {
     // One byte past the limit tells a file that ends there from a longer
     // one.
     let mut bytes = Vec::new();
@@ -325,11 +357,22 @@ fn text_within(path: &str, reader: impl Read, limit: u64) -> Result<Source, Unre
     if bytes.contains(&0) {
         return Err(Unreadable::refused(path, "Binary", "binary file"));
     }
+    // What is left of the bytes can still hold more lines than a viewer
+    // keeps. The line limit then ends the text, so its notes name lines.
+    // The bytes are cut before they are decoded, so the text holds only
+    // the lines kept.
+    let cut = match line_cut(&bytes, MAX_LINES, breaks) {
+        Some(end) => {
+            bytes.truncate(end);
+            Some(Cut::Lines)
+        }
+        None => cut.then_some(Cut::Bytes),
+    };
     // A stray byte from another encoding shows as `�` and leaves the rest
     // of the file readable. So does a character the limit cut in two.
     Ok(Source {
         text: String::from_utf8_lossy(&bytes).into_owned(),
-        cut: cut.then_some(Cut::Bytes),
+        cut,
     })
 }
 
@@ -357,7 +400,7 @@ mod tests {
     #[test]
     fn inline_content_is_taken_as_it_is() {
         assert_eq!(
-            read_source(None, Some("fn main() {}\n")),
+            read_source(None, Some("fn main() {}\n"), LineBreaks::Any),
             whole("fn main() {}\n")
         );
     }
@@ -366,7 +409,10 @@ mod tests {
     fn a_file_is_read_whole() {
         let (_directory, path) = file(b"one\ntwo\n");
 
-        assert_eq!(read_source(Some(&path), None), whole("one\ntwo\n"));
+        assert_eq!(
+            read_source(Some(&path), None, LineBreaks::Any),
+            whole("one\ntwo\n")
+        );
     }
 
     #[test]
@@ -374,7 +420,7 @@ mod tests {
         let (_directory, path) = file(b"gr\xfc\xdf\n");
 
         assert_eq!(
-            read_source(Some(&path), None),
+            read_source(Some(&path), None, LineBreaks::Any),
             whole("gr\u{fffd}\u{fffd}\n")
         );
     }
@@ -384,7 +430,7 @@ mod tests {
         let limit = usize::try_from(MAX_BYTES).expect("8 MiB fit");
         let (_directory, path) = file(&b"x".repeat(limit + 3));
 
-        let source = read_source(Some(&path), None).expect("readable");
+        let source = read_source(Some(&path), None, LineBreaks::Any).expect("readable");
 
         assert_eq!(source.cut, Some(Cut::Bytes));
         assert_eq!(source.text.len(), limit);
@@ -395,7 +441,7 @@ mod tests {
         let limit = usize::try_from(MAX_BYTES).expect("8 MiB fit");
         let (_directory, path) = file(&b"x".repeat(limit));
 
-        let source = read_source(Some(&path), None).expect("readable");
+        let source = read_source(Some(&path), None, LineBreaks::Any).expect("readable");
 
         assert_eq!(source.cut, None);
         assert_eq!(source.text.len(), limit);
@@ -416,7 +462,7 @@ mod tests {
             (b"a\r\n\r\nb", 4, "a\r\n", Some(Cut::Bytes)),
         ] {
             assert_eq!(
-                text_within("/a.txt", bytes, limit),
+                text_within("/a.txt", bytes, limit, LineBreaks::Any),
                 Ok(Source {
                     text: text.to_owned(),
                     cut
@@ -435,7 +481,8 @@ mod tests {
             }
         }
 
-        let unreadable = text_within("/a.txt", Failing, 3).expect_err("the read fails");
+        let unreadable =
+            text_within("/a.txt", Failing, 3, LineBreaks::Any).expect_err("the read fails");
 
         assert_eq!(unreadable.cause, "Other");
         assert_eq!(unreadable.reason, "the disk went away");
@@ -462,6 +509,108 @@ mod tests {
             ]
         );
         assert_eq!(rows(&[]), ["one", "two"], "a whole source has none");
+    }
+
+    // -----------------------------------------------------------------
+    // The line limit
+    // -----------------------------------------------------------------
+
+    /// `count` lines of `x`, each ended by `\n`.
+    fn lines_of_x(count: usize) -> String {
+        "x\n".repeat(count)
+    }
+
+    #[test]
+    fn inline_content_above_the_line_limit_keeps_its_first_lines() {
+        let text = lines_of_x(MAX_LINES + 1);
+
+        let source = read_source(None, Some(&text), LineBreaks::Any).expect("inline");
+
+        assert_eq!(source.cut, Some(Cut::Lines));
+        assert_eq!(source.text, lines_of_x(MAX_LINES));
+    }
+
+    #[test]
+    fn a_file_above_the_line_limit_keeps_its_first_lines() {
+        let (_directory, path) = file(lines_of_x(MAX_LINES + 1).as_bytes());
+
+        let source = read_source(Some(&path), None, LineBreaks::Any).expect("readable");
+
+        assert_eq!(source.cut, Some(Cut::Lines));
+        assert_eq!(source.text, lines_of_x(MAX_LINES));
+    }
+
+    #[test]
+    fn inline_content_at_the_line_limit_is_whole() {
+        let text = lines_of_x(MAX_LINES);
+
+        let source = read_source(None, Some(&text), LineBreaks::Any).expect("inline");
+
+        assert_eq!(source.cut, None);
+        assert_eq!(source.text, text);
+    }
+
+    /// 8 MiB of line ends and one more: the byte limit cuts the file, and
+    /// what is left still holds more lines than the line limit, which then
+    /// ends the text.
+    #[test]
+    fn a_file_above_both_limits_names_the_line_limit() {
+        let limit = usize::try_from(MAX_BYTES).expect("8 MiB fit");
+        let (_directory, path) = file(&b"\n".repeat(limit + 1));
+
+        let source = read_source(Some(&path), None, LineBreaks::Any).expect("readable");
+
+        assert_eq!(source.cut, Some(Cut::Lines));
+        assert_eq!(source.text.len(), MAX_LINES);
+    }
+
+    #[test]
+    fn an_ansi_text_keeps_lone_crs_in_its_lines() {
+        let text = "x\r".repeat(MAX_LINES + 1);
+
+        let source = read_source(None, Some(&text), LineBreaks::Newline).expect("inline");
+
+        assert_eq!(source.cut, None);
+    }
+
+    #[test]
+    fn the_notes_of_a_text_cut_at_the_line_limit_name_lines() {
+        let rows: Vec<String> = between_cut_notes([Cut::Lines], ["one".to_owned()], |note| {
+            note.text().to_owned()
+        })
+        .collect();
+
+        assert_eq!(
+            rows,
+            [
+                "first 500,000 lines shown",
+                "one",
+                "… the rest is cut after 500,000 lines"
+            ]
+        );
+    }
+
+    /// The two sides of a diff can be cut by different limits; each
+    /// limit's notes show once, those of 8 MiB first.
+    #[test]
+    fn a_text_cut_by_both_limits_shows_both_notes() {
+        let rows: Vec<String> = between_cut_notes(
+            [Cut::Lines, Cut::Bytes, Cut::Lines],
+            ["one".to_owned()],
+            |note| note.text().to_owned(),
+        )
+        .collect();
+
+        assert_eq!(
+            rows,
+            [
+                "first 8 MiB shown",
+                "first 500,000 lines shown",
+                "one",
+                "… the rest is cut after 8 MiB",
+                "… the rest is cut after 500,000 lines"
+            ]
+        );
     }
 
     // -----------------------------------------------------------------
@@ -593,7 +742,7 @@ mod tests {
 
         for path in paths {
             assert_eq!(
-                read_source(Some(&path), None).map(|_| ()),
+                read_source(Some(&path), None, LineBreaks::Any).map(|_| ()),
                 regular_file(&path),
                 "{path}"
             );
@@ -613,7 +762,7 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o000))
             .expect("permissions are settable");
 
-        let unreadable = read_source(Some(&path), None).expect_err("not readable");
+        let unreadable = read_source(Some(&path), None, LineBreaks::Any).expect_err("not readable");
 
         assert_eq!(unreadable.cause, "PermissionDenied");
         assert!(
@@ -630,7 +779,7 @@ mod tests {
     fn a_binary_file_says_why_it_does_not_show() {
         let (_directory, path) = file(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
 
-        let binary = read_source(Some(&path), None).expect_err("binary");
+        let binary = read_source(Some(&path), None, LineBreaks::Any).expect_err("binary");
 
         assert_eq!(binary.cause, "Binary");
         assert_eq!(binary.reason, "binary file");
@@ -638,7 +787,7 @@ mod tests {
 
     #[test]
     fn a_source_with_neither_path_nor_content_is_empty() {
-        assert_eq!(read_source(None, None), whole(""));
+        assert_eq!(read_source(None, None, LineBreaks::Any), whole(""));
     }
 
     // -----------------------------------------------------------------

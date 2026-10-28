@@ -12,6 +12,8 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 
 Amended by [57. Show a Markdown table that does not fit as records](0057-show-a-markdown-table-that-does-not-fit-as-records.md)
 
+Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
+
 ## Context
 
 A `code` entry is shown exactly as written and highlighted, and a

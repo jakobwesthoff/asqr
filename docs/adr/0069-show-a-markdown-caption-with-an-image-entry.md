@@ -13,6 +13,8 @@ Amends [31. Make the context area a pane with a header, focus and scrolling](003
 the full-screen view shows a captioned image alone, and from the
 one-line hint first with its caption
 
+Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
+
 ## Context
 
 - An image entry carried a `title` and its image only (ADR 28, ADR 32).

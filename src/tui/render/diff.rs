@@ -21,7 +21,7 @@ use similar::{Algorithm, Change, ChangeTag, DiffOp, DiffTag, TextDiff};
 
 use super::code::{HIGHLIGHT_LIMIT, kind_of_file};
 use super::patine_adapter::source_line;
-use super::source_file::{Cut, Source, Unreadable, between_cut_notes, read_source};
+use super::source_file::{Cut, LineBreaks, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
 use super::viewer::{Content, ContentSize, DiffShape, Viewer};
@@ -88,9 +88,15 @@ fn read(
     name: &'static str,
     side: Option<&DiffSide>,
 ) -> Result<Option<Source>, (&'static str, Unreadable)> {
-    side.map(|side| read_source(side.path.as_deref(), side.content.as_deref()))
-        .transpose()
-        .map_err(|unreadable| (name, unreadable))
+    side.map(|side| {
+        read_source(
+            side.path.as_deref(),
+            side.content.as_deref(),
+            LineBreaks::Any,
+        )
+    })
+    .transpose()
+    .map_err(|unreadable| (name, unreadable))
 }
 
 fn text_of(side: Option<&Source>) -> Option<&str> {
@@ -1613,6 +1619,48 @@ impl Fetcher {
 
         assert_eq!(row(&buf, 1), "no changes");
         assert_eq!(row(&buf, 2), "… the rest is cut after 8 MiB");
+    }
+
+    #[test]
+    fn a_side_above_the_line_limit_shows_the_line_notes() {
+        let limit = super::super::source_file::MAX_LINES;
+        let mut viewer = entry(serde_json::json!({"new": {"content": "x\n".repeat(limit + 1)}}));
+
+        let lines = viewer.lay_out(40, 3).lines;
+        assert_eq!(lines, limit + 3, "new file, two notes and the lines kept");
+        let buf = drawn(&mut viewer, 40, 2, Offset::default());
+        assert_eq!(row(&buf, 0), "new file");
+        assert_eq!(row(&buf, 1), "first 500,000 lines shown");
+        let buf = drawn(
+            &mut viewer,
+            40,
+            1,
+            Offset {
+                top: lines - 1,
+                left: 0,
+            },
+        );
+        assert_eq!(row(&buf, 0), "… the rest is cut after 500,000 lines");
+    }
+
+    /// Each side is cut by its own limit, and the notes do not say which
+    /// side a limit cut.
+    #[test]
+    fn sides_cut_by_different_limits_show_both_notes() {
+        let mut viewer = of_rows("a\n", "a\n", [Cut::Lines, Cut::Bytes]);
+
+        let buf = drawn(&mut viewer, 40, 5, Offset::default());
+
+        assert_eq!(
+            (0..5).map(|y| row(&buf, y)).collect::<Vec<_>>(),
+            [
+                "first 8 MiB shown",
+                "first 500,000 lines shown",
+                "no changes",
+                "… the rest is cut after 8 MiB",
+                "… the rest is cut after 500,000 lines",
+            ]
+        );
     }
 
     /// A line `a` and lines of distinct numbers, each followed by `end`,

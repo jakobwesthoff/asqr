@@ -18,6 +18,8 @@ a fifth context entry type, `ansi`
 Amends [31. Make the context area a pane with a header, focus and scrolling](0031-make-the-context-area-a-pane-with-a-header-focus-and-scrolling.md):
 the header names an `ansi` entry without a title or a path by its kind
 
+Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
+
 ## Context
 
 - Format version 2 had four context entry types: `image`, `code`,

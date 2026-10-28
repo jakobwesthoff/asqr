@@ -17,7 +17,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::source_file::{Cut, Source, Unreadable, between_cut_notes, read_source};
+use super::source_file::{Cut, LineBreaks, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{Note, SourceLine, rows_from};
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
 use crate::format::AnsiEntry;
@@ -35,7 +35,11 @@ pub(super) fn ansi_content(
     colours: bool,
     home: Option<&Path>,
 ) -> Content<Painted> {
-    let source = read_source(entry.path.as_deref(), entry.content.as_deref());
+    let source = read_source(
+        entry.path.as_deref(),
+        entry.content.as_deref(),
+        LineBreaks::Newline,
+    );
     content_of(source, colours, home)
 }
 
@@ -936,6 +940,27 @@ mod tests {
         let entry: AnsiEntry = serde_json::from_value(serde_json::json!({"content": text}))
             .expect("test entry parses");
         ansi_content(&entry, true, None)
+    }
+
+    #[test]
+    fn an_ansi_entry_above_the_line_limit_shows_its_first_lines() {
+        let limit = super::super::source_file::MAX_LINES;
+        let mut viewer = built(&"x\n".repeat(limit + 1));
+
+        assert_eq!(viewer.lay_out(40, 3).lines, limit + 2, "two notes");
+        let buf = drawn(&mut viewer, 40, 1, Offset::default());
+        assert_eq!(row(&buf, 0), "first 500,000 lines shown");
+        let buf = drawn(
+            &mut viewer,
+            40,
+            2,
+            Offset {
+                top: limit,
+                left: 0,
+            },
+        );
+        assert_eq!(row(&buf, 0), "x");
+        assert_eq!(row(&buf, 1), "… the rest is cut after 500,000 lines");
     }
 
     #[test]

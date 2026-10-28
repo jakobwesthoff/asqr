@@ -15,6 +15,8 @@ Amended by [60. Highlight a diff's unchanged lines and fill its changed ones](00
 Amended by [70. Show a diff side by side on a key](0070-show-a-diff-side-by-side-on-a-key.md):
 a diff also shows side by side
 
+Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
+
 ## Context
 
 A diff entry carries the old and the new text, each inline or from a

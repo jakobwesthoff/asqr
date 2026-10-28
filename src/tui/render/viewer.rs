@@ -2948,6 +2948,21 @@ mod tests {
         assert_eq!(size.lines, 12, "the body, as for any image");
     }
 
+    /// A caption whose first 500,000 lines are blank keeps only those, so
+    /// all that shows of it are the notes of the cut, under the image.
+    #[test]
+    fn a_cut_blank_caption_shows_its_notes_under_the_image() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let caption = format!("{}x", "\n".repeat(super::super::source_file::MAX_LINES));
+        let mut viewer = built_alone(&captioned(&directory, &caption));
+
+        let (_, rows, red) = shown(viewer.as_mut(), 40, 12, 0);
+
+        assert!(!red.is_empty(), "the image shows");
+        assert_eq!(rows[10], "first 500,000 lines shown");
+        assert_eq!(rows[11], "… the rest is cut after 500,000 lines");
+    }
+
     #[test]
     fn a_caption_that_renders_to_nothing_shows_the_image_alone() {
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
