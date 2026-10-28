@@ -87,7 +87,8 @@ Once asked, asqr fits best when:
   as on a question. Use it for what the person should read before or
   between the questions, such as results so far or a problem you ran
   into, instead of a made-up question with options like "OK". Keep its
-  text to a few lines, as a question's text does not scroll, and put
+  text to a few lines: on a small terminal a longer text shows a few
+  lines at a time while the person scrolls through it with `↑`. Put
   longer material, such as a table of results, into a `markdown` entry
   of its `context`, which scrolls and shows full screen with `z`. A
   session may hold only info items, as a report the person can answer
