@@ -176,6 +176,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The review lists a `single` question's own text only where it is the
   answer. Before, it showed the text next to a chosen option, which the
   result does not send.
+- Closing the help, the intro or the session list over an image under
+  Sixel or iTerm2 draws the screen afresh without asking the terminal
+  where its cursor is. Before, a terminal that did not answer within 2
+  seconds ended asqr with an error.
 
 ## [0.13.1] - 2026-10-22
 

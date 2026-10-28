@@ -248,6 +248,22 @@ pub fn start(location: QueueLocation) -> anyhow::Result<(App, Inbox)> {
     Ok((app, inbox))
 }
 
+/// Clears the screen and forgets the last frame, so the next draw writes
+/// every cell. A resize to the size the screen has does what
+/// [`Terminal::clear`] does without asking the terminal where its cursor
+/// is: a terminal that does not answer would end the run after the
+/// query's wait, and the query's answer would compete with the key
+/// reader for the terminal's input.
+fn clear_screen<B: Backend>(terminal: &mut Terminal<B>) -> anyhow::Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
+    let size = terminal.size().context("measuring the screen")?;
+    terminal
+        .resize(Rect::from((Position::ORIGIN, size)))
+        .context("clearing the screen")
+}
+
 /// Runs the app until the person quits or the events end.
 pub fn run<B: Backend>(
     terminal: &mut Terminal<B>,
@@ -299,19 +315,11 @@ where
             }
         }
         view.set_input_pending(ahead.iter().any(Event::is_input));
-        // An overlay closed over an image leaves its text on the image
-        // unless the whole screen is drawn afresh (ADR 31).
-        if std::mem::take(&mut redraw) {
-            // A resize to the size it has clears the screen and forgets
-            // the last frame, as a clear does, without asking the terminal
-            // where its cursor is: a terminal that does not answer would
-            // end the run after the query's wait.
-            let size = terminal.size().context("measuring the screen")?;
-            terminal
-                .resize(Rect::from((Position::ORIGIN, size)))
-                .context("clearing the screen")?;
-        } else if view.must_clear(app) {
-            terminal.clear().context("clearing the screen")?;
+        // The editor left the screen to asqr to draw (ADR 74), and an
+        // overlay closed over an image leaves its text on the image unless
+        // the whole screen is drawn afresh (ADR 31).
+        if std::mem::take(&mut redraw) || view.must_clear(app) {
+            clear_screen(terminal)?;
         }
         let mut drawn = Drawn::default();
         terminal
@@ -2054,12 +2062,26 @@ mod tests {
     /// The clears and frames of a run over `events` with `session` waiting,
     /// its images made by `images`.
     fn logged(session: &str, images: Images, events: Vec<Event>) -> Vec<&'static str> {
+        logged_in(session, images, events, false).expect("runs")
+    }
+
+    /// [`logged`] in a terminal that answers no query for the cursor's
+    /// position where `refuse_cursor_query` is set, failing as the run
+    /// fails.
+    fn logged_in(
+        session: &str,
+        images: Images,
+        events: Vec<Event>,
+        refuse_cursor_query: bool,
+    ) -> anyhow::Result<Vec<&'static str>> {
         let harness = Harness::new();
         fs::write(harness.location.inbox().join("s.json"), session).expect("written");
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, images);
         let log = Log::default();
-        let mut terminal = Terminal::new(Logging::new(&log)).expect("test terminal");
+        let mut backend = Logging::new(&log);
+        backend.refuse_cursor_query = refuse_cursor_query;
+        let mut terminal = Terminal::new(backend).expect("test terminal");
         let (sender, receiver) = mpsc::channel();
         for event in events {
             sender.send(event).expect("sent");
@@ -2072,17 +2094,16 @@ mod tests {
             &mut view,
             &receiver,
             &mut Recorder::default(),
-        )
-        .expect("runs");
+        )?;
         let steps = log.borrow();
-        steps
+        Ok(steps
             .iter()
             .map(|step| match step {
                 Step::Clear => "clear",
                 Step::Frame(_) => "frame",
                 Step::Deleted(_) => "delete",
             })
-            .collect()
+            .collect())
     }
 
     #[test]
@@ -2110,6 +2131,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The clears and frames of opening and closing the help over an image
+    /// under `protocol` in a terminal that does not answer the query for
+    /// the cursor's position, as crossterm fails it after 2 seconds, or
+    /// the error that ended the run.
+    fn overlay_closed_without_cursor_query(
+        protocol: Protocol,
+    ) -> Result<Vec<&'static str>, String> {
+        let images = Images::new(Graphics {
+            protocol,
+            ..Graphics::HALF_BLOCKS
+        });
+        logged_in(
+            SESSION,
+            images,
+            vec![key(KeyCode::Char('?')), key(KeyCode::Char('x'))],
+            true,
+        )
+        .map_err(|error| format!("{error:#}"))
+    }
+
+    #[test]
+    fn closing_an_overlay_over_a_sixel_image_does_not_ask_for_the_cursor() {
+        assert_eq!(
+            overlay_closed_without_cursor_query(Protocol::Sixel),
+            Ok(vec!["frame", "frame", "clear", "frame"])
+        );
+    }
+
+    #[test]
+    fn closing_an_overlay_over_an_iterm2_image_does_not_ask_for_the_cursor() {
+        assert_eq!(
+            overlay_closed_without_cursor_query(Protocol::Iterm2),
+            Ok(vec!["frame", "frame", "clear", "frame"])
+        );
     }
 
     /// Half blocks and the Kitty protocol leave no cell to ratatui that it
