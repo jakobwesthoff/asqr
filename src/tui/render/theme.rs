@@ -23,8 +23,8 @@ use crate::tui::Tone;
 use crate::tui::text_field::Level;
 
 /// What marks asqr and what can be acted on: the name in the title line,
-/// the current tab, chosen marks, the keys in the key bar, overlay
-/// borders.
+/// the current tab, chosen marks, the marker of a default option, the
+/// keys in the key bar, overlay borders.
 pub(crate) fn primary() -> Style {
     Style::new().fg(Color::Cyan)
 }
@@ -47,6 +47,12 @@ pub(crate) fn current_tab() -> Style {
 
 /// A chosen mark: of a chosen option, and of an own answer that counts.
 pub(crate) fn chosen() -> Style {
+    primary().bold()
+}
+
+/// The `◀ default` marker at the end of an option with `default: true`,
+/// the asker's recommendation (ADR 76).
+pub(crate) fn default_marker() -> Style {
     primary().bold()
 }
 
@@ -211,11 +217,12 @@ mod tests {
     }
 
     #[test]
-    fn the_app_name_keys_and_chosen_marks_are_bold_primary() {
+    fn the_app_name_keys_chosen_marks_and_the_default_marker_are_bold_primary() {
         let bold_cyan = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
         assert_eq!(app_name(), bold_cyan);
         assert_eq!(key(), bold_cyan);
         assert_eq!(chosen(), bold_cyan);
+        assert_eq!(default_marker(), bold_cyan);
     }
 
     #[test]

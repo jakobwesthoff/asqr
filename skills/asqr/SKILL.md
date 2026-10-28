@@ -106,8 +106,12 @@ Once asked, asqr fits best when:
   note explaining why.
 - `min` and `max` count the picked options; the own answer of a `multi`
   comes on top of them.
-- `default: true` on an option preselects it. The person may keep it,
-  pick another option, or clear it and skip the question.
+- `default: true` on an option marks it as your recommendation and
+  preselects it. The person sees `◀ default` at the end of the option's
+  first line, also after picking another option, so they can tell your
+  recommendation from their own pick. The default is the answer when
+  they leave the question as it is. They may keep it, pick another
+  option, or clear it and skip the question.
 - An option's `label` is the short handle the person picks the option
   by, such as `Publish now`. It wraps and is never cut. Keep it to a few
   words, and put longer text into the option's `description`, or into
@@ -352,8 +356,11 @@ asqr withdraw "$id"
   `draft`: their `note` and the `answers` they had given so far. These
   are not decisions: they never sent them, and they might have rejected
   the session in the end. Use them only as presets in a replacement
-  session (`"default": true` on the options they picked), where they
-  confirm everything again. When you build no replacement, ignore them.
+  session (`"default": true` on the options they picked, which asqr
+  shows marked `◀ default`; say in the question's text that these are
+  their earlier answers, so the marker does not read as your
+  recommendation), where they confirm everything again. When you build
+  no replacement, ignore them.
 - When the person has answered already, `withdraw` refuses with exit
   code 1: read the answers with `asqr result <id>`.
 - Withdrawing twice is fine: the second call prints the same result and

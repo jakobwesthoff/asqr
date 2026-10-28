@@ -313,7 +313,7 @@ pub struct Choice {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    /// Preselects the option.
+    /// Preselects the option and marks it as the asker's recommendation.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub default: bool,
 

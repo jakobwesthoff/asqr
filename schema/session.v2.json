@@ -64,7 +64,7 @@
           ]
         },
         "default": {
-          "description": "Preselects the option.",
+          "description": "Preselects the option and marks it as the asker's recommendation.",
           "type": "boolean"
         },
         "description": {

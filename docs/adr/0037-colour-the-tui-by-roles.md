@@ -19,6 +19,9 @@ the focused pane fills its name and turns its lines yellow
 Amended by [60. Highlight a diff's unchanged lines and fill its changed ones](0060-highlight-a-diffs-unchanged-lines-and-fill-its-changed-ones.md):
 changed diff lines are filled
 
+Amended by [76. Mark the default option](0076-mark-the-default-option.md):
+the marker of a default option is bold in the primary colour
+
 ## Context
 
 A TUI that marks nearly everything the same way, with reversed video,

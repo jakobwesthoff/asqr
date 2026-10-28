@@ -124,9 +124,10 @@ Text fields (`intro`, question `text`, option `label` and option
   short handle the person picks the option by, shown in full and
   wrapped, an optional `description` of any length shown in full and
   wrapped, an
-  optional `default: true`, and optional `context`, shown in place of
-  the question's context while the cursor is on the option (section
-  8.1).
+  optional `default: true`, which preselects the option and marks it as
+  the asker's recommendation (section 7.2), and optional `context`,
+  shown in place of the question's context while the cursor is on the
+  option (section 8.1).
 - `custom` (optional, only on `single` and `multi`): allows a typed
   answer, which may span several lines like every typed field (ADR 36).
   `true`, or an object with `label` and `length`.
@@ -1034,6 +1035,17 @@ has context (section 7.4, ADRs 30 and 31):
   label, from column 6. An option whose label and description do not fit
   the question's area scrolls through their lines with `↑`/`↓` (section
   7.4).
+- An option with `default: true` shows `◀ default` bold in the primary
+  colour at the right end of its first line, at least 2 columns after the
+  text before it, whatever is picked (ADR 76). A label, or a description
+  beside it, whose first line would come closer renders 11 columns
+  narrower on all its lines. Where that leaves such a label less than 20
+  columns beside its number, the whole label goes on the lines below and
+  the marker stands alone on the option's row; a pane narrower than 19
+  columns, or 20 from option 10 on, shows no marker. Descriptions stand
+  beside the labels only while the default's keeps 30 columns beside the
+  marker. Under the focus fill the marker takes the fill, and so do the
+  blanks before it where no description stands beside.
 - The own-answer row is the last row of a question with `custom`; its
   mark shows whether the typed text counts, and when it counts it is
   bold in the primary colour like a chosen option's mark (ADR 37). Own
@@ -1153,7 +1165,8 @@ has context (section 7.4, ADRs 30 and 31):
   takes no row of its own: it goes over the right end of that row where
   it is blank, else over the start where that is blank, else over the
   right end anyway, so the pointer and the option's number stay
-  visible. A marker never covers the text cursor: where the end chosen
+  visible. On a line that ends in a default's `◀ default`, the marker
+  covers it whole. A marker never covers the text cursor: where the end chosen
   holds it, the marker goes over the other end, and where both do, that
   row shows no marker.
 - Every line of the question's area can be read with the keys that move

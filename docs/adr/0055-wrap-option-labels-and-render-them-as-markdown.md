@@ -10,6 +10,9 @@ Amends [35. Render the text fields as full Markdown through patine](0035-render-
 
 Amended by [66. Let the cursor keys reach every line of the question](0066-let-the-cursor-keys-reach-every-line-of-the-question.md)
 
+Amended by [76. Mark the default option](0076-mark-the-default-option.md):
+the first line of a default option leaves room for its marker
+
 ## Context
 
 An option's label was one line of plain text after the option's

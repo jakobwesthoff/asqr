@@ -154,7 +154,7 @@ included; under `NO_COLOR` it shows none.
 
 | Role | Terminal colour | Where |
 |---|---|---|
-| Primary | cyan | the name `asqr` in the title line, the current tab and the line under it, the keys in the key bar, chosen marks, overlay borders, the submit button |
+| Primary | cyan | the name `asqr` in the title line, the current tab and the line under it, the keys in the key bar, chosen marks, the `◀ default` marker of a default option, overlay borders, the submit button |
 | Focus | yellow, as a fill, and as lines on the focused context pane | the row under the cursor, a field's head under the cursor while the field does not have the keys, the current entry of the session list, the focused context pane's name as a fill, and its header rule, left edge and bottom rule as lines |
 | Warning | yellow | a length counter near or past its limit, a key that was refused, the frame of the dialog of an invalid session |
 | Success | green | a length counter in range, a submitted session, the fill of an added diff line |

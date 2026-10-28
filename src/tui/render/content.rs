@@ -28,7 +28,7 @@ use super::text::field_lines;
 use super::theme;
 use super::viewer::Viewers;
 use super::wrap::{cut_spans, indented, trim_end, wrap};
-use crate::format::{Kind, Length, has_text};
+use crate::format::{Choice, Kind, Length, has_text};
 use crate::graphics::Images;
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
 use crate::tui::{Focus, Row, RowCut, RowTop, SessionState, has_context};
@@ -46,6 +46,22 @@ const DESCRIPTION_INDENT: usize = 6;
 /// on the lines below the option's row.
 const MIN_LABEL_WIDTH: usize = 20;
 
+/// What stands at the right end of the first line of an option with
+/// `default: true`, the asker's recommendation (ADR 76). It is drawn
+/// outside the label and the description, so nothing their Markdown
+/// renders can look like it.
+const DEFAULT_MARKER: &str = "◀ default";
+
+/// The blanks the marker of a default option keeps between itself and the
+/// text before it.
+const MARKER_GAP: usize = 2;
+
+/// The columns the marker of a default option takes from the end of its
+/// first line, its gap included.
+fn marker_room() -> usize {
+    columns(DEFAULT_MARKER) + MARKER_GAP
+}
+
 /// Lines of a tab and where the row under the cursor sits among them.
 struct Content {
     lines: Vec<Line<'static>>,
@@ -55,6 +71,8 @@ struct Content {
     shape: Option<FieldShape>,
     /// The text cursor of the field or note that has the keys.
     text_cursor: Option<TextCursor>,
+    /// The lines that end in the marker of a default option.
+    marked: Vec<usize>,
 }
 
 /// Where the text cursor of a field shows among the lines of its tab, or
@@ -342,11 +360,25 @@ pub(super) fn draw_tab(
                 x(cursor.columns.start)..x(cursor.columns.end)
             })
     };
+    // A cut marker on a line that ends in a default's marker covers that
+    // marker whole: cleared first, the line's end is blank and takes the
+    // cut marker there, with no stray `◀` before it.
+    let clear_default_marker = |buf: &mut Buffer, row: usize| {
+        if content.marked.contains(&(scroll + row)) {
+            let width = u16::try_from(columns(DEFAULT_MARKER))
+                .expect("a short marker")
+                .min(text_area.width);
+            let y = text_area.y + u16::try_from(row).expect("a row inside the area");
+            Clear.render(Rect::new(text_area.right() - width, y, width, 1), buf);
+        }
+    };
     if height > 0 {
         if scroll > 0 {
+            clear_default_marker(buf, 0);
             mark_cut(text_area, buf, 0, "↑ more", cursor_on(0));
         }
         if scroll + height < total {
+            clear_default_marker(buf, height - 1);
             mark_cut(text_area, buf, height - 1, "↓ more", cursor_on(height - 1));
         }
     }
@@ -525,6 +557,7 @@ fn question_content(
         cursor: (0, 0),
         shape: None,
         text_cursor: None,
+        marked: Vec::new(),
     };
     content.lines.extend(wrap(
         Line::styled(kind_hint(question), theme::secondary()),
@@ -540,19 +573,43 @@ fn question_content(
         .iter()
         .flatten()
         .enumerate()
-        .map(|(index, option)| label_rows(&option.label, option_prefix_width(index), width, quote))
+        .map(|(index, option)| {
+            let room = if option.default { marker_room() } else { 0 };
+            label_rows(
+                &option.label,
+                option_prefix_width(index),
+                width,
+                room,
+                quote,
+            )
+        })
         .collect();
     // Descriptions line up in one column after the widest label while
     // every label takes a single line beside its number and the column
     // leaves the descriptions enough room; otherwise each goes below its
-    // label.
+    // label. A default's description beside its label shares its first row
+    // with the marker, and keeps that room beside the marker too.
+    //
+    // The marker never moves descriptions below that would stand beside
+    // without it: a default label narrows only when it ends within the
+    // marker's room of the edge, and a column after such a label leaves
+    // the descriptions too little room anyway.
+    let described_default = question.options.iter().flatten().any(|option| {
+        option.default
+            && option
+                .description
+                .as_deref()
+                .is_some_and(|description| !description.trim().is_empty())
+    });
+    let description_room =
+        MIN_DESCRIPTION_WIDTH + if described_default { marker_room() } else { 0 };
     let description_column = labels
         .iter()
         .map(LabelRows::beside_width)
         .collect::<Option<Vec<_>>>()
         .and_then(|widths| widths.into_iter().max())
         .map(|widest| widest + 2)
-        .filter(|column| width.saturating_sub(*column) >= MIN_DESCRIPTION_WIDTH);
+        .filter(|column| width.saturating_sub(*column) >= description_room);
     for (row_index, row) in state.rows_of(index).iter().enumerate() {
         let current = live && row_index == state.row();
         // One focus fill shows at a time: while the context pane has the
@@ -576,11 +633,18 @@ fn question_content(
                     head,
                     &labels[option_index],
                     description_column,
-                    option.description.as_deref(),
+                    option,
                     width,
                     filled,
                     quote,
                 );
+                let ends_in_marker = lines[0]
+                    .spans
+                    .last()
+                    .is_some_and(|span| span.content == DEFAULT_MARKER);
+                if ends_in_marker {
+                    content.marked.push(content.lines.len());
+                }
                 (lines, None)
             }
             Row::Own => {
@@ -707,15 +771,37 @@ impl LabelRows {
 /// leaves it `MIN_LABEL_WIDTH` columns; otherwise the whole label goes on
 /// the lines below, from `DESCRIPTION_INDENT`, or from the left edge
 /// where not even a wide character would fit after that indent.
-fn label_rows(label: &str, prefix: usize, width: usize, quote: QuoteStyle) -> LabelRows {
-    let (beside, indent) = if width.saturating_sub(prefix) >= MIN_LABEL_WIDTH {
-        (true, prefix)
-    } else if width >= DESCRIPTION_INDENT + WIDEST_GRAPHEME {
-        (false, DESCRIPTION_INDENT)
+///
+/// The label of a default option leaves `room` columns at the end of its
+/// first line for the marker, as [`leaving_room`] does. Where the narrower
+/// lines would leave it less than `MIN_LABEL_WIDTH` columns, it goes on the
+/// lines below instead, and the marker stands alone on the option's row.
+fn label_rows(
+    label: &str,
+    prefix: usize,
+    width: usize,
+    room: usize,
+    quote: QuoteStyle,
+) -> LabelRows {
+    let below = if width >= DESCRIPTION_INDENT + WIDEST_GRAPHEME {
+        DESCRIPTION_INDENT
     } else {
-        (false, 0)
+        0
     };
-    let rows = field_lines(label, width - indent, quote)
+    let beside_room = width.saturating_sub(prefix);
+    let (beside, indent, lines) = if beside_room >= MIN_LABEL_WIDTH {
+        let lines = field_lines(label, beside_room, quote);
+        if !reaches_room(&lines, beside_room, room) {
+            (true, prefix, lines)
+        } else if beside_room - room >= MIN_LABEL_WIDTH {
+            (true, prefix, field_lines(label, beside_room - room, quote))
+        } else {
+            (false, below, field_lines(label, width - below, quote))
+        }
+    } else {
+        (false, below, field_lines(label, width - below, quote))
+    };
+    let rows = lines
         .into_iter()
         .map(|row| {
             let spans = trim_end(row.spans)
@@ -732,26 +818,56 @@ fn label_rows(label: &str, prefix: usize, width: usize, quote: QuoteStyle) -> La
     }
 }
 
+/// `source` rendered for `width` columns with quotes in `quote`, leaving
+/// the last `room` columns of its first line free for the marker of a
+/// default option.
+///
+/// patine renders every line of a text for one width, so a text whose
+/// first line would reach into that room renders `room` columns narrower
+/// on all its lines. A text whose first line stays clear of it keeps the
+/// full width on every line (ADR 76).
+fn leaving_room(source: &str, width: usize, room: usize, quote: QuoteStyle) -> Vec<Line<'static>> {
+    let lines = field_lines(source, width, quote);
+    if reaches_room(&lines, width, room) {
+        field_lines(source, width.saturating_sub(room), quote)
+    } else {
+        lines
+    }
+}
+
+/// Whether the first of `lines`, rendered for `width` columns, reaches into
+/// the last `room` columns with its text, its trailing blanks left out.
+fn reaches_room(lines: &[Line<'static>], width: usize, room: usize) -> bool {
+    room > 0
+        && lines.first().is_some_and(|first| {
+            let text = Line::from(trim_end(first.spans.clone()));
+            line_columns(&text) + room > width
+        })
+}
+
 /// The columns `line` takes.
 fn line_columns(line: &Line) -> usize {
     line.spans.iter().map(|span| columns(&span.content)).sum()
 }
 
-/// An option: `head`, its pointer, mark and number, then `label`, all of
+/// `option`: `head`, its pointer, mark and number, then `label`, all of
 /// it under the focus fill where `filled`, then the description. With a
 /// `description_column`, the description starts there on the option's row,
 /// rendered for the columns from there to the end and so wrapped under its
 /// own start; without one, it goes on the lines below the label's, from
-/// `DESCRIPTION_INDENT` on. The description's quotes show in `quote`.
+/// `DESCRIPTION_INDENT` on. The description's quotes show in `quote`. An
+/// option with `default: true` ends its first line in `DEFAULT_MARKER` at
+/// the right edge where the line has room for it.
 fn option_lines(
     head: Vec<Span<'static>>,
     label: &LabelRows,
     description_column: Option<usize>,
-    description: Option<&str>,
+    option: &Choice,
     width: usize,
     filled: bool,
     quote: QuoteStyle,
 ) -> Vec<Line<'static>> {
+    let (description, marked) = (option.description.as_deref(), option.default);
     let fill = |spans: Vec<Span<'static>>| -> Vec<Span<'static>> {
         if filled {
             spans.into_iter().map(theme::focus_span).collect()
@@ -766,19 +882,55 @@ fn option_lines(
     }
 
     let indent = description_column.unwrap_or(DESCRIPTION_INDENT);
-    // An empty or blank description renders to no lines at all.
+    // An empty or blank description renders to no lines at all. Beside the
+    // label, a default's description ends the first row, so it leaves the
+    // marker its room there.
+    let room = if marked && description_column.is_some() {
+        marker_room()
+    } else {
+        0
+    };
     let mut descriptions = description
-        .map(|description| field_lines(description, width.saturating_sub(indent), quote))
+        .map(|description| leaving_room(description, width.saturating_sub(indent), room, quote))
         .unwrap_or_default()
         .into_iter();
     // A description beside its label starts on the option's row, padded
     // to the description column.
+    let mut described = false;
     if let Some(column) = description_column
         && let Some(row) = descriptions.next()
     {
         let used: usize = first.iter().map(|span| columns(&span.content)).sum();
         first.push(Span::from(" ".repeat(column - used)));
         first.extend(row.spans);
+        described = true;
+    }
+
+    if marked {
+        let mut kept = trim_end(first.clone());
+        let used: usize = kept.iter().map(|span| columns(&span.content)).sum();
+        // A row too narrow for the number, the gap and the marker together
+        // shows no marker. The trailing blanks are left out of `used`, so
+        // the blank after the number counts into the gap where no label
+        // stands beside it.
+        if used + marker_room() <= width {
+            // Under the focus fill the row stays one colour up to the
+            // marker. A description takes no fill, so after one the blanks
+            // stay plain and only the marker takes it.
+            let blanks = Span::from(" ".repeat(width - used - columns(DEFAULT_MARKER)));
+            let marker = Span::styled(DEFAULT_MARKER, theme::default_marker());
+            kept.push(if filled && !described {
+                theme::focus_span(blanks)
+            } else {
+                blanks
+            });
+            kept.push(if filled {
+                theme::focus_span(marker)
+            } else {
+                marker
+            });
+            first = kept;
+        }
     }
 
     let mut lines = vec![Line::from(first)];
@@ -859,6 +1011,7 @@ fn review_content(state: &SessionState, width: usize, quote: QuoteStyle) -> Cont
         cursor: (0, 0),
         shape: None,
         text_cursor: None,
+        marked: Vec::new(),
     };
     let answers = state.answers();
     let states = state.question_states();
@@ -1648,10 +1801,15 @@ mod tests {
     /// to the blank row before the notes line every question ends with.
     fn option_rows(state: &SessionState, width: usize) -> Vec<Line<'static>> {
         let lines = question_content(state, 0, width, Pass::Counted, quote_style(false)).lines;
+        // The first option's row by its number after the pointer's blanks
+        // and a mark of any state, as a default shows its mark chosen.
         let first = lines
             .iter()
             .position(|line| {
-                test_support::line_texts(std::slice::from_ref(line))[0].starts_with("  ( ) 1.")
+                let text = &test_support::line_texts(std::slice::from_ref(line))[0];
+                let after_mark: String = text.chars().skip(5).collect();
+                (text.starts_with("  (") || text.starts_with("  ["))
+                    && after_mark.starts_with(" 1.")
             })
             .expect("the first option shows");
         // The empty notes line wraps in a narrow pane like any field.
@@ -1694,20 +1852,36 @@ mod tests {
     fn a_label_is_never_cut_at_any_width() {
         let token = "x".repeat(60);
         let label = format!("Keep `retry` and {token} 日本語の説明 🎉");
-        let state = labelled(&serde_json::json!([{"id": "a", "label": label}]).to_string());
         let expected = format!("Keepretryand{token}日本語の説明🎉");
 
+        // A default's label leaves room for its marker, which is no part
+        // of the label's text.
+        for default in [false, true] {
+            let state = labelled(
+                &serde_json::json!([{"id": "a", "label": label, "default": default}]).to_string(),
+            );
+            label_shown_whole(&state, &expected);
+        }
+    }
+
+    /// Asserts that the label of the one option of `state` shows as
+    /// `expected`, its blanks left out, at every width from 2 to 60, with
+    /// every row that holds part of it within the width.
+    fn label_shown_whole(state: &SessionState, expected: &str) {
         for width in 2..=60 {
-            let rows = option_rows(&state, width);
+            let rows = option_rows(state, width);
             let mut shown = String::new();
             for (index, row) in rows.iter().enumerate() {
                 // The option's row starts with the pointer, the mark and
                 // the number; a label beside them fits the width as well.
-                let label_spans = if index == 0 {
+                let label_spans: Vec<&Span> = if index == 0 {
                     &row.spans[3..]
                 } else {
                     &row.spans[..]
-                };
+                }
+                .iter()
+                .filter(|span| span.content != DEFAULT_MARKER)
+                .collect();
                 if label_spans
                     .iter()
                     .any(|span| !span.content.trim().is_empty())
@@ -1813,7 +1987,8 @@ mod tests {
 
         let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
             "context": [{"type": "code", "content": "x"}],
-            "options": [{"id": "a", "label": "A label long enough to wrap onto a second line and a third one too"},
+            "options": [{"id": "a", "label": "A label long enough to wrap onto a second line and a third one too",
+                         "default": true},
                         {"id": "b", "label": "B"}]}]}"#;
         let mut state =
             SessionState::new("count", serde_json::from_str(json).expect("parses"), None);
@@ -1852,13 +2027,296 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
+    // The marker of a default option
+    // -----------------------------------------------------------------
+
+    /// `text` with `◀ default` at the right end of a row `width` wide.
+    fn marked_row(text: &str, width: usize) -> String {
+        let blanks = width - columns(text) - columns("◀ default");
+        format!("{text}{}◀ default", " ".repeat(blanks))
+    }
+
+    #[test]
+    fn a_default_option_shows_its_marker_at_the_right_end_of_its_first_line() {
+        let state = labelled(
+            r#"[{"id": "a", "label": "Alpha", "default": true}, {"id": "b", "label": "Beta"}]"#,
+        );
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 40)),
+            [marked_row("  (•) 1. Alpha", 40), "  ( ) 2. Beta".to_owned()]
+        );
+    }
+
+    /// A single question of a default Alpha and a Beta.
+    fn alpha_by_default() -> SessionState {
+        labelled(
+            r#"[{"id": "a", "label": "Alpha", "default": true}, {"id": "b", "label": "Beta"}]"#,
+        )
+    }
+
+    #[test]
+    fn the_marker_is_bold_primary_off_the_fill() {
+        let mut state = alpha_by_default();
+        key(&mut state, ratatui::crossterm::event::KeyCode::Down);
+
+        let (_, buf) = tab_of(&state);
+
+        assert_eq!(
+            looks_from(&buf, "◀ default", 9),
+            [(Color::Cyan, Modifier::BOLD); 9]
+        );
+    }
+
+    #[test]
+    fn under_the_focus_fill_the_marker_and_the_blanks_before_it_take_the_fill() {
+        // The cursor starts on the default.
+        let (_, buf) = tab_of(&alpha_by_default());
+
+        let (x, y) = test_support::find(&buf, "❯ (•) 1. Alpha");
+        let looks: Vec<Look> = (x + 14..40)
+            .map(|x| (buf[(x, y)].fg, buf[(x, y)].modifier & !Modifier::BOLD))
+            .collect();
+        assert_eq!(looks, vec![FILLED; looks.len()], "from the label's end");
+        assert_eq!(
+            looks_from(&buf, "◀ default", 9),
+            [(Color::Yellow, Modifier::REVERSED | Modifier::BOLD); 9],
+            "the marker keeps its bold"
+        );
+    }
+
+    #[test]
+    fn a_default_label_wraps_early_to_leave_the_marker_its_room() {
+        // 26 columns fit the 31 beside the number at 40, not the 20 the
+        // marker and its gap leave.
+        let state =
+            labelled(r#"[{"id": "a", "label": "Ship the release on Friday", "default": true}]"#);
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 40)),
+            [
+                marked_row("  (•) 1. Ship the release on", 40),
+                "         Friday".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_default_label_whose_first_line_fits_keeps_the_full_width_after_it() {
+        // The second line's 27 columns fit the 31 beside the number, not
+        // the 20 beside the marker, which only the first line has to leave.
+        let state = labelled(&format!(
+            r#"[{{"id": "a", "label": "Short\n{}", "default": true}}]"#,
+            three_letter_words(7)
+        ));
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 40)),
+            [
+                marked_row("  (•) 1. Short", 40),
+                format!("         {}", three_letter_words(7))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_default_label_without_twenty_columns_beside_the_marker_goes_below() {
+        // At 35 the number leaves 26 columns, the marker and its gap 15.
+        let long = labelled(
+            r#"[{"id": "a", "label": "Rewrite the parser from scratch", "default": true}]"#,
+        );
+        assert_eq!(
+            test_support::line_texts(&option_rows(&long, 35)),
+            [
+                marked_row("  (•) 1.", 35),
+                "      Rewrite the parser from".to_owned(),
+                "      scratch".to_owned()
+            ],
+            "a first line wider than 15 columns"
+        );
+
+        let short = labelled(r#"[{"id": "a", "label": "Alpha", "default": true}]"#);
+        assert_eq!(
+            test_support::line_texts(&option_rows(&short, 35)),
+            [marked_row("  (•) 1. Alpha", 35)],
+            "a label that leaves the room stays beside"
+        );
+    }
+
+    /// Guard: a row narrower than the option's number, the gap and the
+    /// marker together shows no marker. asqr's question area never gets
+    /// that narrow, but no width may push the marker past the edge.
+    #[test]
+    fn a_pane_too_narrow_for_number_gap_and_marker_shows_no_marker() {
+        // The number's row takes 8 columns up to option 9 and 9 from option
+        // 10 on, before the gap and the marker's 11.
+        let options = |default: usize| {
+            let options: Vec<_> = (1..=10)
+                .map(|n| serde_json::json!({"id": format!("o{n}"), "label": "A", "default": n == default}))
+                .collect();
+            labelled(&serde_json::Value::from(options).to_string())
+        };
+        let shown = |state: &SessionState, width: usize| {
+            test_support::line_texts(&option_rows(state, width))
+                .iter()
+                .any(|row| row.ends_with(DEFAULT_MARKER))
+        };
+
+        for (default, fits) in [(1, 19), (10, 20)] {
+            let state = options(default);
+            assert!(shown(&state, fits), "option {default} at {fits}");
+            assert!(!shown(&state, fits - 1), "option {default} at {}", fits - 1);
+        }
+    }
+
+    #[test]
+    fn a_default_s_description_beside_its_label_leaves_room_for_the_marker() {
+        // The descriptions start at column 16 of 80. The default's 59
+        // columns fit the 64 there, not the 53 beside the marker.
+        let state = labelled(&format!(
+            r#"[{{"id": "a", "label": "Alpha", "default": true, "description": "{}"}},
+                {{"id": "b", "label": "Beta", "description": "Second."}}]"#,
+            three_letter_words(15)
+        ));
+        let words = three_letter_words(15);
+        let (first, rest) = words.split_at(51);
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 80)),
+            [
+                marked_row(&format!("  (•) 1. Alpha  {first}"), 80),
+                format!("               {rest}"),
+                "  ( ) 2. Beta   Second.".to_owned()
+            ],
+            "a short default label keeps the descriptions beside"
+        );
+    }
+
+    #[test]
+    fn descriptions_go_below_where_the_default_s_would_keep_less_than_thirty_beside_the_marker() {
+        // At 50 the descriptions get the 34 columns from column 16, which
+        // the marker and its gap cut to 23.
+        let options = |default: bool| {
+            labelled(&format!(
+                r#"[{{"id": "a", "label": "Alpha", "default": {default}, "description": "First."}},
+                    {{"id": "b", "label": "Beta", "description": "Second."}}]"#
+            ))
+        };
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&options(false), 50)),
+            ["  ( ) 1. Alpha  First.", "  ( ) 2. Beta   Second."],
+            "beside without a default"
+        );
+        assert_eq!(
+            test_support::line_texts(&option_rows(&options(true), 50)),
+            [
+                marked_row("  (•) 1. Alpha", 50),
+                "      First.".to_owned(),
+                "  ( ) 2. Beta".to_owned(),
+                "      Second.".to_owned()
+            ],
+            "below with a described default"
+        );
+    }
+
+    /// Guard: a multi question marks every default it has.
+    #[test]
+    fn every_default_of_a_multi_is_marked() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "m", "text": "?", "kind": "multi",
+            "options": [{"id": "a", "label": "Alpha", "default": true},
+                        {"id": "b", "label": "Beta"},
+                        {"id": "c", "label": "Gamma", "default": true}]}]}"#;
+        let state = SessionState::new("multi", serde_json::from_str(json).expect("parses"), None);
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 40)),
+            [
+                marked_row("  [x] 1. Alpha", 40),
+                "  [ ] 2. Beta".to_owned(),
+                marked_row("  [x] 3. Gamma", 40)
+            ]
+        );
+    }
+
+    /// Guard: the marker shows the asker's recommendation, whatever the
+    /// person does with the question.
+    #[test]
+    fn the_marker_stays_through_a_clear_a_note_and_a_pick_of_another_option() {
+        use ratatui::crossterm::event::KeyCode;
+
+        let marked = |state: &SessionState| {
+            test_support::line_texts(&option_rows(state, 40))[0].ends_with(DEFAULT_MARKER)
+        };
+        let mut state = alpha_by_default();
+        key(&mut state, KeyCode::Backspace);
+        assert!(marked(&state), "cleared");
+        for code in [KeyCode::Char('n'), KeyCode::Char('x'), KeyCode::Esc] {
+            key(&mut state, code);
+        }
+        assert!(marked(&state), "with a note");
+        // Enter on Beta picks it and moves on to the review; ← comes back.
+        for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Left] {
+            key(&mut state, code);
+        }
+        assert_eq!(state.answers()[0].selected, ["b"]);
+        assert!(marked(&state), "after picking Beta");
+    }
+
+    /// The question of `state` drawn as the person sees it, `width`
+    /// columns wide.
+    fn question_at(state: &SessionState, width: u16) -> Buffer {
+        let lines =
+            question_content(state, 0, usize::from(width), Pass::Live, quote_style(false)).lines;
+        let area = Rect::new(
+            0,
+            0,
+            width,
+            u16::try_from(lines.len()).expect("a short tab"),
+        );
+        let mut buf = Buffer::empty(area);
+        Paragraph::new(lines).render(area, &mut buf);
+        buf
+    }
+
+    #[test]
+    fn with_a_description_beside_only_the_marker_takes_the_fill() {
+        // The cursor starts on the default; the description stands beside
+        // and, as on every option, takes no fill.
+        let state = labelled(
+            r#"[{"id": "a", "label": "Alpha", "default": true, "description": "First."},
+                {"id": "b", "label": "Beta", "description": "Second."}]"#,
+        );
+        let buf = question_at(&state, 80);
+
+        let (x, y) = test_support::find(&buf, "First.");
+        let unfilled: Vec<u16> = (x..71)
+            .filter(|&x| buf[(x, y)].modifier.contains(Modifier::REVERSED))
+            .collect();
+        assert_eq!(
+            unfilled,
+            Vec::<u16>::new(),
+            "the description and the blanks after it"
+        );
+        assert_eq!(
+            looks_from(&buf, "◀ default", 9),
+            [(Color::Yellow, Modifier::REVERSED | Modifier::BOLD); 9]
+        );
+    }
+
+    // -----------------------------------------------------------------
     // The view of the area for the row under the cursor
     // -----------------------------------------------------------------
 
     /// `state` drawn as its tab into an area of 30×6 without context: its
     /// rows, each cut to its text, and the cut of the row under the cursor.
     fn viewed(state: &SessionState) -> (Vec<String>, Option<RowCut>) {
-        let area = Rect::new(0, 0, 30, 6);
+        viewed_at(state, 30)
+    }
+
+    /// `state` drawn as [`viewed`] draws it, `width` columns wide.
+    fn viewed_at(state: &SessionState, width: u16) -> (Vec<String>, Option<RowCut>) {
+        let area = Rect::new(0, 0, width, 6);
         let mut buf = Buffer::empty(area);
         let mut tab = TabState::for_tests(PaneLayout::Auto, Images::half_blocks());
         let (_, _, cut) = draw_tab(area, &mut buf, state, &mut tab, quote_style(false));
@@ -1980,5 +2438,38 @@ mod tests {
         let cut = cut.expect("the note below can be reached");
         assert_eq!((cut.above, cut.home), (0, 0), "{rows:#?}");
         assert!(cut.below > 0, "{rows:#?}");
+    }
+
+    #[test]
+    fn a_cut_marker_on_a_marked_line_covers_the_whole_marker() {
+        use ratatui::crossterm::event::KeyCode;
+
+        // A one-line default under a text taller than the area rests on
+        // the area's last row, with Beta and the note below it.
+        let json = format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "{}", "kind": "single",
+                "options": [{{"id": "a", "label": "Alpha", "default": true}},
+                            {{"id": "b", "label": "Beta"}}]}}]}}"#,
+            three_letter_words(56)
+        );
+        let state = SessionState::new("cut", serde_json::from_str(&json).expect("parses"), None);
+        let (rows, _) = viewed_at(&state, 50);
+        assert!(rows[5].starts_with("❯ (•) 1. Alpha"), "{rows:#?}");
+        assert!(rows[5].ends_with(" ↓ more"), "{rows:#?}");
+        assert!(!rows[5].contains('◀'), "{rows:#?}");
+
+        // A default taller than the area, scrolled until its first line is
+        // the area's first row.
+        let mut state = labelled(&format!(
+            r#"[{{"id": "a", "label": "{}", "default": true}}, {{"id": "b", "label": "Beta"}}]"#,
+            three_letter_words(40)
+        ));
+        let (_, cut) = viewed_at(&state, 50);
+        state.set_row_cut(cut);
+        key(&mut state, KeyCode::Down);
+        let (rows, _) = viewed_at(&state, 50);
+        assert!(rows[0].starts_with("❯ (•) 1. a01"), "{rows:#?}");
+        assert!(rows[0].ends_with(" ↑ more"), "{rows:#?}");
+        assert!(!rows[0].contains('◀'), "{rows:#?}");
     }
 }

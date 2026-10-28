@@ -3276,6 +3276,37 @@ mod tests {
     }
 
     #[test]
+    fn a_default_option_shows_its_marker_whatever_is_picked() {
+        // A default with a two-line Markdown label, the asker's
+        // recommendation, and a second question to move on to.
+        let json = r#"{"asqr": 2, "title": "Release 0.3.0", "questions": [
+            {"id": "channel", "header": "Channel", "kind": "single",
+             "text": "Which release channel should this ship on?",
+             "options": [
+               {"id": "stable", "default": true,
+                "label": "**stable**: the `0.3` line, tested for two weeks, ships to every user on the next update"},
+               {"id": "beta", "label": "beta"},
+               {"id": "nightly", "label": "nightly"}]},
+            {"id": "notes", "header": "Notes?", "kind": "text", "text": "Anything for the notes?"}]}"#;
+        let mut app = app(&[("release", json)]);
+
+        insta::assert_snapshot!(
+            "default_marker_under_the_cursor_60x24",
+            screen(&app, 60, 24)
+        );
+
+        keys(&mut app, "j");
+        insta::assert_snapshot!("default_marker_untouched_80x24", screen(&app, 80, 24));
+
+        // `2` picks beta and moves on; `esc` leaves the text answer's
+        // field and `h` comes back.
+        keys(&mut app, "2");
+        special(&mut app, KeyCode::Esc);
+        keys(&mut app, "h");
+        insta::assert_snapshot!("default_marker_beta_picked_80x24", screen(&app, 80, 24));
+    }
+
+    #[test]
     fn a_left_own_answer_row_stays_highlighted_above_the_notes() {
         let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Name it", "kind": "single",
             "custom": true, "options": [{"id": "a", "label": "asqr"}]}]}"#;

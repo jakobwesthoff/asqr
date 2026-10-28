@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while it shows. Switching keeps the line at the top in view. A pane
   without room for two columns of at least 8 characters each keeps the
   diff unified and says so.
+- An option with `default: true` shows `◀ default` in bold cyan at the
+  right end of its first line, also after another option is picked, so
+  the person can tell the asker's recommendation from their own pick. A
+  label or description whose first line would reach it wraps 11 columns
+  earlier. On the row under the cursor it takes the focus fill like the
+  rest of the row.
 - The unchanged lines of a `diff` entry are highlighted in its language,
   like a `code` entry: the extension of `name` picks it, and an optional
   `language`, such as `tsx`, overrides it. The new text is highlighted
