@@ -14,6 +14,8 @@ Amended by [31. Make the context area a pane with a header, focus and scrolling]
 
 Amended by [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md)
 
+Amended by [62. Show text and context without asking through an info item](0062-show-text-and-context-without-asking-through-an-info-item.md)
+
 ## Context
 
 The person answering has to get through many questions fast, often with

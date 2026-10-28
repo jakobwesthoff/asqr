@@ -34,13 +34,19 @@ Once asked, asqr fits best when:
 {
   "asqr": 2,
   "title": "Release 0.3.0",
-  "intro": "Three decisions before the release. Skip what you **cannot** decide yet.",
+  "intro": "The checks so far, then three decisions before the release. Skip what you **cannot** decide yet.",
   "from": "your-agent, project name",
   "questions": [
     {
+      "id": "checks",
+      "header": "Checks",
+      "text": "All checks passed. Two flaky tests passed on a retry:\n\n- `fetch::retries_on_timeout`\n- `queue::drops_in_order`",
+      "kind": "info"
+    },
+    {
       "id": "go",
       "header": "Go?",
-      "text": "All checks passed. Publish 0.3.0 now?",
+      "text": "Publish 0.3.0 now?",
       "kind": "single",
       "context": [
         { "type": "markdown", "title": "CHANGELOG.md", "content": "## 0.3.0\n\n- Faster startup\n- A `--quiet` flag\n" }
@@ -74,7 +80,18 @@ Once asked, asqr fits best when:
 ```
 
 - `kind` is `single` (pick one), `multi` (pick several, optional `min`
-  and `max`) or `text` (typed answer, no options).
+  and `max`), `text` (typed answer, no options) or `info` (nothing to
+  answer).
+- An `info` item shows its `text` and `context` like a question and asks
+  nothing: it takes no `options`, `custom` or `length`, and `note` works
+  as on a question. Use it for what the person should read before or
+  between the questions, such as results so far or a problem you ran
+  into, instead of a made-up question with options like "OK". Keep its
+  text to a few lines, as a question's text does not scroll, and put
+  longer material, such as a table of results, into a `markdown` entry
+  of its `context`, which scrolls and shows full screen with `z`. A
+  session may hold only info items, as a report the person can answer
+  with notes.
 - `custom: true`, or `{ "label": ..., "length": ... }`, adds an own
   answer to a `single` or `multi` question.
 - `length` gives a target range and a `warn` limit for typed text. It
@@ -234,10 +251,15 @@ errors on stderr, so nothing broken reaches the person. Files of an
 earlier format version, such as `"asqr": 1`, are refused as well: write
 them in the format shown here. A context entry of a `type` this asqr
 does not know is refused too, with the types it supports, and so is a
-question of a `kind` it does not know, with the kinds it supports. When
-such an error names a type or a kind described here, the asqr that read
-the file is older than this skill: tell the person, who can update or
-restart it, and ask again once they have.
+question of a `kind` it does not know, with the kinds it supports. asqr
+0.13.1 and earlier know no `info` kind: their `asqr ask` refuses it, and
+such an asqr still running answers the session with a result of status
+`error`, both with
+``questions[0].kind: unknown variant `info`, expected one of `single`, `multi`, `text` ``.
+When an error names a type or a kind described here as not supported,
+or as an unknown variant, the asqr that read the file is older than this
+skill: tell the person, who can update or restart it, and ask again once
+they have.
 
 ## Asking and waiting
 
@@ -307,9 +329,12 @@ refuses while an unread result with the same id is in the outbox.
 
 - `status` is `submitted`, `cancelled` (rejected, with an optional
   `reason`) or `error` (with `error`).
-- A submitted result lists every question once, in session order. A
-  rejected result (`cancelled`) lists only the questions with an
-  answer, an untouched default included, or a note, in session order.
+- A submitted result lists every question once, in session order,
+  except `info` items: an info item is listed only when the person wrote
+  a note on it, as `{ "question": "checks", "note": "..." }`. asqr does
+  not record whether the person read an info item. A rejected result
+  (`cancelled`) lists only the questions with an answer, an untouched
+  default included, or a note, in session order.
 - `note` at the top is the person's note to the whole session, such as
   a condition on their approval or a remark that spans several
   questions. It is absent when they wrote none. Read it before acting

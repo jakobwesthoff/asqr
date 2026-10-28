@@ -75,6 +75,10 @@ pub enum Problem {
     #[error("only a multi question takes min and max")]
     BoundsNotAllowed,
 
+    /// A field of an answer, such as `options`, on an info item.
+    #[error("an info item takes no answer; remove {0}")]
+    InfoTakesNoAnswer(&'static str),
+
     #[error("only a text question takes length; a custom entry sets it inside custom")]
     LengthNotAllowed,
 
@@ -183,6 +187,7 @@ impl fmt::Display for KindName {
             Kind::Single => "single",
             Kind::Multi => "multi",
             Kind::Text => "text",
+            Kind::Info => "info",
         })
     }
 }
@@ -272,7 +277,9 @@ fn validate_question(
 
     // What the kind allows. A text question is answered by typing, so it
     // has neither options nor a separate custom entry; min and max only make
-    // sense where several options can be picked.
+    // sense where several options can be picked. An info item takes no
+    // answer at all, so every field of an answer is one to remove.
+    let info = question.kind == Kind::Info;
     match question.kind {
         Kind::Single | Kind::Multi if options.is_empty() => {
             report(
@@ -283,15 +290,21 @@ fn validate_question(
         Kind::Text if question.options.is_some() => {
             report(path.field("options"), Problem::OptionsNotAllowed);
         }
+        Kind::Info if question.options.is_some() => {
+            report(path.field("options"), Problem::InfoTakesNoAnswer("options"));
+        }
         _ => {}
     }
-    if question.kind == Kind::Text
-        && question
-            .custom
-            .as_ref()
-            .is_some_and(|custom| custom.is_enabled())
+    if question
+        .custom
+        .as_ref()
+        .is_some_and(|custom| custom.is_enabled())
     {
-        report(path.field("custom"), Problem::CustomNotAllowed);
+        match question.kind {
+            Kind::Text => report(path.field("custom"), Problem::CustomNotAllowed),
+            Kind::Info => report(path.field("custom"), Problem::InfoTakesNoAnswer("custom")),
+            Kind::Single | Kind::Multi => {}
+        }
     }
     if question.kind != Kind::Multi {
         if question.min.is_some() {
@@ -302,7 +315,12 @@ fn validate_question(
         }
     }
     if question.kind != Kind::Text && question.length.is_some() {
-        report(path.field("length"), Problem::LengthNotAllowed);
+        let problem = if info {
+            Problem::InfoTakesNoAnswer("length")
+        } else {
+            Problem::LengthNotAllowed
+        };
+        report(path.field("length"), problem);
     }
 
     validate_context(&question.context, &path.field("context"), report);
@@ -330,7 +348,7 @@ fn validate_question(
     let allowed = match question.kind {
         Kind::Single => Some(1),
         Kind::Multi => question.max.map(|max| max as usize),
-        Kind::Text => None,
+        Kind::Text | Kind::Info => None,
     };
     if let Some(allowed) = allowed
         && defaults > allowed
@@ -721,6 +739,80 @@ mod tests {
         assert_eq!(KindName(Kind::Single).to_string(), "single");
         assert_eq!(KindName(Kind::Multi).to_string(), "multi");
         assert_eq!(KindName(Kind::Text).to_string(), "text");
+        assert_eq!(KindName(Kind::Info).to_string(), "info");
+    }
+
+    // -----------------------------------------------------------------
+    // Info items
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn an_info_item_takes_no_options() {
+        for options in ["[]", r#"[{"id": "ok", "label": "OK"}]"#] {
+            assert_eq!(
+                errors(&with_question(&format!(
+                    r#"{{"id": "q", "text": "?", "kind": "info", "options": {options}}}"#
+                ))),
+                ["questions[0].options: an info item takes no answer; remove options"],
+                "{options}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_info_item_takes_no_custom_entry() {
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "info", "custom": true}"#
+            )),
+            ["questions[0].custom: an info item takes no answer; remove custom"]
+        );
+    }
+
+    #[test]
+    fn an_info_item_takes_no_length() {
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "info", "length": {"warn": 9}}"#
+            )),
+            ["questions[0].length: an info item takes no answer; remove length"]
+        );
+    }
+
+    #[test]
+    fn an_info_item_takes_the_fields_of_a_question_that_asks_nothing() {
+        // `custom: false` switches the entry off, as on a text question,
+        // and bounds belong to multi questions alone.
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "header": "Status", "text": "All checks passed.", "kind": "info",
+                    "custom": false, "note": false,
+                    "context": [{"type": "markdown", "content": "| a | b |"}]}"#
+            )),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            errors(&with_question(
+                r#"{"id": "q", "text": "?", "kind": "info", "min": 1, "max": 1}"#
+            )),
+            [
+                "questions[0].min: only a multi question takes min and max",
+                "questions[0].max: only a multi question takes min and max"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_session_of_info_items_only_is_valid() {
+        // A report the person answers with notes, or not at all.
+        assert_eq!(
+            errors(
+                r#"{"asqr": 2, "questions": [
+                    {"id": "a", "text": "Done.", "kind": "info"},
+                    {"id": "b", "text": "Also done.", "kind": "info"}]}"#
+            ),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

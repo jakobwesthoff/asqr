@@ -47,6 +47,12 @@
       "text": "Does the check recipe cover what the change needs?",
       "kind": "text",
       "context": [{ "type": "code", "title": "Justfile", "path": "../../Justfile" }]
+    },
+    {
+      "id": "after",
+      "header": "After",
+      "text": "Once merged, the change ships with the next release. The test `fetch::retries_on_timeout` passed only on a second run; say in a note if it should be fixed first.",
+      "kind": "info"
     }
   ]
 }

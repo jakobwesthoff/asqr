@@ -52,10 +52,11 @@ pub struct SessionResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current: Option<String>,
 
-    /// A submitted result holds every question once, in session order. A
-    /// cancelled result holds only the questions with an answer, an
-    /// untouched default included, or a note, in session order. An error
-    /// result holds none.
+    /// A submitted result holds every question once, in session order,
+    /// apart from info items: an info item takes no answer and appears only
+    /// with a note. A cancelled result holds only the questions with an
+    /// answer, an untouched default included, or a note, in session order.
+    /// An error result holds none.
     #[serde(default)]
     pub answers: Vec<Answer>,
 }
@@ -130,7 +131,8 @@ impl SessionResult {
         }
     }
 
-    /// `answers` holds every question of the session once, in session order;
+    /// `answers` holds every question of the session once, in session order,
+    /// and an info item only with a note (see [`super::result_answers`]);
     /// `note` is the person's note to the whole session.
     pub fn submitted(
         id: &str,

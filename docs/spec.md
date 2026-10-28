@@ -39,7 +39,8 @@ Design goals:
 - **Session**: one question file. It has an id, an optional title and
   intro, and a list of questions. It is answered and submitted as a
   whole.
-- **Question**: one thing to decide. It has a kind (section 3.2), text,
+- **Question**: one thing to decide, or, of kind `info`, something to
+  read. It has a kind (section 3.2), text,
   optional options (each with optional context), optional context, and
   optional custom entry and note.
 - **Context**: material shown next to a question that helps to answer
@@ -115,10 +116,11 @@ Text fields (`intro`, question `text`, option `label` and option
 - `id` (required, unique within the session), `text` (required),
   `header` (optional, a short label for the question's tab).
 - `kind`: `single` (pick one), `multi` (pick several, with optional `min`
-  and `max`) or `text` (typed answer, no options). New kinds are added
-  within format version 2, so an asqr can meet a kind a newer asqr knows
-  (section 3.4).
-- `options` (required for `single` and `multi`, not allowed for `text`):
+  and `max`), `text` (typed answer, no options) or `info` (shows its text
+  and context and takes no answer). New kinds are added within format
+  version 2, so an asqr can meet a kind a newer asqr knows (section 3.4).
+- `options` (required for `single` and `multi`, not allowed for `text`
+  and `info`):
   each option has an `id` (unique within the question), a `label`, the
   short handle the person picks the option by, shown in full and
   wrapped, an optional `description` of any length shown in full and
@@ -141,6 +143,17 @@ Text fields (`intro`, question `text`, option `label` and option
 
 Every question is optional (section 4.2, ADR 28): there is no way to
 force an answer, and a skipped question comes back as `skipped: true`.
+
+An info item, a question of kind `info` (ADR 62), shows its `text` and
+`context` like any question and takes no answer: it has no `options`,
+`custom` or `length`, and `note` works as on a question. A result lists
+it only when the person wrote a note on it (section 4.1). A session may
+consist of info items only, as a report the person can answer with
+notes. asqr 0.13.1 and earlier know no `info` kind and refuse a session
+with an info item as not shaped like a session, with
+``questions[0].kind: unknown variant `info`, expected one of `single`, `multi`, `text` ``;
+a queue such an asqr watches answers the session with an error result
+(section 5.8).
 
 ### 3.3 Context entries
 
@@ -205,6 +218,9 @@ fields, these are validation errors:
 - no questions
 - a duplicate question id or option id
 - `options` on `text`, or missing or empty on `single` or `multi`
+- `options` (an empty list too), an enabled `custom` or `length` on
+  `info`: the error says that an info item takes no answer and names the
+  field to remove
 - `custom` or `default` on `text` (`custom: false` is allowed, since it
   switches the entry off)
 - `min` or `max` on anything but `multi`
@@ -231,8 +247,8 @@ fields, these are validation errors:
   checked before the rest of the file, and every such entry is listed.
   A missing `type`, or one that is no string, leaves the file not shaped
   like a session.
-- a question whose `kind` is a string other than `single`, `multi` and
-  `text`: the error names the kind as not supported by this asqr and its
+- a question whose `kind` is a string other than `single`, `multi`,
+  `text` and `info`: the error names the kind as not supported by this asqr and its
   version, lists the kinds, and says that a newer asqr may support it.
   Like the version and the entry types, it is checked before the rest of
   the file, and every such question is listed, its kind before the
@@ -363,7 +379,9 @@ rules are validation's alone.
 - `session_sha256` is the SHA-256 of the session file's bytes as read
   from the inbox (section 5.7).
 - For `submitted`, every question appears exactly once, in session
-  order. For `cancelled`, `answers` holds only the questions with an
+  order, apart from an info item, which appears only when the person
+  wrote a note on it that is not blank, as `{"question": ..., "note":
+  ...}`. For `cancelled`, `answers` holds only the questions with an
   answer or with a note that is not blank, in session order and in the
   same shape; an untouched default counts as an answer and carries
   `"defaulted": true` (section 4.2). The person did not submit any of
@@ -380,7 +398,8 @@ A question is **answered** when:
   selected options lies within `min` and `max`
 - `text`: the typed text is not empty after trimming
 
-Otherwise it is **skipped**.
+Otherwise it is **skipped**. An info item takes no answer and is
+neither: nothing answers it, and it never counts as skipped.
 
 - A default counts as answered, and the review tab marks it as a
   default. The answer carries `"defaulted": true` only when the person
@@ -406,6 +425,7 @@ Answer shape per kind:
 - `multi`: `selected` with the chosen option ids, and `custom` as one
   more entry next to them when present.
 - `text`: `custom` holds the answer, and there is no `selected`.
+- `info`: only `note`, as typed, and only when it is not blank.
 - Every kind may carry `note`. A skipped question has `skipped: true` and
   may carry `note`.
 
@@ -826,14 +846,15 @@ has context (section 7.4, ADRs 30 and 31):
   needs: first the blank line, then intro lines down to one. The `from`
   and `follows` line stays.
 - The tab bar lists every question by its `header` (or id) with `☒`
-  once it is answered and a dim `☐` while it is not, and `✔ Review`
-  last. The current tab is bold in the primary colour, and the line under
+  once it is answered and a dim `☐` while it is not, an info item with a
+  dim `ℹ`, and `✔ Review` last. The current tab is bold in the primary colour, and the line under
   the bar is heavy (`━`) and in the primary colour under it, thin and dim
   elsewhere. When the tabs do not fit, the bar scrolls around the current
   one and shows `←`/`→` where more follow.
 - Under the question text a hint says how to answer: "pick one", "pick
   between 2 and 3 items", "pick at least 2 items", "pick up to 3 items",
-  "pick 2 items", "pick any" or "type your answer". A `single` with
+  "pick 2 items", "pick any" or "type your answer", and on an info item
+  "nothing to answer". A `single` with
   `custom` adds ", or type your own"; a `multi` does not mention its own
   answer (ADR 8).
 - Options show `( )`/`(•)` in a `single` and `[ ]`/`[x]` in a `multi`,
@@ -855,6 +876,10 @@ has context (section 7.4, ADRs 30 and 31):
   mark shows whether the typed text counts, and when it counts it is
   bold in the primary colour like a chosen option's mark (ADR 37). A
   `text` question consists of its answer field only.
+- An info item has one row, `next`, below the hint, with the pointer and
+  under the focus fill like an option row; `enter` on it moves on (section
+  7.6). As on every question, the row under the cursor stays in view, so
+  a text taller than the question's area is cut at the top.
 - The notes line sits under the options (section 7.7).
 - The line above the key bar, the status line, shows notices (about the
   queue) and messages (about the last key) until the next key or paste,
@@ -1007,7 +1032,7 @@ On an option row (vim style plus arrows):
 |---|---|
 | `↑`/`↓`, `k`/`j` | move between the rows |
 | `←`/`→`, `h`/`l` | previous and next question; the review tab is the last one |
-| `enter` | `single`: pick the option and move on to the next question. `multi`: move on |
+| `enter` | `single`: pick the option and move on to the next question. `multi` and an info item: move on |
 | `space` | `multi`: toggle the option |
 | `1`-`9` | `single`: pick that option and move on. `multi`: toggle it |
 | `n` | edit the note in its line |
@@ -1205,8 +1230,10 @@ chosen options by label, own text and a text answer in quotes (line
 breaks shown as `⏎`), `(default)` after an untouched default, `-`
 for a skipped question and `+note` for a note. A label shows its
 Markdown styles over the dim, not bold, its lines joined by a blank. A
-line longer than the screen is cut with `…`. Below the list, the counts of answered, skipped
-and defaulted questions, the numbers bold and the words dim, then:
+line longer than the screen is cut with `…`. An info item shows its dim
+`ℹ` and only `+note`, for a note that is not blank. Below the list, the
+counts of answered, skipped and defaulted questions, which leave info
+items out, the numbers bold and the words dim, then:
 
 - **Submit**: `[ Submit ]`, always filled in the primary colour and
   bold, brackets included (ADR 37). With the cursor on it, the pointer
@@ -1739,7 +1766,7 @@ The skill teaches:
 - `asqr answer <file>`, answering one file in the current terminal
   without a queue.
 - Partial submits.
-- Question kinds beyond `single`, `multi` and `text`.
+- Question kinds beyond `single`, `multi`, `text` and `info`.
 - A tmux passthrough hint in the TUI.
 - Diffs side by side in a wide pane.
 - Editing a field in `$EDITOR` with `ctrl-g`.

@@ -159,7 +159,7 @@ included; under `NO_COLOR` it shows none.
 | Warning | yellow | a length counter near or past its limit, a key that was refused, the frame of the dialog of an invalid session |
 | Success | green | a length counter in range, a submitted session, the fill of an added diff line |
 | Error | red | a failure, such as an inbox that cannot be read; the frame, mark and reason of a context entry asqr cannot show, and the `✗` before its name in the pane's header; the fill of a removed diff line |
-| Secondary | dim | hints, unanswered tabs, the descriptions in the key bar, asqr's version on the empty queue's key bar and the help's bottom edge, the queue and the count in the title line, the `from` and `follows` line under a session's title, the context pane's rules and its position |
+| Secondary | dim | hints, unanswered tabs, the mark of an info item, the descriptions in the key bar, asqr's version on the empty queue's key bar and the help's bottom edge, the queue and the count in the title line, the `from` and `follows` line under a session's title, the context pane's rules and its position |
 
 - Only the focus, the submit button and the changed lines of a diff are
   filled areas. The button is always filled in the primary colour and
@@ -182,7 +182,8 @@ included; under `NO_COLOR` it shows none.
   line numbers and its `-` or `+`; the focus fill never falls on a row
   of an entry's body.
 - An answered question is not a status: its tab mark keeps the text
-  colour, and an unanswered one is dim.
+  colour, and an unanswered one is dim. An info item's `ℹ` is dim too:
+  there is nothing to do on it, so answered questions stand out more.
 - The session's intro is the asker's content and keeps the text colour.
 - Meaning never depends on colour alone. Marks, pointers, text and the fill
   carry it, so the interface reads the same without colours.

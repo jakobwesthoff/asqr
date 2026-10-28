@@ -208,7 +208,8 @@ pub struct Session {
     pub questions: Vec<Question>,
 }
 
-/// One thing for the person to decide.
+/// One item of the session: a thing for the person to decide, or, of kind
+/// `info`, something to read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Question {
     pub id: String,
@@ -217,8 +218,8 @@ pub struct Question {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub header: Option<String>,
 
-    /// The question itself. Markdown: a single newline breaks the line,
-    /// and raw HTML shows as written.
+    /// The question, or what an info item shows. Markdown: a single
+    /// newline breaks the line, and raw HTML shows as written.
     pub text: String,
 
     pub kind: Kind,
@@ -276,7 +277,7 @@ where
 /// The question kinds this asqr knows, as the file writes them. New kinds
 /// are added within format version 2 (ADR 61), so a file may name one a
 /// newer asqr knows.
-pub const QUESTION_KINDS: [&str; 3] = ["single", "multi", "text"];
+pub const QUESTION_KINDS: [&str; 4] = ["single", "multi", "text", "info"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -287,6 +288,9 @@ pub enum Kind {
     Multi,
     /// A typed answer, without options.
     Text,
+    /// Shows its text and context and takes no answer; the person may add
+    /// a note.
+    Info,
 }
 
 /// One option of a `single` or `multi` question.
@@ -622,7 +626,7 @@ mod tests {
     /// know, as a person reads it after the question's path.
     fn rank_unknown() -> String {
         format!(
-            r#""rank" is not supported by this asqr (version {}), which supports "single", "multi" and "text"; a newer asqr may support it"#,
+            r#""rank" is not supported by this asqr (version {}), which supports "single", "multi", "text" and "info"; a newer asqr may support it"#,
             env!("CARGO_PKG_VERSION")
         )
     }
@@ -680,6 +684,22 @@ mod tests {
             error.to_string(),
             format!("unknown variant ``, expected one of {}", listed.join(", "))
         );
+    }
+
+    #[test]
+    fn an_info_item_parses_with_its_text_context_and_note() {
+        let (_, session) = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "checks", "header": "Checks",
+                "text": "All checks passed.", "kind": "info", "note": false,
+                "context": [{"type": "markdown", "content": "| a | b |"}]}]}"#,
+        )
+        .expect("an info item is a kind this asqr knows");
+
+        let info = &session.questions[0];
+        assert_eq!(info.kind, Kind::Info);
+        assert_eq!(info.header.as_deref(), Some("Checks"));
+        assert_eq!(info.context.len(), 1);
+        assert!(!info.note);
     }
 
     #[test]

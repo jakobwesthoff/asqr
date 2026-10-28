@@ -241,7 +241,7 @@ fn validate_refuses_an_unknown_kind_as_one_a_newer_asqr_may_support() {
     assert_eq!(
         stderr(&output),
         format!(
-            r#"error: questions[0].kind: "rank" is not supported by this asqr (version {}), which supports "single", "multi" and "text"; a newer asqr may support it
+            r#"error: questions[0].kind: "rank" is not supported by this asqr (version {}), which supports "single", "multi", "text" and "info"; a newer asqr may support it
 "#,
             env!("CARGO_PKG_VERSION")
         )

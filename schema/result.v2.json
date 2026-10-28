@@ -67,7 +67,7 @@
   "properties": {
     "answers": {
       "default": [],
-      "description": "A submitted result holds every question once, in session order. A\ncancelled result holds only the questions with an answer, an\nuntouched default included, or a note, in session order. An error\nresult holds none.",
+      "description": "A submitted result holds every question once, in session order,\napart from info items: an info item takes no answer and appears only\nwith a note. A cancelled result holds only the questions with an\nanswer, an untouched default included, or a note, in session order.\nAn error result holds none.",
       "items": {
         "$ref": "#/$defs/Answer"
       },

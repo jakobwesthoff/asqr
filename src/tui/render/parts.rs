@@ -11,7 +11,7 @@ use ratatui::text::Span;
 use super::text::field_source_lines;
 use super::theme;
 use super::wrap::{trim_end, trim_start};
-use crate::format::{Answer, Kind, Question, is_answered};
+use crate::format::{Answer, Kind, Question, has_note, is_answered};
 use crate::tui::{AnswerState, Focus, SessionState};
 
 /// What marks the row under the cursor in the question, the review and the
@@ -25,13 +25,15 @@ pub fn pointer(current: bool) -> Span<'static> {
 }
 
 /// The mark the tab bar and the review put before a question: a dim `☐`
-/// while it is skipped, `☒` once it is answered or defaulted. An answer is
-/// no status, so `☒` keeps the text colour.
+/// while it is skipped, `☒` once it is answered or defaulted, and a dim `ℹ`
+/// on an info item. An answer is no status, so `☒` keeps the text colour.
+/// An info item recedes like an open question, as there is nothing to do
+/// on it, so answered questions stand out more.
 pub fn answer_mark(state: AnswerState) -> Span<'static> {
-    if state == AnswerState::Skipped {
-        Span::styled("☐", theme::secondary())
-    } else {
-        Span::from("☒")
+    match state {
+        AnswerState::Skipped => Span::styled("☐", theme::secondary()),
+        AnswerState::Info => Span::styled("ℹ", theme::secondary()),
+        AnswerState::Answered | AnswerState::Defaulted => Span::from("☒"),
     }
 }
 
@@ -52,6 +54,15 @@ pub fn answer_summary(
         .as_deref()
         .filter(|text| !text.trim().is_empty())
         .map(|text| format!("\"{}\"", text.lines().collect::<Vec<_>>().join(" ⏎ ")));
+    // An info item has no answer to show, and a blank note on it is none,
+    // as the result leaves the item out then.
+    if question.kind == Kind::Info {
+        return if has_note(answer) {
+            vec![dim("+note".to_owned())]
+        } else {
+            Vec::new()
+        };
+    }
     let mut summary = Vec::new();
     if !is_answered(question, answer) {
         summary.push(dim("-".to_owned()));
@@ -122,6 +133,7 @@ pub fn kind_hint(question: &Question) -> String {
         (Kind::Multi, None, Some(max)) => format!("pick up to {}", items(max)),
         (Kind::Multi, None, None) => "pick any".to_owned(),
         (Kind::Text, _, _) => "type your answer".to_owned(),
+        (Kind::Info, _, _) => "nothing to answer".to_owned(),
     };
     // A single takes the own answer instead of an option, which the hint
     // says. A multi takes it on top of its options; people find that row
@@ -265,6 +277,35 @@ mod tests {
     }
 
     #[test]
+    fn an_info_item_is_marked_as_one_and_dim() {
+        use ratatui::style::Style;
+
+        // There is nothing to do on it, so it recedes like a question
+        // still open, and answered questions stand out more.
+        assert_eq!(
+            answer_mark(AnswerState::Info),
+            Span::styled("ℹ", Style::new().dim())
+        );
+    }
+
+    #[test]
+    fn the_review_shows_only_the_note_of_an_info_item() {
+        let info = question(r#"{"id": "i", "text": "Done.", "kind": "info"}"#);
+        let noted = |note: &str| Answer {
+            note: Some(note.to_owned()),
+            ..Answer::new("i")
+        };
+
+        assert_eq!(summary_text(&info, &Answer::new("i")), "");
+        assert_eq!(summary_text(&info, &noted("why")), "+note");
+        assert_eq!(
+            summary_text(&info, &noted(" \n")),
+            "",
+            "a blank note is none"
+        );
+    }
+
+    #[test]
     fn the_question_list_shows_what_was_answered() {
         let multi = question(
             r#"{"id": "m", "text": "?", "kind": "multi",
@@ -359,6 +400,10 @@ mod tests {
         assert_eq!(
             hint(r#"{"id": "q", "text": "?", "kind": "text"}"#),
             "type your answer"
+        );
+        assert_eq!(
+            hint(r#"{"id": "q", "text": "?", "kind": "info"}"#),
+            "nothing to answer"
         );
     }
 

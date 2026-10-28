@@ -71,6 +71,25 @@ mod tests {
     }
 
     #[test]
+    fn the_session_schema_file_lists_info_as_a_kind() {
+        // The file agents check against, not the derived schema, which
+        // follows the types by itself.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("schema/session.v2.json");
+        let file: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(path).expect("the schema file is readable"),
+        )
+        .expect("the schema file is JSON");
+        let kinds: Vec<&str> = file["$defs"]["Kind"]["oneOf"]
+            .as_array()
+            .expect("the kinds are listed")
+            .iter()
+            .filter_map(|kind| kind["const"].as_str())
+            .collect();
+
+        assert_eq!(kinds, ["single", "multi", "text", "info"]);
+    }
+
+    #[test]
     fn the_session_schema_describes_questions_and_options() {
         let schema = session_schema();
 

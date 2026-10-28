@@ -23,8 +23,8 @@ use super::{FieldKey, FieldShape, Leave, Notice, Offset, Page, TextField, Tone};
 
 pub use crate::format::Length;
 use crate::format::{
-    Answer, ContextEntry, Kind, Question, Session, SessionResult, is_answered, rejected_answers,
-    result_answers,
+    Answer, ContextEntry, Kind, Question, Session, SessionResult, has_note, is_answered,
+    rejected_answers, result_answers,
 };
 
 /// What the running app has to do after a key.
@@ -63,6 +63,9 @@ pub enum Row {
     Own,
     /// The answer of a `text` question.
     Answer,
+    /// The one row of an info item, `next`: `enter` on it moves on to the
+    /// next tab, as the item takes no answer.
+    Next,
     /// A question in the review, by index.
     Question(usize),
     Submit,
@@ -115,6 +118,8 @@ pub struct Counts {
     pub answered: usize,
     pub skipped: usize,
     pub defaulted: usize,
+    /// The questions that take an answer, which leaves out info items.
+    pub questions: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +128,8 @@ pub enum AnswerState {
     /// Answered by an untouched default.
     Defaulted,
     Skipped,
+    /// An info item, which takes no answer and so is neither.
+    Info,
 }
 
 /// A question's mark in the tab bar and its line in the review.
@@ -569,8 +576,10 @@ impl SessionState {
     /// The rows of question `index`, whichever tab is current.
     pub fn rows_of(&self, index: usize) -> Vec<Row> {
         let question = &self.session.questions[index];
-        if question.kind == Kind::Text {
-            return vec![Row::Answer];
+        match question.kind {
+            Kind::Text => return vec![Row::Answer],
+            Kind::Info => return vec![Row::Next],
+            Kind::Single | Kind::Multi => {}
         }
         let options = (0..question.options.as_ref().map_or(0, Vec::len)).map(Row::Option);
         let own = question
@@ -605,13 +614,27 @@ impl SessionState {
             .collect()
     }
 
-    /// What a submit would send, counted.
+    /// What a submit would send, counted. Info items take no answer, so
+    /// they count neither as answered nor as skipped, also when a note puts
+    /// them into the result.
     pub fn counts(&self) -> Counts {
-        let result = result_answers(&self.session, &self.answers());
+        let asks = |question: &&Question| question.kind != Kind::Info;
+        let asked: Vec<&str> = self
+            .session
+            .questions
+            .iter()
+            .filter(asks)
+            .map(|question| question.id.as_str())
+            .collect();
+        let result: Vec<Answer> = result_answers(&self.session, &self.answers())
+            .into_iter()
+            .filter(|answer| asked.contains(&answer.question.as_str()))
+            .collect();
         Counts {
             answered: result.iter().filter(|answer| !answer.skipped).count(),
             skipped: result.iter().filter(|answer| answer.skipped).count(),
             defaulted: result.iter().filter(|answer| answer.defaulted).count(),
+            questions: asked.len(),
         }
     }
 
@@ -640,13 +663,21 @@ impl SessionState {
             .questions
             .iter()
             .zip(self.answers())
-            .map(|(question, answer)| QuestionState {
-                answer: match (is_answered(question, &answer), answer.defaulted) {
-                    (false, _) => AnswerState::Skipped,
-                    (true, true) => AnswerState::Defaulted,
-                    (true, false) => AnswerState::Answered,
+            .map(|(question, answer)| match question.kind {
+                // A blank note on an info item is no note, as the result
+                // leaves the item out then.
+                Kind::Info => QuestionState {
+                    answer: AnswerState::Info,
+                    note: has_note(&answer),
                 },
-                note: answer.note.is_some(),
+                Kind::Single | Kind::Multi | Kind::Text => QuestionState {
+                    answer: match (is_answered(question, &answer), answer.defaulted) {
+                        (false, _) => AnswerState::Skipped,
+                        (true, true) => AnswerState::Defaulted,
+                        (true, false) => AnswerState::Answered,
+                    },
+                    note: answer.note.is_some(),
+                },
             })
             .collect()
     }
@@ -908,7 +939,7 @@ impl SessionState {
             .expect("validation leaves every tab at least one row");
         match row {
             Row::Option(index) if self.kind() == Some(Kind::Single) => self.pick(index),
-            Row::Option(_) | Row::Answer => self.go_to_tab(self.tab + 1),
+            Row::Option(_) | Row::Answer | Row::Next => self.go_to_tab(self.tab + 1),
             Row::Own => self.pick_own(),
             Row::Question(index) => self.go_to_tab(index),
             Row::Submit | Row::Note => self.submit(),
@@ -980,7 +1011,7 @@ impl SessionState {
             Row::Note => &self.session_note,
             Row::Reject => &self.reject_reason,
             Row::Own | Row::Answer => &self.working[self.tab].custom,
-            Row::Option(_) | Row::Question(_) | Row::Submit => return None,
+            Row::Option(_) | Row::Next | Row::Question(_) | Row::Submit => return None,
         };
         Some(text)
     }
@@ -1059,7 +1090,12 @@ impl SessionState {
             return Effect::None;
         };
         if !question.note {
-            self.message = Some(Notice::new(Tone::Warning, "this question takes no note"));
+            let refusal = if question.kind == Kind::Info {
+                "this item takes no note"
+            } else {
+                "this question takes no note"
+            };
+            self.message = Some(Notice::new(Tone::Warning, refusal));
             return Effect::None;
         }
         self.field = Some(TextField::new(&self.working[self.tab].note));
@@ -1222,11 +1258,17 @@ fn restored(question: &Question, answer: &Answer) -> Working {
     if question.kind == Kind::Single {
         selected.truncate(1);
     }
+    // An info item has no field, so typed text the draft kept for a question
+    // of the same id would count as an answer nobody can see or clear.
+    let custom = match question.kind {
+        Kind::Info => None,
+        Kind::Single | Kind::Multi | Kind::Text => answer.custom.as_deref(),
+    };
     // Text in a draft reaches a field without being typed, like a paste,
     // and is cleaned the same way, so the field draws what it counts.
     Working {
         selected,
-        custom: cleaned(answer.custom.as_deref().unwrap_or_default()),
+        custom: cleaned(custom.unwrap_or_default()),
         note: cleaned(answer.note.as_deref().unwrap_or_default()),
         touched: !answer.defaulted,
     }
@@ -2212,7 +2254,206 @@ mod tests {
             Counts {
                 answered: 1,
                 skipped: 3,
-                defaulted: 1
+                defaulted: 1,
+                questions: 4,
+            }
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Info items
+    // ---------------------------------------------------------------
+
+    /// An info item with context, a question, and an info item that takes
+    /// no note; the review follows them.
+    const WITH_INFO: &str = r#"{"asqr": 2, "questions": [
+        {"id": "checks", "text": "All checks passed.", "kind": "info",
+         "context": [{"type": "markdown", "content": "| a | b |"}]},
+        {"id": "go", "text": "Publish?", "kind": "single",
+         "options": [{"id": "yes", "label": "Yes"}, {"id": "no", "label": "No"}]},
+        {"id": "quiet", "text": "Nothing to add.", "kind": "info", "note": false}
+    ]}"#;
+
+    fn with_info() -> SessionState {
+        SessionState::new(
+            "info",
+            serde_json::from_str(WITH_INFO).expect("test session parses"),
+            None,
+        )
+    }
+
+    #[test]
+    fn an_info_item_has_the_next_row_only() {
+        let state = with_info();
+
+        assert_eq!(state.rows(), [Row::Next]);
+        assert_eq!(state.focus(), Focus::None);
+    }
+
+    #[test]
+    fn enter_on_the_next_row_moves_on_to_the_next_tab() {
+        let mut state = with_info();
+
+        let effect = state.handle(code(KeyCode::Enter));
+
+        assert_eq!(
+            (effect, state.tab(), state.row()),
+            (Effect::DraftChanged, 1, 0)
+        );
+    }
+
+    #[test]
+    fn digits_and_space_do_nothing_on_an_info_item() {
+        let mut state = with_info();
+
+        press(&mut state, "1 ");
+
+        assert_eq!((state.tab(), state.row()), (0, 0));
+        assert_eq!(answer(&state, "checks"), Answer::new("checks"));
+    }
+
+    #[test]
+    fn n_writes_a_note_on_an_info_item_and_the_submit_sends_it_alone() {
+        let mut state = with_info();
+        press(&mut state, "nlooks good");
+        state.handle(code(KeyCode::Enter));
+        go_to_tab(&mut state, 3);
+
+        let Effect::Submit { answers, .. } = state.handle(code(KeyCode::Enter)) else {
+            panic!("enter on Submit submits");
+        };
+
+        assert_eq!(
+            answers,
+            [
+                Answer {
+                    note: Some("looks good".into()),
+                    ..Answer::new("checks")
+                },
+                Answer::skipped("go"),
+            ],
+            "the info item without a note is left out"
+        );
+    }
+
+    #[test]
+    fn an_info_item_counts_neither_answered_nor_skipped() {
+        assert_eq!(
+            with_info().counts(),
+            Counts {
+                answered: 0,
+                skipped: 1,
+                defaulted: 0,
+                questions: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn an_info_item_without_notes_says_so() {
+        let mut state = with_info();
+        go_to_tab(&mut state, 2);
+
+        press(&mut state, "n");
+
+        assert_eq!(state.message(), Some(&refused("this item takes no note")));
+        assert_eq!(state.focus(), Focus::None);
+    }
+
+    #[test]
+    fn the_draft_keeps_the_note_of_an_info_item() {
+        let mut state = with_info();
+        press(&mut state, "nlater");
+        let draft = state.to_draft();
+
+        let restored = SessionState::new(
+            "info",
+            serde_json::from_str(WITH_INFO).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(answer(&restored, "checks").note.as_deref(), Some("later"));
+    }
+
+    #[test]
+    fn a_restored_draft_drops_typed_text_on_an_info_item() {
+        // The text belonged to a question of the same id that a replaced
+        // file turned into an info item, which has no field to show it.
+        let draft = SessionResult::draft(
+            "info",
+            "checks",
+            vec![Answer {
+                custom: Some("typed before".into()),
+                ..Answer::new("checks")
+            }],
+        );
+
+        let restored = SessionState::new(
+            "info",
+            serde_json::from_str(WITH_INFO).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(answer(&restored, "checks").custom, None);
+        assert!(!crate::queue::draft_has_answer(&restored.to_draft()));
+    }
+
+    #[test]
+    fn an_info_item_is_neither_answered_nor_skipped_and_a_blank_note_is_none() {
+        let mut state = with_info();
+        press(&mut state, "n ");
+
+        let states = state.question_states();
+
+        assert_eq!(
+            states[0],
+            QuestionState {
+                answer: AnswerState::Info,
+                note: false
+            }
+        );
+        assert_eq!(states[2].answer, AnswerState::Info);
+    }
+
+    #[test]
+    fn the_window_loads_an_info_items_entry_ahead() {
+        let mut state = with_info();
+        go_to_tab(&mut state, 1);
+
+        let keys: Vec<EntryKey> = state.window().into_iter().map(|(key, _)| key).collect();
+
+        assert_eq!(
+            keys,
+            [EntryKey {
+                question: 0,
+                option: None
+            }]
+        );
+    }
+
+    #[test]
+    fn a_session_of_info_items_only_submits_the_notes_alone() {
+        let json = r#"{"asqr": 2, "questions": [
+            {"id": "a", "text": "Done.", "kind": "info"},
+            {"id": "b", "text": "Also done.", "kind": "info"}]}"#;
+        let mut state =
+            SessionState::new("report", serde_json::from_str(json).expect("parses"), None);
+        go_to_tab(&mut state, 2);
+
+        assert_eq!(
+            state.counts(),
+            Counts {
+                answered: 0,
+                skipped: 0,
+                defaulted: 0,
+                questions: 0,
+            }
+        );
+        assert_eq!(
+            state.handle(code(KeyCode::Enter)),
+            Effect::Submit {
+                answers: Vec::new(),
+                note: None
             }
         );
     }

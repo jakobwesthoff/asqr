@@ -32,26 +32,44 @@ pub fn is_answered(question: &Question, answer: &Answer) -> bool {
                     && question.max.is_none_or(|max| count <= max))
         }
         Kind::Text => has_text(answer),
+        // An info item takes no answer, so nothing a draft carries answers
+        // it.
+        Kind::Info => false,
     }
 }
 
+/// Whether `answer` carries a note that is more than whitespace.
+pub fn has_note(answer: &Answer) -> bool {
+    answer
+        .note
+        .as_deref()
+        .is_some_and(|note| !note.trim().is_empty())
+}
+
 /// The answers of a result: every question of `session` exactly once, in
-/// session order, shaped per kind. `answers` are the working answers, in any
-/// order and possibly incomplete.
+/// session order, shaped per kind, apart from info items, which take no
+/// answer and appear only with a note (spec section 4.1). `answers` are the
+/// working answers, in any order and possibly incomplete.
 pub fn result_answers(session: &Session, answers: &[Answer]) -> Vec<Answer> {
     session
         .questions
         .iter()
-        .map(|question| {
+        .filter_map(|question| {
             let working = answers.iter().find(|answer| answer.question == question.id);
-            match working {
+            if question.kind == Kind::Info {
+                return working
+                    .filter(|answer| has_note(answer))
+                    .map(|answer| shaped(question, answer));
+            }
+            let answer = match working {
                 Some(answer) if is_answered(question, answer) => shaped(question, answer),
                 Some(answer) => Answer {
                     note: answer.note.clone(),
                     ..Answer::skipped(&question.id)
                 },
                 None => Answer::skipped(&question.id),
-            }
+            };
+            Some(answer)
         })
         .collect()
 }
@@ -63,17 +81,12 @@ pub fn result_answers(session: &Session, answers: &[Answer]) -> Vec<Answer> {
 pub fn rejected_answers(session: &Session, answers: &[Answer]) -> Vec<Answer> {
     result_answers(session, answers)
         .into_iter()
-        .filter(|answer| {
-            let noted = answer
-                .note
-                .as_deref()
-                .is_some_and(|note| !note.trim().is_empty());
-            noted || !answer.skipped
-        })
+        .filter(|answer| has_note(answer) || !answer.skipped)
         .collect()
 }
 
-/// An answered question's answer with only the fields its kind allows.
+/// An answered question's answer with only the fields its kind allows; an
+/// info item's is its note alone.
 fn shaped(question: &Question, answer: &Answer) -> Answer {
     let custom = if has_text(answer) {
         answer.custom.clone()
@@ -87,6 +100,7 @@ fn shaped(question: &Question, answer: &Answer) -> Answer {
         Kind::Single => (Vec::new(), custom),
         Kind::Multi => (answer.selected.clone(), custom),
         Kind::Text => (Vec::new(), custom),
+        Kind::Info => (Vec::new(), None),
     };
     Answer {
         question: question.id.clone(),
@@ -289,6 +303,69 @@ mod tests {
         assert_eq!(
             result_answers(&session, std::slice::from_ref(&both)),
             [both]
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Info items
+    // -----------------------------------------------------------------
+
+    const INFO: &str = r#"{"id": "i", "text": "All checks passed.", "kind": "info"}"#;
+
+    #[test]
+    fn an_info_item_is_never_answered() {
+        // Not even by text a draft carried over from a question that had
+        // the same id.
+        assert!(!is_answered(&question(INFO), &custom("i", "typed")));
+        assert!(!is_answered(&question(INFO), &Answer::new("i")));
+    }
+
+    #[test]
+    fn the_result_leaves_out_an_info_item_without_a_note() {
+        let session = session(&[INFO, TEXT].join(","));
+
+        assert_eq!(
+            result_answers(&session, &[Answer::new("i"), custom("t", "typed")]),
+            [custom("t", "typed")]
+        );
+    }
+
+    #[test]
+    fn the_result_lists_an_info_item_with_a_note_as_the_note_alone() {
+        let session = session(INFO);
+        let noted_with_text = Answer {
+            custom: Some("left over".into()),
+            ..noted(Answer::new("i"), " looks good\n")
+        };
+
+        assert_eq!(
+            result_answers(&session, &[noted_with_text]),
+            [Answer {
+                note: Some(" looks good\n".into()),
+                ..Answer::new("i")
+            }],
+            "the note as typed, nothing else"
+        );
+    }
+
+    #[test]
+    fn a_blank_note_on_an_info_item_leaves_it_out() {
+        let session = session(INFO);
+
+        assert_eq!(
+            result_answers(&session, &[noted(Answer::new("i"), " \n ")]),
+            []
+        );
+    }
+
+    #[test]
+    fn a_rejected_result_keeps_a_noted_info_item_and_leaves_out_the_others() {
+        let session = session(&[INFO, r#"{"id": "j", "text": "More.", "kind": "info"}"#].join(","));
+        let answers = [noted(Answer::new("i"), "why"), Answer::new("j")];
+
+        assert_eq!(
+            rejected_answers(&session, &answers),
+            [noted(Answer::new("i"), "why")]
         );
     }
 

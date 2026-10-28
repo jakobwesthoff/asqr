@@ -571,6 +571,17 @@ fn question_content(
                     (lines, None)
                 }
             }
+            // An info item's row reads like an option's, so the item never
+            // looks empty and the pointer shows where `enter` moves on.
+            Row::Next => {
+                let spans = vec![pointer(current), Span::from("next")];
+                let spans = if filled {
+                    spans.into_iter().map(theme::focus_span).collect()
+                } else {
+                    spans
+                };
+                (vec![Line::from(spans)], None)
+            }
             Row::Question(_) | Row::Submit | Row::Note | Row::Reject => {
                 unreachable!("review rows only appear on the review")
             }
@@ -871,7 +882,7 @@ fn review_content(state: &SessionState, width: usize, quote: QuoteStyle) -> Cont
                 let row = field_row(head, state.reject_reason());
                 live_field(state, row, width, &mut content.shape)
             }
-            Row::Option(_) | Row::Own | Row::Answer => {
+            Row::Option(_) | Row::Own | Row::Answer | Row::Next => {
                 unreachable!("question rows never appear on the review")
             }
         };
@@ -1025,6 +1036,37 @@ mod tests {
             "Notes: ab"
         );
         assert_eq!(modifier_at(&buf, "Notes: "), Modifier::BOLD);
+    }
+
+    #[test]
+    fn an_info_item_shows_the_next_row_under_the_pointer_like_an_option() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "i", "text": "All checks passed.", "kind": "info"}]}"#;
+        let state = SessionState::new("info", serde_json::from_str(json).expect("parses"), None);
+
+        let (content, buf) = tab_of(&state);
+
+        let rows: Vec<String> = (0..buf.area.height)
+            .map(|y| test_support::row(&buf, y))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                "All checks passed.",
+                "nothing to answer",
+                "",
+                "❯ next",
+                "",
+                "Notes: —",
+            ]
+        );
+        // The row is the current one, so a text taller than the area is
+        // cut above it, as on every question.
+        assert_eq!(content.cursor, (3, 3));
+        let next = test_support::find(&buf, "❯ next");
+        assert_eq!(
+            (buf[next].fg, buf[next].modifier),
+            (Color::Yellow, Modifier::REVERSED)
+        );
     }
 
     #[test]

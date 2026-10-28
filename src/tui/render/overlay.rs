@@ -97,11 +97,12 @@ pub(super) fn draw_session_list(area: Rect, buf: &mut Buffer, app: &App, cursor:
         buf,
     );
     let items = app.sessions().iter().map(|state| {
+        let counts = state.counts();
         format!(
             "{}  ({}/{} answered)",
             state.name(),
-            state.counts().answered,
-            state.session().questions.len()
+            counts.answered,
+            counts.questions
         )
     });
     // Nothing keeps the list's scroll from one draw to the next: the list
@@ -243,6 +244,22 @@ mod tests {
         draw_session_list(area, &mut buf, &app, 0);
 
         assert_eq!(row(&buf, 1), "  │ ❯ batch  (1/3 answered)          │");
+    }
+
+    #[test]
+    fn the_session_list_counts_only_questions_that_take_an_answer() {
+        let mut app = App::default();
+        let json = r#"{"asqr": 2, "questions": [
+            {"id": "i", "text": "Done.", "kind": "info"},
+            {"id": "s", "text": "?", "kind": "single", "options": [{"id": "a", "label": "A"}]}
+        ]}"#;
+        let session = serde_json::from_str(json).expect("parses");
+        app.add(SessionState::new("batch", session, None));
+        let area = Rect::new(0, 0, 40, 3);
+        let mut buf = Buffer::empty(area);
+        draw_session_list(area, &mut buf, &app, 0);
+
+        assert_eq!(row(&buf, 1), "  │ ❯ batch  (0/1 answered)          │");
     }
 
     #[test]

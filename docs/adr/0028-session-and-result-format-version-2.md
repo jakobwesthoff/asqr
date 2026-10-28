@@ -18,6 +18,8 @@ Amended by [60. Highlight a diff's unchanged lines and fill its changed ones](00
 
 Amended by [61. Add question kinds within format version 2](0061-add-question-kinds-within-format-version-2.md)
 
+Amended by [62. Show text and context without asking through an info item](0062-show-text-and-context-without-asking-through-an-info-item.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

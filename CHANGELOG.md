@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A diff whose two sides together exceed 1 MiB shows without
   highlighting. `asqr validate` and `asqr ask` no longer warn about
   `language` on a diff entry.
+- A question of kind `info` shows its text and context and asks
+  nothing: it takes no options, own answer or length, and the person may
+  add a note to it. It has a tab like a question, marked with a dim `ℹ`,
+  the hint "nothing to answer" under its text and one row, `next`, on
+  which `enter` moves on. It counts neither as answered nor as skipped,
+  in the review, the confirmation of a submit and the session list. A
+  result lists an info item only when the person wrote a note on it, as
+  `{"question": ..., "note": ...}`. A session may consist of info items
+  only. asqr 0.13.1 and earlier refuse a session with an info item.
 
 ### Changed
 

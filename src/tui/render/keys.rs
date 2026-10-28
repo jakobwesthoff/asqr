@@ -280,6 +280,14 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<Hint> {
             HELP_HINT,
             QUIT_HINT,
         ],
+        // An info item's one row leaves nothing to move between.
+        (Focus::None, _) if kind == Some(Kind::Info) => vec![
+            cursor("enter", "next"),
+            QUESTION_HINT,
+            NOTE_HINT,
+            HELP_HINT,
+            QUIT_HINT,
+        ],
         (Focus::None, _) if kind == Some(Kind::Multi) => vec![
             cursor("↑/↓", "move"),
             cursor("space", "toggle"),
@@ -736,6 +744,24 @@ mod tests {
             pairs(&key_hints(&session(true, "single"), true, Some(page))),
             [("↑/↓", "move"), ("enter", "open"), ("esc", "close")],
             "the session list names no pane"
+        );
+    }
+
+    #[test]
+    fn an_info_item_names_enter_next_and_no_moving() {
+        // Its one row leaves nothing to move between.
+        let json = r#"{"asqr": 2, "questions": [{"id": "i", "text": "Done.", "kind": "info"}]}"#;
+        let state = SessionState::new("hints", serde_json::from_str(json).expect("parses"), None);
+
+        assert_eq!(
+            pairs(&key_hints(&state, false, None)),
+            [
+                ("enter", "next"),
+                ("←/→", "question"),
+                ("n", "note"),
+                ("?", "help"),
+                ("q", "quit")
+            ]
         );
     }
 

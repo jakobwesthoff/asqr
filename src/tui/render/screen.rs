@@ -896,6 +896,36 @@ mod tests {
         }
     }
 
+    /// An info item with a table of results in its context, then a
+    /// question.
+    const WITH_INFO: &str = r#"{"asqr": 2, "title": "Release 0.3.0",
+        "intro": "The checks so far, then one decision.",
+        "questions": [
+        {"id": "checks", "header": "Checks", "kind": "info",
+         "text": "All checks passed. Two flaky tests passed on a retry:\n\n- `fetch::retries_on_timeout`\n- `queue::drops_in_order`",
+         "context": [{"type": "markdown", "title": "Results",
+                      "content": "| suite | result |\n|---|---|\n| unit | 1210 passed |\n| cli | 19 passed |\n| pty | 18 passed |\n"}]},
+        {"id": "go", "header": "Go?", "text": "Publish 0.3.0 now?", "kind": "single",
+         "options": [{"id": "yes", "label": "Publish now"}, {"id": "later", "label": "Later"}]}]}"#;
+
+    #[test]
+    fn an_info_item_shows_its_text_and_context_and_a_row_to_move_on() {
+        let app = app(&[("release", WITH_INFO)]);
+
+        insta::assert_snapshot!("info_item_80x24", screen(&app, 80, 24));
+        insta::assert_snapshot!("info_item_120x30", screen(&app, 120, 30));
+    }
+
+    #[test]
+    fn the_review_marks_an_info_item_and_shows_only_its_note() {
+        let mut app = app(&[("release", WITH_INFO)]);
+        keys(&mut app, "nlooks good");
+        special(&mut app, KeyCode::Enter);
+        keys(&mut app, "ll");
+
+        insta::assert_snapshot!("review_with_info_item_80x24", screen(&app, 80, 24));
+    }
+
     #[test]
     fn the_review_shows_labels_and_text_cut_to_the_line() {
         let mut app = app(&[("release", RELEASE)]);

@@ -398,6 +398,11 @@
           "const": "text",
           "description": "A typed answer, without options.",
           "type": "string"
+        },
+        {
+          "const": "info",
+          "description": "Shows its text and context and takes no answer; the person may add\na note.",
+          "type": "string"
         }
       ]
     },
@@ -487,7 +492,7 @@
       "type": "object"
     },
     "Question": {
-      "description": "One thing for the person to decide.",
+      "description": "One item of the session: a thing for the person to decide, or, of kind\n`info`, something to read.",
       "properties": {
         "context": {
           "description": "Material shown next to the question that helps to answer it. Most\nquestions have none. A list, of which this asqr shows one entry.",
@@ -568,7 +573,7 @@
           ]
         },
         "text": {
-          "description": "The question itself. Markdown: a single newline breaks the line,\nand raw HTML shows as written.",
+          "description": "The question, or what an info item shows. Markdown: a single\nnewline breaks the line, and raw HTML shows as written.",
           "type": "string"
         }
       },
