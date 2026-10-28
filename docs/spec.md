@@ -166,8 +166,11 @@ such as a file name:
   itself. `old` and `new` are each `{ "path": ... }` or
   `{ "content": ... }`, exactly one of the two. A missing `old` is a new
   file, a missing `new` a deleted one. `name` (optional) is the file
-  name the diff is about, shown in the header. A diff shows without
-  syntax highlighting, so it takes no language. A unified diff written
+  name the diff is about, shown in the header. `language` (optional),
+  such as `tsx`, names the language the diff's unchanged lines are
+  highlighted in; without it the extension of `name` decides, or the
+  whole name when it has none, and failing that they show plain
+  (section 8.5). A unified diff written
   by the asker is not understood: asqr diffs it like any other text and
   shows a diff of the diff. asqr shows the change as a unified diff
   (section 8.5).
@@ -862,7 +865,8 @@ has context (section 7.4, ADRs 30 and 31):
 
 - The colours (ADR 37) are the terminal's named colours, so its theme
   decides how they look: cyan as the primary colour, yellow for the
-  focus, green and red for the length counter and diff lines, yellow,
+  focus, green and red for the length counter and the fills of changed
+  diff lines, yellow,
   red and green for notices and messages by their kind, dim for
   secondary text.
 - The row under the cursor, a field's head under it while the field
@@ -871,12 +875,14 @@ has context (section 7.4, ADRs 30 and 31):
   one colour over the whole row, or over the name and its blanks in the
   pane's header rule. One focus fill shows at a time. The focused
   context pane's rules and edge turn yellow (section 8.1). The submit
-  button is the only other fill (section 7.8).
+  button (section 7.8) and the changed lines of a diff (section 8.5) are
+  the only other fills.
 - The help, the whole intro and the session list show in a frame with
   rounded corners in the primary colour, a bold title, a dim footer and
   a blank column inside each side; the help's keys are bold in the
   primary colour.
-- Code and Markdown keep their highlighting colours, and an `ansi` entry
+- Code, Markdown and a diff's unchanged lines keep their highlighting
+  colours, and an `ansi` entry
   the colours its text sets. Marks, pointers, text and the fills carry
   every meaning, so nothing depends on colour alone.
 - Under `NO_COLOR` (section 6.2) the TUI draws without colours. Text,
@@ -1500,10 +1506,12 @@ Code entries, ANSI entries and diffs show lines of source:
   each change, and a dim line of `┈` between two hunks. A dim gutter
   holds the old and the new line number, followed by the sign: `-` for
   a removed line, `+` for an added one, a blank for an unchanged one.
-- Removed lines are red and added lines green, in the terminal's
-  palette, so its theme decides the shades. A changed line shows as its
-  old version removed and its new version added, each whole in its
-  colour, with nothing marked inside the line.
+- A removed line shows in a red fill and an added line in a green fill,
+  across the pane's width with its numbers and sign: reversed video of
+  the terminal's red and green, so its theme decides the shades. A
+  changed line shows as its old version removed and its new version
+  added, each whole in its fill, with nothing marked inside the line and
+  without syntax colours.
 - A diff without `old` starts with a dim "new file", one without `new`
   with "deleted file"; when that file is empty, "empty file" follows.
   Two sides with the same text show "no changes".
@@ -1518,8 +1526,14 @@ Code entries, ANSI entries and diffs show lines of source:
   kinds is `mixed` with each kind, as `old mixed CRLF and LF`. Like
   every note, it is cut at the pane's edge. A side of a single line
   without a line end differs from neither.
-- Diffs have no syntax highlighting, and the pane shows the hunks only,
-  never the whole file.
+- Unchanged lines are highlighted in the diff's language (section 3.3)
+  with the 8 colours of the terminal's palette, like a code entry. They
+  take their colours from the new text, highlighted from its first line
+  on, so a hunk that starts inside a comment or a string shows it as
+  one. A new or deleted file, all of whose lines are changed, shows no
+  syntax colours. A diff whose two sides together are longer than 1 MiB
+  shows without highlighting.
+- The pane shows the hunks only, never the whole file.
 - Computing a diff may take up to a second. Past that, asqr shows a
   diff that is still correct but may mark more lines as changed than
   needed.

@@ -958,16 +958,25 @@ mod tests {
     #[test]
     fn path_and_content_on_a_diff_are_an_error_not_unknown_fields() {
         // Validation reports them with a hint where the texts go, so the
-        // generic warning would only repeat the problem. A diff has no
-        // `language`, as it shows without highlighting.
+        // generic warning would only repeat the problem. A real unknown
+        // field next to them is still reported.
         let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
-            "context": [{"type": "diff", "path": "/change.diff", "content": "x", "language": "rust",
+            "context": [{"type": "diff", "path": "/change.diff", "content": "x", "lang": "rust",
                          "new": {"content": "b"}}]}]}"#;
 
         assert_eq!(
             warn(json, None),
-            ["questions[0].context[0].language: unknown field"]
+            ["questions[0].context[0].lang: unknown field"]
         );
+    }
+
+    #[test]
+    fn a_diff_takes_a_language() {
+        let json = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "diff", "name": "fetch.ts", "language": "tsx",
+                         "new": {"content": "b"}}]}]}"#;
+
+        assert_eq!(warn(json, None), Vec::<String>::new());
     }
 
     #[test]

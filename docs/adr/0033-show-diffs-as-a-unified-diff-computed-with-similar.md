@@ -10,6 +10,8 @@ Amends [31. Make the context area a pane with a header, focus and scrolling](003
 
 Amended by [49. Present problems through one component in three forms](0049-present-problems-through-one-component-in-three-forms.md)
 
+Amended by [60. Highlight a diff's unchanged lines and fill its changed ones](0060-highlight-a-diffs-unchanged-lines-and-fill-its-changed-ones.md)
+
 ## Context
 
 A diff entry carries the old and the new text, each inline or from a

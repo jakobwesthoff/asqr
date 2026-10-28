@@ -164,14 +164,26 @@ Once asked, asqr fits best when:
     `old` for a new file and `new` for a deleted one, never both: a
     diff needs at least one side. `name` is the
     file's name, such as `src/fetch.rs`, shown in the header when there
-    is no `title`. Give a `title` that says what the change does, such
-    as "Retry with backoff".
+    is no `title`. Its extension picks the language the unchanged lines
+    around the change are highlighted in; the removed and added lines
+    show on a red and a green fill. `language`, such as `tsx`, overrides
+    the language `name` gives: give it when `name` does not say the
+    language you want, such as a `.txt` name whose text is Rust. Without
+    `language`, the extension of `name` decides, or the whole name when
+    it has none, as `Makefile` and `Dockerfile` do. Show a suggested
+    change as a diff, not as a code block of the new version: only the
+    diff shows what the change replaces. A new file shows as a diff of
+    added lines only, without syntax colours; when the person should
+    read new code highlighted, give it as a `code` entry. Give a `title`
+    that says what the change does, such as "Retry with backoff".
   - asqr shows a diff unified: only the changed lines with 3 unchanged
     lines around each change, a separator between such hunks, the old
-    and the new line number of every line, removed lines red and added
-    lines green. A long line does not wrap; the person scrolls
-    sideways. There is no syntax highlighting in a diff. Identical
-    versions show "no changes".
+    and the new line number of every line, removed lines in a red fill
+    and added lines in a green fill across the pane, and the unchanged
+    lines highlighted in the diff's language. A diff whose two versions
+    together exceed 1 MiB shows without highlighting. A long line does
+    not wrap; the person scrolls sideways. Identical versions show "no
+    changes".
   - asqr shows a code entry highlighted, with line numbers in a gutter.
     Long lines do not wrap; the person scrolls sideways. A Markdown entry
     is rendered and wrapped to the pane: headings, emphasis, lists, task

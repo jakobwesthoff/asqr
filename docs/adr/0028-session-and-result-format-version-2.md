@@ -14,6 +14,8 @@ Amended by [51. Add context entry types within format version 2](0051-add-contex
 
 Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-with-ansi-colours-as-a-context-entry.md)
 
+Amended by [60. Highlight a diff's unchanged lines and fill its changed ones](0060-highlight-a-diffs-unchanged-lines-and-fill-its-changed-ones.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

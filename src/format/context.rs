@@ -135,9 +135,15 @@ pub struct DiffEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new: Option<DiffSide>,
 
-    /// The file name the diff is about, shown in the header.
+    /// The file name the diff is about, shown in the header. Its extension
+    /// picks the language when `language` does not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+
+    /// The language for highlighting the unchanged lines, such as `rust`
+    /// or `tsx`. Without it, the extension of `name` decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 
     // A `path` or `content` on the entry itself, where an agent with a
     // unified diff at hand puts it. Neither is part of the format, so the
@@ -302,6 +308,17 @@ mod tests {
             panic!("a diff entry");
         };
         assert!(!diff.misplaced_source());
+    }
+
+    #[test]
+    fn a_diff_writes_back_its_language() {
+        let entry = json!({"type": "diff", "name": "fetch.ts", "language": "tsx",
+                           "new": {"content": "x"}});
+
+        assert_eq!(
+            serde_json::to_value(parse(entry.clone())).expect("entry serializes"),
+            entry
+        );
     }
 
     #[test]

@@ -64,7 +64,7 @@ fn content_of(
 /// line. The limit is 1 MiB: a log under 1 MiB is highlighted in under a
 /// second, larger files stay unhighlighted and cost neither seconds nor
 /// hundreds of MB, and other grammars can be slow too.
-const HIGHLIGHT_LIMIT: usize = 1024 * 1024;
+pub(super) const HIGHLIGHT_LIMIT: usize = 1024 * 1024;
 
 /// The language to highlight `text`, the text of `entry`, in: none for a
 /// text longer than [`HIGHLIGHT_LIMIT`], else the entry's [`language`].
@@ -88,7 +88,7 @@ fn language(entry: &CodeEntry) -> Option<String> {
 /// What a file name says about its language: its extension, or the whole
 /// name when it has none, as `Makefile` and `Dockerfile` do. syntect's
 /// grammars list such names among their extensions.
-fn kind_of_file(name: &str) -> Option<String> {
+pub(super) fn kind_of_file(name: &str) -> Option<String> {
     let path = Path::new(name);
     path.extension()
         .or_else(|| path.file_name())

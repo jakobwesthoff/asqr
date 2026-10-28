@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The unchanged lines of a `diff` entry are highlighted in its language,
+  like a `code` entry: the extension of `name` picks it, and an optional
+  `language`, such as `tsx`, overrides it. The new text is highlighted
+  from its start, so a hunk inside a comment or a string colours right.
+  A diff whose two sides together exceed 1 MiB shows without
+  highlighting. `asqr validate` and `asqr ask` no longer warn about
+  `language` on a diff entry.
+
+### Changed
+
+- A removed line of a diff shows in a red fill and an added line in a
+  green fill to the pane's edge, numbers and sign included, in place of
+  red and green text. Changed lines show without syntax colours.
+
 ## [0.13.1] - 2026-10-22
 
 ### Added

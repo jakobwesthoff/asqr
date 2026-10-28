@@ -2,20 +2,25 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! The viewer of diff entries (spec section 8.5, ADR 33): the change from
-//! the old to the new text as a unified diff, which asqr computes itself.
+//! The viewer of diff entries (spec section 8.5, ADRs 33 and 60): the
+//! change from the old to the new text as a unified diff, which asqr
+//! computes itself. Changed lines show in a red or green fill, unchanged
+//! lines highlighted in the diff's language.
 
 use std::borrow::Cow;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use patine::StyledLine;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
-use similar::{Algorithm, Change, ChangeTag, TextDiff};
+use similar::{Algorithm, Change, ChangeTag, DiffOp, DiffTag, TextDiff};
 
+use super::code::{HIGHLIGHT_LIMIT, kind_of_file};
+use super::patine_adapter::source_line;
 use super::source_file::{Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
@@ -36,21 +41,37 @@ const DIFF_TIME: Duration = Duration::from_secs(1);
 const SEPARATOR: &str = "┈";
 
 /// The viewer of `entry` as a unified diff: hunks with three lines of
-/// context, both line numbers in a dim gutter, removed lines red and added
-/// ones green, or the card of the first side that cannot be read. Reads
-/// both sides and computes the whole diff, so drawing only copies cells.
-/// The home folder `home` shows as `~` in the path of a side that cannot
-/// be read.
+/// context, both line numbers in a dim gutter, removed lines in a red fill
+/// and added ones in a green fill, unchanged lines highlighted in the
+/// entry's [`language`], or the card of the first side that cannot be
+/// read. Reads both sides, computes the whole diff and highlights it, so
+/// drawing only copies cells. The home folder `home` shows as `~` in the
+/// path of a side that cannot be read.
 pub(super) fn diff_content(entry: &DiffEntry, home: Option<&Path>) -> Content<Rows> {
     let sides =
         read("old", entry.old.as_ref()).and_then(|old| Ok((old, read("new", entry.new.as_ref())?)));
     match sides {
         Ok((old, new)) => {
             let cut = [&old, &new].into_iter().flatten().any(|side| side.cut);
-            Content::Body(Rows::of(text_of(old.as_ref()), text_of(new.as_ref()), cut))
+            Content::Body(Rows::of(
+                text_of(old.as_ref()),
+                text_of(new.as_ref()),
+                cut,
+                language(entry).as_deref(),
+            ))
         }
         Err((side, unreadable)) => Content::Problem(unreadable.card_on_side(side, home)),
     }
+}
+
+/// The language to highlight the unchanged lines of `entry` in: its
+/// `language`, else what the file name `name` says, as for a code entry.
+/// The `title` and the paths of the sides do not decide.
+fn language(entry: &DiffEntry) -> Option<String> {
+    entry
+        .language
+        .clone()
+        .or_else(|| entry.name.as_deref().and_then(kind_of_file))
 }
 
 // ---------------------------------------------------------------------
@@ -103,14 +124,14 @@ impl Rows {
     /// that a side is only the start of a longer file, so the diff shows
     /// the rest of the other side as removed or added. Whether the file is
     /// new or deleted comes first, then the change between the notes of a
-    /// cut file.
-    fn of(old: Option<&str>, new: Option<&str>, cut: bool) -> Rows {
+    /// cut file. Unchanged lines are highlighted in `language`.
+    fn of(old: Option<&str>, new: Option<&str>, cut: bool, language: Option<&str>) -> Rows {
         let created_or_deleted = match (old, new) {
             (None, Some(_)) => Some(Note::new("new file")),
             (Some(_), None) => Some(Note::new("deleted file")),
             _ => None,
         };
-        let (change, digits) = Rows::change(old, new, created_or_deleted.is_some());
+        let (change, digits) = Rows::change(old, new, created_or_deleted.is_some(), language);
         let rows = created_or_deleted
             .map(Row::Note)
             .into_iter()
@@ -122,8 +143,17 @@ impl Rows {
     /// The rows of the change from `old` to `new`, and how many digits
     /// their line numbers take. Text alike on both sides of a new or
     /// deleted file is an empty file.
-    fn change(old: Option<&str>, new: Option<&str>, created_or_deleted: bool) -> (Vec<Row>, usize) {
+    fn change(
+        old: Option<&str>,
+        new: Option<&str>,
+        created_or_deleted: bool,
+        language: Option<&str>,
+    ) -> (Vec<Row>, usize) {
         let mut rows = Vec::new();
+        // The two sides count together, as read, as the size warning counts
+        // them, and a diff past the limit shows plain as a code entry does.
+        let size = old.map_or(0, str::len) + new.map_or(0, str::len);
+        let language = language.filter(|_| size <= HIGHLIGHT_LIMIT);
         // Lines compare without their line ends, so a file saved on
         // Windows does not show every line as removed and added again with
         // the same text. One note says the ends differ and names those of
@@ -164,13 +194,15 @@ impl Rows {
         // or `- two` and `+ two` would look the same.
         let newline_differs = old.ends_with('\n') != new.ends_with('\n');
 
-        for (index, hunk) in diff.grouped_ops(CONTEXT_LINES).iter().enumerate() {
+        let hunks = diff.grouped_ops(CONTEXT_LINES);
+        let highlighted = highlighted_unchanged_lines(new, &hunks, language);
+        for (index, hunk) in hunks.iter().enumerate() {
             if index > 0 {
                 rows.push(Row::Separator);
             }
             for op in hunk {
                 for change in diff.iter_changes(op) {
-                    rows.push(line_row(&change));
+                    rows.push(line_row(&change, &highlighted));
                     if newline_differs && change.missing_newline() {
                         rows.push(Row::Note(Note::new("no newline at end of file")));
                     }
@@ -247,6 +279,18 @@ impl Viewer for Rows {
                         left: offset.left,
                     }
                     .render(row_area, buf);
+                    // A changed line fills its whole row, numbers, cut
+                    // markers and the blanks after its text included, so
+                    // the change stands out at once. Dim is lifted in the
+                    // fill, as under the focus fill.
+                    if *tag != ChangeTag::Equal {
+                        buf.set_style(
+                            row_area,
+                            line_style(*tag)
+                                .add_modifier(Modifier::REVERSED)
+                                .remove_modifier(Modifier::DIM),
+                        );
+                    }
                 }
             }
         }
@@ -255,16 +299,61 @@ impl Viewer for Rows {
 }
 
 /// The row of one line of the diff, numbered from 1 on each side it is on.
-/// The whole line takes its colour, with nothing marked inside it (ADR 33).
-fn line_row(change: &Change<&str>) -> Row {
+/// An unchanged line takes its colours from `highlighted`, the new side's
+/// lines highlighted from its start, by its number there. A changed line
+/// takes its colour whole, with nothing marked inside it (ADR 33), and no
+/// syntax colours, which its fill would make unreadable (ADR 60).
+fn line_row(change: &Change<&str>, highlighted: &[StyledLine]) -> Row {
     let value = change.value();
     let text = value.strip_suffix('\n').unwrap_or(value);
+    let unchanged = change
+        .new_index()
+        .filter(|_| change.tag() == ChangeTag::Equal)
+        .and_then(|index| highlighted.get(index));
     Row::Line {
         tag: change.tag(),
         old: change.old_index().map(|index| index + 1),
         new: change.new_index().map(|index| index + 1),
-        text: SourceLine::new([(text, line_style(change.tag()))]),
+        text: unchanged.map_or_else(
+            || SourceLine::new([(text, line_style(change.tag()))]),
+            source_line,
+        ),
     }
+}
+
+/// The lines of `new` highlighted in `language`, from its first line to the
+/// last unchanged line that `hunks` show, or none without a language or
+/// such a line. The text is highlighted as one, so a hunk that starts
+/// inside a block comment or a string shows it as one: a hunk highlighted
+/// alone would start in the grammar's first state and colour the inside of
+/// a comment as code. Only unchanged lines take syntax colours, and the
+/// state at a line depends only on the text above it, so nothing after the
+/// last of them is highlighted.
+fn highlighted_unchanged_lines(
+    new: &str,
+    hunks: &[Vec<DiffOp>],
+    language: Option<&str>,
+) -> Vec<StyledLine> {
+    let end = hunks
+        .iter()
+        .flatten()
+        .filter(|op| op.tag() == DiffTag::Equal)
+        .map(|op| op.new_range().end)
+        .max()
+        .unwrap_or(0);
+    match language {
+        Some(language) if end > 0 => patine::highlight(first_lines(new, end), Some(language)),
+        _ => Vec::new(),
+    }
+}
+
+/// The first `count` lines of `text`, at least one, each with its `\n`:
+/// the whole text when it has no more, so a last line without a newline
+/// counts.
+fn first_lines(text: &str, count: usize) -> &str {
+    text.match_indices('\n')
+        .nth(count - 1)
+        .map_or(text, |(end, _)| &text[..=end])
 }
 
 /// The note shown when the two sides end their lines differently, which
@@ -342,7 +431,8 @@ fn unix_line_ends(text: &str) -> Cow<'_, str> {
 }
 
 /// Removed lines are red and added ones green, in the terminal's palette,
-/// so its theme decides the exact colours.
+/// so its theme decides the exact colours. Drawn reversed, these are the
+/// fills of changed rows.
 fn line_style(tag: ChangeTag) -> Style {
     match tag {
         ChangeTag::Equal => Style::new(),
@@ -357,6 +447,7 @@ mod tests {
 
     use ratatui::style::{Color, Modifier};
 
+    use super::super::code::HIGHLIGHT_LIMIT;
     use super::super::source_file::MAX_BYTES;
     use super::super::test_support::{drawn, row, shown};
     use super::*;
@@ -384,7 +475,7 @@ mod tests {
     /// The viewer of the rows of `old` and `new`, where `cut` says a side
     /// is only the start of a longer file.
     fn of_rows(old: &str, new: &str, cut: bool) -> Content<Rows> {
-        Content::Body(Rows::of(Some(old), Some(new), cut))
+        Content::Body(Rows::of(Some(old), Some(new), cut, None))
     }
 
     fn file(path: &str) -> Option<DiffSide> {
@@ -527,23 +618,300 @@ impl Fetcher {
 
         insta::assert_snapshot!("changed_line", shown(&mut viewer, 30, 0));
         let buf = drawn(&mut viewer, 30, 4, Offset::default());
-        for y in 0..4 {
-            assert_eq!(with_modifier(&buf, y, Modifier::REVERSED), "", "row {y}");
-        }
-        let colour = |y: u16| -> Vec<Color> {
-            let text = row(&buf, y);
-            (6..u16::try_from(text.chars().count()).expect("a short row"))
-                .map(|x| buf[(x, y)].fg)
-                .collect()
-        };
+        // Every cell of a row in one style: nothing inside the line is
+        // marked apart from the rest of it.
         for (y, line) in [
             (0, Color::Red),
             (1, Color::Red),
             (2, Color::Green),
             (3, Color::Green),
         ] {
-            assert!(colour(y).iter().all(|&fg| fg == line), "row {y}");
+            assert_filled(&buf, y, line);
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Fills
+    // -----------------------------------------------------------------
+
+    /// Asserts that every cell of row `y` is reversed, without any other
+    /// modifier, in `colour`.
+    fn assert_filled(buf: &Buffer, y: u16, colour: Color) {
+        for x in 0..buf.area.width {
+            let cell = &buf[(x, y)];
+            assert_eq!(cell.modifier, Modifier::REVERSED, "row {y}, column {x}");
+            assert_eq!(cell.fg, colour, "row {y}, column {x}");
+        }
+    }
+
+    #[test]
+    fn a_changed_row_is_filled_in_its_colour_to_the_edge() {
+        let mut viewer = inline(Some("a\nb\n"), Some("a\nc\n"));
+
+        let buf = drawn(&mut viewer, 20, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "2   - b");
+        assert_filled(&buf, 1, Color::Red);
+        assert_eq!(row(&buf, 2), "  2 + c");
+        assert_filled(&buf, 2, Color::Green);
+        assert_eq!(
+            with_modifier(&buf, 0, Modifier::REVERSED),
+            "",
+            "an unchanged row"
+        );
+    }
+
+    #[test]
+    fn a_scrolled_changed_row_keeps_its_fill_under_the_cut_markers() {
+        let long = format!("let message = \"{}\";\n", "a long text ".repeat(4));
+        let mut viewer = inline(Some("let message = \"short\";\n"), Some(&long));
+
+        let buf = drawn(&mut viewer, 40, 2, Offset { top: 0, left: 20 });
+
+        assert_eq!(buf[(6, 1)].symbol(), "‹");
+        assert_eq!(buf[(39, 1)].symbol(), "›");
+        assert_filled(&buf, 1, Color::Green);
+    }
+
+    // -----------------------------------------------------------------
+    // Highlighting
+    // -----------------------------------------------------------------
+
+    /// The viewer of the diff entry `json` describes.
+    fn entry(json: serde_json::Value) -> Content<Rows> {
+        let entry: DiffEntry = serde_json::from_value(json).expect("test entry parses");
+        diff_content(&entry, None)
+    }
+
+    /// A diff entry with `fields` that changes the second of three lines
+    /// of Rust.
+    fn rust_change(fields: serde_json::Value) -> Content<Rows> {
+        let mut json = serde_json::json!({
+            "old": {"content": "fn a() {}\nlet x = 1;\nfn b() {}\n"},
+            "new": {"content": "fn a() {}\nlet x = 2;\nfn b() {}\n"},
+        });
+        json.as_object_mut()
+            .expect("an object")
+            .extend(fields.as_object().expect("an object").clone());
+        entry(json)
+    }
+
+    /// The foreground of the first cell of `text` in row `y`.
+    fn fg_in_row(buf: &Buffer, y: u16, text: &str) -> Color {
+        let shown = row(buf, y);
+        let x = shown
+            .find(text)
+            .unwrap_or_else(|| panic!("{text:?} in row {y}: {shown:?}"));
+        buf[(u16::try_from(x).expect("a short row"), y)].fg
+    }
+
+    #[test]
+    fn a_diff_is_highlighted_in_the_language_of_its_name() {
+        let mut viewer = rust_change(serde_json::json!({"name": "src/fetch.rs"}));
+
+        let buf = drawn(&mut viewer, 30, 4, Offset::default());
+
+        assert_eq!(row(&buf, 0), "1 1   fn a() {}");
+        assert_eq!(fg_in_row(&buf, 0, "fn"), Color::Indexed(5), "a keyword");
+        assert_eq!(fg_in_row(&buf, 3, "fn"), Color::Indexed(5));
+    }
+
+    #[test]
+    fn the_language_key_takes_precedence_over_the_name() {
+        let mut viewer = rust_change(serde_json::json!({"name": "notes.txt", "language": "rust"}));
+
+        let buf = drawn(&mut viewer, 30, 4, Offset::default());
+
+        assert_eq!(fg_in_row(&buf, 0, "fn"), Color::Indexed(5));
+    }
+
+    #[test]
+    fn a_name_without_an_extension_picks_its_grammar() {
+        let mut viewer = entry(serde_json::json!({
+            "name": "Dockerfile",
+            "old": {"content": "FROM rust:1.97\nRUN make\n"},
+            "new": {"content": "FROM rust:1.97\nRUN make test\n"},
+        }));
+
+        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+
+        assert_eq!(fg_in_row(&buf, 0, "FROM"), Color::Indexed(5));
+    }
+
+    #[test]
+    fn the_title_picks_no_language() {
+        let mut viewer = rust_change(serde_json::json!({"title": "fetch.rs"}));
+
+        let buf = drawn(&mut viewer, 30, 4, Offset::default());
+
+        assert_eq!(fg_in_row(&buf, 0, "fn"), Color::Reset);
+    }
+
+    #[test]
+    fn an_unknown_language_shows_plain() {
+        let mut unknown = rust_change(serde_json::json!({"language": "no-such-language"}));
+        let mut none = rust_change(serde_json::json!({}));
+
+        assert_eq!(
+            drawn(&mut unknown, 30, 4, Offset::default()),
+            drawn(&mut none, 30, 4, Offset::default())
+        );
+    }
+
+    #[test]
+    fn a_changed_line_shows_no_syntax_colours() {
+        let mut viewer = rust_change(serde_json::json!({"name": "fetch.rs"}));
+
+        let buf = drawn(&mut viewer, 30, 4, Offset::default());
+
+        assert_eq!(row(&buf, 1), "2   - let x = 1;");
+        assert_filled(&buf, 1, Color::Red);
+        assert_filled(&buf, 2, Color::Green);
+    }
+
+    #[test]
+    fn a_hunk_inside_a_block_comment_is_coloured_as_a_comment() {
+        let old = "/*\none\ntwo\nthree\nfour\nold line\nfn helper() {}\n*/\n";
+        let mut viewer = entry(serde_json::json!({
+            "name": "lib.rs",
+            "old": {"content": old},
+            "new": {"content": old.replace("old line", "new line")},
+        }));
+
+        let buf = drawn(&mut viewer, 30, 7, Offset::default());
+
+        assert_eq!(row(&buf, 0), "3 3   two", "the hunk starts in the comment");
+        assert_eq!(fg_in_row(&buf, 0, "two"), Color::Indexed(2));
+        assert_filled(&buf, 3, Color::Red);
+        assert_eq!(row(&buf, 5), "7 7   fn helper() {}");
+        assert_eq!(fg_in_row(&buf, 5, "fn"), Color::Indexed(2), "not a keyword");
+    }
+
+    #[test]
+    fn an_unchanged_line_takes_the_colours_of_the_new_side() {
+        let mut viewer = entry(serde_json::json!({
+            "name": "lib.rs",
+            "old": {"content": "fn a() {}\nfn b() {}\n"},
+            "new": {"content": "/*\nfn a() {}\nfn b() {}\n"},
+        }));
+
+        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "1 2   fn a() {}");
+        assert_eq!(
+            fg_in_row(&buf, 1, "fn"),
+            Color::Indexed(2),
+            "inside the comment"
+        );
+    }
+
+    #[test]
+    fn a_last_line_without_a_newline_is_highlighted() {
+        let mut viewer = entry(serde_json::json!({
+            "name": "a.rs",
+            "old": {"content": "fn a() {}\nfn b() {}"},
+            "new": {"content": "fn x() {}\nfn b() {}"},
+        }));
+
+        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+
+        assert_eq!(row(&buf, 2), "2 2   fn b() {}");
+        assert_eq!(fg_in_row(&buf, 2, "fn"), Color::Indexed(5));
+    }
+
+    #[test]
+    fn a_new_file_with_a_language_shows_its_rows_filled() {
+        let mut viewer = entry(serde_json::json!({
+            "name": "a.rs",
+            "new": {"content": "fn a() {}\nfn b() {}\n"},
+        }));
+
+        let buf = drawn(&mut viewer, 20, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "  1 + fn a() {}");
+        assert_filled(&buf, 1, Color::Green);
+        assert_filled(&buf, 2, Color::Green);
+    }
+
+    #[test]
+    fn a_deleted_file_with_a_language_shows_its_rows_filled() {
+        let mut viewer = entry(serde_json::json!({
+            "name": "a.rs",
+            "old": {"content": "fn a() {}\nfn b() {}\n"},
+        }));
+
+        let buf = drawn(&mut viewer, 20, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "1   - fn a() {}");
+        assert_filled(&buf, 1, Color::Red);
+        assert_filled(&buf, 2, Color::Red);
+    }
+
+    #[test]
+    fn sides_with_windows_line_ends_are_highlighted_line_by_line() {
+        let mut viewer = entry(serde_json::json!({
+            "name": "a.rs",
+            "old": {"content": "fn a() {}\r\nlet x = 1;\r\nfn b() {}\r\n"},
+            "new": {"content": "fn a() {}\r\nlet x = 2;\r\nfn b() {}\r\n"},
+        }));
+
+        let buf = drawn(&mut viewer, 30, 4, Offset::default());
+
+        assert_eq!(fg_in_row(&buf, 0, "fn"), Color::Indexed(5));
+        assert_eq!(row(&buf, 3), "3 3   fn b() {}");
+        assert_eq!(fg_in_row(&buf, 3, "fn"), Color::Indexed(5));
+        assert_eq!(
+            fg_in_row(&buf, 3, "b"),
+            Color::Indexed(4),
+            "a function's name"
+        );
+    }
+
+    /// The viewer of a Rust diff that changes its first line, after
+    /// `old_head` and `new_head`, and leaves the lines after it alike:
+    /// so many of them that both sides together take `bytes` bytes.
+    fn rust_change_of(old_head: &str, new_head: &str, bytes: usize) -> Content<Rows> {
+        let tail = "fn a() {}\n";
+        let filler = (bytes - old_head.len() - new_head.len()) / 2 - tail.len();
+        let line = "// filler\n";
+        let lines = filler / line.len() - 1;
+        let last = filler - lines * line.len();
+        let rest = format!("{tail}{}{}\n", line.repeat(lines), "x".repeat(last - 1));
+        let (old, new) = (format!("{old_head}{rest}"), format!("{new_head}{rest}"));
+        assert_eq!(old.len() + new.len(), bytes);
+        entry(serde_json::json!({
+            "name": "a.rs",
+            "old": {"content": old},
+            "new": {"content": new},
+        }))
+    }
+
+    #[test]
+    fn a_diff_of_one_mib_is_highlighted() {
+        let mut viewer = rust_change_of("let x = 1;\n", "let x = 2;\n", HIGHLIGHT_LIMIT);
+
+        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+
+        assert!(
+            row(&buf, 2).ends_with(" 2   fn a() {}"),
+            "{:?}",
+            row(&buf, 2)
+        );
+        assert_eq!(fg_in_row(&buf, 2, "fn"), Color::Indexed(5));
+    }
+
+    #[test]
+    fn a_diff_above_one_mib_shows_plain() {
+        let mut viewer = rust_change_of("let x = 1;\n", "let x = 22;\n", HIGHLIGHT_LIMIT + 1);
+
+        let buf = drawn(&mut viewer, 30, 3, Offset::default());
+
+        assert!(
+            row(&buf, 2).ends_with(" 2   fn a() {}"),
+            "{:?}",
+            row(&buf, 2)
+        );
+        assert_eq!(fg_in_row(&buf, 2, "fn"), Color::Reset);
     }
 
     // -----------------------------------------------------------------
@@ -853,10 +1221,12 @@ impl Fetcher {
         assert_eq!(row(&buf, 0), "1   -");
         assert_eq!(row(&buf, 1), "  1 +");
         assert_eq!(buf[(4, 1)].fg, Color::Green, "the sign keeps its colour");
+        assert_filled(&buf, 0, Color::Red);
+        assert_filled(&buf, 1, Color::Green);
 
         let buf = drawn(&mut viewer, 3, 1, Offset::default());
         assert_eq!(row(&buf, 0), "1", "the numbers alone");
-        assert_eq!(with_modifier(&buf, 0, Modifier::DIM), "1  ");
+        assert_filled(&buf, 0, Color::Red);
     }
 
     #[test]

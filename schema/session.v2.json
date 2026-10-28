@@ -271,8 +271,15 @@
       ],
       "description": "A change between two versions of a text, which asqr diffs itself. A\nmissing `old` is a new file, a missing `new` a deleted one.",
       "properties": {
+        "language": {
+          "description": "The language for highlighting the unchanged lines, such as `rust`\nor `tsx`. Without it, the extension of `name` decides.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "name": {
-          "description": "The file name the diff is about, shown in the header.",
+          "description": "The file name the diff is about, shown in the header. Its extension\npicks the language when `language` does not.",
           "type": [
             "string",
             "null"
