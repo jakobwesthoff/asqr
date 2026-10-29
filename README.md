@@ -41,13 +41,20 @@ like "talkie"), asqr's mascot.
 
 ## Install
 
-asqr needs Rust 1.97 or newer. Install it from crates.io:
+With Homebrew, on macOS and Linux:
+
+    brew install jakobwesthoff/tap/asqr
+
+From crates.io, which needs Rust 1.97 or newer:
 
     cargo install asqr
 
 or from a clone of this repository:
 
     cargo install --path .
+
+Every GitHub release also carries prebuilt binaries for macOS (Apple
+silicon and Intel) and Linux (x86_64 and aarch64).
 
 ## How it works
 
