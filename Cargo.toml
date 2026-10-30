@@ -7,8 +7,8 @@ rust-version = "1.97"
 description = "Answer questions an AI agent or a script prepared for you, right in your terminal"
 repository = "https://github.com/jakobwesthoff/asqr"
 readme = "README.md"
-keywords = ["tui", "terminal", "agent", "questions", "cli"]
-categories = ["command-line-utilities"]
+keywords = ["tui", "coding-agents", "claude-code", "human-in-the-loop", "questionnaire"]
+categories = ["command-line-utilities", "development-tools"]
 # The mascot's originals, docs, todos and repository tooling are not needed
 # to build asqr. Talqi's templates, which scripts/emblem-cells.py makes from
 # assets/emblem/, are under src/tui/render/mascot/.
