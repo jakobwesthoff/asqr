@@ -2,6 +2,7 @@
 title: "Find out why a large Kitty image shows noticeably later than the send time says"
 kind: investigation
 component: tui
+status: needs-discussion
 origin: discussion
 tags: [ux, field-test]
 ---
@@ -44,3 +45,37 @@ He asked for this todo on 2026-10-30 (asqr session
   layout, deletes and re-sends, tmux passthrough queuing)?
 - How can the delay be measured from outside, for example with a clock
   drawn next to the image and caught on screen recordings?
+
+## Checked on main 1dcae03 (lead, 2026-10-30)
+
+- The ADR 80 divisor (`cell_divisor`, `src/graphics/image.rs:289-301`)
+  applies only to a picture enlarged by the divisor or more on both
+  sides, 3 with cells of 15×39. Neither field-test case qualifies: ten
+  768 px images in 2220×2223 px cells are enlarged 2.89 times, and the
+  6000×6000 image is shrunk. Both still go out at full cell size, so ADR
+  80 has not changed what the field test felt.
+- asqr logs only the draw and the write of a frame that sends an image
+  (`src/tui/run.rs:411-432`, `debug`, ADR 83); nothing after the write.
+- The demo's "asqr scales" mode (`plans/kitty/kitty_scaling.rs` in the
+  logbook) is the path from before ADR 80, and its tour leaves out the
+  6000×6000 gradient. Before measuring, the demo gets a mode that
+  matches asqr's current path (lead decision).
+- The todo's 177×69 cells do not fit its 34 MB: 177×69 cells of 15×39
+  px are about 38 MB of base64; ADR 80's 33.5 MB was 167×64 cells.
+
+## Questions put to Jakob on 2026-10-30, kept open
+
+Jakob chose "later, keep it open" for all four. Options, the lead's
+recommendation first:
+
+- Which cases: both field-test cases on today's code, per image and as
+  the total of ten; the ten enlarged images only; the 6000×6000 only.
+- Which terminals: Ghostty directly and in tmux; Ghostty plus kitty;
+  every Kitty-protocol terminal installed.
+- How the visible moment is measured: screen recordings of a stopwatch
+  drawn beside the image (by hand, an agent cannot record the screen);
+  also a debug line for asqr's next frame; logs and queries only.
+- What closes the todo: a table of visible moment against logged times
+  per case and terminal, the cause of each gap, and a decision whether
+  asqr changes, a fix being its own todo; a threshold Jakob sets and a
+  fix that meets it; a written explanation without measuring.
