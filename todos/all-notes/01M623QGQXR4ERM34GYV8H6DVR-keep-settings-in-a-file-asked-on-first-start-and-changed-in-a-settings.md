@@ -93,6 +93,27 @@ settings pane in the TUI.
   and a first start that asks only about keeping files and the update
   check; both are part of that discussion.
 
+- **Detail round (Jakob, 2026-10-30, in the chat):**
+  - **Version 1 is the file and the settings pane** with the settings
+    asqr has today: diff layout, reading width, context placement. The
+    first-start screen comes with the first setting that needs a
+    deliberate answer, keeping files (todo 01M67A73S1SRPTR8YRZPPC4FSH),
+    and the update check joins it later. Rejected: a first start now
+    that asks the taste settings, which nobody can judge before a
+    session; doing the archive work first.
+  - **`,` opens the settings,** free on every screen and the key for
+    settings on macOS. Rejected: `S`, next to `s`, which switches a
+    diff.
+  - **`←`/`→` change the value right on the row** and save it, one key
+    per change. Each value needs an explanation on screen, and the row
+    has to show that `←`/`→` cycle through its values (the look of
+    both is decided below). Rejected: `enter` opening the setting in
+    place with its values as option rows (two keys per change).
+  - **A saved change shows a green notice in the status line,** such as
+    "✔ saved diff layout: side-by-side", like the notices after a queue
+    switch; a write that fails shows a red notice and the value holds
+    for this run only. Rejected: no notice.
+
 ## Technical notes (lead, 2026-10-30)
 
 - The `directories` crate, which asqr already uses for the data and
