@@ -9,13 +9,15 @@
 //! side, which keeps `ask --wait` usable from any script.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use super::Exit;
 use super::hint::{self, Caller, Invocation};
 use crate::format::{SessionResult, Status, same_session_id};
-use crate::queue::{QueueLocation, entries_if_present, find_session_file, parse_archive_name};
+use crate::queue::{
+    QueueLocation, entries_if_present, find_session_file, list_queues, parse_archive_name,
+};
 
 /// How often the outbox is checked. Short enough that an answer shows up
 /// without a noticeable delay, long enough to cost nothing.
@@ -58,6 +60,67 @@ fn standing(location: &QueueLocation, id: &str) -> std::io::Result<Standing> {
     } else {
         Standing::Unknown
     })
+}
+
+/// Where else session `id` is, looked for only when the queue a command
+/// runs on has no trace of it: no waiting file, no result and no archive
+/// entry. A session finished there is never looked up elsewhere.
+pub(super) enum Elsewhere {
+    Nowhere,
+    One(QueueLocation),
+    /// The names of the queues that know it.
+    Several(Vec<String>),
+}
+
+/// The named queues under `root` other than `location` that know session
+/// `id` (T2), where `location` does not. A queue directory is never
+/// searched: nothing lists them.
+pub(super) fn elsewhere(location: &QueueLocation, root: Option<&Path>, id: &str) -> Elsewhere {
+    let unknown_here = matches!(standing(location, id), Ok(Standing::Unknown));
+    let Some(root) = root.filter(|_| unknown_here) else {
+        return Elsewhere::Nowhere;
+    };
+    let mut found: Vec<QueueLocation> = list_queues(root)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|summary| summary.location)
+        .filter(|other| !other.same_queue(location))
+        .filter(|other| matches!(standing(other, id), Ok(standing) if !matches!(standing, Standing::Unknown)))
+        .collect();
+    match found.len() {
+        0 => Elsewhere::Nowhere,
+        1 => Elsewhere::One(found.remove(0)),
+        _ => Elsewhere::Several(
+            found
+                .iter()
+                .filter_map(|other| other.name().map(str::to_owned))
+                .collect(),
+        ),
+    }
+}
+
+/// The queue `wait` and `result` look in: `location`, or the one other
+/// named queue that knows session `id`, with the advice that names it.
+/// Several such queues end the command.
+fn located(
+    location: &QueueLocation,
+    invocation: &Invocation,
+    root: Option<&Path>,
+    id: &str,
+) -> Result<Option<(QueueLocation, Invocation)>, Exit> {
+    match elsewhere(location, root, id) {
+        Elsewhere::Nowhere => Ok(None),
+        Elsewhere::One(found) => {
+            let name = found.name().unwrap_or_default().to_owned();
+            hint::found_elsewhere(invocation, id, &name).print();
+            let invocation = Invocation::new(&found, true);
+            Ok(Some((found, invocation)))
+        }
+        Elsewhere::Several(queues) => {
+            hint::in_several_queues(id, &queues).print();
+            Err(Exit::Failure)
+        }
+    }
 }
 
 /// Waits until the result of `id` is in the outbox, prints it to stdout and
@@ -116,9 +179,19 @@ fn look(location: &QueueLocation, invocation: &Invocation, id: &str) -> Look {
 pub(super) fn run_wait(
     location: &QueueLocation,
     invocation: &Invocation,
+    root: Option<&Path>,
     id: &str,
     timeout: Option<Duration>,
 ) -> Exit {
+    let found = match located(location, invocation, root, id) {
+        Ok(found) => found,
+        Err(exit) => return exit,
+    };
+    let (location, invocation) = found
+        .as_ref()
+        .map_or((location, invocation), |(location, invocation)| {
+            (location, invocation)
+        });
     let exit = wait_for_result(location, invocation, id, timeout);
     if let (Exit::Timeout, Some(timeout)) = (exit, timeout) {
         hint::no_result_yet(invocation, id, Caller::Wait(timeout.as_secs())).print();
@@ -128,7 +201,21 @@ pub(super) fn run_wait(
 
 /// `asqr result <id>`: one look, the way `wait --timeout 0` would take
 /// it, so the exit codes mean the same (spec section 6.6).
-pub(super) fn run_result(location: &QueueLocation, invocation: &Invocation, id: &str) -> Exit {
+pub(super) fn run_result(
+    location: &QueueLocation,
+    invocation: &Invocation,
+    root: Option<&Path>,
+    id: &str,
+) -> Exit {
+    let found = match located(location, invocation, root, id) {
+        Ok(found) => found,
+        Err(exit) => return exit,
+    };
+    let (location, invocation) = found
+        .as_ref()
+        .map_or((location, invocation), |(location, invocation)| {
+            (location, invocation)
+        });
     let exit = wait_for_result(location, invocation, id, Some(Duration::ZERO));
     if exit == Exit::Timeout {
         hint::no_result_yet(invocation, id, Caller::Result).print();

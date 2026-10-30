@@ -87,6 +87,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   watched by the asqr of another tmux session, and an `ASQR_QUEUE` or
   `ASQR_DIR` that chose another queue than the session's pin gets a
   hint for the agent to pass on.
+- `wait` and `result` find a session that is in another named queue and
+  warn where they found it; `withdraw` and `ask --replaces` name that
+  queue and take nothing back. An unknown id's error says that every
+  named queue was searched.
 - The screen behind the help, the intro, the session list and the
   dialog of an invalid session is dim and shows no focus fill, so the
   overlay's own fill is the one on the screen. The status line, the key

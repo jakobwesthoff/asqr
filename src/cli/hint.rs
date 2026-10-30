@@ -362,13 +362,53 @@ pub(super) fn being_answered(invocation: &Invocation, id: &str, refusing: Refusi
 // The hints of `wait` and `result`
 // =========================================================================
 
-/// Nothing in the queue has session `id` (W4): the id is mistyped, or the
-/// session went to another queue. `status` lists one queue only, so the
-/// way to look elsewhere is the same command with the other queue.
+/// Nothing in the queue and no other named queue has session `id` (W4):
+/// the id is mistyped, or the session went to a queue directory, which
+/// nothing searches.
 pub(super) fn unknown_session(invocation: &Invocation, id: &str) -> Line {
     Line::error(format!(
-        "no session {id:?} in queue {}; check the id with `{} status --since 1d`, and if you asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run this command again with that queue",
+        "no session {id:?} in queue {} or any other named queue; check the id with `{} status --since 1d`, and if you asked in a queue directory (--dir or ASQR_DIR), run this command again with that directory",
         invocation.queue, invocation.command
+    ))
+}
+
+/// `wait` or `result` found session `id`, unknown in the queue it was run
+/// on, in the one other named queue `found` (T2), and goes on there.
+pub(super) fn found_elsewhere(invocation: &Invocation, id: &str, found: &str) -> Line {
+    Line::warning(format!(
+        "session {id} is in queue {found}, not in {}; using queue {found}",
+        invocation.queue
+    ))
+}
+
+/// Session `id`, unknown in the queue the command was run on, is in each
+/// of the named queues `queues`.
+pub(super) fn in_several_queues(id: &str, queues: &[String]) -> Line {
+    Line::error(format!(
+        "session {id:?} is in several queues: {}; run this command again with --queue and one of them",
+        queues.join(", ")
+    ))
+}
+
+/// `withdraw` found session `id` in another named queue only. A session
+/// there may be another agent's, so `withdraw` takes nothing back on its
+/// own.
+pub(super) fn withdraw_elsewhere(invocation: &Invocation, id: &str, found: &str) -> Line {
+    Line::error(format!(
+        "session {id:?} is in queue {found}, not in {}; if it is yours, withdraw it with `{} withdraw {id}`",
+        invocation.queue,
+        queue_command(found)
+    ))
+}
+
+/// `ask --replaces <old>` found `old` in another named queue only. The new
+/// session belongs where the person watches now, so the old one is
+/// withdrawn on its own and the new one asked without `--replaces`.
+pub(super) fn replaces_elsewhere(invocation: &Invocation, old: &str, found: &str) -> Line {
+    Line::error(format!(
+        "session {old:?} is in queue {found}, not in {}; withdraw it with `{} withdraw {old}`, then ask without --replaces",
+        invocation.queue,
+        queue_command(found)
     ))
 }
 

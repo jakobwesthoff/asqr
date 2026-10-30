@@ -14,7 +14,7 @@ use serde_json::Value;
 use super::Exit;
 use super::format::{print_errors, print_warnings, read_session_file, session_dir};
 use super::hint::{self, Caller, Invocation, Refusing};
-use super::wait::wait_for_result;
+use super::wait::{Elsewhere, elsewhere, wait_for_result};
 use crate::format::{WarningKind, is_valid_session_id, same_session_id, validate, warnings};
 use crate::pairing::{self, Tmux, TmuxPane, TmuxSession};
 use crate::queue::{
@@ -99,8 +99,16 @@ pub(super) fn run(
                 }
                 Exit::Failure
             }),
-        Some(old) => replace(location, invocation, old, &id, &bytes, options.force)
-            .map(|(withdrawn, dropped)| (Some(withdrawn), dropped)),
+        Some(old) => replace(
+            location,
+            invocation,
+            around.root,
+            old,
+            &id,
+            &bytes,
+            options.force,
+        )
+        .map(|(withdrawn, dropped)| (Some(withdrawn), dropped)),
     };
     let withdrawn = match dropped {
         Ok((withdrawn, dropped)) => {
@@ -149,6 +157,7 @@ pub(super) fn run(
 fn replace(
     location: &QueueLocation,
     invocation: &Invocation,
+    root: Option<&Path>,
     old: &str,
     id: &str,
     bytes: &[u8],
@@ -170,9 +179,25 @@ fn replace(
         Err(error) => {
             tracing::warn!(id, old, %error, "ask --replaces refused");
             Err(match error {
+                // The old session may wait in a queue the person no longer
+                // watches; the new one belongs where they watch now, so it
+                // is not dropped there with it.
                 ReplaceError::Withdraw(WithdrawError::Unknown(old)) => {
-                    hint::unknown_session(invocation, &old).print();
-                    Exit::UnknownId
+                    match elsewhere(location, root, &old) {
+                        Elsewhere::Nowhere => {
+                            hint::unknown_session(invocation, &old).print();
+                            Exit::UnknownId
+                        }
+                        Elsewhere::One(found) => {
+                            let found = found.name().unwrap_or_default().to_owned();
+                            hint::replaces_elsewhere(invocation, &old, &found).print();
+                            Exit::UnknownId
+                        }
+                        Elsewhere::Several(queues) => {
+                            hint::in_several_queues(&old, &queues).print();
+                            Exit::Failure
+                        }
+                    }
                 }
                 ReplaceError::Withdraw(error @ WithdrawError::ResultGone(_)) => {
                     eprintln!("error: {error}");

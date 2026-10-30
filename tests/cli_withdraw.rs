@@ -294,7 +294,7 @@ fn status_lists_a_withdrawn_session_as_answered() {
 fn no_session(sandbox: &Sandbox, id: &str) -> String {
     let queue = sandbox.queue_dir();
     format!(
-        "error: no session \"{id}\" in queue {0}; check the id with `asqr --dir {0} status --since 1d`, and if you asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run this command again with that queue\n",
+        "error: no session \"{id}\" in queue {0} or any other named queue; check the id with `asqr --dir {0} status --since 1d`, and if you asked in a queue directory (--dir or ASQR_DIR), run this command again with that directory\n",
         queue.display()
     )
 }

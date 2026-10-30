@@ -440,11 +440,14 @@ fn dispatch(
         Command::Wait { id, timeout } => wait::run_wait(
             &location,
             &invocation,
+            root.as_deref(),
             &id,
             timeout.map(Duration::from_secs),
         ),
-        Command::Result { id } => wait::run_result(&location, &invocation, &id),
-        Command::Withdraw { id, force } => withdraw::run(&location, &invocation, &id, force),
+        Command::Result { id } => wait::run_result(&location, &invocation, root.as_deref(), &id),
+        Command::Withdraw { id, force } => {
+            withdraw::run(&location, &invocation, root.as_deref(), &id, force)
+        }
         Command::Status {
             json,
             limit,

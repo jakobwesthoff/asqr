@@ -735,7 +735,10 @@ result and also withdraw <old-id> even if the person is answering it".
 The new session's own id is a usage error, since `ask` replaces a
 waiting session of the same id by itself. Exit
 codes are those of `ask` and `withdraw`: 13 for an old id the queue does
-not know or whose result is gone. A drop that fails after the
+not know or whose result is gone. An old id found in one other named
+queue (section 5.10) drops nothing and exits with 13: "session
+"<old-id>" is in queue <found>, not in <queue>; withdraw it with `asqr
+--queue <found> withdraw <old-id>`, then ask without --replaces". A drop that fails after the
 withdrawal, which only a file dropped by hand under the new id at that
 moment can cause, says so: "<reason>; <old-id> was withdrawn already, so
 the same command again drops the new one", and exits with 1.
@@ -940,12 +943,21 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
   after its result was written is completed: by the next `withdraw`, or
   by recovery.
 - An id that only the archive knows is "the result of <id> is gone; its
-  session is archived", and any other id "no session "<id>" in queue
-  <queue>; check the id with `<asqr> status --since 1d`, and if you
-  asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run
-  this command again with that queue" (`<queue>` and `<asqr>` as in
-  section 5.5). A queue directory that does not exist holds no session,
-  and `withdraw` creates nothing for it.
+  session is archived". An id the queue has no trace of, no waiting
+  file, no result and no archive entry, is looked for in the other named
+  queues under the root (section 5.2); queue directories are not
+  searched. In one of them, `withdraw` takes nothing back and exits with
+  13: an id there may be another agent's session. It says "session
+  "<id>" is in queue <found>, not in <queue>; if it is yours, withdraw
+  it with `asqr --queue <found> withdraw <id>`". In several, it fails
+  with "session "<id>" is in several queues: <a>, <b>; run this command
+  again with --queue and one of them" and exits with 1. In none, the id
+  is "no session "<id>" in queue <queue> or any other named queue;
+  check the id with `<asqr> status --since 1d`, and if you asked in a
+  queue directory (--dir or ASQR_DIR), run this command again with that
+  directory" (`<queue>` and `<asqr>` as in section 5.5), exit 13. A
+  queue directory that does not exist holds no session, and `withdraw`
+  creates nothing for it.
 - The look at the files and every write run under the drafts lock
   (section 5.6). So a withdrawal without `--force` never takes a session
   whose draft holds an answer, also while the person is typing in it:
@@ -1031,11 +1043,17 @@ command limit is shorter". `ask --wait` prints the same, since a new
 `result` exits with 12 at once and prints "asqr: no result for <id> yet;
 the person has not answered yet, so wait for it with `<asqr> wait <id>
 --timeout 540`, or a lower timeout if your command limit is shorter".
-Both end with 13 when nothing in the queue has the id ("no session
-"<id>" in queue <queue>; …", the message of section 5.10), which
-includes a session taken out of the inbox without a result, or when
-only its archive entry is left, since its result was removed and none
-will come ("the result of <id> is gone").
+When the queue has no trace of the id, `wait` and `result` look for it
+in the other named queues as `withdraw` does (section 5.10). In one of
+them, they go on there and say so first: "warning: session <id> is in
+queue <found>, not in <queue>; using queue <found>", and their later
+advice names `asqr --queue <found>`. In several, they fail as
+`withdraw` does. Both end with 13 when no queue has the id
+("no session "<id>" in queue <queue> or any other named queue; …",
+the message of section 5.10), which includes a session taken out of
+the inbox without a result, or when only its archive entry is left,
+since its result was removed and none will come ("the result of <id>
+is gone").
 So while an asqr watches the queue, the asker never waits for a result
 that will not come. A withdrawn result ends both with 14.
 
