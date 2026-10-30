@@ -27,7 +27,7 @@ use super::theme;
 
 /// Columns from one tab stop to the next. Panes are often 40 to 60 columns
 /// wide, where the terminal's 8 would push indented code out of sight.
-pub const TAB_STOP: usize = 4;
+pub(crate) const TAB_STOP: usize = 4;
 
 /// What marks a line that goes on past the right edge.
 const CUT_MARKER: &str = "›";
@@ -37,7 +37,7 @@ const LEFT_CUT_MARKER: &str = "‹";
 
 /// A line of text ready to draw: every grapheme in it takes the columns
 /// its width says, so the width measured here is the width drawn.
-pub struct SourceLine {
+pub(super) struct SourceLine {
     pieces: Vec<Piece>,
     width: usize,
 }
@@ -58,7 +58,7 @@ impl SourceLine {
     /// the C1 controls, which have none. ratatui leaves control characters
     /// out of the cells it draws, so the columns would no longer add up,
     /// and an escape sent to the terminal could change what it shows.
-    pub fn new<'a>(pieces: impl IntoIterator<Item = (&'a str, Style)>) -> Self {
+    pub(super) fn new<'a>(pieces: impl IntoIterator<Item = (&'a str, Style)>) -> Self {
         let mut column = 0;
         let pieces = pieces
             .into_iter()
@@ -91,13 +91,13 @@ impl SourceLine {
     }
 
     /// How many columns the line takes.
-    pub fn width(&self) -> usize {
+    pub(super) fn width(&self) -> usize {
         self.width
     }
 
     /// The runs of the line with their styles, tabs already expanded and
     /// control characters already pictured.
-    pub fn pieces(&self) -> impl Iterator<Item = (&str, Style)> {
+    pub(super) fn pieces(&self) -> impl Iterator<Item = (&str, Style)> {
         self.pieces
             .iter()
             .map(|piece| (piece.text.as_str(), piece.style))
@@ -110,7 +110,7 @@ impl SourceLine {
     /// leaves shows a blank in its style, as at the edge of a cut line. A
     /// row always takes at least one grapheme, so a character wider than
     /// the room still makes progress.
-    pub fn wrap(&self, first: usize, rest: usize) -> Vec<SourceLine> {
+    pub(super) fn wrap(&self, first: usize, rest: usize) -> Vec<SourceLine> {
         let mut rows = Vec::new();
         let mut row = SourceLine {
             pieces: Vec::new(),
@@ -167,7 +167,7 @@ impl SourceLine {
     /// character, where the terminal would not show it. Blanks alone
     /// left of `left`, such as an indent, get no marker, as nothing of
     /// the line is hidden.
-    pub fn draw(&self, buf: &mut Buffer, area: Rect, left: usize) {
+    pub(super) fn draw(&self, buf: &mut Buffer, area: Rect, left: usize) {
         let room = usize::from(area.width);
         if room == 0 {
             return;
@@ -246,7 +246,7 @@ impl SourceLine {
 
 /// The rows of `area` from the top, each as an area one row high, paired
 /// with the viewer's `rows` from row `top` on, as far as both go.
-pub fn rows_from<T>(area: Rect, rows: &[T], top: usize) -> impl Iterator<Item = (Rect, &T)> {
+pub(super) fn rows_from<T>(area: Rect, rows: &[T], top: usize) -> impl Iterator<Item = (Rect, &T)> {
     area.rows().zip(rows.iter().skip(top))
 }
 
@@ -254,7 +254,7 @@ pub fn rows_from<T>(area: Rect, rows: &[T], top: usize) -> impl Iterator<Item = 
 /// The gutter stays in place while the line right of it scrolls sideways
 /// under `left`, so every line keeps its gutter in sight. A row narrower
 /// than the gutter shows only what fits of the gutter.
-pub struct GutterRow<'a> {
+pub(super) struct GutterRow<'a> {
     /// The gutter in its own styles, as wide as the columns it keeps.
     pub gutter: Line<'a>,
     pub line: &'a SourceLine,
@@ -283,20 +283,20 @@ impl Widget for GutterRow<'_> {
 /// for the content, such as the line ends of a diff's two sides, owns its
 /// text.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Note(Cow<'static, str>);
+pub(super) struct Note(Cow<'static, str>);
 
 impl Note {
     /// A note of fixed text, usable in a `const`.
-    pub const fn new(text: &'static str) -> Note {
+    pub(super) const fn new(text: &'static str) -> Note {
         Note(Cow::Borrowed(text))
     }
 
-    pub fn text(&self) -> &str {
+    pub(super) fn text(&self) -> &str {
         &self.0
     }
 
     /// The columns the note takes in a body `width` columns wide.
-    pub fn columns(&self, width: usize) -> usize {
+    pub(super) fn columns(&self, width: usize) -> usize {
         columns(self.text()).min(width)
     }
 }
@@ -326,7 +326,7 @@ impl Widget for &Note {
 /// combining accent none, and a grapheme with a control character none
 /// either, as ratatui leaves it out. Every width the screen lays out is
 /// measured here, so what it measures is what ratatui draws.
-pub fn columns(text: &str) -> usize {
+pub(crate) fn columns(text: &str) -> usize {
     text.graphemes(true).map(grapheme_columns).sum()
 }
 
@@ -334,7 +334,7 @@ pub fn columns(text: &str) -> usize {
 /// [`columns`] does. A fit never splits a grapheme: a wide character that
 /// would cross the end stays out whole, and a combining accent stays with
 /// its letter.
-pub fn fitting(text: &str, room: usize) -> &str {
+pub(super) fn fitting(text: &str, room: usize) -> &str {
     let mut used = 0;
     for (start, grapheme) in text.grapheme_indices(true) {
         used += grapheme_columns(grapheme);

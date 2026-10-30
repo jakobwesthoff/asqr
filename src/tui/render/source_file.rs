@@ -19,13 +19,13 @@ use image::ImageError;
 use super::problem::Card;
 use super::source_line::Note;
 use crate::format::line_cut;
-pub use crate::format::{LineBreaks, MAX_BYTES, MAX_LINES};
+pub(super) use crate::format::{LineBreaks, MAX_BYTES, MAX_LINES};
 use crate::regular_file::{OpenError, check_type, open as open_checked};
 
 /// The limit that ended the text of a source, which the notes around the
 /// text name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Cut {
+pub(super) enum Cut {
     /// The file is longer than [`MAX_BYTES`], and the text holds its
     /// first `MAX_BYTES` bytes, or one fewer where the limit falls inside
     /// a `\r\n`.
@@ -61,7 +61,7 @@ impl Cut {
 /// by different limits, so each limit's notes show once, in the order of
 /// [`Cut`]. `note` makes a row of a note, which every viewer draws as a
 /// [`Note`], one row cut at the body's edge.
-pub fn between_cut_notes<T>(
+pub(super) fn between_cut_notes<T>(
     cuts: impl IntoIterator<Item = Cut>,
     body: impl IntoIterator<Item = T>,
     note: impl Fn(Note) -> T,
@@ -76,7 +76,7 @@ pub fn between_cut_notes<T>(
 
 /// The text of a source, and the limit that cut it, if any.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Source {
+pub(super) struct Source {
     pub text: String,
     pub cut: Option<Cut>,
 }
@@ -101,7 +101,7 @@ fn image_cause(error: &ImageError) -> String {
 /// the image decoder or asqr's own check, which the person sees as they
 /// are, and what failed, which the log names.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Unreadable {
+pub(super) struct Unreadable {
     pub path: String,
     pub reason: String,
     /// What failed, as one word for the log: the system's error kind, the
@@ -121,7 +121,7 @@ impl Unreadable {
     }
 
     /// A file the system could not open or read.
-    pub fn io(path: &str, error: &io::Error) -> Self {
+    fn io(path: &str, error: &io::Error) -> Self {
         Unreadable {
             path: path.to_owned(),
             reason: error.to_string(),
@@ -130,7 +130,7 @@ impl Unreadable {
     }
 
     /// An image the decoder could not read.
-    pub fn image(path: &str, error: &ImageError) -> Self {
+    pub(super) fn image(path: &str, error: &ImageError) -> Self {
         Unreadable {
             path: path.to_owned(),
             reason: error.to_string(),
@@ -140,13 +140,13 @@ impl Unreadable {
 
     /// What a viewer shows in place of its content: a card with the reason
     /// and the file, the home folder `home` in its path shown as `~`.
-    pub fn card(&self, home: Option<&Path>) -> Card {
+    pub(super) fn card(&self, home: Option<&Path>) -> Card {
         self.card_of(&self.reason, home)
     }
 
     /// The card of one side of a diff, `old` or `new`, which names the
     /// side before the reason, as a diff shows the first side that fails.
-    pub fn card_on_side(&self, side: &str, home: Option<&Path>) -> Card {
+    pub(super) fn card_on_side(&self, side: &str, home: Option<&Path>) -> Card {
         self.card_of(&format!("{side} side: {}", self.reason), home)
     }
 
@@ -167,7 +167,7 @@ impl Unreadable {
 
 /// Whether the file at `path` may be opened at all, which every viewer
 /// that reads a file, images included, asks before it opens one.
-pub fn regular_file(path: &str) -> Result<(), Unreadable> {
+pub(super) fn regular_file(path: &str) -> Result<(), Unreadable> {
     // A relative path depends on where asqr was started, so it is never
     // resolved (spec section 3.3).
     if Path::new(path).is_relative() {
@@ -182,7 +182,7 @@ pub fn regular_file(path: &str) -> Result<(), Unreadable> {
 
 /// The file at `path` opened for reading, by the rule every viewer of a
 /// file follows: what [`regular_file`] refuses is never opened.
-pub fn open_regular(path: &str) -> Result<File, Unreadable> {
+fn open_regular(path: &str) -> Result<File, Unreadable> {
     regular_file(path)?;
     open_checked(Path::new(path)).map_err(|error| refused(path, error))
 }
@@ -205,14 +205,14 @@ fn refused(path: &str, error: OpenError) -> Unreadable {
 /// How large an image file asqr reads. An image keeps its file's bytes
 /// while its entry is inside the window (ADR 46), so a file of gigabytes
 /// would stay in memory; a larger one is refused before it is read.
-pub const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Why an image file larger than [`MAX_IMAGE_BYTES`] does not show.
 const TOO_LARGE: &str = "image file larger than 64 MiB";
 
 /// The bytes of the image file at `path`, opened by the rule every viewer
 /// of a file follows, unless it is larger than [`MAX_IMAGE_BYTES`].
-pub fn read_image(path: &str) -> Result<Vec<u8>, Unreadable> {
+pub(super) fn read_image(path: &str) -> Result<Vec<u8>, Unreadable> {
     let file = open_regular(path)?;
     read_within(path, file, MAX_IMAGE_BYTES)
 }
@@ -253,7 +253,7 @@ fn bytes_within(path: &str, reader: impl Read, limit: u64) -> Result<Vec<u8>, Un
 /// The text of a source given as `content` or as the file at `path`.
 /// Validation lets exactly one of the two through; a source with neither
 /// never reaches the pane, and would show as empty. Lines end at `breaks`.
-pub fn read_source(
+pub(super) fn read_source(
     path: Option<&str>,
     content: Option<&str>,
     breaks: LineBreaks,
@@ -269,7 +269,7 @@ pub fn read_source(
 
 /// The text of a source given inline, whose lines end at `breaks`. It
 /// already sits in memory with the session, so no byte limit applies.
-pub fn inline(text: &str, breaks: LineBreaks) -> Source {
+pub(super) fn inline(text: &str, breaks: LineBreaks) -> Source {
     // Only the lines kept are copied, so a cut text holds no memory for
     // the rest.
     match line_cut(text.as_bytes(), MAX_LINES, breaks) {
