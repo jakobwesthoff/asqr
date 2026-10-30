@@ -1,0 +1,99 @@
+---
+title: "Keep settings in a file, asked on first start and changed in a settings pane"
+kind: feature
+component: tui
+origin: discussion
+tags: [ux]
+---
+# Keep settings in a file, asked on first start and changed in a settings pane
+
+asqr keeps no preference: settings come from flags and environment
+variables only (ADR 15, "There is no config file"; spec, "Not in asqr
+yet": "A config file"). Several settings now want a home: whether a
+finished session's files are kept (todo 01M67A73S1SRPTR8YRZPPC4FSH),
+the starting layout of a diff, the reading width, and where context
+goes. Jakob asked on 2026-10-15 whether the reading width could be set
+per terminal (size, font or use), and on 2026-10-28 wanted it among
+these settings rather than as a flag of its own. Decided on 2026-10-30:
+a settings file, a short first-start screen that writes it, and a
+settings pane in the TUI.
+
+## Today (main 1dcae03)
+
+- The diff layout starts as `Unified` (`src/tui/session.rs:203-207`);
+  `s` switches the entry shown until another entry shows, and asqr does
+  not keep it (spec 8.5).
+- The question is capped at 100 columns (`READING_WIDTH`,
+  `src/tui/render/panes.rs:20`, ADR 30): on a terminal of 230 columns
+  question texts ran across all of it, and 100 was the first value tried
+  from a planned 100 to 110. `MIN_QUESTION_WIDTH` (60) and
+  `MIN_CONTEXT_WIDTH` (40) decide when context fits beside it.
+- Context placement: `--layout auto|beside|below` and `ASQR_LAYOUT`
+  (`src/cli/mod.rs:87-91`, `:272`), checked only when asqr watches
+  (`src/cli/mod.rs:385-391`, spec 6.2).
+- Environment variables are read through a lookup closure
+  (`environment_from`, `src/cli/mod.rs:259-286`), which tests replace.
+- The spec's list of variables (6.2) misses several the code reads:
+  the terminal names in `src/terminal_env.rs`, `TMPDIR`, the skill
+  directory variables, `VISUAL`/`EDITOR` through the `edit` crate.
+
+## Decisions (Jakob, 2026-10-30, in the chat)
+
+- **A settings file, with environment variables and flags above it.**
+  asqr reads a TOML file in the platform config directory
+  (`~/Library/Application Support/asqr/settings.toml` on macOS,
+  `$XDG_CONFIG_HOME/asqr/settings.toml` on Linux); a variable or a flag
+  wins over the file for that run. A new ADR reverses ADR 15's "no
+  config file". Rejected: environment variables and flags only, which
+  cannot hold a first-start answer.
+- **TOML,** so the file takes comments and is easy to edit by hand;
+  the `toml` crate (pure Rust). Rejected: JSON.
+- **A first-start screen.** The first time the TUI starts without a
+  settings file, it asks the few settings that matter, writes the file
+  and does not ask again. Rejected: start with defaults and only name
+  the file.
+- **A settings pane in the TUI.** One key opens it; each setting offers
+  a fixed set of values (Jakob, 2026-10-28: fixed choices rather than
+  free values). Rejected: editing the file only.
+- **The first version covers four settings:**
+  - keep files: `compact`, `exact`, `off` (todo
+    01M67A73S1SRPTR8YRZPPC4FSH, default `compact`; `ASQR_KEEP_FILES`
+    overrides it);
+  - diff layout: `unified` or `side-by-side`, how every diff starts;
+  - reading width: fixed steps 80, 100, 120 or the full width, 100 by
+    default. Rejected: any number from 60 to the terminal's width;
+  - context placement: `auto`, `beside`, `below`, as `--layout` and
+    `ASQR_LAYOUT`, which keep overriding it.
+- **`s` stays as it is:** it switches the diff shown; the setting only
+  decides how every diff starts. A trial switch never becomes the
+  setting. Rejected: switching for the rest of the run; saving on `s`.
+- **The reading width does not move the beside or below choice,**
+  which keeps using the terminal's width and shape (ADR 30); the width
+  only caps the question. Forcing a side is the placement setting's
+  job. Rejected: letting the width move it.
+
+## Technical notes (lead, 2026-10-30)
+
+- The `directories` crate, which asqr already uses for the data and
+  cache directories, gives the config directory too
+  (`ProjectDirs::config_dir`); a helper goes beside `platform_data_dir`
+  (`src/queue/location.rs:257-266`). On macOS config and data are the
+  same folder, on Linux `$XDG_CONFIG_HOME/asqr` and
+  `$XDG_DATA_HOME/asqr`.
+- Precedence: flag over environment over file over built-in default.
+  Spec 5.2 and 6.2 state it; spec 6.2 also gets the full list of
+  variables asqr reads.
+- A file that does not parse, or a value asqr does not know, never stops
+  a command: asqr warns (in the log, and in the TUI's status line when
+  watching) and uses the default for that setting, like `ASQR_LAYOUT`
+  today, which only `watch` checks.
+- The settings pane writes the file; it keeps the comments and keys it
+  does not know where the `toml` crate's editing allows, or the plan
+  says what it drops.
+- The first-start screen does not run for commands agents call (`ask`,
+  `wait`, `result` and so on), only for the TUI.
+- The update check (todo 01M5J41K58B5CF23DN61PWM6MC) would join as a
+  setting and a first-start question once it is decided.
+- Docs: a new ADR amending ADR 15 and ADR 30 (reading width as a
+  setting), spec 5.2, 6.2, 7.x (first start, settings pane, help),
+  8.5, README.

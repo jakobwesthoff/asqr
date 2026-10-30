@@ -41,8 +41,8 @@ To be worked out; none is decided.
 The user's direction, not final:
 
 - The automatic check belongs together with user preferences (todo
-  01M623QGQXR4ERM34GYV8H6DVR, Decide how the person keeps preferences
-  such as the diff layout), which it needs: on the first start asqr
+  01M623QGQXR4ERM34GYV8H6DVR, Keep settings in a file, asked on first
+  start and changed in a settings pane), which it needs: on the first start asqr
   would ask whether it may look for updates automatically, at start and
   at intervals while it runs for a long time, as torchsnap does.
 - A possible first step before the preferences exist: the check itself,
