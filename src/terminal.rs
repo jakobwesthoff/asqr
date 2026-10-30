@@ -31,7 +31,7 @@ use asqr::queue::{QueueLocation, WaitingQueue, platform_data_dir, waiting_elsewh
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
-    Alerts, Event, EventSource, Host, KeepAlive, KeyReader, OpenedFiles, ProgressTerminal,
+    Alerts, Clock, Event, EventSource, Host, KeepAlive, KeyReader, OpenedFiles, ProgressTerminal,
     SleepClock, alert, opener_failure, progress_sequence, progress_terminal, run, spawn_reaped,
     start, watch_inbox,
 };
@@ -197,13 +197,8 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         root: platform_data_dir(),
         watched: location.clone(),
     };
-    // The other queues are looked at again every few seconds (ADR 86);
-    // the thread ends with the run loop, whose channel it feeds.
-    std::thread::spawn(move || {
-        while queues_ticks.send(Event::QueuesTick).is_ok() {
-            std::thread::sleep(QUEUES_TICK);
-        }
-    });
+    // The other queues are looked at again every few seconds (ADR 86).
+    tick_queues(SleepClock, QUEUES_TICK, queues_ticks);
     let mut view = View::new(&queue, watch.layout(), images)
         .chosen_queue(!location.is_default())
         .no_color(watch.no_color())
@@ -240,6 +235,21 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         &mut host,
         &mut opened,
     )
+}
+
+/// Sends [`Event::QueuesTick`] on a thread of its own at once and then
+/// each time `clock` waited `period`. The thread ends with the run loop,
+/// whose channel it feeds.
+fn tick_queues(
+    mut clock: impl Clock,
+    period: Duration,
+    ticks: mpsc::Sender<Event>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        while ticks.send(Event::QueuesTick).is_ok() {
+            clock.wait(period);
+        }
+    })
 }
 
 /// Asks the terminal for its graphics protocol, and discards the answers
@@ -1140,6 +1150,45 @@ mod tests {
         progress.remove_once(&mut &mut full[..]);
 
         assert!(!progress.shown.load(Ordering::Relaxed));
+    }
+
+    // -----------------------------------------------------------------
+    // Ticking the other queues
+    // -----------------------------------------------------------------
+
+    /// A clock that reports each wait on its first channel and returns
+    /// only once the test opens it through the second.
+    struct Gate(mpsc::Sender<Duration>, mpsc::Receiver<()>);
+
+    impl Clock for Gate {
+        fn wait(&mut self, period: Duration) {
+            let _ = self.0.send(period);
+            let _ = self.1.recv();
+        }
+    }
+
+    #[test]
+    fn the_queues_tick_at_once_then_after_each_period_until_the_loop_is_gone() {
+        let (waits, waited) = mpsc::channel();
+        let (open, gate) = mpsc::channel();
+        let (ticks, ticked) = mpsc::channel();
+        let period = Duration::from_millis(7);
+
+        let thread = tick_queues(Gate(waits, gate), period, ticks);
+
+        assert!(matches!(ticked.recv(), Ok(Event::QueuesTick)), "at once");
+        assert_eq!(waited.recv(), Ok(period));
+        assert!(
+            ticked.try_recv().is_err(),
+            "no second tick before the period"
+        );
+        open.send(()).expect("the clock waits");
+        assert!(matches!(ticked.recv(), Ok(Event::QueuesTick)), "after it");
+        assert_eq!(waited.recv(), Ok(period));
+
+        drop(ticked);
+        open.send(()).expect("the clock waits");
+        thread.join().expect("the thread ends without a panic");
     }
 
     // -----------------------------------------------------------------
