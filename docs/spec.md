@@ -609,10 +609,10 @@ that ignores case, as macOS's does by default, sessions `Work` and
 queue's directory.
 
 `asqr paths [--json]` prints the root (`none` with `--dir`, `null` in
-JSON), the queue directory, its four directories, the lock file and the
-log file, so agents and scripts find them without knowing the platform
-rules. The JSON keys are `root`, `queue`, `inbox`, `outbox`, `drafts`,
-`archive`, `lock` and `log`.
+JSON), the queue directory, its four directories, the lock file, the
+log file and the settings file, so agents and scripts find them without
+knowing the platform rules. The JSON keys are `root`, `queue`, `inbox`,
+`outbox`, `drafts`, `archive`, `lock`, `log` and `settings`.
 
 Commands log the sessions they drop, finish, archive or prune into
 `asqr.log` in the platform's cache directory (ADR 15). Draft saves are
@@ -651,6 +651,31 @@ one that is not UTF-8, counts as unset. A value that does not parse
 never stops a command and prints nothing. The log then takes `info`
 and above and warns about the value with the parse error. asqr does not
 read `RUST_LOG`.
+
+The TUI reads settings from `settings.toml` in the platform's config
+directory (ADR 92): `~/Library/Application Support/asqr/settings.toml`
+on macOS, `$XDG_CONFIG_HOME/asqr/settings.toml` (usually
+`~/.config/asqr/settings.toml`) on Linux. Only `asqr` and `asqr watch`
+read it; every other command leaves it alone. It is a TOML file with
+three keys, each of which may be left out:
+
+| Key | Values | Default | Setting |
+| :- | :- | :- | :- |
+| `diff_layout` | `"unified"`, `"side-by-side"` | `"unified"` | how a diff shows when it comes into view (section 8.5) |
+| `max_question_width` | `80`, `100`, `120`, `"full"` | `100` | the widest a question's text gets (section 7.4) |
+| `context` | `"auto"`, `"beside"`, `"below"` | `"auto"` | where the context goes (section 7.4) |
+
+- A flag wins over an environment variable, an environment variable over
+  the file, and the file over the default. Only `context` has a flag and
+  a variable, `--layout` and `ASQR_LAYOUT` (section 6.2).
+- A file that is not there gives every default and says nothing. A file
+  that cannot be read or does not parse gives every default. A key whose
+  value is none of those in the table gives that setting's default and
+  leaves the other settings as the file has them. A key asqr does not
+  know is ignored. Each case is a warning in the log. The status line
+  shows it when the TUI starts, unless a notice is showing already; for
+  several problems it reads `settings.toml: N problems, the defaults
+  apply (see the log)`. A settings file never stops a command.
 
 Queues on network or synced filesystems (NFS, Dropbox, iCloud Drive)
 are not supported: the lock is per host (section 5.6).
@@ -1035,11 +1060,13 @@ and the bell, and `--no-title` leaves the terminal title alone (section
 7.9).
 
 `--layout` places the context pane (section 7.4). Without it,
-`ASQR_LAYOUT` sets the layout, and without either it is `auto`. A
+`ASQR_LAYOUT` sets the layout, without either the `context` setting of
+the settings file does (section 5.2), and without that it is `auto`. A
 `--layout` after `watch` wins over one before it. An empty
 `ASQR_LAYOUT` counts as unset. Any other value than `auto`, `beside` or
 `below` is a usage error when asqr watches the queue; the other
-commands ignore the variable.
+commands ignore the variable. The other two settings, `diff_layout` and
+`max_question_width`, have no flag and no variable.
 
 `NO_COLOR` (<https://no-color.org>) set to any value but the empty one
 makes the TUI draw without colours (section 7.3), a value that is not
@@ -1050,11 +1077,29 @@ it shows of context entries it cannot show (section 8.3), a value that
 is not UTF-8 included. An empty `HOME`, or `/`, counts as unset, and
 paths then show whole.
 
-Other variables asqr reads: `ASQR_QUEUE`, `ASQR_DIR` and `ASQR_LOG`
-(section 5.2), `TERM` (sections 7.9 and 8.9), `TERM_PROGRAM` (section
-8.9), and `TMUX` and `TMUX_PANE` (sections 5.2 and 8.9). The tmux
-session variable `ASQR_SESSION_QUEUE` is read through tmux (section
-5.2).
+Every variable asqr reads:
+
+- `ASQR_QUEUE`, `ASQR_DIR` and `ASQR_LOG` (section 5.2), and
+  `ASQR_LAYOUT` (above). The tmux session variable `ASQR_SESSION_QUEUE`
+  is read through tmux (section 5.2).
+- `NO_COLOR` and `HOME` (above).
+- `TMUX` and `TMUX_PANE` (sections 5.2 and 8.9), `TERM` (sections 7.9
+  and 8.9) and `TERM_PROGRAM` (section 8.9). To recognise the terminal
+  (sections 7.5 and 8.9) asqr also reads `TERM_PROGRAM_VERSION`,
+  `LC_TERMINAL`, `LC_TERMINAL_VERSION`, `VTE_VERSION`,
+  `KONSOLE_VERSION`, `TERMINAL_NAME`, `KITTY_WINDOW_ID`,
+  `ALACRITTY_WINDOW_ID`, `ZELLIJ` and `WT_SESSION`.
+- `VISUAL` and `EDITOR` for the editor of `ctrl-g` (section 7.7).
+- `TMPDIR`, the temp directory where that variable names it (section
+  7.7).
+- `XDG_DATA_HOME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`, which place
+  the data, cache and config directories on Linux (section 5.2).
+- `GEMINI_CLI_HOME`, `CLAUDE_CONFIG_DIR`, `COPILOT_HOME` and
+  `CODEX_HOME`, which move the global skills directories (section 9).
+
+Debug builds read two more, `ASQR_TEST_PANIC_ON_LOAD` and
+`ASQR_TEST_PANIC_ON_OPEN`, which the tests of the TUI use to make
+loading or opening an entry panic.
 
 ### 6.3 `ask`
 
@@ -1539,15 +1584,19 @@ has context (section 7.4, ADRs 30 and 31):
 
 ### 7.4 Size and layout
 
-- **Reading width:** the question and the review take at most 100
-  columns and start at the left, with or without a context pane. The
+- **Reading width:** the question and the review take at most the
+  reading width and start at the left, with or without a context pane.
+  The reading width is the `max_question_width` setting (section 5.2):
+  100 columns, or 80, 120 or the whole width of the tab's area. It never
+  decides between beside and below. The intro overlay and the dialog of
+  an invalid session keep 100 columns of text whatever it says. The
   tab's area, W×H, is the area under the tab bar inside a margin of one
   column on each side.
 - **Context pane:** a question that has context, or has an option with
   context, shares the tab's area with a context pane (section 8):
   - Beside: the question takes half of W after the blank separator
-    column, at least 60 and at most 100 columns, and the context pane
-    takes the rest. Its body is two columns narrower than the pane, 38
+    column, at least 60 columns and at most the reading width, and the
+    context pane takes the rest. Its body is two columns narrower than the pane, 38
     at the narrowest (section 8.1). Beside fits from W = 101, a terminal
     of 103 columns.
   - Below: the question keeps its width and takes the rows the tallest
@@ -2522,14 +2571,17 @@ Code entries, ANSI entries and diffs show lines of source:
   one. A new or deleted file, all of whose lines are changed, shows no
   syntax colours. A diff whose two sides together are longer than 1 MiB
   shows without highlighting.
-- `s` shows the diff side by side, and `s` again unified (ADR 70). It
-  works in the focused pane, in the full-screen view and on the
+- `s` shows the diff in the other layout than the one it shows: side by
+  side where it shows unified, unified where it shows side by side (ADR
+  70). It works in the focused pane, in the full-screen view and on the
   question's rows, not while a field or a note takes the keys, where it
-  types. Whether side by side reads better is not settled, so unified is
-  what shows first. The switch holds for that entry while it shows, as
-  the full-screen view does: once another entry shows, it ends, and the
-  diff shows unified when it comes back. A replaced session file keeps
-  it while the same entry shows. asqr does not keep it when it quits.
+  types. A diff shows first in the layout the `diff_layout` setting
+  names, unified by default (section 5.2). The switch holds for that
+  entry while it shows, as the full-screen view does: once another entry
+  shows, it ends, and the diff shows in the layout of the setting when
+  it comes back. A change of the setting does not move a diff that was
+  switched. A replaced session file keeps the switch while the same
+  entry shows. asqr does not keep it when it quits.
 - Side by side, the old text shows in the left column and the new text
   in the right one, with a dim `│` and a blank between them, so a line
   number of the new column never touches the line; the left column
@@ -2906,4 +2958,3 @@ The skill teaches, in the core unless a part is named:
 - A tmux passthrough hint in the TUI.
 - Windows support (it may work, but it is not tested).
 - Formats other than JSON.
-- A config file: flags and environment variables only.

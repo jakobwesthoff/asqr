@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use super::{Exit, WatchArgs};
 use crate::pairing::{self, Multiplexer, Tmux, TmuxPane};
 use crate::queue::{Holder, LockError, Origin, QueueLocation, QueueLock, lock_queue};
-use crate::tui::render::PaneLayout;
+use crate::settings::{Loaded, SettingsStore};
+use crate::tui::render::{PaneLayout, ReadingWidth};
 use crate::tui::{Alerts, QueueChoice, queue_choice};
 
 /// The queue a TUI pins in its tmux session once it runs (ADR 85).
@@ -26,7 +27,10 @@ pub struct Pin {
 pub struct Watch {
     location: QueueLocation,
     alerts: Alerts,
-    layout: PaneLayout,
+    /// The settings of this run, with what a flag or a variable holds.
+    settings: SettingsStore,
+    /// What was wrong with the settings file (see [`Loaded::warnings`]).
+    warnings: Vec<String>,
     /// Whether asqr sets the terminal title; `--no-title` switches it off.
     title: bool,
     /// Whether the TUI draws without colours (`NO_COLOR`).
@@ -55,8 +59,24 @@ impl Watch {
         self.alerts
     }
 
+    /// Where the context goes: the setting, or what a flag or a variable
+    /// holds over it.
     pub fn layout(&self) -> PaneLayout {
-        self.layout
+        self.settings.effective().context
+    }
+
+    /// The widest the question's text gets.
+    pub fn reading_width(&self) -> ReadingWidth {
+        self.settings.effective().max_question_width
+    }
+
+    pub fn settings(&self) -> &SettingsStore {
+        &self.settings
+    }
+
+    /// What was wrong with the settings file, for the status line.
+    pub fn settings_warnings(&self) -> &[String] {
+        &self.warnings
     }
 
     pub fn title(&self) -> bool {
@@ -114,6 +134,7 @@ pub(super) struct Pairing<'a> {
 pub(super) fn run(
     location: QueueLocation,
     args: &WatchArgs,
+    loaded: Loaded,
     no_color: bool,
     home: Option<PathBuf>,
     pairing: Pairing<'_>,
@@ -138,7 +159,8 @@ pub(super) fn run(
         return terminal_ui(Watch {
             location,
             alerts,
-            layout: args.layout.unwrap_or_default(),
+            settings: loaded.store,
+            warnings: loaded.warnings,
             title: !args.no_title,
             no_color,
             home,
@@ -186,7 +208,8 @@ pub(super) fn run(
     terminal_ui(Watch {
         location,
         alerts,
-        layout: args.layout.unwrap_or_default(),
+        settings: loaded.store,
+        warnings: loaded.warnings,
         title: !args.no_title,
         no_color,
         home,

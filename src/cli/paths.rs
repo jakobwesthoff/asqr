@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use super::Exit;
 use crate::queue::{QueueLocation, platform_cache_dir};
+use crate::settings::settings_file;
 
 /// The log file in the platform cache directory (ADR 15).
 pub(crate) fn log_file() -> Option<PathBuf> {
@@ -28,6 +29,7 @@ pub(super) fn run(location: &QueueLocation, json: bool) -> Exit {
         ("archive", text(Some(&location.archive()))),
         ("lock", text(Some(&location.lock_file()))),
         ("log", text(log_file().as_deref())),
+        ("settings", text(settings_file().as_deref())),
     ];
 
     if json {

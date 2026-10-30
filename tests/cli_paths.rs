@@ -84,6 +84,13 @@ fn paths_of_a_directory_queue_have_no_root() {
         "{text}"
     );
     assert!(text.contains("log: "), "{text}");
+    assert!(
+        text.contains(&format!(
+            "settings: {}\n",
+            sandbox.config_dir().join("settings.toml").display()
+        )),
+        "{text}"
+    );
 }
 
 #[test]
@@ -109,7 +116,9 @@ fn paths_as_json_name_the_default_queue_under_the_sandbox_home() {
             .expect("queue")
             .ends_with("queues/default")
     );
-    for key in ["inbox", "outbox", "drafts", "archive", "lock", "log"] {
+    for key in [
+        "inbox", "outbox", "drafts", "archive", "lock", "log", "settings",
+    ] {
         assert!(paths[key].is_string(), "{key} missing: {paths}");
     }
     assert!(
@@ -118,6 +127,15 @@ fn paths_as_json_name_the_default_queue_under_the_sandbox_home() {
             .expect("log")
             .starts_with(sandbox.home().to_str().expect("UTF-8")),
         "the log lives in the sandbox cache: {paths}"
+    );
+    assert_eq!(
+        paths["settings"].as_str().expect("settings"),
+        sandbox
+            .config_dir()
+            .join("settings.toml")
+            .to_str()
+            .expect("UTF-8"),
+        "{paths}"
     );
 }
 

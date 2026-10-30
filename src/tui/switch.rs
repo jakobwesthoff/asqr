@@ -15,6 +15,7 @@ use super::{Tone, start, watch_inbox};
 use crate::cli::shell_word;
 use crate::pairing::{self, Tmux, TmuxFailure, TmuxPane};
 use crate::queue::{LockError, QueueLocation, QueueLock, list_queues, lock_queue, summarize};
+use crate::settings::SettingsStore;
 
 /// The queues for the switcher, looked at now: the named queues under
 /// `root`, and `dir`, a queue this run was given by `--dir`, first. This
@@ -139,6 +140,7 @@ pub struct Taken {
 /// the picker shows; nothing is held then.
 pub fn take_picked(
     target: &QueueLocation,
+    settings: &SettingsStore,
     changed: impl FnMut() + Send + 'static,
 ) -> Result<Taken, Notice> {
     // The picker lists named queues, whose label does not use the home
@@ -146,7 +148,7 @@ pub fn take_picked(
     let name = queue_label(target, None);
     let held = prepare_switch(target, None, changed).map_err(|refusal| refused(&name, refusal))?;
     // A failed read drops `held`, and with it the lock and the watcher.
-    let (app, inbox) = start(target.clone())
+    let (app, inbox) = start(target.clone(), settings.clone())
         .map_err(|error| cannot_watch(&name, &error.root_cause().to_string()))?;
     Ok(Taken { held, app, inbox })
 }
@@ -276,7 +278,7 @@ pub fn switch_queue(
     };
     // The new queue is read before the old one is let go of; `held` goes
     // with a failure, and with it the new lock and watcher.
-    let (mut new_app, new_inbox) = match start(target.clone()) {
+    let (mut new_app, new_inbox) = match start(target.clone(), app.settings().clone()) {
         Ok(started) => started,
         Err(error) => {
             app.show(cannot_watch(&new, &error.root_cause().to_string()));
@@ -596,7 +598,8 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let target = QueueLocation::named(scratch.path(), "work");
 
-        let taken = take_picked(&target, || {}).map_err(|notice| notice.text);
+        let taken =
+            take_picked(&target, &SettingsStore::default(), || {}).map_err(|notice| notice.text);
 
         let taken = taken.expect("taken");
         assert_eq!(taken.held.location, target);
@@ -605,12 +608,25 @@ mod tests {
     }
 
     #[test]
+    fn a_picked_queue_is_watched_with_the_settings_of_the_run() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = QueueLocation::named(scratch.path(), "work");
+        let config = scratch.path().join("settings.toml");
+        std::fs::write(&config, "context = \"below\"\n").expect("written");
+        let settings = SettingsStore::load(Some(config), None).store;
+
+        let taken = take_picked(&target, &settings, || {}).expect("taken");
+
+        assert_eq!(taken.app.settings(), &settings);
+    }
+
+    #[test]
     fn a_picked_queue_another_asqr_took_is_a_notice() {
         let scratch = tempfile::tempdir().expect("temp dir");
         let target = queue(scratch.path(), "work", 0);
         let _theirs = lock_queue(&target, None).expect("locked");
 
-        let refused = take_picked(&target, || {}).err();
+        let refused = take_picked(&target, &SettingsStore::default(), || {}).err();
 
         assert_eq!(
             refused,
@@ -630,7 +646,9 @@ mod tests {
         std::fs::create_dir_all(target.dir()).expect("dir");
         std::fs::write(target.inbox(), "").expect("a file where the inbox belongs");
 
-        let refused = take_picked(&target, || {}).err().map(|notice| notice.text);
+        let refused = take_picked(&target, &SettingsStore::default(), || {})
+            .err()
+            .map(|notice| notice.text);
 
         assert!(
             refused
@@ -650,7 +668,9 @@ mod tests {
         std::fs::set_permissions(target.inbox(), std::fs::Permissions::from_mode(0o000))
             .expect("permissions change");
 
-        let refused = take_picked(&target, || {}).err().map(|notice| notice.text);
+        let refused = take_picked(&target, &SettingsStore::default(), || {})
+            .err()
+            .map(|notice| notice.text);
         std::fs::set_permissions(target.inbox(), std::fs::Permissions::from_mode(0o755))
             .expect("permissions back");
 

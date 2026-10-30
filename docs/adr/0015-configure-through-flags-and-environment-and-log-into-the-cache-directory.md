@@ -14,6 +14,9 @@ Amended by [90. Keep what the person typed out of the log](0090-keep-what-the-pe
 
 Amended by [91. Rotate the log at 1 MiB and keep old logs compressed](0091-rotate-the-log-at-1-mib-and-keep-old-logs-compressed.md)
 
+Amended by [92. Keep settings in a file](0092-keep-settings-in-a-file.md):
+settings may also come from a file
+
 ## Context
 
 asqr has few settings: the queue, notifications and the bell. The

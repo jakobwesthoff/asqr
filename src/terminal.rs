@@ -81,7 +81,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
                 let _ = changes.send(Event::InboxChanged);
             })
             .context("watching the inbox")?;
-            let (app, inbox) = start(location.clone())?;
+            let (app, inbox) = start(location.clone(), watch.settings().clone())?;
             Some(Taken {
                 held: Held {
                     location,
@@ -215,6 +215,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
             let choice = watch
                 .pick()
                 .expect("a watch without a lock carries the picker's queues");
+            let settings = watch.settings().clone();
             let picked = pick_queue(
                 &mut terminal,
                 Switcher::picker(choice.clone()),
@@ -222,7 +223,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
                 VERSION,
                 |target| {
                     let changes = inbox_events.clone();
-                    take_picked(target, move || {
+                    take_picked(target, &settings, move || {
                         let _ = changes.send(Event::InboxChanged);
                     })
                 },
@@ -233,6 +234,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
             }
         }
     };
+    app.report_settings_problems(watch.settings_warnings());
     let queue = queue_label(&location, watch.home());
     let mut host = TerminalHost {
         alerts: watch.alerts(),
@@ -259,6 +261,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
     let mut view = View::new(&queue, watch.layout(), images)
         .chosen_queue(!location.is_default())
         .no_color(watch.no_color())
+        .reading_width(watch.reading_width())
         .home(watch.home().map(Path::to_path_buf))
         .glyphs(glyphs)
         .wake_on_load(move || {

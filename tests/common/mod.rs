@@ -29,6 +29,16 @@ impl Sandbox {
         self.home.path()
     }
 
+    /// The directory asqr keeps its settings file in, under the sandbox's
+    /// home on either platform.
+    pub fn config_dir(&self) -> PathBuf {
+        if cfg!(target_os = "macos") {
+            self.home.path().join("Library/Application Support/asqr")
+        } else {
+            self.home.path().join(".config/asqr")
+        }
+    }
+
     /// A queue directory inside the sandbox, for `--dir`.
     pub fn queue_dir(&self) -> PathBuf {
         self.home.path().join("queue")
@@ -45,6 +55,7 @@ impl Sandbox {
             .env("HOME", self.home.path())
             .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
+            .env("XDG_CONFIG_HOME", self.home.path().join(".config"))
             .env_remove("ASQR_QUEUE")
             .env_remove("ASQR_DIR")
             .env_remove("ASQR_LOG")
@@ -70,6 +81,7 @@ impl Sandbox {
             .env("HOME", self.home.path())
             .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
+            .env("XDG_CONFIG_HOME", self.home.path().join(".config"))
             .env_remove("ASQR_QUEUE")
             .env_remove("ASQR_DIR")
             .env_remove("ASQR_LOG")

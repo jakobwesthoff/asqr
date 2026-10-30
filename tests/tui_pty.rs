@@ -141,7 +141,9 @@ impl Tui {
         command.env("TMPDIR", &tmp);
         command.env("XDG_DATA_HOME", sandbox.home().join(".local/share"));
         command.env("XDG_CACHE_HOME", sandbox.home().join(".cache"));
+        command.env("XDG_CONFIG_HOME", sandbox.home().join(".config"));
         command.env_remove("ASQR_QUEUE");
+        command.env_remove("ASQR_LAYOUT");
         command.env_remove("ASQR_DIR");
         command.env_remove("ASQR_LOG");
         command.env_remove("NO_COLOR");
@@ -342,6 +344,24 @@ impl Drop for Tui {
     fn drop(&mut self) {
         let _ = self.child.kill();
     }
+}
+
+#[test]
+fn a_settings_file_that_does_not_parse_is_said_and_asqr_runs() {
+    let sandbox = Sandbox::new();
+    std::fs::create_dir_all(sandbox.config_dir()).expect("config dir");
+    std::fs::write(sandbox.config_dir().join("settings.toml"), "context =\n")
+        .expect("settings file");
+    let dir = sandbox.queue_dir();
+
+    let tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+    );
+
+    tui.wait_for("settings.toml does not parse (line 1");
+    tui.wait_for("Nothing to answer");
 }
 
 #[test]

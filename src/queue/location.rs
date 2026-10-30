@@ -265,6 +265,13 @@ pub fn platform_data_dir() -> Option<PathBuf> {
     project_dirs().map(|dirs| dirs.data_dir().to_path_buf())
 }
 
+/// The platform config directory, where the settings file goes (ADR 92):
+/// `~/Library/Application Support/asqr` on macOS, `$XDG_CONFIG_HOME/asqr`
+/// on Linux.
+pub fn platform_config_dir() -> Option<PathBuf> {
+    project_dirs().map(|dirs| dirs.config_dir().to_path_buf())
+}
+
 /// The platform cache directory, where the log file goes (ADR 15).
 pub fn platform_cache_dir() -> Option<PathBuf> {
     project_dirs().map(|dirs| dirs.cache_dir().to_path_buf())
@@ -511,6 +518,18 @@ mod tests {
             Some("asqr")
         );
         assert_ne!(data, cache);
+    }
+
+    #[test]
+    fn the_config_directory_is_named_asqr_and_differs_from_the_cache() {
+        let config = platform_config_dir().expect("the test machine has a home directory");
+        let cache = platform_cache_dir().expect("the test machine has a home directory");
+
+        assert_eq!(
+            config.file_name().and_then(|name| name.to_str()),
+            Some("asqr")
+        );
+        assert_ne!(config, cache);
     }
 
     #[test]

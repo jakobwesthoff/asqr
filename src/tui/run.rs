@@ -30,6 +30,7 @@ use super::{
 use crate::graphics::KittyDeletes;
 use crate::pairing::TmuxFailure;
 use crate::queue::{QueueLocation, WaitingQueue};
+use crate::settings::SettingsStore;
 
 /// What wakes the loop.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -323,8 +324,8 @@ fn within_bytes(text: &str, room: usize) -> String {
 
 /// Reads the queue for the first time: what waits when asqr starts is
 /// shown without an alert. Register the watcher before (spec section 5.4).
-pub fn start(location: QueueLocation) -> anyhow::Result<(App, Inbox)> {
-    let mut app = App::default();
+pub fn start(location: QueueLocation, settings: SettingsStore) -> anyhow::Result<(App, Inbox)> {
+    let mut app = App::with_settings(settings);
     let mut inbox = Inbox::new(location);
     inbox.sync(&mut app).context("reading the inbox")?;
     Ok((app, inbox))
@@ -770,7 +771,7 @@ mod tests {
         /// Starts the app, then runs it over `events`; the loop ends when
         /// they run out unless a key quits first.
         fn run(&mut self, events: Vec<Event>) -> anyhow::Result<()> {
-            let (mut app, mut inbox) = start(self.location.clone())?;
+            let (mut app, mut inbox) = start(self.location.clone(), SettingsStore::default())?;
             self.run_started(&mut app, &mut inbox, events)
         }
 
@@ -857,7 +858,8 @@ mod tests {
         let mut harness = Harness::new();
         harness.put("a");
         harness.put("b");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         harness
             .run_started(&mut app, &mut inbox, vec![])
             .expect("runs");
@@ -900,7 +902,8 @@ mod tests {
         harness.terminal = Terminal::new(TestBackend::new(60, 15)).expect("test terminal");
         let path = harness.location.inbox().join("tall.json");
         fs::write(path, session.to_string()).expect("written");
-        let (app, inbox) = start(harness.location.clone()).expect("started");
+        let (app, inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         (harness, app, inbox)
     }
 
@@ -1119,7 +1122,8 @@ mod tests {
     #[test]
     fn a_session_arriving_while_running_is_shown_and_announced() {
         let mut harness = Harness::new();
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         harness.put("late");
         harness
@@ -1141,7 +1145,8 @@ mod tests {
             for n in 0..sessions {
                 harness.put(&format!("batch-{n}"));
             }
-            let (app, _) = start(harness.location.clone()).expect("started");
+            let (app, _) =
+                start(harness.location.clone(), SettingsStore::default()).expect("started");
             terminal_title(&app, None)
         };
 
@@ -1153,7 +1158,8 @@ mod tests {
     #[test]
     fn the_title_is_sent_when_the_count_changes_and_only_then() {
         let mut harness = Harness::new();
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         // `2` picks and moves on to the review, where `enter` submits.
         harness.put("late");
@@ -1235,7 +1241,8 @@ mod tests {
     #[test]
     fn the_loop_titles_a_chosen_queue() {
         let mut harness = Harness::new();
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view =
             View::for_tests("pty", PaneLayout::Auto, Images::half_blocks()).chosen_queue(true);
 
@@ -1264,7 +1271,8 @@ mod tests {
             "context": [{"type": "code", "content": "fn main() {}"}],
             "options": [{"id": "a", "label": "Apples"}]}]}"#;
         fs::write(harness.location.inbox().join("coded.json"), session).expect("written");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let (sender, receiver) = mpsc::channel();
         let woken = sender.clone();
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks())
@@ -1310,7 +1318,8 @@ mod tests {
             "context": [{"type": "code", "content": "fn main() {}"}],
             "options": [{"id": "a", "label": "Apples"}]}]}"#;
         fs::write(harness.location.inbox().join("coded.json"), session).expect("written");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks())
             .skipping_waits_for_input();
         harness
@@ -1460,7 +1469,8 @@ mod tests {
     #[test]
     fn the_progress_goes_when_the_session_leaves() {
         let mut harness = two_questions();
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         harness
             .run_started(&mut app, &mut inbox, vec![])
             .expect("runs");
@@ -1655,7 +1665,8 @@ mod tests {
             r#"{"asqr": 2, "questions": [{"id": "t", "text": "?", "kind": "text"}]}"#,
         )
         .expect("written");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         harness
             .run_started(&mut app, &mut inbox, vec![key(KeyCode::Char('w'))])
@@ -1675,7 +1686,8 @@ mod tests {
     #[test]
     fn enter_switches_the_watched_queue() {
         let mut harness = two_queues();
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         harness.host.elsewhere = VecDeque::from([Vec::new(), waiting_in("asqr-todos", 1)]);
 
         harness
@@ -1724,7 +1736,8 @@ mod tests {
         harness.location.create_layout().expect("layout");
         harness.put("a");
         harness.host.home = Some(home);
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         harness
             .run_started(&mut app, &mut inbox, switch_to_work())
@@ -1737,10 +1750,43 @@ mod tests {
     }
 
     #[test]
+    fn a_switch_keeps_the_settings_of_the_run() {
+        let mut harness = two_queues();
+        let config = harness.scratch.path().join("settings.toml");
+        fs::write(&config, "diff_layout = \"side-by-side\"\n").expect("written");
+        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), settings.clone()).expect("started");
+
+        harness
+            .run_started(&mut app, &mut inbox, switch_to_work())
+            .expect("runs");
+
+        assert_eq!(inbox.location(), &work(&harness), "the switch happened");
+        assert_eq!(app.settings(), &settings);
+        assert_eq!(app.settings().path(), Some(config.as_path()));
+        // A session of the new queue opens its diffs as the file says.
+        let id = "diff";
+        app.add(crate::tui::SessionState::new(
+            id,
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                    "context": [{"type": "diff", "old": {"content": "a\n"}, "new": {"content": "b\n"}}],
+                    "options": [{"id": "a", "label": "A"}]}]}"#,
+            )
+            .expect("test session parses"),
+            None,
+        ));
+        let added = app.sessions().last().expect("added");
+        assert!(added.side_by_side());
+    }
+
+    #[test]
     fn a_queue_taken_meanwhile_is_a_notice() {
         let mut harness = two_queues();
         let _theirs = crate::queue::lock_queue(&work(&harness), None).expect("locked");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         harness
             .run_started(&mut app, &mut inbox, switch_to_work())
@@ -1760,7 +1806,8 @@ mod tests {
         let work = work(&harness);
         fs::remove_dir_all(work.inbox()).expect("removed");
         fs::write(work.inbox(), "").expect("a file where the inbox belongs");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         harness
             .run_started(&mut app, &mut inbox, switch_to_work())
@@ -1783,7 +1830,8 @@ mod tests {
         let work = work(&harness);
         fs::set_permissions(work.inbox(), fs::Permissions::from_mode(0o000))
             .expect("permissions change");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         let ran = harness.run_started(&mut app, &mut inbox, switch_to_work());
         fs::set_permissions(work.inbox(), fs::Permissions::from_mode(0o755))
@@ -1843,7 +1891,8 @@ mod tests {
     #[test]
     fn a_switch_whose_draft_cannot_be_saved_keeps_the_old_queue() {
         let mut harness = two_queues();
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         inbox.set_lock_attempts(1);
         let _held = crate::queue::lock_drafts(&harness.location, 1).expect("locks");
         let mut events = vec![key(KeyCode::Char('1'))];
@@ -2156,7 +2205,8 @@ mod tests {
             fs::remove_file(&inbox_file)?;
             write(path)
         }));
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         harness
             .run_started(&mut app, &mut inbox, vec![ctrl('g')])
@@ -2181,7 +2231,8 @@ mod tests {
             fs::rename(&from, &to)?;
             write(path)
         }));
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         harness
             .run_started(&mut app, &mut inbox, vec![ctrl('g')])
             .expect("runs");
@@ -2205,7 +2256,8 @@ mod tests {
     #[test]
     fn the_screen_is_drawn_whole_after_the_editor_without_asking_for_the_cursor() {
         let harness = text_question();
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
         let log = Log::default();
         let mut backend = Logging::new(&log);
@@ -2266,7 +2318,8 @@ mod tests {
             ),
         )
         .expect("written");
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
         // `jj` reaches the own answer, whose field `ctrl-g` opens.
@@ -2501,7 +2554,8 @@ mod tests {
             without_context,
         )
         .expect("written");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
         harness
             .run_with_view(&mut app, &mut inbox, &mut view, vec![])
@@ -2543,7 +2597,8 @@ mod tests {
     fn a_key_under_the_too_small_message_leaves_the_dialog() {
         let mut harness = Harness::new();
         fs::write(harness.location.inbox().join("garbage.json"), "not json").expect("written");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         assert!(app.invalid_shown().is_some(), "the scan found it");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
         let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
@@ -2587,7 +2642,8 @@ mod tests {
             with_long_intro(),
         )
         .expect("written");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
         harness
             .run_with_view(
@@ -2646,7 +2702,8 @@ mod tests {
             "batch-01",
             &format!(r#"{{"type": "image", "path": "{image}"}}"#),
         );
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         harness
             .run_started(&mut app, &mut inbox, vec![key(KeyCode::Char('o'))])
@@ -2667,7 +2724,8 @@ mod tests {
     fn an_opener_that_failed_is_a_notice() {
         let mut harness = Harness::new();
         harness.put("batch-01");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let failed = "cannot open /pictures/cat.png: the opener exited with 1";
 
         harness
@@ -2714,7 +2772,8 @@ mod tests {
         paint([255, 0, 0]);
         let session = SESSION.replace("/nowhere/cat.png", picture.to_str().expect("utf-8 path"));
         fs::write(harness.location.inbox().join("pictured.json"), session).expect("written");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
 
         harness
@@ -2750,7 +2809,8 @@ mod tests {
         ] {
             let mut watched = Watched::new();
             watched.put("a", PICTURE, [255, 0, 0]);
-            let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+            let (mut app, mut inbox) =
+                start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
             let mut view =
                 View::for_tests("test", PaneLayout::Auto, Images::kitty_through(passthrough));
 
@@ -2790,7 +2850,7 @@ mod tests {
         fs::remove_dir(harness.location.inbox()).expect("removed");
         fs::write(harness.location.inbox(), "in the way").expect("written");
 
-        let error = start(harness.location.clone()).expect_err("fails");
+        let error = start(harness.location.clone(), SettingsStore::default()).expect_err("fails");
 
         assert!(
             format!("{error:#}").contains("reading the inbox"),
@@ -2801,7 +2861,8 @@ mod tests {
     #[test]
     fn an_inbox_that_becomes_unreadable_is_a_notice() {
         let mut harness = Harness::new();
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
 
         fs::remove_dir(harness.location.inbox()).expect("removed");
         fs::write(harness.location.inbox(), "in the way").expect("written");
@@ -2947,7 +3008,8 @@ mod tests {
     ) -> anyhow::Result<Vec<&'static str>> {
         let harness = Harness::new();
         fs::write(harness.location.inbox().join("s.json"), session).expect("written");
-        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, images);
         let log = Log::default();
         let mut backend = Logging::new(&log);
@@ -3170,7 +3232,8 @@ mod tests {
     fn a_frame_that_sends_a_kitty_image_logs_its_bytes_and_times() {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
         let log = test_support::logged_with(Some("debug"), || {
@@ -3197,7 +3260,8 @@ mod tests {
     fn a_frame_that_shows_a_kitty_image_already_sent_logs_nothing() {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
         let log = test_support::logged_with(Some("debug"), || {
@@ -3214,7 +3278,8 @@ mod tests {
     fn without_asqr_log_a_frame_that_sends_a_kitty_image_logs_nothing() {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
         let log = test_support::logged(|| {
@@ -3232,7 +3297,8 @@ mod tests {
     fn finishing_the_only_session_deletes_its_image_after_the_empty_queue_frame() {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
         // `2` picks and moves on to the review, where `enter` submits.
@@ -3266,7 +3332,8 @@ mod tests {
     fn a_quit_event_ends_the_run_and_keeps_the_images_for_the_exit_deletes() {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
         // Should the run go on past the quit, `2` picks and `enter`
@@ -3298,7 +3365,8 @@ mod tests {
     fn a_frame_that_fails_to_flush_keeps_the_images_that_went_for_the_exit() {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
         watched.run(&mut app, &mut inbox, &mut view, vec![]);
 
@@ -3322,7 +3390,8 @@ mod tests {
     fn a_delete_that_could_not_be_written_is_written_after_the_next_frame() {
         let mut watched = Watched::new();
         watched.put("only", PICTURE, [255, 0, 0]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
         let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
         watched.run(app, inbox, view, vec![]);
@@ -3353,7 +3422,8 @@ mod tests {
         let mut watched = Watched::new();
         watched.put("a", PICTURE, [255, 0, 0]);
         watched.put("b", PICTURE, [0, 0, 255]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests(
             "test",
             PaneLayout::Auto,
@@ -3444,7 +3514,8 @@ mod tests {
     fn regaining_the_focus_writes_the_deletes_since_the_last_time_again() {
         let mut watched = Watched::new();
         watched.put("a", PICTURE, [255, 0, 0]);
-        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
         let mut view = View::for_tests(
             "test",
             PaneLayout::Auto,

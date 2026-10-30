@@ -19,6 +19,7 @@ use super::{
 };
 use crate::format::{Answer, ContextEntry, SessionResult, same_session_id};
 use crate::queue::{QueueLocation, WaitingQueue};
+use crate::settings::SettingsStore;
 
 /// How a finished session ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,9 +210,47 @@ pub struct App {
     switcher: Option<Switcher>,
     /// The layout diffs open in.
     diff_layout: DiffLayout,
+    /// The settings of this run (ADR 92).
+    settings: SettingsStore,
 }
 
 impl App {
+    /// An app with no session, run with `settings`: diffs open in the
+    /// layout they say.
+    pub fn with_settings(settings: SettingsStore) -> Self {
+        App {
+            diff_layout: settings.effective().diff_layout,
+            settings,
+            ..App::default()
+        }
+    }
+
+    /// The settings of this run.
+    pub fn settings(&self) -> &SettingsStore {
+        &self.settings
+    }
+
+    /// Says in the status line what was wrong with the settings file: the
+    /// problem itself where there is one, how many where there are several.
+    /// A notice already showing stays, as the status line holds one; the
+    /// log has every problem.
+    pub fn report_settings_problems(&mut self, problems: &[String]) {
+        if self.notice.is_some() {
+            return;
+        }
+        match problems {
+            [] => {}
+            [problem] => self.notice(Tone::Warning, problem.clone()),
+            problems => self.notice(
+                Tone::Warning,
+                format!(
+                    "settings.toml: {} problems, the defaults apply (see the log)",
+                    problems.len()
+                ),
+            ),
+        }
+    }
+
     /// Adds a session at the end of the queue. A session whose id is known
     /// already is a replaced file: it takes the place of the open one and
     /// keeps the answers that still fit.
@@ -653,6 +692,71 @@ mod tests {
         )
         .expect("test session parses");
         SessionState::new(id, session, None)
+    }
+
+    #[test]
+    fn an_app_run_with_settings_opens_diffs_as_they_say() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let config = scratch.path().join("settings.toml");
+        std::fs::write(&config, "diff_layout = \"side-by-side\"\n").expect("written");
+        let settings = SettingsStore::load(Some(config), None).store;
+        let mut app = App::with_settings(settings.clone());
+
+        app.add(diff_state("first"));
+
+        assert!(app.active().expect("a session").side_by_side());
+        assert_eq!(app.settings(), &settings);
+    }
+
+    fn problems(texts: &[&str]) -> Vec<String> {
+        texts.iter().map(|text| (*text).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_problem_with_the_settings_file_shows_as_a_warning() {
+        let mut app = App::default();
+
+        app.report_settings_problems(&problems(&[
+            "settings.toml: context = 3 is not x; auto applies",
+        ]));
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(
+                Tone::Warning,
+                "settings.toml: context = 3 is not x; auto applies"
+            ))
+        );
+    }
+
+    #[test]
+    fn several_problems_show_as_a_count() {
+        let mut app = App::default();
+
+        app.report_settings_problems(&problems(&["one", "two", "three"]));
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(
+                Tone::Warning,
+                "settings.toml: 3 problems, the defaults apply (see the log)"
+            ))
+        );
+    }
+
+    #[test]
+    fn no_problem_shows_nothing_and_a_notice_already_there_stays() {
+        let mut app = App::default();
+        app.report_settings_problems(&[]);
+        assert_eq!(app.current_notice(), None);
+
+        app.notice(Tone::Error, "an invalid session");
+        app.report_settings_problems(&problems(&["a problem"]));
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(Tone::Error, "an invalid session"))
+        );
     }
 
     #[test]

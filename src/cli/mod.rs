@@ -34,6 +34,7 @@ pub use watch::{Pin, Watch};
 
 use crate::pairing::{self, Multiplexer, SystemTmux, Tmux, TmuxFailure};
 use crate::queue::{Origin, Paired, QueueLocation, Selection, platform_data_dir};
+use crate::settings::{Lock, SettingsStore, settings_file};
 use crate::tui::render::PaneLayout;
 
 /// The line `asqr --help` and `asqr ask --help` show agents, below the
@@ -297,17 +298,19 @@ pub fn run(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) -
         environment,
         &SystemTmux::default(),
         platform_data_dir(),
+        settings_file(),
         terminal_ui,
     )
 }
 
-/// Runs the command with `tmux` to ask and the named queues under `root`,
-/// which tests choose.
+/// Runs the command with `tmux` to ask, the named queues under `root` and
+/// the settings file at `config`, which tests choose.
 fn dispatch(
     cli: Cli,
     environment: Environment,
     tmux: &dyn Tmux,
     root: Option<PathBuf>,
+    config: Option<PathBuf>,
     terminal_ui: impl FnOnce(Watch) -> Exit,
 ) -> Exit {
     let flags = Selection {
@@ -395,15 +398,28 @@ fn dispatch(
                     return Exit::Usage;
                 }
             };
+            let flag = after.layout.or(before.layout);
+            let context_lock = match (flag, variable) {
+                (Some(layout), _) => Some((layout, Lock::Flag("--layout"))),
+                (None, Some(layout)) => Some((layout, Lock::Variable("ASQR_LAYOUT"))),
+                (None, None) => None,
+            };
+            // Only the TUI reads the file, so a broken one never reaches
+            // another command.
+            let settings = SettingsStore::load(config, context_lock);
+            for warning in &settings.warnings {
+                tracing::warn!("{warning}");
+            }
             let args = WatchArgs {
                 no_notify: before.no_notify || after.no_notify,
                 no_bell: before.no_bell || after.no_bell,
                 no_title: before.no_title || after.no_title,
-                layout: after.layout.or(before.layout).or(variable),
+                layout: flag,
             };
             watch::run(
                 location,
                 &args,
+                settings,
                 environment.no_color,
                 environment.home,
                 watch::Pairing {
@@ -496,7 +512,9 @@ mod tests {
     use crate::pairing::TmuxPane;
     use crate::pairing::testing::{StandIn, Unasked};
     use crate::queue::{lock_holder, lock_queue};
-    use crate::tui::Alerts;
+    use crate::settings::Setting;
+    use crate::tui::render::ReadingWidth;
+    use crate::tui::{Alerts, DiffLayout};
 
     /// Runs `args` against a queue in `dir` and returns the exit and the
     /// alerts the terminal UI was started with, if it was.
@@ -516,7 +534,7 @@ mod tests {
         argv.extend(args);
         let cli = Cli::try_parse_from(argv).expect("parses");
         let mut started = None;
-        let exit = dispatch(cli, environment, &Unasked, None, |watch| {
+        let exit = dispatch(cli, environment, &Unasked, None, None, |watch| {
             let location = watch.location();
             assert!(location.inbox().is_dir(), "the layout exists");
             assert!(
@@ -614,11 +632,157 @@ mod tests {
         };
 
         assert_eq!(
-            dispatch(cli, environment, &Unasked, None, |_| unreachable!(
+            dispatch(cli, environment, &Unasked, None, None, |_| unreachable!(
                 "no TUI for paths"
             )),
             Exit::Success
         );
+    }
+
+    /// What the TUI starts with from a settings file holding `text`.
+    #[derive(Debug, PartialEq)]
+    struct FromFile {
+        layout: PaneLayout,
+        reading: ReadingWidth,
+        diffs: DiffLayout,
+        lock: Option<Lock>,
+        warnings: Vec<String>,
+    }
+
+    /// Runs `args` under `environment` with a settings file holding `text`
+    /// in a directory of its own, and says what the TUI started with.
+    fn from_file(args: &[&str], environment: Environment, text: &str) -> (Exit, Option<FromFile>) {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let config = scratch.path().join("settings.toml");
+        std::fs::write(&config, text).expect("written");
+        let queue = scratch.path().join("queue");
+        let mut argv = vec!["asqr", "--dir", queue.to_str().expect("UTF-8 temp path")];
+        argv.extend(args);
+        let cli = Cli::try_parse_from(argv).expect("parses");
+        let mut started = None;
+        let exit = dispatch(cli, environment, &Unasked, None, Some(config), |watch| {
+            started = Some(FromFile {
+                layout: watch.layout(),
+                reading: watch.reading_width(),
+                diffs: watch.settings().effective().diff_layout,
+                lock: watch.settings().lock(Setting::Context),
+                warnings: watch.settings_warnings().to_vec(),
+            });
+            Exit::Success
+        });
+        (exit, started)
+    }
+
+    const FILE: &str =
+        "diff_layout = \"side-by-side\"\nmax_question_width = 120\ncontext = \"beside\"\n";
+
+    #[test]
+    fn watching_starts_with_what_the_settings_file_holds() {
+        let (exit, started) = from_file(&[], Environment::default(), FILE);
+
+        assert_eq!(exit, Exit::Success);
+        assert_eq!(
+            started,
+            Some(FromFile {
+                layout: PaneLayout::Beside,
+                reading: ReadingWidth::Columns120,
+                diffs: DiffLayout::SideBySide,
+                lock: None,
+                warnings: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_flag_and_then_the_environment_win_over_the_settings_file() {
+        let (_, by_flag) = from_file(
+            &["--layout", "below"],
+            Environment {
+                layout: Some("auto".into()),
+                ..Environment::default()
+            },
+            FILE,
+        );
+        let by_flag = by_flag.expect("started");
+        assert_eq!(by_flag.layout, PaneLayout::Below);
+        assert_eq!(by_flag.lock, Some(Lock::Flag("--layout")));
+
+        let (_, by_variable) = from_file(
+            &[],
+            Environment {
+                layout: Some("below".into()),
+                ..Environment::default()
+            },
+            FILE,
+        );
+        let by_variable = by_variable.expect("started");
+        assert_eq!(by_variable.layout, PaneLayout::Below);
+        assert_eq!(by_variable.lock, Some(Lock::Variable("ASQR_LAYOUT")));
+        assert_eq!(by_variable.reading, ReadingWidth::Columns120, "the file's");
+    }
+
+    #[test]
+    fn a_settings_file_that_does_not_parse_never_stops_watching() {
+        let (exit, started) = from_file(&[], Environment::default(), "context =\n");
+
+        assert_eq!(exit, Exit::Success);
+        let started = started.expect("started");
+        assert_eq!(started.layout, PaneLayout::Auto);
+        assert_eq!(started.reading, ReadingWidth::Columns100);
+        assert_eq!(started.diffs, DiffLayout::Unified);
+        assert_eq!(started.warnings.len(), 1);
+        assert!(
+            started.warnings[0].starts_with("settings.toml does not parse (line 1"),
+            "{:?}",
+            started.warnings
+        );
+    }
+
+    #[test]
+    fn a_bad_layout_variable_is_still_a_usage_error_whatever_the_file_holds() {
+        let (exit, started) = from_file(
+            &[],
+            Environment {
+                layout: Some("sideways".into()),
+                ..Environment::default()
+            },
+            FILE,
+        );
+
+        assert_eq!((exit, started), (Exit::Usage, None));
+    }
+
+    #[test]
+    fn commands_but_watch_never_read_the_settings_file() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let config = scratch.path().join("settings.toml");
+        std::fs::write(&config, "context =\n").expect("written");
+        for command in ["paths", "new"] {
+            let cli = Cli::try_parse_from([
+                "asqr",
+                "--dir",
+                scratch
+                    .path()
+                    .join("queue")
+                    .to_str()
+                    .expect("UTF-8 temp path"),
+                command,
+            ])
+            .expect("parses");
+
+            assert_eq!(
+                dispatch(
+                    cli,
+                    Environment::default(),
+                    &Unasked,
+                    None,
+                    Some(config.clone()),
+                    |_| unreachable!("no TUI for {command}")
+                ),
+                Exit::Success,
+                "{command}"
+            );
+        }
     }
 
     const ALL: Alerts = Alerts {
@@ -787,7 +951,7 @@ mod tests {
                 ..Environment::default()
             };
             let mut started = None;
-            dispatch(cli, environment, &Unasked, None, |watch| {
+            dispatch(cli, environment, &Unasked, None, None, |watch| {
                 started = Some(watch.no_color());
                 Exit::Success
             });
@@ -834,7 +998,7 @@ mod tests {
         };
         let mut started = None;
 
-        dispatch(cli, environment, &Unasked, None, |watch| {
+        dispatch(cli, environment, &Unasked, None, None, |watch| {
             started = Some(watch.home().map(Path::to_path_buf));
             Exit::Success
         });
@@ -869,6 +1033,7 @@ mod tests {
             environment,
             tmux,
             Some(root.path().to_path_buf()),
+            None,
             |watch| {
                 started = watch.location().name().map(str::to_owned);
                 Exit::Success
@@ -936,6 +1101,7 @@ mod tests {
             in_tmux_pane(),
             &Unasked,
             Some(root.path().into()),
+            None,
             |_| unreachable!("no TUI for new"),
         );
 
@@ -979,6 +1145,7 @@ mod tests {
             in_tmux_pane(),
             tmux,
             Some(root.path().to_path_buf()),
+            None,
             |watch| {
                 started = Some(watch.pin().cloned());
                 Exit::Success
@@ -1038,6 +1205,7 @@ mod tests {
             Environment::default(),
             &Unasked,
             Some(root.path().to_path_buf()),
+            None,
             |watch| {
                 started = Some(watch.pin().cloned());
                 Exit::Success
@@ -1060,6 +1228,7 @@ mod tests {
             in_tmux_pane(),
             tmux,
             Some(root.path().to_path_buf()),
+            None,
             |mut watch| {
                 found = Some(look(&mut watch));
                 Exit::Success
@@ -1137,6 +1306,7 @@ mod tests {
             environment,
             &StandIn::answering("my work\n"),
             Some(root.path().to_path_buf()),
+            None,
             |mut watch| {
                 found = Some((watch.pick().is_some(), watch.take_lock().is_some()));
                 Exit::Success
@@ -1233,7 +1403,7 @@ mod tests {
         let cli = Cli::try_parse_from(["asqr", "--dir", dir, "prune", "--older-than", "1d"])
             .expect("parses");
 
-        let exit = dispatch(cli, Environment::default(), &Unasked, None, |_| {
+        let exit = dispatch(cli, Environment::default(), &Unasked, None, None, |_| {
             unreachable!("no TUI for prune")
         });
 
@@ -1246,7 +1416,7 @@ mod tests {
         let dir = scratch.path().to_str().expect("UTF-8 temp path");
         let cli = Cli::try_parse_from(["asqr", "--dir", dir, "queues"]).expect("parses");
 
-        let exit = dispatch(cli, Environment::default(), &Unasked, None, |_| {
+        let exit = dispatch(cli, Environment::default(), &Unasked, None, None, |_| {
             unreachable!("no TUI for queues")
         });
 

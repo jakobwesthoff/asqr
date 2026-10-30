@@ -80,7 +80,8 @@ your editor (`VISUAL` or `EDITOR`), `n` adds a note, and the
 last tab reviews everything before you submit or reject. `?` shows every
 key. `q` quits; your answers so far are kept as a draft.
 
-Questions keep to a width of 100 columns. Context the asker attached, an
+Questions keep to a width of 100 columns, or 80, 120 or the whole terminal
+as the settings file says. Context the asker attached, an
 image, highlighted code, rendered Markdown, text in the colours of its
 escape sequences or a diff, shows in a pane beside the question on a
 wide terminal and below it on a tall one;
@@ -88,6 +89,15 @@ wide terminal and below it on a tall one;
 goes. `pgup`/`pgdn` scroll the pane by a page less 2 lines from anywhere and
 `ctrl-u`/`ctrl-d` by half a page, `tab` moves into it to scroll with
 the arrow keys and back out, and `z` shows it full screen.
+
+asqr reads its settings from `settings.toml` in the platform's config
+directory (`~/Library/Application Support/asqr/` on macOS,
+`$XDG_CONFIG_HOME/asqr/` on Linux): `diff_layout` (`"unified"` or
+`"side-by-side"`) for how a diff shows first, `max_question_width` (`80`,
+`100`, `120` or `"full"`) for the widest a question gets, and `context`
+(`"auto"`, `"beside"` or `"below"`) for where the context goes. A flag or
+an environment variable wins over the file, and a file asqr cannot read
+only costs the settings it holds: the defaults apply, with a warning.
 
 `asqr wait` exits 0 for a submitted session, 10 when you rejected it, 11
 for an invalid file, 12 when its `--timeout` ran out and 14 when the
@@ -98,8 +108,8 @@ Sessions wait in a queue: a directory with an inbox, an outbox for the
 results, drafts and an archive. The default queue lives in the
 platform's data directory; `--queue <name>` or `ASQR_QUEUE` keeps
 projects apart, and `asqr paths` shows where everything is.
-Among them is asqr's log file, and `ASQR_LOG=debug` adds debug lines to
-it.
+Among them are asqr's log file and its settings file; `ASQR_LOG=debug`
+adds debug lines to the log.
 
 Inside tmux, asqr and the agents in the same tmux session use one queue
 without any setup: the one asqr pinned in the session, at first the one

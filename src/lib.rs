@@ -17,5 +17,6 @@ pub mod image_format;
 pub mod pairing;
 pub mod queue;
 pub mod regular_file;
+pub mod settings;
 pub mod terminal_env;
 pub mod tui;

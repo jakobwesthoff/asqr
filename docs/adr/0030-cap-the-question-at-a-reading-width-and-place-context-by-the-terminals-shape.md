@@ -25,6 +25,9 @@ the intro overlay's key bar names `ctrl-u/ctrl-d`
 Amended by [72. Keep two lines of overlap when pgup and pgdn scroll a page](0072-keep-two-lines-of-overlap-when-pgup-and-pgdn-scroll-a-page.md):
 `pgup` and `pgdn` move the intro overlay by a page less 2 lines
 
+Amended by [92. Keep settings in a file](0092-keep-settings-in-a-file.md):
+the reading width is a setting
+
 ## Context
 
 Over the full width of a terminal of about 230 columns, question texts,
