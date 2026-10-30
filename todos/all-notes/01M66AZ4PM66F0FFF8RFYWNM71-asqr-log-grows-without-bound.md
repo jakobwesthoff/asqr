@@ -48,7 +48,14 @@ person's answers and draft text. A line from 2026-10-30 carries
   its only implemented level, `Fastest` (about zstd level 1). Level 19
   would make the same log 61 KB instead of 75 KB at about 150 ms per
   rotation, but needs the `zstd` crate, which builds the C library into
-  every release target. Rejected: the `zstd` crate at level 19.
+  every release target. Rejected: the `zstd` crate at level 19. asqr
+  takes no dependency that is not Rust where a Rust one serves (Jakob).
+  Other pure-Rust zstd crates exist, all far younger (crates.io,
+  2026-10-30): `zrip` 0.8 (first release 2026-06, levels up to 4),
+  `structured-zstd` 0.2 (2026-03, all levels), `oxiarc-zstd`,
+  `zstd-rs`, `zstd-pure-rs`. `ruzstd` has 75 million downloads and 295
+  dependents, among them `object`, `backtrace` and `cargo-llvm-cov`,
+  though they use mostly its decoder; its encoder is the younger part.
 - **The log holds no text the person typed.** The `replaced a session`
   line, and any other line that logs a session or its result, logs ids,
   status and counts (such as how many answers), not answers, notes,
