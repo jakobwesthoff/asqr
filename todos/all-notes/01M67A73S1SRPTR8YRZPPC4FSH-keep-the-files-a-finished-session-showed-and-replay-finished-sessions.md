@@ -56,6 +56,20 @@ give the archive a read-only viewer so it can be looked at.
   (about 25%, pure Rust); AVIF (12%, but `image` decodes it only through
   dav1d, C); lossless WebP alone (57%). Text files are kept as they are
   and compress in the month bundle.
+- **Pure-Rust WebP encoders re-checked at pickup.** Research on
+  2026-10-30 (conductor logbook,
+  `plans/next-todos/webp-encoder-research.md`) found pure-Rust lossy
+  encoders, all first released in 2026: `libwebpop` 0.1.0 (BSD-3, a
+  libwebp port, output within 0.1% of `cwebp -q 90` on 101 PNGs, but
+  released 2026-10-25, LLM-written, and its README unsure of its
+  licence), `otf-pixels-codec-webp` 0.5.0 (Apache-2.0, 3% larger opaque,
+  13.5% with alpha), and a lossy encoder on `image-webp`'s unreleased
+  `main` (basic, an open silent-corruption issue, image-rs/image-webp
+  #191). Jakob, 2026-10-30: plan with libwebp; the encoder sits behind a
+  small seam, and the agent that picks this up re-checks `libwebpop` and
+  an `image-webp` release and switches if one is mature and clearly
+  licensed. Rejected for now: `libwebpop` pinned; waiting for
+  `image-webp`.
 - **`ASQR_KEEP_FILES=compact|exact|off`** until asqr has user settings:
   `compact` (the default) re-encodes images as above, `exact` keeps
   every file byte for byte, `off` keeps no files but still records the
@@ -84,6 +98,8 @@ give the archive a read-only viewer so it can be looked at.
   text up to 8 MiB); a file it cannot read is recorded as missing in the
   archived session, not an error.
 - The replay reads the month bundles directly.
+- Every re-encoded image is decoded back (`image` decodes WebP); when
+  that fails, the original is kept instead.
 
 ## Relations
 
