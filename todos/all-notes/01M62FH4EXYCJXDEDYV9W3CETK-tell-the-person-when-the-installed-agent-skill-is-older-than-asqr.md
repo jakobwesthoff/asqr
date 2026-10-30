@@ -58,6 +58,13 @@ remember to reinstall the skill by hand.
 
 Still open: where the check runs, and which directories asqr looks in.
 
+Jakob's note (2026-10-30, asqr session 01M664CT1H5WE3J1MT97JNYGDT): the
+docs should say that installing the skill is possible but in most cases
+not needed, as an agent told to use asqr can read the current skill from
+the installed binary (`asqr skill`). A skill read that way never ages, so
+this check matters only for people who install a copy. The README and
+install docs change with the skill split.
+
 ## Relations
 
 - Depends on: [Make the skill keep an agent from leaving the result of an info-only session unread](01M63AVXW95AQA517AV8K35XGV-make-the-skill-keep-an-agent-from-leaving-the-result-of-an-info-only.md)
