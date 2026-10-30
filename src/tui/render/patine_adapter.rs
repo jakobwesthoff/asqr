@@ -26,7 +26,7 @@ pub(super) const WIDEST_GRAPHEME: usize = 2;
 /// under `NO_COLOR`. The colours come off the finished screen there and
 /// dim stays (spec section 7.3), so a blue bar would be left in the text
 /// colour, like the quoted text beside it.
-pub(crate) const fn quote_style(no_color: bool) -> QuoteStyle {
+pub(super) const fn quote_style(no_color: bool) -> QuoteStyle {
     if no_color {
         QuoteStyle::DimBar
     } else {
@@ -36,7 +36,7 @@ pub(crate) const fn quote_style(no_color: bool) -> QuoteStyle {
 
 /// Whether the screen draws colours, read off the quote style it asks
 /// for: the inverse of how [`quote_style`] is chosen.
-pub(crate) fn colours_on(quote: QuoteStyle) -> bool {
+pub(super) fn colours_on(quote: QuoteStyle) -> bool {
     quote != quote_style(true)
 }
 
@@ -56,7 +56,7 @@ const TASK_BOXES: [&str; 2] = ["☐ ", "☑ "];
 /// the colours their highlighting gives them (ADR 34).
 // `TextStyle` may gain attributes in a minor release of patine; this
 // function shows only the ones it names and ignores any others.
-pub fn style(style: TextStyle) -> Style {
+fn style(style: TextStyle) -> Style {
     let flags = [
         (style.bold, Modifier::BOLD),
         (style.italic, Modifier::ITALIC),
@@ -77,7 +77,7 @@ pub fn style(style: TextStyle) -> Style {
 
 /// A patine line as a [`SourceLine`], which expands its tabs, shows its
 /// control characters and measures it in columns (ADR 33).
-pub fn source_line(line: &StyledLine) -> SourceLine {
+pub(super) fn source_line(line: &StyledLine) -> SourceLine {
     SourceLine::new(
         line.spans
             .iter()
@@ -100,7 +100,7 @@ pub fn source_line(line: &StyledLine) -> SourceLine {
 /// the rows start with the marker alone, and where not even that fits,
 /// the line breaks without one. So every row fits `width` from 2 columns
 /// on.
-pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
+pub(super) fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
     markdown_rows_from(lines, width, width)
 }
 
@@ -111,7 +111,11 @@ pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
 /// leaves wider than `first`, such as a line of a code block or an
 /// overlong first word, breaks there, and its further rows take the full
 /// width behind the `↪`.
-pub fn markdown_rows_from(lines: &[StyledLine], first: usize, width: usize) -> Vec<SourceLine> {
+pub(super) fn markdown_rows_from(
+    lines: &[StyledLine],
+    first: usize,
+    width: usize,
+) -> Vec<SourceLine> {
     let marker = theme::secondary();
     let marker_width = 2;
     let mut rows = Vec::new();

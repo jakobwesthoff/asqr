@@ -29,7 +29,7 @@ const fn field_options(quote: QuoteStyle) -> RenderOptions {
 /// `source` rendered for `width` columns, as lines of at most that width,
 /// with quotes in `quote`. Text without any content renders to no lines at
 /// all.
-pub fn field_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<Line<'static>> {
+pub(super) fn field_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<Line<'static>> {
     field_lines_from(source, width, width, quote)
 }
 
@@ -37,7 +37,7 @@ pub fn field_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<Line<'s
 /// most `first` columns wide and every later line `width`, for a text
 /// whose first line shares its row with the marker of a default option
 /// (ADR 79).
-pub fn field_lines_from(
+pub(super) fn field_lines_from(
     source: &str,
     first: usize,
     width: usize,
@@ -63,7 +63,7 @@ pub fn field_lines_from(
 /// `source` rendered for `width` columns as patine lays it out, with
 /// quotes in `quote`: each line whole, also where patine leaves it wider,
 /// for a text shown on one line that a cut ends.
-pub fn field_source_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<SourceLine> {
+pub(super) fn field_source_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<SourceLine> {
     patine::render_lines_with(source, width, &field_options(quote))
         .iter()
         .map(source_line)

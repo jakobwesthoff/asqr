@@ -16,11 +16,11 @@ use crate::tui::{AnswerState, Focus, SessionState};
 
 /// What marks the row under the cursor in the question, the review and the
 /// session list, the blank after it included.
-pub const POINTER: &str = "❯ ";
+pub(super) const POINTER: &str = "❯ ";
 
 /// The start of a row: [`POINTER`] when the row is `current`, otherwise
 /// blanks as wide, so every row's text starts in the same column.
-pub fn pointer(current: bool) -> Span<'static> {
+pub(super) fn pointer(current: bool) -> Span<'static> {
     Span::from(if current { POINTER } else { "  " })
 }
 
@@ -29,7 +29,7 @@ pub fn pointer(current: bool) -> Span<'static> {
 /// on an info item. An answer is no status, so `☒` keeps the text colour.
 /// An info item recedes like an open question, as there is nothing to do
 /// on it, so answered questions stand out more.
-pub fn answer_mark(state: AnswerState) -> Span<'static> {
+pub(super) fn answer_mark(state: AnswerState) -> Span<'static> {
     match state {
         AnswerState::Skipped => Span::styled("☐", theme::secondary()),
         AnswerState::Info => Span::styled("ℹ", theme::secondary()),
@@ -42,7 +42,7 @@ pub fn answer_mark(state: AnswerState) -> Span<'static> {
 /// skipped question, and marks for a default and a note. A label shows its
 /// Markdown on one line, rendered for the `room` the summary gets, with
 /// quotes in `quote`.
-pub fn answer_summary(
+pub(super) fn answer_summary(
     question: &Question,
     answer: &Answer,
     room: usize,
@@ -126,7 +126,7 @@ fn label_line(label: &str, room: usize, quote: QuoteStyle) -> Vec<Span<'static>>
 }
 
 /// One line under the question text on how to answer it.
-pub fn kind_hint(question: &Question) -> String {
+pub(super) fn kind_hint(question: &Question) -> String {
     let items = |count: u32| format!("{count} item{}", if count == 1 { "" } else { "s" });
     let hint = match (question.kind, question.min, question.max) {
         (Kind::Single, _, _) => "pick one".to_owned(),
@@ -155,7 +155,7 @@ pub fn kind_hint(question: &Question) -> String {
 /// How the header and the context hint name a key of the question, such
 /// as `i` or `z`. While a field, a note or the context pane has the keys,
 /// the key would be typed or taken by the pane, so `esc` comes first.
-pub fn question_key(state: &SessionState, key: &str) -> String {
+pub(super) fn question_key(state: &SessionState, key: &str) -> String {
     if state.focus() != Focus::None || state.pane_focused() {
         format!("esc, {key}")
     } else {

@@ -30,7 +30,7 @@ use crate::tui::{DrawnDiff, Extent, Offset, Page, SessionState};
 /// What the pane showed: how far it scrolls, whether its entry was still
 /// loading, and the Kitty image it drew, which the screen mends once the
 /// overlays are drawn (ADR 48).
-pub struct DrawnPane {
+pub(super) struct DrawnPane {
     pub page: Page,
     pub loading: bool,
     pub image: Option<PlacedImage>,
@@ -39,7 +39,7 @@ pub struct DrawnPane {
 
 /// Which form of the ledge a pane takes, by where it stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ledge {
+pub(super) enum Ledge {
     /// Beside the question, and full screen: the header rule turns down at
     /// a `╭` into an edge along the pane's left side, which ends in the
     /// bottom rule's `╰`, and the body starts two columns right of it.
@@ -54,7 +54,7 @@ pub enum Ledge {
 /// showed. The viewer fills the body with Markdown quotes in `quote`. A
 /// row without context leaves the pane empty, its ledge included, so it
 /// keeps its place while the cursor moves on.
-pub fn draw_pane(
+pub(super) fn draw_pane(
     area: Rect,
     buf: &mut Buffer,
     state: &SessionState,
@@ -204,7 +204,7 @@ fn without_top_row(area: Rect) -> Rect {
 
 /// The body of a pane in `area` on the ledge `ledge`: what the viewers of
 /// its entries are laid out for.
-pub fn pane_body(area: Rect, ledge: Ledge) -> Rect {
+pub(super) fn pane_body(area: Rect, ledge: Ledge) -> Rect {
     parts(area, ledge).body
 }
 
@@ -384,7 +384,7 @@ fn kind_and_name(entry: &ContextEntry) -> (&'static str, Option<String>) {
 /// The one line that stands in for the pane when the terminal has room
 /// for it neither beside nor below the question: what the entry is, and
 /// that `z`, as `key` names it, shows it.
-pub fn context_hint(entry: Option<&ContextEntry>, key: &str, width: u16) -> Line<'static> {
+pub(super) fn context_hint(entry: Option<&ContextEntry>, key: &str, width: u16) -> Line<'static> {
     let Some(entry) = entry else {
         return Line::default();
     };

@@ -17,23 +17,23 @@ use ratatui::layout::{Layout, Rect};
 /// The widest the question gets, in columns. Wider lines are hard to read,
 /// and on a terminal of 230 columns question texts and option descriptions
 /// ran across all of it.
-pub const READING_WIDTH: u16 = 100;
+pub(super) const READING_WIDTH: u16 = 100;
 
 /// The narrowest question beside a context area: the smallest terminal
 /// asqr supports is 60 columns wide, so the question never gets narrower
 /// than it is there.
-pub const MIN_QUESTION_WIDTH: u16 = 60;
+const MIN_QUESTION_WIDTH: u16 = 60;
 
 /// The narrowest context area beside the question.
-pub const MIN_CONTEXT_WIDTH: u16 = 40;
+const MIN_CONTEXT_WIDTH: u16 = 40;
 
 /// The fewest rows of a context area below the question.
-pub const MIN_CONTEXT_ROWS: u16 = 8;
+const MIN_CONTEXT_ROWS: u16 = 8;
 
 /// The lowest tab area that holds a context area below the question. The
 /// question takes at most half of it, rounded down, so the context gets
 /// [`MIN_CONTEXT_ROWS`] from 15 rows on.
-pub const MIN_BELOW_HEIGHT: u16 = 2 * MIN_CONTEXT_ROWS - 1;
+pub(super) const MIN_BELOW_HEIGHT: u16 = 2 * MIN_CONTEXT_ROWS - 1;
 
 /// The blank column between the question and a context area beside it.
 const SEPARATOR: u16 = 1;
@@ -55,7 +55,7 @@ pub enum PaneLayout {
 
 /// Where the context of the current question is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Arrangement {
+pub(super) enum Arrangement {
     /// Right of the question, after a blank column.
     Beside,
     /// Under the question, over the whole width.
@@ -73,7 +73,7 @@ pub enum Arrangement {
 /// shape drops under 0.9, below stays until it reaches 1.1, so a resize
 /// around 1 does not flip the screen back and forth. When only one fits,
 /// that one is taken whatever `layout` asks for.
-pub fn choose(
+pub(super) fn choose(
     width: u16,
     height: u16,
     layout: PaneLayout,
@@ -119,7 +119,7 @@ pub fn choose(
 ///
 /// The beside arrangement needs an area at least as wide as [`choose`]
 /// asks for it, 101 columns. A narrower area is a caller's error.
-pub fn areas(
+pub(super) fn areas(
     area: Rect,
     arrangement: Option<Arrangement>,
     question_rows: usize,
