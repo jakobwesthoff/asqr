@@ -12,8 +12,8 @@ removed automatically apart from drafts of sessions that left the inbox
 the maintainer's machine the data directory held 5.8 MB on 2026-10-30,
 four weeks after the oldest archive entry (2026-10-03). Decided on
 2026-10-30: entries older than 30 days are bundled per calendar month
-into a zstd-compressed tar and kept; deleting stays a deliberate
-`prune` with a long age.
+into a zip and kept; deleting stays a deliberate `prune` with a long
+age.
 
 ## Today (main 313edda)
 
@@ -32,6 +32,11 @@ into a zstd-compressed tar and kept; deleting stays a deliberate
   disk), 517 results (893 KB of data, 2.3 MB on disk). The archive as one
   tar is 3.2 MB; zstd level 1 makes it 618 KB. One file compressed alone
   shrinks far less, so bundling matters.
+- Measured 2026-10-31 (lead), archive and outbox of the default queue
+  together, 784 files, 5,626,368 bytes as one tar: zip `-9` 1,070,876;
+  tar.gz `-9` 833,467; tar.zst `-19` 558,695; tar.xz `-9` 551,516.
+  A zip compresses each file alone and so misses what the many similar
+  session files share.
 - `skills/asqr/SKILL.md:342` tells agents that results stay in the
   outbox until the person prunes.
 
@@ -40,11 +45,28 @@ into a zstd-compressed tar and kept; deleting stays a deliberate
 - **Compress, keep.** Finished sessions and results older than 30 days
   are compressed automatically and never deleted by that step. Rejected:
   deleting after an age automatically; manual cleanup only.
-- **One bundle per queue and calendar month**, a tar compressed with
-  zstd, such as `archive/2026-10.tar.zst`, going by the ULID in the
-  entry's name. An entry that comes due after its month's bundle exists
-  joins that bundle, so a month never has two bundles. The bundle stays a
-  standard tar that `tar --zstd -xf` opens.
+- **One bundle per queue and calendar month**, a zip, such as
+  `archive/2026-10.zip`, going by the ULID in the entry's name. An entry
+  that comes due after its month's bundle exists joins that bundle, so a
+  month never has two bundles.
+- **A zip, compressed with Deflate** (Jakob, 2026-10-31, replacing the
+  tar.zst of 2026-10-30). A zip has an index at its end and compresses
+  each file on its own, so `asqr history` and `asqr replay` (todo
+  01M67A73S1SRPTR8YRZPPC4FSH) read one session without decompressing
+  the kept images around it; Finder and `unzip` open it on every
+  machine; and Deflate needs no C library. The bundle holds every kind
+  of data of its month in one place, sessions, results and kept files.
+  The price is a larger bundle: about 1.07 MB against 0.56 MB for
+  tar.zst on the measurement above, which at these sizes does not
+  matter. zstd as a format gives the best ratio, but its only usable
+  encoder is C (`ruzstd` 0.9.1 documents Default, Better and Best but
+  panics `not implemented` on them, checked 2026-10-31), it is not part
+  of macOS, and its strengths count at gigabytes. Rejected: tar.zst;
+  tar.gz (no index, so a replay reads through every image of the month);
+  text in a tar.gz and images in a separate store-only zip (one month
+  would sit in two places); 7z, zip with LZMA or zstd entries, zstd with
+  a trained dictionary, SQLite (each needs C, a tool macOS lacks, or an
+  own format).
 - **Old results move to the archive.** Results older than 30 days move
   from the outbox into the archive and are bundled with it. An agent
   that comes back late still gets its result. Rejected: leaving the
@@ -69,16 +91,19 @@ into a zstd-compressed tar and kept; deleting stays a deliberate
   error that names the new form. asqr is 0.x, and deleting recent,
   possibly unread results contradicts deletion as a deliberate act.
   Rejected: deprecate for one release; keep them.
-- No dependency that is not Rust where a Rust one serves: zstd through
-  `ruzstd` (as for the log), tar through the `tar` crate (MIT or
-  Apache-2.0, 0.4.46, MSRV 1.63, checked 2026-10-30).
+- No dependency that is not Rust where a Rust one serves: the `zip`
+  crate with Deflate through `flate2` and its default Rust backend
+  `miniz_oxide`, the same `flate2` that compresses the old logs as gzip.
+  The plan checks the `zip` crate's licence, version and MSRV.
 
 ## Technical notes (lead, 2026-10-30)
 
 - A month's bundle is extended by rewriting it: read it, add the new
-  entries, write a new file beside it, rename over the old one. A month
-  holds a few MB before compression, so this costs well under a second,
-  and every bundle stays one well-formed tar.
+  entries, write a new file beside it, rename over the old one. Entries
+  already compressed are copied over without recompressing, so this
+  costs well under a second, and every bundle stays one well-formed zip.
+  Appending in place is the plan's to weigh against a crash in the
+  middle.
 - `asqr result <id>` and `status --all` or `--since` read the bundles
   too, so a bundled result is still found and listed.
 - A result's age comes from its `submitted_at`, else its modification
