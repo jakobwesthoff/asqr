@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   too. `asqr ask` reminds the agent to wait for every session's result
   and read all of it, and when nobody watches the queue, its warning
   tells the agent to have the person start asqr, with the command that
-  reaches the queue. A command in advice names the queue with
+  reaches the queue. When `wait`, `result` or `ask --wait` find no
+  result yet, they name the `asqr wait` command to run next. A command in advice names the queue with
   `--queue` or `--dir` when a flag or a variable chose it.
 
 - The empty queue and the terminal title name the queue asqr watches,

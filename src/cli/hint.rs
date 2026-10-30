@@ -35,6 +35,13 @@ impl Line {
         }
     }
 
+    fn notice(text: String) -> Self {
+        Line {
+            prefix: "asqr",
+            text,
+        }
+    }
+
     fn warning(text: String) -> Self {
         Line {
             prefix: "warning",
@@ -147,6 +154,39 @@ pub(super) fn nobody_watching(invocation: &Invocation) -> Line {
         "no asqr is watching queue {}; tell the person to start `{}` in a terminal of their own; the session waits in the queue until then",
         invocation.queue, invocation.command
     ))
+}
+
+// =========================================================================
+// The hints of `wait` and `result`
+// =========================================================================
+
+/// The command whose wait ran out.
+pub(super) enum Caller {
+    /// `wait` or `ask --wait`, with their `--timeout` in seconds.
+    Wait(u64),
+    /// `result`, which looks once.
+    Result,
+}
+
+/// The session `id` still waits for the person when the caller's timeout
+/// passed (W1). The way on is `wait`, also after `ask --wait`: asking again
+/// would replace the session or be refused.
+pub(super) fn no_result_yet(invocation: &Invocation, id: &str, caller: Caller) -> Line {
+    let command = &invocation.command;
+    // A timeout that ended with this line fit the caller's command limit,
+    // so it is the one number known to work. A timeout of 0 only looks
+    // once, so the hint names the skill's wait then.
+    Line::notice(match caller {
+        Caller::Wait(secs) if secs > 0 => format!(
+            "no result for {id} yet (timeout); the person has not answered yet, so wait again with `{command} wait {id} --timeout {secs}`"
+        ),
+        Caller::Wait(_) => format!(
+            "no result for {id} yet (timeout); the person has not answered yet, so wait again with `{command} wait {id} --timeout {WAIT_TIMEOUT}`, or a lower timeout if your command limit is shorter"
+        ),
+        Caller::Result => format!(
+            "no result for {id} yet; the person has not answered yet, so wait for it with `{command} wait {id} --timeout {WAIT_TIMEOUT}`, or a lower timeout if your command limit is shorter"
+        ),
+    })
 }
 
 #[cfg(test)]

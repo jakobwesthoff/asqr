@@ -338,10 +338,13 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
                 replaces,
             },
         ),
-        Command::Wait { id, timeout } => {
-            wait::run_wait(&location, &id, timeout.map(Duration::from_secs))
-        }
-        Command::Result { id } => wait::run_result(&location, &id),
+        Command::Wait { id, timeout } => wait::run_wait(
+            &location,
+            &invocation,
+            &id,
+            timeout.map(Duration::from_secs),
+        ),
+        Command::Result { id } => wait::run_result(&location, &invocation, &id),
         Command::Withdraw { id, force } => withdraw::run(&location, &id, force),
         Command::Status {
             json,

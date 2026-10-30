@@ -640,6 +640,28 @@ fn a_rejected_session_exits_with_the_cancelled_code() {
 }
 
 #[test]
+fn ask_wait_says_to_wait_again_after_its_timeout() {
+    // Asking again would replace the session or be refused, so the way on
+    // is `wait`.
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", SESSION);
+
+    let output = sandbox
+        .asqr_in_queue(&["ask", "--wait", "--timeout", "1"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(12));
+    let expected = format!(
+        "\nbatch-01\nasqr: no result for batch-01 yet (timeout); the person has not answered yet, so wait again with `asqr --dir {} wait batch-01 --timeout 1`\n",
+        sandbox.queue_dir().display()
+    );
+    let err = stderr(&output);
+    assert!(err.ends_with(&expected), "{err}");
+}
+
+#[test]
 fn stops_waiting_after_the_timeout() {
     let sandbox = Sandbox::new();
     let file = sandbox.file("session.json", SESSION);
@@ -911,7 +933,10 @@ fn ask_replaces_with_wait_waits_for_the_new_one() {
 
     assert_eq!(output.status.code(), Some(12));
     assert!(
-        stderr(&output).contains("\nround-2\nasqr: no result for round-2 yet (timeout)\n"),
+        stderr(&output).contains(&format!(
+            "\nround-2\nasqr: no result for round-2 yet (timeout); the person has not answered yet, so wait again with `asqr --dir {} wait round-2 --timeout 540`, or a lower timeout if your command limit is shorter\n",
+            sandbox.queue_dir().display()
+        )),
         "{}",
         stderr(&output)
     );

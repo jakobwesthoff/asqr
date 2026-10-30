@@ -925,8 +925,16 @@ Other variables asqr reads: `ASQR_QUEUE` and `ASQR_DIR` (section 5.2),
 
 `wait` and `result` print the result file as it is, and exit by its
 status. `wait` checks the queue every 200 ms. When the timeout passes
-first, it prints "asqr: no result for <id> yet (timeout)" on stderr and
-exits with 12; `result` does the same at once while the session waits.
+first, it prints "asqr: no result for <id> yet (timeout); the person has
+not answered yet, so wait again with `<asqr> wait <id> --timeout
+<secs>`" on stderr and exits with 12 (`<asqr>` as in section 6.7).
+`<secs>` repeats the caller's timeout, which fit its command limit; a
+timeout of 0 gives 540, followed by ", or a lower timeout if your
+command limit is shorter". `ask --wait` prints the same, since a new
+`ask` would replace the session or be refused. While the session waits,
+`result` exits with 12 at once and prints "asqr: no result for <id> yet;
+the person has not answered yet, so wait for it with `<asqr> wait <id>
+--timeout 540`, or a lower timeout if your command limit is shorter".
 Both end with 13 when nothing in the queue has the id ("no session
 "<id>" in this queue"), which includes a session taken out of the inbox
 without a result, or when only its archive entry is left, since its

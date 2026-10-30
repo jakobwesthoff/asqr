@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::Exit;
+use super::hint::{self, Caller, Invocation};
 use crate::format::{SessionResult, Status, same_session_id};
 use crate::queue::{QueueLocation, entries_if_present, find_session_file, parse_archive_name};
 
@@ -62,6 +63,8 @@ fn standing(location: &QueueLocation, id: &str) -> std::io::Result<Standing> {
 /// Waits until the result of `id` is in the outbox, prints it to stdout and
 /// returns the exit its status leads to. Without `timeout` it waits for
 /// good, unless the session leaves the queue in a way no result follows.
+/// When the timeout passes first, it returns [`Exit::Timeout`] and leaves
+/// the message to its caller, which knows how the agent waits again.
 pub(super) fn wait_for_result(
     location: &QueueLocation,
     id: &str,
@@ -74,7 +77,6 @@ pub(super) fn wait_for_result(
             Look::Waiting => {}
         }
         if timeout.is_some_and(|timeout| started.elapsed() >= timeout) {
-            eprintln!("asqr: no result for {id} yet (timeout)");
             return Exit::Timeout;
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -110,14 +112,27 @@ fn look(location: &QueueLocation, id: &str) -> Look {
 }
 
 /// `asqr wait <id>`.
-pub(super) fn run_wait(location: &QueueLocation, id: &str, timeout: Option<Duration>) -> Exit {
-    wait_for_result(location, id, timeout)
+pub(super) fn run_wait(
+    location: &QueueLocation,
+    invocation: &Invocation,
+    id: &str,
+    timeout: Option<Duration>,
+) -> Exit {
+    let exit = wait_for_result(location, id, timeout);
+    if let (Exit::Timeout, Some(timeout)) = (exit, timeout) {
+        hint::no_result_yet(invocation, id, Caller::Wait(timeout.as_secs())).print();
+    }
+    exit
 }
 
 /// `asqr result <id>`: one look, the way `wait --timeout 0` would take
 /// it, so the exit codes mean the same (spec section 6.6).
-pub(super) fn run_result(location: &QueueLocation, id: &str) -> Exit {
-    wait_for_result(location, id, Some(Duration::ZERO))
+pub(super) fn run_result(location: &QueueLocation, invocation: &Invocation, id: &str) -> Exit {
+    let exit = wait_for_result(location, id, Some(Duration::ZERO));
+    if exit == Exit::Timeout {
+        hint::no_result_yet(invocation, id, Caller::Result).print();
+    }
+    exit
 }
 
 /// Prints the result file as it is and returns its status, or the exit

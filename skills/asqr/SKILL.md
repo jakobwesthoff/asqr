@@ -59,8 +59,7 @@ asqr wait "$id" --timeout 540
 `asqr ask` validates the file, drops a copy into the queue, prints the
 id and exits 0. `asqr wait` prints the result JSON as soon as it is
 there. When the timeout, which you pick below your command time limit,
-passes first, it exits 12. Then run the same `wait` again, as often as
-needed, since people may answer hours later.
+passes first, it exits 12.
 
 Every session you ask comes back as a result, an info-only one too,
 since the person can write a note on any item. Start `asqr wait` for

@@ -86,6 +86,66 @@ fn result_of_a_session_still_waiting_is_the_timeout_code() {
     );
 }
 
+/// The line after a wait for session `id` in the sandbox queue that ran
+/// out, given the waiting command's own `--timeout`.
+fn wait_again(sandbox: &Sandbox, id: &str, timeout: &str) -> String {
+    format!(
+        "asqr: no result for {id} yet (timeout); the person has not answered yet, so wait again with `asqr --dir {} wait {id} --timeout {timeout}`",
+        sandbox.queue_dir().display()
+    )
+}
+
+#[test]
+fn wait_says_how_to_wait_again_after_its_timeout() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "pending");
+
+    let output = sandbox
+        .asqr_in_queue(&["wait", "pending", "--timeout", "1"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(12));
+    assert_eq!(stderr(&output), wait_again(&sandbox, "pending", "1") + "\n");
+}
+
+#[test]
+fn wait_with_a_timeout_of_0_suggests_the_skills_timeout() {
+    // Repeating 0 would only look once more.
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "pending");
+
+    let output = sandbox
+        .asqr_in_queue(&["wait", "pending", "--timeout", "0"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(
+        stderr(&output),
+        wait_again(&sandbox, "pending", "540")
+            + ", or a lower timeout if your command limit is shorter\n"
+    );
+}
+
+#[test]
+fn result_says_to_wait_for_a_result_not_there_yet() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "pending");
+
+    let output = sandbox
+        .asqr_in_queue(&["result", "pending"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "asqr: no result for pending yet; the person has not answered yet, so wait for it with `asqr --dir {} wait pending --timeout 540`, or a lower timeout if your command limit is shorter\n",
+            sandbox.queue_dir().display()
+        )
+    );
+}
+
 #[test]
 fn result_fails_on_a_file_that_is_not_a_result() {
     let sandbox = Sandbox::new();
