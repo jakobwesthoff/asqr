@@ -13,6 +13,8 @@ Amends [9. Crate choices](0009-crate-choices.md):
 Amends [15. Configure through flags and environment and log into the cache directory](0015-configure-through-flags-and-environment-and-log-into-the-cache-directory.md):
 `ASQR_LOG` sets which events reach the log
 
+Amended by [91. Rotate the log at 1 MiB and keep old logs compressed](0091-rotate-the-log-at-1-mib-and-keep-old-logs-compressed.md)
+
 ## Context
 
 - asqr appends to `asqr.log` and never rotates it.

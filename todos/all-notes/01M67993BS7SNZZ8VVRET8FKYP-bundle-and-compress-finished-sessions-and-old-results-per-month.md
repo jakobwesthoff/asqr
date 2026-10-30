@@ -117,7 +117,3 @@ age.
 - Drafts are not touched, as today (spec 5.9).
 - Docs: spec 5.1, 5.9 and 6.5, the `prune` help text, the skill line
   above, a new ADR, CHANGELOG.
-
-## Relations
-
-- Relates to: [asqr.log grows without bound](01M66AZ4PM66F0FFF8RFYWNM71-asqr-log-grows-without-bound.md)

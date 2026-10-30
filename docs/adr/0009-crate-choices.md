@@ -12,6 +12,8 @@ Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-w
 
 Amended by [83. Set which events reach the log through ASQR_LOG](0083-set-which-events-reach-the-log-through-asqr-log.md)
 
+Amended by [91. Rotate the log at 1 MiB and keep old logs compressed](0091-rotate-the-log-at-1-mib-and-keep-old-logs-compressed.md)
+
 ## Context
 
 The tool uses clap, anyhow and thiserror, and other crates where they

@@ -109,7 +109,7 @@ fn take(
 /// Whether `file` is the file `path` names now: the same device and inode.
 /// A path that names nothing any more names another file.
 #[cfg(unix)]
-fn still_at(file: &File, path: &Path) -> io::Result<bool> {
+pub(crate) fn still_at(file: &File, path: &Path) -> io::Result<bool> {
     use std::os::unix::fs::MetadataExt;
 
     let held = file.metadata()?;
@@ -123,7 +123,7 @@ fn still_at(file: &File, path: &Path) -> io::Result<bool> {
 /// asqr is released for macOS and Linux only; elsewhere the check is not
 /// made.
 #[cfg(not(unix))]
-fn still_at(_file: &File, _path: &Path) -> io::Result<bool> {
+pub(crate) fn still_at(_file: &File, _path: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
@@ -151,7 +151,7 @@ fn read_holder(file: &mut File) -> io::Result<Holder> {
 
 /// Whether a non-blocking lock attempt got the lock. Only `WouldBlock`
 /// means someone else holds it; any other failure is a plain error.
-fn acquired(attempt: Result<(), TryLockError>) -> io::Result<bool> {
+pub(crate) fn acquired(attempt: Result<(), TryLockError>) -> io::Result<bool> {
     match attempt {
         Ok(()) => Ok(true),
         Err(TryLockError::WouldBlock) => Ok(false),

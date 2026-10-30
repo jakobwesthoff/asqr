@@ -80,6 +80,88 @@ fn an_unusable_cache_directory_does_not_stop_the_command() {
     sandbox.asqr_in_queue(&["status"]).assert().success();
 }
 
+const MEBIBYTE: usize = 1 << 20;
+
+/// The files in the directory of the log, sorted, but for the rotation
+/// lock.
+fn files_beside(log: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(log.parent().expect("the log has a directory"))
+        .expect("listed")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name != "asqr.rotate.lock")
+        .collect();
+    names.sort();
+    names
+}
+
+fn decoded(path: &std::path::Path) -> Vec<u8> {
+    use std::io::Read;
+
+    let mut bytes = Vec::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(path).expect("opened"))
+        .read_to_end(&mut bytes)
+        .expect("gunzipped");
+    bytes
+}
+
+#[test]
+fn a_log_of_one_mebibyte_rotates_when_a_command_starts() {
+    let sandbox = Sandbox::new();
+    // Asking for the path runs a command too, so it comes before the log
+    // grows.
+    let log = sandbox.log_path();
+    let full = vec![b'x'; MEBIBYTE];
+    std::fs::write(&log, &full).expect("written");
+
+    sandbox.asqr_in_queue(&["status"]).assert().success();
+
+    let files = files_beside(&log);
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert!(files.contains(&"asqr.log".to_owned()), "{files:?}");
+    // The rotation that moves a log leaves it plain.
+    let moved = files
+        .iter()
+        .find(|name| name.starts_with("asqr-") && name.ends_with(".log"))
+        .unwrap_or_else(|| panic!("no moved log in {files:?}"));
+    assert_eq!(
+        std::fs::read(log.with_file_name(moved)).expect("read"),
+        full
+    );
+    assert!(std::fs::metadata(&log).expect("the new log").len() < MEBIBYTE as u64);
+    // `asqr paths` keeps naming the current file.
+    assert_eq!(sandbox.log_path(), log);
+}
+
+#[test]
+fn a_plain_log_a_day_old_is_compressed_by_the_next_rotation() {
+    let sandbox = Sandbox::new();
+    let log = sandbox.log_path();
+    let earlier = log.with_file_name("asqr-20260101T000000Z.log");
+    std::fs::write(&earlier, b"an earlier log\n").expect("written");
+    let two_days_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 24 * 3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&earlier)
+        .expect("opened")
+        .set_modified(two_days_ago)
+        .expect("time set");
+    std::fs::write(&log, vec![b'x'; MEBIBYTE]).expect("written");
+
+    sandbox.asqr_in_queue(&["status"]).assert().success();
+
+    assert!(!earlier.exists());
+    assert_eq!(
+        decoded(&earlier.with_file_name("asqr-20260101T000000Z.log.gz")),
+        b"an earlier log\n"
+    );
+}
+
 /// The session `round-1` waits and the person has started on it: a draft
 /// with a custom answer and a note, both text they typed. Returns the file
 /// of `round-2`, which replaces `round-1`.

@@ -618,6 +618,20 @@ Commands log the sessions they drop, finish, archive or prune into
 `asqr.log` in the platform's cache directory (ADR 15). Draft saves are
 not logged. A log that cannot be written never stops a command.
 
+`asqr.log` rotates at 1 MiB (ADR 91). A process that opens the log and
+finds it at or above that size moves it to `asqr-<UTC timestamp>.log`
+in the same directory, such as `asqr-20261030T120348Z.log`, and starts a
+new `asqr.log`. A later rotation compresses a moved log as gzip into
+`asqr-<timestamp>.log.gz` when no process holds a lock on it and it
+was last written to at least 24 hours before that rotation. Compressed
+logs are never removed. A rotation or compression that fails leaves the
+files as they are and never stops a command. A TUI that runs long can
+grow its log past 1 MiB until the next process starts. Once another
+process has moved the log, a TUI that has it open keeps writing into
+the moved `asqr-<timestamp>.log` until it exits, and those lines are
+not in the file `asqr paths` names. `asqr paths` prints the current
+`asqr.log`.
+
 The log holds no text the person typed (ADR 90). A line about a session
 or its result names ids, status and counts, never answers, notes, custom
 text or draft content. Logs written by earlier versions may hold such

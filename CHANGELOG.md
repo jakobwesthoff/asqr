@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Behind an overlay, Talqi on the empty queue is drawn as his colourless
   outline, and the submit button and a diff's changed lines show as dim
   text in their colour, where colours are on, instead of staying bright.
+- `asqr.log` no longer grows without bound. A command that finds the log
+  at or above 1 MiB moves it to `asqr-<UTC timestamp>.log` in the same
+  directory and starts a new one. A later rotation compresses a moved log
+  as gzip to `asqr-<timestamp>.log.gz`, which `zless`, `zgrep` and
+  `gunzip` open, when no asqr process holds a lock on it and it was last
+  written to at least 24 hours earlier.
+  Compressed logs are never removed. A TUI keeps writing into the moved
+  log it had open until it exits, and those lines are not in the file
+  `asqr paths` names. `asqr paths` still prints the current `asqr.log`.
+- A TUI of an earlier version keeps writing into its moved log until it
+  is restarted.
 
 ### Fixed
 

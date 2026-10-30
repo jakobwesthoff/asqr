@@ -12,6 +12,8 @@ Amended by [83. Set which events reach the log through ASQR_LOG](0083-set-which-
 
 Amended by [90. Keep what the person typed out of the log](0090-keep-what-the-person-typed-out-of-the-log.md)
 
+Amended by [91. Rotate the log at 1 MiB and keep old logs compressed](0091-rotate-the-log-at-1-mib-and-keep-old-logs-compressed.md)
+
 ## Context
 
 asqr has few settings: the queue, notifications and the bell. The
