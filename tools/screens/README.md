@@ -1,10 +1,144 @@
 # screens
 
-A development tool of the asqr repository, not published: the pictures
-of asqr's documentation are drawn with asqr's own code
+A development tool of the asqr repository, not published: it draws
+asqr's screens with asqr's own code and renders them into PNG pictures
+for the documentation
 ([ADR 89](../../docs/adr/0089-draw-the-documentation-pictures-with-asqrs-own-rendering.md)).
-This crate holds the fonts the pictures are drawn with, with their
-licences, and turns a drawn ratatui buffer into a PNG picture.
+
+Each screen is drawn through asqr's public API: an `App` with the scene's
+sessions, keys through `App::handle`, and `asqr::tui::render::draw` into
+a ratatui `TestBackend`. The cell buffer is rasterized straight into PNG
+in Rust. One toolchain draws the pictures, and one command refreshes every
+picture for a release. The pictures do not come from the insta snapshot
+tests: accepting a snapshot never changes a picture.
+
+## Running it
+
+```sh
+just screens                                     # every scene in tools/screens/scenes
+just screens tools/screens/scenes/help.toml      # the scene files or directories given
+just screens --out /tmp/pictures                 # elsewhere than target/screens
+```
+
+For each scene file `<name>.toml` the tool writes `<name>.png`, by default
+to `target/screens/` of the workspace, and prints the path of every file
+it writes. It also writes `index.md` there, which shows the pictures of
+the run, each under its scene's caption, for a look at all of them at
+once. An error names the scene file and what went wrong, and the tool
+exits with 1.
+
+## The scene format
+
+One TOML file per picture. A field the format does not know is an error
+that names it.
+
+```toml
+# What the picture shows; index.md shows it under the picture.
+caption = "The queue switcher over a session, inside tmux"
+# The terminal's size in cells.
+columns = 80
+rows = 24
+# Where the context pane goes, as asqr's --layout: auto, beside or below.
+# Optional, auto by default.
+layout = "auto"
+# The glyphs Talqi is drawn in on the empty queue: sextant, as asqr draws
+# it in Ghostty, or quadrant. Optional, sextant by default.
+emblem = "sextant"
+# The queue asqr watches, by name. Optional; without it, or with
+# "default", the default queue, which the empty queue does not name.
+queue = "asqr-todos"
+# The keys pressed, in order; a frame is drawn before the first key and
+# after each one.
+keys = ["w"]
+
+# The sessions waiting, in queue order; the first one shows.
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+# Queues no asqr watches in which sessions wait, for the status line.
+[[elsewhere]]
+queue = "default"
+waiting = 1
+
+# What the queue switcher shows when a key opens it.
+[switcher]
+tmux_session = "asqr"
+root = "/data/asqr"
+
+[[switcher.queues]]
+name = "asqr-todos"
+waiting = 2
+watched = true
+
+[[switcher.taken]]
+name = "ntropy"
+tmux_session = "ntropy"
+```
+
+| Field | Meaning |
+|---|---|
+| `caption` | What the picture shows, for `index.md`. Required. |
+| `columns`, `rows` | The terminal's size in cells. Required. asqr needs 60 by 15 at least; the empty queue shows Talqi from 32 rows on. |
+| `layout` | `auto`, `beside` or `below`, as asqr's `--layout`. Default `auto`. |
+| `emblem` | `sextant` or `quadrant`. Default `sextant`. |
+| `queue` | The name of the queue asqr watches. Default: the default queue. |
+| `keys` | The keys pressed, in order. Default: none. |
+| `[[sessions]]` `file` | A session file, relative to the scene file. |
+| `[[sessions]]` `id` | The session's id. Default: the session's own `id`, else the file's name without `.json`. |
+| `[[elsewhere]]` `queue`, `waiting` | A queue no asqr watches and how many sessions wait in it. |
+| `[switcher]` `tmux_session` | The tmux session asqr runs in. Without it, asqr runs outside tmux. |
+| `[switcher]` `root` | The directory of the named queues, where the switcher offers a new queue. Required when a row has a `name`. |
+| `[[switcher.queues]]` `name` or `dir` | A named queue under `root`, or a `--dir` queue shown as written; one of the two. |
+| `[[switcher.queues]]` `waiting`, `watched` | The sessions waiting in it (default 0) and whether this asqr watches it (default false). |
+| `[[switcher.taken]]` `name`, `tmux_session` | A queue another asqr watches, and the tmux session it runs in. |
+
+The switcher shows its rows in the order the scene lists them; asqr lists
+a `--dir` queue first, then the named queues by name.
+
+### Keys
+
+A string is one key: a single character (`"j"`, `"?"`, `"L"`, `"1"`) or a
+name, `enter`, `esc`, `tab`, `shift-tab`, `space`, `backspace`,
+`delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup` or `pgdn`,
+with `ctrl-` or `alt-` in front (`"ctrl-d"`, `"alt-x"`). `{ text = "..." }`
+types each of its characters as a key of its own; it holds no control
+character, which is pressed by its name instead. `{ paste = "..." }`
+pastes its text.
+
+A frame is drawn after every key, and what it measured goes back to the
+app before the next one, as asqr's run loop does. A frame that shows
+`loading…` in the context pane waits for the entry to load, up to 60
+seconds, before the next key.
+
+A key that would make asqr finish a session, quit, open an entry, open an
+editor or switch the queue is an error: a picture cannot show what
+follows it. A key that saves a draft writes none; the picture shows the
+answer all the same. `w` opens the switcher with the scene's
+`[switcher]`, and closing it shows the scene's `[[elsewhere]]` again.
+
+### Sessions
+
+A session is read as asqr reads a file in its inbox: relative paths in
+its context entries are resolved against the session file's directory,
+as `asqr ask` does, and the session is checked as a file named after its
+id. A session that does not pass, two sessions with the same id, or a
+scene `id` other than the session's own is an error. A session whose
+`follows` names another session of the scene shows that one's title.
+
+## Adding a scene
+
+1. Write `tools/screens/scenes/<name>.toml`. Take the sessions from
+   `examples/sessions/`, and put new ones written for the guide there too,
+   so the README's examples and the pictures share their sources.
+2. Run `just screens tools/screens/scenes/<name>.toml` and look at
+   `target/screens/<name>.png`.
+3. `just check` draws every scene in `tools/screens/scenes` in its tests,
+   so a scene that stops drawing fails the check.
+
+## Refreshing the pictures for a release
+
+The help and the empty queue show `asqr <version>`. After the version
+bump, `just screens` draws every picture again with the new version.
 
 ## The look
 
@@ -105,3 +239,20 @@ when it is wider than its cells. A character of two columns takes two
 cells and paints its background over both. Variation selectors and
 joiners inside a cell draw nothing; a combining mark is drawn over the
 character before it.
+
+## Limits
+
+- Images in the context pane are drawn as half blocks, each cell two
+  pixels of the image, sized for the picture's cells.
+- No ligatures: Victor Mono's ligatures, such as `->` or `!=`, show as
+  their characters. Ghostty shapes them with the font features `calt`,
+  `clig` and `liga`, which needs a text shaper.
+- Glyphs are rasterized by ab_glyph, not by Core Text, so their strokes
+  can look a little thinner or thicker than in Ghostty.
+- Keys that finish a session, quit, open an entry, open an editor or
+  switch the queue are refused, and no draft is written.
+- A session that follows one outside the scene shows that one's id as
+  written, as the tool has no archive to find its title in.
+- A character no committed font has is an error naming it and its cell.
+- Two draws with the same build give the same bytes; a new version of a
+  dependency, such as the PNG encoder, may change them.

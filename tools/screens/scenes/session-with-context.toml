@@ -1,0 +1,6 @@
+caption = "A question with its options and a diff beside it"
+columns = 120
+rows = 30
+
+[[sessions]]
+file = "../../../examples/sessions/retry-review.json"

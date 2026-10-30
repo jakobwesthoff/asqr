@@ -37,3 +37,10 @@ coverage:
 setup:
     git config core.hooksPath .githooks
     scripts/check-tools.sh
+
+# Draws the scenes in tools/screens/scenes, or the scene files and
+# directories given, into PNG pictures under target/screens (ADR 89,
+# tools/screens/README.md). `--out DIR` writes them elsewhere.
+[positional-arguments]
+screens *args:
+    cargo run --quiet -p screens -- "$@"

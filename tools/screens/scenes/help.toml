@@ -1,0 +1,7 @@
+caption = "The help over a session, with the screen behind it dimmed"
+columns = 80
+rows = 24
+keys = ["?"]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"

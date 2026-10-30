@@ -1,0 +1,32 @@
+caption = "The queue switcher over a session, inside tmux"
+columns = 80
+rows = 24
+queue = "asqr-todos"
+keys = ["w"]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+[[elsewhere]]
+queue = "default"
+waiting = 1
+
+[switcher]
+tmux_session = "asqr"
+root = "/data/asqr"
+
+[[switcher.queues]]
+name = "asqr-todo"
+
+[[switcher.queues]]
+name = "asqr-todos"
+waiting = 2
+watched = true
+
+[[switcher.queues]]
+name = "default"
+waiting = 1
+
+[[switcher.taken]]
+name = "ntropy"
+tmux_session = "ntropy"

@@ -1,0 +1,13 @@
+caption = "The list of the sessions waiting in the queue"
+columns = 80
+rows = 24
+keys = ["L"]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+[[sessions]]
+file = "../../../examples/sessions/retry-review.json"
+
+[[sessions]]
+file = "../../../examples/sessions/mascot-poses.json"

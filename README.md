@@ -174,6 +174,10 @@ coverage; CI runs both on Ubuntu and macOS. After cloning, run
 hook in `.githooks/` run the pipeline before every commit, and names any
 tool that is missing (`just`, `cargo-llvm-cov`, `llvm-tools-preview`).
 
+`just screens` draws pictures of asqr's screens for the documentation
+with asqr's own rendering; [`tools/screens/`](tools/screens/README.md)
+describes it.
+
 The TUI is tested through its state with `insta` snapshots and end to
 end in a pseudo-terminal, not by hand. [`docs/spec.md`](docs/spec.md)
 describes behaviour: it names no source files, functions or types, and
