@@ -73,6 +73,18 @@ with it, and no step-by-step description of setting it up with an agent.
   which Ghostty takes from macOS fallback fonts; DejaVu Sans Mono
   (Bitstream Vera licence, free) has all of them and is the fallback.
   A test checks that the fonts cover every glyph asqr draws.
+- **Upstream Victor Mono with Ghostty's cell proportions** (Jakob,
+  2026-10-30). For every glyph asqr draws the Nerd Fonts build and the
+  upstream font are the same (1241 of 1267 upstream glyphs identical in
+  outline and advance; the rest are combining marks), but the Nerd build
+  has taller line metrics (hhea ascent and descent 1200 and -350 against
+  1100 and -250, at 1100 units per em), so Ghostty's cells are taller.
+  The tool sets cell size and baseline to what Ghostty derives from the
+  Nerd build at 14 pt. Rejected: committing the Nerd build (10 MB for
+  four styles plus the icon sets' licences); local font files that
+  override the committed ones, which would make pictures depend on the
+  machine. macOS's own fallback fonts (Apple Symbols, Menlo), which
+  Ghostty uses for glyphs Victor Mono lacks, cannot be committed.
 - **Later, real images:** as the tool draws the PNG itself, it can
   paste the actual picture into the context pane where asqr places an
   image, instead of half blocks, once asqr's drawing reports where it
