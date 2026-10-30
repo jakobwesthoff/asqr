@@ -56,3 +56,10 @@ test can settle the open question above.
 Jakob agreed to the proposal (asqr session 01M51Z9860935MZKGH148W7PSB)
 and asked to build it last, after the other field-test todos, in a
 separate step he tries out right after; the lead reminds him then.
+
+## Decisions (Jakob, 2026-10-30, asqr session 01M6628SFCCK00ENY6YV0XQZR1)
+
+- Build it now, no longer after the field test.
+- First a simple demo Jakob can start quickly, possibly outside asqr,
+  that shows how the two ways behave and look, with a way to switch
+  between them.

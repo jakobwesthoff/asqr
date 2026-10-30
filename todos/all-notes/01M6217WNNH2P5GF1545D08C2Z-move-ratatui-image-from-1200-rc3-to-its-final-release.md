@@ -60,6 +60,12 @@ real-terminal checks of todo 01M51VD1CY4XM1PSF63S0JGP45 (Check image
 handling and the emblem in real terminals) pass with it, and each
 workaround above is removed or has a comment saying why it stays.
 
+## State on 2026-10-30
+
+Jakob brought this todo back from the parked ones (asqr session 01M6628SFCCK00ENY6YV0XQZR1). The
+crates.io API still lists 12.0.0-rc.3 (2026-10-18) as the newest version;
+no final 12.0.0 exists, so the blocker holds.
+
 ## Relations
 
 - Blocked by: a final ratatui-image 12.0.0 release

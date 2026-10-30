@@ -2,7 +2,6 @@
 title: "A cleared default does not count as an answer in a draft"
 kind: bug
 component: queue
-status: needs-discussion
 impact: low
 origin: review
 ---
@@ -59,3 +58,11 @@ Give the draft a mark for a question the person changed, as
 `custom_unpicked` marks unpicked own text in drafts only, count it in
 `person_entered`, and restore a question without it as untouched. The
 change amends spec section 4.3 and ADR 0071.
+
+## Decisions (Jakob, 2026-10-30, asqr session 01M6628SFCCK00ENY6YV0XQZR1)
+
+- A cleared default counts as the person having started: `asqr withdraw`
+  and `asqr ask --replaces` without `--force` refuse, and with `--force`
+  the person is told the asker withdrew the session.
+- A restored draft preselects a default the session file gained on a
+  question the person never touched, as a running session's reload does.

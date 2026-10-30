@@ -89,6 +89,12 @@ Further directions to weigh, none checked against the code or tried yet:
 - The skill changes with whatever is decided, since agents follow it to
   pick a queue.
 
+## Discussion planned (2026-10-30)
+
+Jakob picked this as the larger design topic to discuss soon
+(asqr session 01M6628SFCCK00ENY6YV0XQZR1). It relates to the queue name on the waiting screen, which
+is being designed at the same time.
+
 ## Relations
 
 - Relates to: [Decide whether to build a terminal dashboard that agents write their status to](01M5VR1S0NSFH97XRWCKNBG7DR-decide-whether-to-build-a-terminal-dashboard-that-agents-write-their.md), the same question of which agents feed which view

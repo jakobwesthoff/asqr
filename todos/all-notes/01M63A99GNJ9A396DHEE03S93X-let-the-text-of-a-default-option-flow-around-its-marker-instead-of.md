@@ -2,7 +2,6 @@
 title: "Let the text of a default option flow around its marker instead of leaving a column"
 kind: improvement
 component: tui
-status: needs-discussion
 origin: idea
 tags: [ux]
 ---
@@ -44,9 +43,15 @@ that start on the first line).
 
 ## Open questions
 
-- Room on the first line only, or on the first two lines? Jakob left
+- (Settled 2026-10-30, see Decisions.) Room on the first line only, or on the first two lines? Jakob left
   this open.
 - Does this change ADR 0076's room rule, and so need an ADR that amends
   it?
 - How does a Markdown block that starts on the first line (a list item,
   a quote, a code block) behave when its width changes after one line?
+
+## Decisions (Jakob, 2026-10-30, asqr session 01M6628SFCCK00ENY6YV0XQZR1)
+
+- Only the first line keeps the room for `◀ default`; the lines below
+  wrap at the full width. Chosen from mockups of first line, first two
+  lines and every line.

@@ -111,3 +111,15 @@ Added by Jakob on 2026-10-29, after reading the agent's account:
   references without an agent missing a rule it needs on every session?
 - Should the skill say anything about reading itself in full, or is
   that the agent's own responsibility?
+
+## Jakob's direction (2026-10-30, asqr session 01M6628SFCCK00ENY6YV0XQZR1)
+
+- Jakob is fairly sure one cause was that the skill is so long that the
+  agent decided not to read all of it.
+- Two ways, probably both worth doing: split the skill into several
+  parts, with whatever the skill call needs so the agent may read the
+  other files; and compress the whole skill without losing content.
+- A plan comes first, worked out by an agent in an adversarial review
+  style, but with fable, opus, sonnet and haiku discussing solutions
+  with each other from the start, to find the best one. The lead watches
+  it and puts the result to Jakob in an asqr session.

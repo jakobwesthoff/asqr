@@ -2,7 +2,6 @@
 title: "The focus fill of an option leaves the indent of wrapped label lines unfilled"
 kind: bug
 component: tui
-status: needs-discussion
 impact: low
 origin: review
 tags: [ux]
@@ -54,3 +53,10 @@ parts, and the indent and the blanks after the text are not among them.
 Another change is adding a right-aligned `◀ default` marker to option
 rows in `src/tui/render/content.rs`, which takes the focus fill under
 the cursor. This fix comes after that change lands.
+
+## Decisions (Jakob, 2026-10-30, asqr session 01M6628SFCCK00ENY6YV0XQZR1)
+
+- The focus fill of an option reaches the right edge on every line of
+  the option, like the review tab's rows, so a wrapped option under the
+  cursor is one solid block. Chosen from mockups of edge, indent and
+  text, and text only.
