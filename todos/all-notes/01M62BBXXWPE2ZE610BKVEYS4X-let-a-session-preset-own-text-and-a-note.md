@@ -3,6 +3,7 @@ title: "Let a session preset own text and a note"
 kind: feature
 component: format
 status: needs-discussion
+horizon: someday
 origin: review
 ---
 # Let a session preset own text and a note
@@ -33,7 +34,39 @@ same day.
   or in a separate preset block.
 - Whether a preset counts as an untouched default does: the asker's
   value, not the person's input, until the person changes it (see how
-  `defaulted` works for options and spec section 4.3).
+  `defaulted` works for options, spec section 4.2).
 - How the TUI marks preset text, next to the `◀ default` marker of ADR
   76.
 - Whether it is meant for replacement sessions only or for any session.
+
+- Which fields: own text, a `text` question's answer, a question's
+  note, or fewer.
+- Whether a preset own text on a `single` starts as the pick, as a
+  default option does.
+
+## Parked (Jakob, 2026-10-30, in the chat)
+
+Not now. The feature needs more thinking about how to keep an agent
+from misusing it: a preset text looks like the person's own words, and
+an agent could fill in answers the person never wrote.
+
+## Checked on main 1dcae03 (lead, 2026-10-30)
+
+- `note` on a question is a boolean in format version 2; a string there
+  is a shape error (`src/format/session.rs:251-257`), so a note preset
+  cannot use that name before format version 3 (todo
+  01M61Z3MJBAWT63Y2RYEKSMJD6).
+- `person_entered` (`src/queue/drafts.rs:85-90`) counts any own text and
+  note, whatever their flags. A preset stored without a flag would count
+  as the person's input and block a withdrawal without `--force`, so the
+  format, `person_entered` and `restored` (`src/tui/session.rs`) change
+  together.
+- `defaulted` is set for selections only (`src/tui/session.rs:869`).
+- The file does not record that a session replaces another
+  (`ask --replaces` is a flag), so "replacement sessions only" cannot
+  be checked from the file alone.
+
+## Revisit when
+
+A design exists that keeps an agent from presetting text the person
+never wrote, or replacements that lose typed text become frequent.
