@@ -186,6 +186,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         editing,
     };
     let mut view = View::new(&queue, watch.layout(), images)
+        .chosen_queue(!location.is_default())
         .no_color(watch.no_color())
         .home(watch.home().map(Path::to_path_buf))
         .glyphs(glyphs)

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The terminal title names the queue asqr watches, such as
+  `asqr · asqr-todos · 2 waiting`, unless it is the default queue.
+
 ### Changed
 
 - The agent skill tells agents to add an `info` item only where no

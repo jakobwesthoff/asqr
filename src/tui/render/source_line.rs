@@ -358,7 +358,7 @@ fn grapheme_columns(grapheme: &str) -> usize {
 
 /// How a control character shows: U+2400 to U+241F picture the C0 controls
 /// in order, and U+2421 pictures delete.
-fn picture(control: char) -> char {
+pub(crate) fn picture(control: char) -> char {
     match u32::from(control) {
         code @ 0..0x20 => char::from_u32(0x2400 + code).expect("the Control Pictures block"),
         0x7f => '\u{2421}',

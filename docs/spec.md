@@ -1624,6 +1624,13 @@ keeps the session and shows its own notice instead.
   and replaced files, trigger nothing.
 - The terminal title counts the waiting sessions, "asqr · N waiting",
   and changes with the count (OSC 0, the window and the icon title).
+  For any queue but the default one (section 5.2) it names the queue
+  too, "asqr · <queue> · N waiting", by its name or its `--dir`
+  directory as given, with control characters shown as in text entries
+  (section 8.4). The queue takes at most 40 columns there: a longer one
+  shows its end behind `…`, cut at a `/` where possible, and gives up
+  more from its start where the title would reach 256 bytes, which
+  Ghostty drops (ADR 81).
   Before the first title asqr pushes the terminal's title (`CSI 22;0 t`).
   On quitting, also after a panic, it writes an empty title and then
   pops the pushed one (`CSI 23;0 t`), both before it leaves the

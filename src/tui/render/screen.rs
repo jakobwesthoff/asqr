@@ -49,7 +49,7 @@ const FRAME_ROWS: u16 = 5;
 /// `text` in at most `room` columns: whole as long as it fits, otherwise
 /// its end behind `…`, cut at a `/` where one is in reach, since the end
 /// of a queue's path is what tells queues apart.
-fn shorten_from_left(text: &str, room: usize) -> String {
+pub(crate) fn shorten_from_left(text: &str, room: usize) -> String {
     if columns(text) <= room {
         return text.to_owned();
     }
@@ -66,7 +66,9 @@ fn shorten_from_left(text: &str, room: usize) -> String {
         start = index;
     }
     let tail = &text[start..];
-    let tail = match tail.find('/') {
+    // A slash at the very end, as shell completion leaves after a
+    // directory, is no place to cut: the name before it would go.
+    let tail = match tail.trim_end_matches('/').find('/') {
         Some(slash) => &tail[slash..],
         None => tail,
     };
@@ -112,6 +114,9 @@ pub struct Drawn {
 pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
     queue: &'a str,
+    /// Whether the queue was chosen, any queue but the default one: the
+    /// empty queue and the terminal title name it then.
+    chosen: bool,
     tab: TabState,
     /// The glyphs Talqi is drawn in while the queue is empty.
     glyphs: Glyphs,
@@ -141,6 +146,7 @@ impl<'a> View<'a> {
     fn with_tab(queue: &'a str, tab: TabState, version: &'a str) -> Self {
         View {
             queue,
+            chosen: false,
             glyphs: Glyphs::Quadrant,
             tab,
             overlay_shown: false,
@@ -156,6 +162,19 @@ impl<'a> View<'a> {
     #[cfg(test)]
     pub(crate) fn for_tests(queue: &'a str, layout: PaneLayout, images: Images) -> Self {
         View::with_tab(queue, TabState::for_tests(layout, images), "asqr 0.0.0")
+    }
+
+    /// This view of a queue that was `chosen`, any queue but the default
+    /// one, which the empty queue and the terminal title name.
+    #[must_use]
+    pub fn chosen_queue(self, chosen: bool) -> Self {
+        View { chosen, ..self }
+    }
+
+    /// The queue the screen names: the name or directory of a chosen
+    /// queue, nothing for the default queue.
+    pub fn named_queue(&self) -> Option<&str> {
+        self.chosen.then_some(self.queue)
     }
 
     /// This view, drawn without colours when `no_color` is set.
@@ -1568,6 +1587,26 @@ mod tests {
             " asqr · queue: default · 0 sessions waiting",
             "a title that fits stays as it is"
         );
+    }
+
+    /// A path typed with a trailing slash, as shell completion leaves it,
+    /// keeps its last component; only the slash at its end must not count
+    /// as the place to cut.
+    #[test]
+    fn a_trailing_slash_keeps_the_last_component() {
+        let last = "q".repeat(60);
+        let shortened = shorten_from_left(&format!("/data/{last}/"), 55);
+
+        assert_eq!(shortened, format!("…{}/", "q".repeat(53)));
+    }
+
+    #[test]
+    fn a_view_names_its_queue_only_when_it_was_chosen() {
+        let view = || View::for_tests("asqr-todos", PaneLayout::Auto, Images::half_blocks());
+
+        assert_eq!(view().named_queue(), None);
+        assert_eq!(view().chosen_queue(false).named_queue(), None);
+        assert_eq!(view().chosen_queue(true).named_queue(), Some("asqr-todos"));
     }
 
     #[test]

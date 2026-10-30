@@ -70,7 +70,8 @@ In another terminal, or from an agent, ask:
 
 asqr shows the session as soon as it arrives, with a desktop
 notification and the terminal bell (`--no-notify`, `--no-bell`), and the
-terminal title counts the waiting sessions (`--no-title`). Ghostty,
+terminal title counts the waiting sessions and names any queue but the
+default one (`--no-title`). Ghostty,
 iTerm2, Windows Terminal and kitty inside tmux also show how much of the
 session is answered. Answer
 with the keyboard: `↑`/`↓` and `←`/`→` (or `hjkl`) move, `enter` picks,

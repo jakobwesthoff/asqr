@@ -61,7 +61,8 @@ struct WatchArgs {
     #[arg(long)]
     no_bell: bool,
 
-    /// Do not show the number of waiting sessions in the terminal title.
+    /// Do not show the queue and the number of waiting sessions in the
+    /// terminal title.
     #[arg(long)]
     no_title: bool,
 

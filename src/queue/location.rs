@@ -109,6 +109,15 @@ impl QueueLocation {
         self.name.as_deref()
     }
 
+    /// Whether this is the queue named `default`, which asqr watches when
+    /// no queue is chosen. A queue given by `--dir` never is.
+    ///
+    /// The name is compared exactly: on a case-sensitive filesystem
+    /// `--queue DEFAULT` is a queue of its own, in a directory of its own.
+    pub fn is_default(&self) -> bool {
+        self.name.as_deref() == Some(DEFAULT_QUEUE)
+    }
+
     pub fn inbox(&self) -> PathBuf {
         self.dir.join("inbox")
     }
@@ -329,5 +338,23 @@ mod tests {
             Some("asqr")
         );
         assert_ne!(data, cache);
+    }
+
+    #[test]
+    fn only_the_queue_named_default_is_the_default() {
+        let is_default = |flags| {
+            resolve(flags, Selection::default())
+                .expect("resolves")
+                .is_default()
+        };
+
+        assert!(is_default(Selection::default()), "no queue chosen");
+        assert!(is_default(named("default")), "chosen by its name");
+        assert!(!is_default(named("mascots")));
+        assert!(!is_default(named("DEFAULT")), "a queue of its own");
+        assert!(
+            !is_default(dir("/data/asqr/queues/default")),
+            "a directory is never the default"
+        );
     }
 }

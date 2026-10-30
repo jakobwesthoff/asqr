@@ -421,6 +421,22 @@ fn last(haystack: &str, needle: &str) -> usize {
         .unwrap_or_else(|| panic!("{needle:?} is missing: {haystack:?}"))
 }
 
+/// Where the first title of asqr that ends in `end` starts in `haystack`,
+/// failing when there is none.
+fn first_title(haystack: &str, end: &str) -> usize {
+    let start = "\x1b]0;asqr · ";
+    haystack
+        .match_indices(start)
+        .map(|(at, _)| at)
+        .find(|&at| {
+            haystack[at + start.len()..]
+                .split('\x07')
+                .next()
+                .is_some_and(|title| title.ends_with(end))
+        })
+        .unwrap_or_else(|| panic!("no title ending in {end:?}: {haystack:?}"))
+}
+
 const PUSH_TITLE: &str = "\x1b[22;0t";
 const EMPTY_TITLE: &str = "\x1b]0;\x07";
 const POP_TITLE: &str = "\x1b[23;0t";
@@ -450,8 +466,11 @@ fn the_title_counts_the_waiting_sessions_and_is_given_back_on_quit() {
     let output = tui.output();
     let alternate_screen = first(&output, "\x1b[?1049h");
     let push = first(&output, PUSH_TITLE);
-    let none_waiting = first(&output, "\x1b]0;asqr · 0 waiting\x07");
-    let one_waiting = first(&output, "\x1b]0;asqr · 1 waiting\x07");
+    // A queue given by `--dir` is named by its directory. The sandbox's
+    // may be longer than the 40 columns the title gives the queue, so only
+    // the path's end is certain.
+    let none_waiting = first_title(&output, "/queue · 0 waiting");
+    let one_waiting = first_title(&output, "/queue · 1 waiting");
     let cleared = last(&output, EMPTY_TITLE);
     let pop = last(&output, POP_TITLE);
     let main_screen = last(&output, "\x1b[?1049l");

@@ -19,8 +19,9 @@ use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::crossterm::event::{KeyEvent, KeyEventKind};
 use ratatui::layout::{Position, Rect};
+use unicode_segmentation::UnicodeSegmentation;
 
-use super::render::{Drawn, View, draw};
+use super::render::{Drawn, View, draw, picture, shorten_from_left};
 use super::{
     App, Applied, EditRequest, Inbox, Notice, Tone, edited_text, editor_file, session_progress,
 };
@@ -247,10 +248,51 @@ impl SentProgress {
     }
 }
 
+/// The most columns the queue takes in the terminal title. Terminals and
+/// tmux cut a long tab title at their own width anyway, and 40 columns
+/// leave room for `asqr · ` and ` · N waiting` in a tab of usual width.
+const TITLE_QUEUE_COLUMNS: usize = 40;
+
+/// The most bytes of a terminal title: Ghostty drops a title of 256 bytes
+/// or more whole, the count included (ADR 40).
+const TITLE_MAX_BYTES: usize = 255;
+
 /// The terminal title for the state of `app`, so a tab in the background
-/// tells how many sessions wait (spec section 7.9).
-pub fn terminal_title(app: &App) -> String {
-    format!("asqr · {} waiting", app.sessions().len())
+/// tells how many sessions wait (spec section 7.9), and which queue they
+/// wait in where `queue` names a chosen one (ADR 81).
+pub fn terminal_title(app: &App, queue: Option<&str>) -> String {
+    let count = format!("{} waiting", app.sessions().len());
+    let Some(queue) = queue else {
+        return format!("asqr · {count}");
+    };
+    // A BEL or an ESC from a `--dir` path would end the title's OSC
+    // sequence early. Their pictures also take a column each, which the
+    // cut to 40 columns has to count.
+    let pictured: String = queue
+        .chars()
+        .map(|c| if c.is_control() { picture(c) } else { c })
+        .collect();
+    let shown = shorten_from_left(&pictured, TITLE_QUEUE_COLUMNS);
+    // Combining marks take no column, so 40 columns can still hold more
+    // bytes than Ghostty takes.
+    let frame = format!("asqr ·  · {count}").len();
+    let shown = within_bytes(&shown, TITLE_MAX_BYTES.saturating_sub(frame));
+    format!("asqr · {shown} · {count}")
+}
+
+/// `text` in at most `room` bytes: whole where it fits, otherwise its end
+/// behind `…`, taken grapheme by grapheme so no character is split.
+fn within_bytes(text: &str, room: usize) -> String {
+    if text.len() <= room {
+        return text.to_owned();
+    }
+    let keep = room.saturating_sub('…'.len_utf8());
+    let start = text
+        .grapheme_indices(true)
+        .map(|(index, _)| index)
+        .find(|&index| text.len() - index <= keep)
+        .unwrap_or(text.len());
+    format!("…{}", &text[start..])
 }
 
 /// Reads the queue for the first time: what waits when asqr starts is
@@ -305,7 +347,7 @@ where
     // whole (ADR 74).
     let mut redraw = false;
     loop {
-        let title = terminal_title(app);
+        let title = terminal_title(app, view.named_queue());
         if title != sent_title {
             host.title(&title);
             sent_title = title;
@@ -947,7 +989,7 @@ mod tests {
                 harness.put(&format!("batch-{n}"));
             }
             let (app, _) = start(harness.location.clone()).expect("started");
-            terminal_title(&app)
+            terminal_title(&app, None)
         };
 
         assert_eq!(titled(0), "asqr · 0 waiting");
@@ -980,6 +1022,83 @@ mod tests {
         assert_eq!(
             harness.host.titles,
             ["asqr · 0 waiting", "asqr · 1 waiting", "asqr · 0 waiting"]
+        );
+    }
+
+    #[test]
+    fn the_title_names_a_chosen_queue_and_not_the_default() {
+        let app = App::default();
+
+        assert_eq!(terminal_title(&app, None), "asqr · 0 waiting");
+        assert_eq!(
+            terminal_title(&app, Some("asqr-todos")),
+            "asqr · asqr-todos · 0 waiting"
+        );
+    }
+
+    #[test]
+    fn a_long_queue_is_cut_to_40_columns_in_the_title() {
+        let name = format!("{}{}", "a".repeat(31), "b".repeat(39));
+
+        assert_eq!(
+            terminal_title(&App::default(), Some(&name)),
+            format!("asqr · …{} · 0 waiting", "b".repeat(39))
+        );
+    }
+
+    /// The title goes out inside an OSC sequence, which a BEL or an ESC
+    /// in a `--dir` path would end.
+    #[test]
+    fn control_characters_in_the_queue_show_as_pictures() {
+        let app = App::default();
+
+        assert_eq!(
+            terminal_title(&app, Some("/tmp/a\u{7}b\u{1b}c\u{85}")),
+            "asqr · /tmp/a␇b␛c\u{FFFD} · 0 waiting"
+        );
+        assert_eq!(
+            terminal_title(&app, Some(&"\u{7}".repeat(50))),
+            format!("asqr · …{} · 0 waiting", "␇".repeat(39)),
+            "each picture takes a column"
+        );
+    }
+
+    /// Ghostty drops a title of 256 bytes or more. A grapheme of a letter
+    /// and 100 combining accents takes one column and 201 bytes.
+    #[test]
+    fn the_title_stays_under_256_bytes() {
+        let accented = format!("e{}", "\u{301}".repeat(100)).repeat(5);
+        let long_path = format!("/{}", "ü/".repeat(200));
+        let app = App::default();
+
+        for queue in [accented.as_str(), &long_path] {
+            let title = terminal_title(&app, Some(queue));
+            assert!(title.len() < 256, "{} bytes: {title:?}", title.len());
+            assert!(title.starts_with("asqr · …"), "{title:?}");
+            assert!(title.ends_with(" · 0 waiting"), "{title:?}");
+        }
+    }
+
+    #[test]
+    fn the_loop_titles_a_chosen_queue() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let mut view =
+            View::for_tests("pty", PaneLayout::Auto, Images::half_blocks()).chosen_queue(true);
+
+        harness.put("late");
+        harness
+            .run_with_view(
+                &mut app,
+                &mut inbox,
+                &mut view,
+                vec![Event::Resize, Event::InboxChanged, Event::Resize],
+            )
+            .expect("runs");
+
+        assert_eq!(
+            harness.host.titles,
+            ["asqr · pty · 0 waiting", "asqr · pty · 1 waiting"]
         );
     }
 

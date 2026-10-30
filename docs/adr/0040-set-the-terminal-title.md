@@ -13,6 +13,9 @@ screen
 Amended by [73. Report progress through OSC 9;4](0073-report-progress-through-osc-94.md):
 progress through OSC 9;4 goes to the terminals known to show it
 
+Amended by [81. Name the chosen queue](0081-name-the-chosen-queue.md):
+the title names a queue other than the default one
+
 ## Context
 
 asqr runs in a terminal of its own, often in a tab the person does not
