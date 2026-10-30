@@ -341,8 +341,8 @@ or restart it, and ask again once they have.
 - **Keep a record** of the answers you act on in your own notes or
   files. Results stay in the queue's outbox until the person prunes
   them.
-- **Queues.** Everything goes to the default queue unless `--queue
-  <name>` or `ASQR_QUEUE` names another. Use the one the person's `asqr`
+- **Queues.** Pass no `--queue` unless the person or your instructions
+  name one, and never switch on your own to a queue another asqr
   watches.
 
 Habits for every session: one question per item, your recommendation

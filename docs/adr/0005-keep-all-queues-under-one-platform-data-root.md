@@ -6,6 +6,9 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [85. Pair asqr and its agents through the tmux session](0085-pair-asqr-and-its-agents-through-the-tmux-session.md):
+inside tmux the queue comes from the pane's tmux session
+
 ## Context
 
 Queues need a default location that works on every platform and that

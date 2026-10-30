@@ -97,7 +97,10 @@ on it. `asqr --help` lists every command.
 Sessions wait in a queue: a directory with an inbox, an outbox for the
 results, drafts and an archive. The default queue lives in the
 platform's data directory; `--queue <name>` or `ASQR_QUEUE` keeps
-projects apart, and `asqr paths` shows where everything is.
+projects apart, and `asqr paths` shows where everything is. Inside tmux,
+asqr and the agents in the same tmux session use one queue without any
+setup: the one named after the session, so several tmux sessions keep
+their questions apart.
 Among them is asqr's log file, and `ASQR_LOG=debug` adds debug lines to
 it.
 

@@ -22,9 +22,40 @@ pub struct Selection {
 }
 
 impl Selection {
-    fn is_empty(&self) -> bool {
+    /// Whether this source chose no queue.
+    pub fn is_empty(&self) -> bool {
         self.queue.is_none() && self.dir.is_none()
     }
+}
+
+/// What the tmux session of this process says about its queue (ADR 85),
+/// the source after the flags and the environment.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Paired {
+    /// tmux was not asked: asqr runs outside tmux, or a flag or a
+    /// variable chose the queue, or the command works on no queue.
+    #[default]
+    NotAsked,
+    /// The queue the session's asqr pinned (`ASQR_SESSION_QUEUE`).
+    Pinned(String),
+    /// The session's name, made a valid queue name.
+    Session(String),
+    /// tmux did not answer, for the reason given; asqr goes on as outside
+    /// tmux.
+    Unreachable(String),
+}
+
+/// Where the resolved queue came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    Flag,
+    Environment,
+    Pin,
+    SessionName,
+    /// Nothing chose a queue, so it is the default one.
+    Default,
+    /// The default queue, taken because tmux did not answer.
+    Unreachable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -34,6 +65,11 @@ pub enum LocationError {
 
     #[error("invalid queue name {0:?} (letters, digits, '-', '_' and '.', not starting with '.')")]
     InvalidQueueName(String),
+
+    #[error(
+        "invalid queue name {0:?} in the tmux session variable ASQR_SESSION_QUEUE (letters, digits, '-', '_' and '.', not starting with '.')"
+    )]
+    InvalidPinnedQueue(String),
 
     #[error("no platform data directory found; use --dir to name a queue directory")]
     NoDataDirectory,
@@ -58,17 +94,51 @@ impl QueueLocation {
         environment: Selection,
         root: Option<PathBuf>,
     ) -> Result<Self, LocationError> {
-        let chosen = if flags.is_empty() { environment } else { flags };
-        match chosen {
+        Self::resolve_paired(flags, environment, Paired::NotAsked, root)
+            .map(|(location, _)| location)
+    }
+
+    /// Resolves the queue as [`QueueLocation::resolve`] does, with what
+    /// tmux said as the source after the environment (ADR 85): the pinned
+    /// queue, then the session's name. Says where the queue came from.
+    pub fn resolve_paired(
+        flags: Selection,
+        environment: Selection,
+        paired: Paired,
+        root: Option<PathBuf>,
+    ) -> Result<(Self, Origin), LocationError> {
+        let named = |name: String| Selection {
+            queue: Some(name),
+            dir: None,
+        };
+        let (chosen, origin) = if !flags.is_empty() {
+            (flags, Origin::Flag)
+        } else if !environment.is_empty() {
+            (environment, Origin::Environment)
+        } else {
+            match paired {
+                // The pin is written by asqr with a valid name, so one that
+                // is not was set by hand; it is refused as a bad
+                // `ASQR_QUEUE` is, naming where it came from.
+                Paired::Pinned(name) if !is_valid_session_id(&name) => {
+                    return Err(LocationError::InvalidPinnedQueue(name));
+                }
+                Paired::Pinned(name) => (named(name), Origin::Pin),
+                Paired::Session(name) => (named(name), Origin::SessionName),
+                Paired::Unreachable(_) => (Selection::default(), Origin::Unreachable),
+                Paired::NotAsked => (Selection::default(), Origin::Default),
+            }
+        };
+        let location = match chosen {
             Selection {
                 queue: Some(_),
                 dir: Some(_),
-            } => Err(LocationError::QueueAndDir),
-            Selection { dir: Some(dir), .. } => Ok(QueueLocation {
+            } => return Err(LocationError::QueueAndDir),
+            Selection { dir: Some(dir), .. } => QueueLocation {
                 dir,
                 root: None,
                 name: None,
-            }),
+            },
             Selection { queue, .. } => {
                 let name = queue.unwrap_or_else(|| DEFAULT_QUEUE.to_owned());
                 // The name becomes a directory name, so it follows the id
@@ -77,13 +147,14 @@ impl QueueLocation {
                     return Err(LocationError::InvalidQueueName(name));
                 }
                 let root = root.ok_or(LocationError::NoDataDirectory)?;
-                Ok(QueueLocation {
+                QueueLocation {
                     dir: root.join("queues").join(&name),
                     root: Some(root),
                     name: Some(name),
-                })
+                }
             }
-        }
+        };
+        Ok((location, origin))
     }
 
     /// A queue in `dir`, as `--dir` would name it.
@@ -247,6 +318,79 @@ mod tests {
                 .expect("resolves")
                 .dir(),
             Path::new("/data/asqr/queues/env")
+        );
+    }
+
+    fn paired(
+        flags: Selection,
+        environment: Selection,
+        paired: Paired,
+    ) -> Result<(String, Origin), LocationError> {
+        QueueLocation::resolve_paired(flags, environment, paired, root())
+            .map(|(location, origin)| (location.dir().display().to_string(), origin))
+    }
+
+    fn pinned(name: &str) -> Paired {
+        Paired::Pinned(name.into())
+    }
+
+    #[test]
+    fn a_pinned_queue_comes_after_the_environment() {
+        assert_eq!(
+            paired(Selection::default(), named("env"), pinned("pin")),
+            Ok(("/data/asqr/queues/env".into(), Origin::Environment))
+        );
+        assert_eq!(
+            paired(named("flag"), Selection::default(), pinned("pin")),
+            Ok(("/data/asqr/queues/flag".into(), Origin::Flag))
+        );
+        assert_eq!(
+            paired(Selection::default(), Selection::default(), pinned("pin")),
+            Ok(("/data/asqr/queues/pin".into(), Origin::Pin))
+        );
+    }
+
+    #[test]
+    fn the_session_name_comes_after_the_pin() {
+        assert_eq!(
+            paired(
+                Selection::default(),
+                Selection::default(),
+                Paired::Session("my-work".into())
+            ),
+            Ok(("/data/asqr/queues/my-work".into(), Origin::SessionName))
+        );
+    }
+
+    #[test]
+    fn the_default_comes_last_and_after_an_unreachable_tmux() {
+        assert_eq!(
+            paired(Selection::default(), Selection::default(), Paired::NotAsked),
+            Ok(("/data/asqr/queues/default".into(), Origin::Default))
+        );
+        assert_eq!(
+            paired(
+                Selection::default(),
+                Selection::default(),
+                Paired::Unreachable("tmux is not installed".into())
+            ),
+            Ok(("/data/asqr/queues/default".into(), Origin::Unreachable))
+        );
+    }
+
+    #[test]
+    fn an_invalid_pinned_name_is_a_usage_error() {
+        assert_eq!(
+            paired(
+                Selection::default(),
+                Selection::default(),
+                pinned("my work")
+            ),
+            Err(LocationError::InvalidPinnedQueue("my work".into()))
+        );
+        assert_eq!(
+            LocationError::InvalidPinnedQueue("my work".into()).to_string(),
+            "invalid queue name \"my work\" in the tmux session variable ASQR_SESSION_QUEUE (letters, digits, '-', '_' and '.', not starting with '.')"
         );
     }
 

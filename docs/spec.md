@@ -573,11 +573,40 @@ The default root is the platform's data directory:
 - `--queue` together with `--dir` is a usage error, and so are
   `ASQR_QUEUE` and `ASQR_DIR` together. Empty variables count as unset.
 - Flags win over environment variables as a whole (`--dir` with
-  `ASQR_QUEUE` set is fine), and environment variables win over the
-  default. A platform without a data directory is a usage error unless
-  `--dir` or `ASQR_DIR` names the queue.
+  `ASQR_QUEUE` set is fine), environment variables win over the tmux
+  session (below), and the tmux session wins over the default. A
+  platform without a data directory is a usage error unless `--dir` or
+  `ASQR_DIR` names the queue.
 - The queue is resolved for every command, so a bad `ASQR_QUEUE` is a
   usage error even for commands that do not touch a queue.
+
+Inside tmux, asqr pairs with the agents of the same tmux session (ADR
+85). When neither a flag nor a variable chose the queue, a command that
+works on a queue (every one but `new`, `validate`, `schema` and `skill`)
+asks tmux about the pane it runs in, `TMUX_PANE`, with one call:
+`display-message -p -t <pane> '#{session_name}'` and `show-environment
+-t <pane>`. Then:
+
+- The tmux session variable `ASQR_SESSION_QUEUE`, the queue the
+  session's asqr pinned (section 7.1), picks a named queue. It is read
+  from tmux only, never from the process environment. A value that is
+  no valid queue name is a usage error naming the variable.
+- Without it, the queue is named after the session: each run of
+  characters a queue name cannot hold becomes one `-`, a leading `.`
+  becomes `_`, and the name is cut at 200 bytes, so session `my work`
+  uses queue `my-work`.
+- asqr counts as inside tmux when `TMUX` is set and not empty. Without
+  `TMUX_PANE`, an empty session name (tmux prints one for a pane that
+  is gone), a failing tmux, or one that does not answer within 500 ms,
+  asqr uses the default queue without a word, as outside tmux: outside
+  tmux, and in other multiplexers, everything works through the default
+  queue and the flags and variables, and the pairing is convenience on
+  top of them. The reason goes into the log.
+
+Two names are one queue when they are one directory: on a filesystem
+that ignores case, as macOS's does by default, sessions `Work` and
+`work` share a queue, and a session named `Default` uses the default
+queue's directory.
 
 `asqr paths [--json]` prints the root (`none` with `--dir`, `null` in
 JSON), the queue directory, its four directories, the lock file and the
@@ -943,8 +972,10 @@ is not UTF-8 included. An empty `HOME`, or `/`, counts as unset, and
 paths then show whole.
 
 Other variables asqr reads: `ASQR_QUEUE`, `ASQR_DIR` and `ASQR_LOG`
-(section 5.2), `TERM` (sections 7.9 and 8.9), `TERM_PROGRAM` and `TMUX`
-(section 8.9).
+(section 5.2), `TERM` (sections 7.9 and 8.9), `TERM_PROGRAM` (section
+8.9), and `TMUX` and `TMUX_PANE` (sections 5.2 and 8.9). The tmux
+session variable `ASQR_SESSION_QUEUE` is read through tmux (section
+5.2).
 
 ### 6.3 `ask`
 
@@ -1041,7 +1072,11 @@ nor `ASQR_QUEUE` or `ASQR_DIR` chose the queue, otherwise `asqr --queue
 <name>` (`--queue=<name>` for a name that starts with `-`), or `asqr
 --dir <path>` with the directory made absolute. A queue a variable
 chose is named by the flag, since the agent's next shell, or the
-person's terminal, may not have the variable. A path in a command
+person's terminal, may not have the variable. A queue from the tmux
+session (section 5.2) is reached by plain `asqr` from the same pane;
+the default queue taken because tmux did not answer is named `asqr
+--queue default`, since plain `asqr` reaches the session's queue once
+tmux answers again. A path in a command
 stands as it is when it holds only ASCII letters and digits, `_`, `.`,
 `/` and `-`, and otherwise in single quotes, each `'` written as
 `'\''`. A relative path that starts with `-` gets `./` in front, and a

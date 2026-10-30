@@ -28,7 +28,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub use exit::Exit;
 pub use watch::Watch;
 
-use crate::queue::{QueueLocation, Selection, platform_data_dir};
+use crate::pairing::{self, Multiplexer, SystemTmux, Tmux};
+use crate::queue::{Origin, Paired, QueueLocation, Selection, platform_data_dir};
 use crate::tui::render::PaneLayout;
 
 /// The line `asqr --help` and `asqr ask --help` show agents, below the
@@ -233,6 +234,9 @@ pub struct Environment {
     /// `HOME`, which the TUI shows as `~` in the paths of context entries
     /// it cannot show.
     pub home: Option<PathBuf>,
+    /// The multiplexer `TMUX` and `TMUX_PANE` name, through which asqr
+    /// pairs with the agents of the same session (ADR 85).
+    pub multiplexer: Multiplexer,
 }
 
 /// Reads the [`Environment`] of this process.
@@ -264,6 +268,10 @@ fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
         home: lookup("HOME")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from),
+        multiplexer: Multiplexer::from_variables(
+            variable("TMUX").as_deref(),
+            variable("TMUX_PANE").as_deref(),
+        ),
     }
 }
 
@@ -273,28 +281,56 @@ fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
 /// terminal to hand it.
 pub fn run(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
     log::init(environment.log.as_deref());
-    dispatch(cli, environment, terminal_ui)
+    dispatch(
+        cli,
+        environment,
+        &SystemTmux::default(),
+        platform_data_dir(),
+        terminal_ui,
+    )
 }
 
-fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
+/// Runs the command with `tmux` to ask and the named queues under `root`,
+/// which tests choose.
+fn dispatch(
+    cli: Cli,
+    environment: Environment,
+    tmux: &dyn Tmux,
+    root: Option<PathBuf>,
+    terminal_ui: impl FnOnce(Watch) -> Exit,
+) -> Exit {
     let flags = Selection {
         queue: cli.queue,
         dir: cli.dir,
     };
-    // Commands in hints name the queue the way it was chosen, so this is
-    // read before `resolve` takes the selections.
-    let chosen = flags.queue.is_some()
-        || flags.dir.is_some()
-        || environment.selection.queue.is_some()
-        || environment.selection.dir.is_some();
-    let location = match QueueLocation::resolve(flags, environment.selection, platform_data_dir()) {
-        Ok(location) => location,
-        Err(error) => {
-            eprintln!("error: {error}");
-            return Exit::Usage;
+    // tmux is asked only where its answer can decide: inside tmux, when no
+    // flag and no variable chose, for a command that works on a queue.
+    let works_on_a_queue = !matches!(
+        cli.command,
+        Some(
+            Command::New
+                | Command::Validate { .. }
+                | Command::Schema { .. }
+                | Command::Skill { .. }
+        )
+    );
+    let paired = match &environment.multiplexer {
+        Multiplexer::Tmux(pane)
+            if works_on_a_queue && flags.is_empty() && environment.selection.is_empty() =>
+        {
+            pairing::paired(tmux, pane)
         }
+        _ => Paired::NotAsked,
     };
-    let invocation = hint::Invocation::new(&location, chosen);
+    let (location, origin) =
+        match QueueLocation::resolve_paired(flags, environment.selection, paired, root) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                eprintln!("error: {error}");
+                return Exit::Usage;
+            }
+        };
+    let invocation = hint::Invocation::new(&location, named_in_commands(origin));
 
     // Plain `asqr` takes the watch flags, so they may stand before
     // `watch` too; next to any other command they would do nothing.
@@ -392,12 +428,26 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
     }
 }
 
+/// Whether a command in advice names the queue with a flag (spec section
+/// 6.7). Plain `asqr` reaches a queue nothing chose, and from the same
+/// tmux pane the queue tmux gave. After tmux did not answer it would reach
+/// the session's queue as soon as tmux answers again, so the default queue
+/// taken then is named.
+fn named_in_commands(origin: Origin) -> bool {
+    match origin {
+        Origin::Flag | Origin::Environment | Origin::Unreachable => true,
+        Origin::Pin | Origin::SessionName | Origin::Default => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
     use std::path::Path;
 
     use super::*;
+    use crate::pairing::TmuxPane;
+    use crate::pairing::testing::{StandIn, Unasked};
     use crate::queue::{lock_holder, lock_queue};
     use crate::tui::Alerts;
 
@@ -419,7 +469,7 @@ mod tests {
         argv.extend(args);
         let cli = Cli::try_parse_from(argv).expect("parses");
         let mut started = None;
-        let exit = dispatch(cli, environment, |watch| {
+        let exit = dispatch(cli, environment, &Unasked, None, |watch| {
             let location = watch.location();
             assert!(location.inbox().is_dir(), "the layout exists");
             assert!(
@@ -517,7 +567,9 @@ mod tests {
         };
 
         assert_eq!(
-            dispatch(cli, environment, |_| unreachable!("no TUI for paths")),
+            dispatch(cli, environment, &Unasked, None, |_| unreachable!(
+                "no TUI for paths"
+            )),
             Exit::Success
         );
     }
@@ -678,7 +730,7 @@ mod tests {
                 ..Environment::default()
             };
             let mut started = None;
-            dispatch(cli, environment, |watch| {
+            dispatch(cli, environment, &Unasked, None, |watch| {
                 started = Some(watch.no_color());
                 Exit::Success
             });
@@ -725,11 +777,152 @@ mod tests {
         };
         let mut started = None;
 
-        dispatch(cli, environment, |watch| {
+        dispatch(cli, environment, &Unasked, None, |watch| {
             started = Some(watch.home().map(Path::to_path_buf));
             Exit::Success
         });
 
         assert_eq!(started, Some(Some(PathBuf::from("/home/me"))));
+    }
+
+    // -----------------------------------------------------------------
+    // Pairing through tmux
+    // -----------------------------------------------------------------
+
+    fn in_tmux_pane() -> Environment {
+        Environment {
+            multiplexer: Multiplexer::Tmux(TmuxPane {
+                socket: "/tmp/tmux-501/default".into(),
+                pane: Some("%3".into()),
+            }),
+            ..Environment::default()
+        }
+    }
+
+    /// The name of the queue `args` start the TUI on, with `tmux` to ask
+    /// and named queues under a temporary root.
+    fn watched_queue(args: &[&str], environment: Environment, tmux: &dyn Tmux) -> Option<String> {
+        let root = tempfile::tempdir().expect("temp dir");
+        let mut argv = vec!["asqr"];
+        argv.extend(args);
+        let cli = Cli::try_parse_from(argv).expect("parses");
+        let mut started = None;
+        dispatch(
+            cli,
+            environment,
+            tmux,
+            Some(root.path().to_path_buf()),
+            |watch| {
+                started = watch.location().name().map(str::to_owned);
+                Exit::Success
+            },
+        );
+        started
+    }
+
+    #[test]
+    fn inside_tmux_without_a_choice_asqr_uses_the_session_queue() {
+        let tmux = StandIn::answering("my work\n");
+
+        assert_eq!(
+            watched_queue(&[], in_tmux_pane(), &tmux),
+            Some("my-work".to_owned())
+        );
+    }
+
+    #[test]
+    fn inside_tmux_the_pinned_queue_wins_over_the_session_name() {
+        let tmux = StandIn::answering("my work\nASQR_SESSION_QUEUE=asqr-todos\n");
+
+        assert_eq!(
+            watched_queue(&[], in_tmux_pane(), &tmux),
+            Some("asqr-todos".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_tmux_that_does_not_answer_leaves_the_default_queue() {
+        let tmux = StandIn::failing("tmux is not installed");
+
+        assert_eq!(
+            watched_queue(&[], in_tmux_pane(), &tmux),
+            Some("default".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_flag_or_the_environment_never_asks_tmux() {
+        assert_eq!(
+            watched_queue(&["--queue", "work"], in_tmux_pane(), &Unasked),
+            Some("work".to_owned())
+        );
+        let environment = Environment {
+            selection: Selection {
+                queue: Some("env".into()),
+                dir: None,
+            },
+            ..in_tmux_pane()
+        };
+        assert_eq!(
+            watched_queue(&[], environment, &Unasked),
+            Some("env".to_owned())
+        );
+    }
+
+    #[test]
+    fn commands_without_a_queue_never_ask_tmux() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let cli = Cli::try_parse_from(["asqr", "new"]).expect("parses");
+
+        let exit = dispatch(
+            cli,
+            in_tmux_pane(),
+            &Unasked,
+            Some(root.path().into()),
+            |_| unreachable!("no TUI for new"),
+        );
+
+        assert_eq!(exit, Exit::Success);
+    }
+
+    #[test]
+    fn outside_tmux_tmux_is_never_asked() {
+        assert_eq!(
+            watched_queue(&[], Environment::default(), &Unasked),
+            Some("default".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_environment_reads_tmux_and_its_pane() {
+        let environment = environment_of(&[
+            ("TMUX", OsStr::new("/tmp/tmux-501/default,3614,4")),
+            ("TMUX_PANE", OsStr::new("%66")),
+        ]);
+
+        assert_eq!(
+            environment.multiplexer,
+            Multiplexer::Tmux(TmuxPane {
+                socket: "/tmp/tmux-501/default".into(),
+                pane: Some("%66".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn commands_in_advice_name_the_queue_unless_plain_asqr_reaches_it() {
+        let named: Vec<bool> = [
+            Origin::Flag,
+            Origin::Environment,
+            Origin::Pin,
+            Origin::SessionName,
+            Origin::Default,
+            Origin::Unreachable,
+        ]
+        .into_iter()
+        .map(named_in_commands)
+        .collect();
+
+        assert_eq!(named, [true, true, false, false, false, true]);
     }
 }

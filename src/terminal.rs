@@ -26,6 +26,7 @@ use asqr::graphics::{
 };
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
+use asqr::pairing::{SystemTmux, Tmux};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
@@ -742,18 +743,10 @@ fn tmux_state() -> Option<TmuxState> {
 }
 
 /// Runs `tmux` with `args` and returns what it printed, or `None` when it
-/// cannot run or fails, as without a server.
+/// cannot run, fails, as without a server, or does not answer in time, so
+/// a hung tmux cannot hold up the start.
 fn run_tmux(args: &[&str]) -> Option<String> {
-    let output = Command::new("tmux")
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    SystemTmux::default().run(None, args).ok()
 }
 
 /// Discards the answers to the graphics query that are still arriving,
