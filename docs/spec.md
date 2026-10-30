@@ -1061,7 +1061,17 @@ result, stderr gets an empty line first, so the hint starts a line of
 its own where the two streams are shown together.
 
 - A printed result, from `wait`, `result` or `ask --wait`, after the
-  JSON: a submitted or rejected result with a note that is not blank,
+  JSON. A rejected result (exit 10) with a `reason`, and one without:
+
+      hint: the person rejected the session; read `reason` for why, and treat the answers in it as never submitted, not as decisions
+      hint: the person rejected the session without a reason; treat the answers in it as never submitted, not as decisions
+
+  An error result (exit 11):
+
+      hint: the asqr watching the queue refused the session file; `error` says why; fix the file and ask again, or, if `error` names a kind or type that `asqr skill` describes, that asqr is older than this one: tell the person, and ask again once they updated or restarted it
+
+  After the line above, a submitted or rejected result with a note that
+  is not blank,
   on the session or on any question. The question ids come in session
   order, the first five and "and <n> more" past five; one note reads "a
   note … read it", and a rejected result, whose answers were never

@@ -711,11 +711,15 @@ fn waits_for_the_result_and_prints_only_the_result() {
 
 #[test]
 fn a_rejected_session_exits_with_the_cancelled_code() {
-    let (code, _, _) = ask_and_answer(|sha| {
+    let (code, _, err) = ask_and_answer(|sha| {
         SessionResult::cancelled("batch-01", sha, &now_rfc3339(), None, None, Vec::new())
     });
 
     assert_eq!(code, Some(10));
+    assert!(
+        err.ends_with("\nhint: the person rejected the session without a reason; treat the answers in it as never submitted, not as decisions\n"),
+        "{err}"
+    );
 }
 
 #[test]

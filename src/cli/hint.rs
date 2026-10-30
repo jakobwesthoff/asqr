@@ -281,7 +281,29 @@ pub(super) fn after_result(printed: &[u8], result: &SessionResult) {
 
 /// The hints a printed result gets, in the order they print.
 fn result_hints(result: &SessionResult) -> Vec<Line> {
-    notes(result).into_iter().collect()
+    outcome(result).into_iter().chain(notes(result)).collect()
+}
+
+/// What a result of a session that was not submitted means (W3).
+fn outcome(result: &SessionResult) -> Option<Line> {
+    let text = match result.status {
+        // `reason` is optional, and absent from the JSON when the person
+        // gave none.
+        Status::Cancelled if result.reason.is_some() => {
+            "the person rejected the session; read `reason` for why, and treat the answers in it as never submitted, not as decisions"
+        }
+        Status::Cancelled => {
+            "the person rejected the session without a reason; treat the answers in it as never submitted, not as decisions"
+        }
+        // An error result also comes from a newer asqr that dropped the
+        // file's format version and from a file dropped by hand, so "fix
+        // the file" comes first.
+        Status::Error => {
+            "the asqr watching the queue refused the session file; `error` says why; fix the file and ask again, or, if `error` names a kind or type that `asqr skill` describes, that asqr is older than this one: tell the person, and ask again once they updated or restarted it"
+        }
+        _ => return None,
+    };
+    Some(Line::hint(text.to_owned()))
 }
 
 /// The person wrote notes in a submitted or rejected result (W2), on the

@@ -883,7 +883,7 @@ fn says_go_on_for_the_notes_of_a_rejected_result() {
     assert_eq!(code, Some(10));
     assert_eq!(
         err,
-        "\nhint: the person wrote a note on `go`; read it before you go on\n"
+        "\nhint: the person rejected the session without a reason; treat the answers in it as never submitted, not as decisions\nhint: the person wrote a note on `go`; read it before you go on\n"
     );
 }
 
@@ -940,5 +940,51 @@ fn a_result_that_ends_with_a_newline_gets_no_empty_line_before_its_hint() {
     assert_eq!(
         stderr(&output),
         "hint: the person wrote a note on the session; read it before you act on the answers\n"
+    );
+}
+
+#[test]
+fn result_of_a_rejected_session_explains_the_reason() {
+    let (code, err) = hints_after("result", "rejected", |sha| {
+        SessionResult::cancelled(
+            "rejected",
+            sha,
+            &now_rfc3339(),
+            Some("too early".into()),
+            None,
+            Vec::new(),
+        )
+    });
+
+    assert_eq!(code, Some(10));
+    assert_eq!(
+        err,
+        "\nhint: the person rejected the session; read `reason` for why, and treat the answers in it as never submitted, not as decisions\n"
+    );
+}
+
+#[test]
+fn result_of_a_session_rejected_without_a_reason_says_so() {
+    // The result then has no `reason` to read.
+    let (_, err) = hints_after("result", "rejected", |sha| {
+        SessionResult::cancelled("rejected", sha, &now_rfc3339(), None, None, Vec::new())
+    });
+
+    assert_eq!(
+        err,
+        "\nhint: the person rejected the session without a reason; treat the answers in it as never submitted, not as decisions\n"
+    );
+}
+
+#[test]
+fn wait_on_an_error_result_explains_the_refusal() {
+    let (code, err) = hints_after("wait", "broken", |sha| {
+        SessionResult::error("broken", sha, &now_rfc3339(), "bad")
+    });
+
+    assert_eq!(code, Some(11));
+    assert_eq!(
+        err,
+        "\nhint: the asqr watching the queue refused the session file; `error` says why; fix the file and ask again, or, if `error` names a kind or type that `asqr skill` describes, that asqr is older than this one: tell the person, and ask again once they updated or restarted it\n"
     );
 }
