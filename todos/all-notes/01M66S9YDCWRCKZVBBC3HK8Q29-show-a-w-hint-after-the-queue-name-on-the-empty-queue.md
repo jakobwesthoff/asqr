@@ -43,3 +43,7 @@ switcher landed without it.
 ## Revisit when
 
 No trigger known; reconsider at the next sweep.
+
+## Relations
+
+- Relates to: [Show a `--dir` queue's path absolute, with `~` for the home folder](01M660F3S59E2VRK8ZX8ETZ3KV-show-a-dir-queues-path-absolute-with-for-the-home-folder.md)
