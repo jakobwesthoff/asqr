@@ -12,7 +12,13 @@ categories = ["command-line-utilities", "development-tools"]
 # The mascot's originals, docs, todos and repository tooling are not needed
 # to build asqr. Talqi's templates, which scripts/emblem-cells.py makes from
 # assets/emblem/, are under src/tui/render/mascot/.
-exclude = ["assets/", "docs/", "todos/", ".adr-dir", ".github/", ".githooks/", "Justfile", "scripts/"]
+exclude = ["assets/", "docs/", "todos/", ".adr-dir", ".github/", ".githooks/", "Justfile", "scripts/", "tools/"]
+
+# The development tools of the repository (ADR 89). asqr stays one crate;
+# the members are not published. Without `default-members`, a plain
+# `cargo build` builds asqr alone, so the Justfile names the workspace.
+[workspace]
+members = ["tools/screens"]
 
 [dependencies]
 anstyle-parse = "1.0.0"

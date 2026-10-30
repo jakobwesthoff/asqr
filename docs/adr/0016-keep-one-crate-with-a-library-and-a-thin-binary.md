@@ -6,6 +6,8 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [89. Draw the documentation pictures with asqr's own rendering](0089-draw-the-documentation-pictures-with-asqrs-own-rendering.md)
+
 ## Context
 
 The logic has to be testable without a terminal, and the planned MCP

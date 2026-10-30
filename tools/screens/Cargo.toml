@@ -1,0 +1,18 @@
+[package]
+name = "screens"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+rust-version = "1.97"
+description = "Draws asqr's screens with asqr's own code into PNG pictures for the documentation"
+# A development tool of the repository (ADR 89), run with `just screens`.
+publish = false
+
+[dependencies]
+ab_glyph = "0.2.32"
+
+[dev-dependencies]
+proc-macro2 = "1.0.107"
+ratatui = "0.30.2"
+syn = { version = "2.0.119", features = ["full", "visit"] }
+ttf-parser = "0.25"
