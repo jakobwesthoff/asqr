@@ -70,6 +70,24 @@ give the archive a read-only viewer so it can be looked at.
   an `image-webp` release and switches if one is mature and clearly
   licensed. Rejected for now: `libwebpop` pinned; waiting for
   `image-webp`.
+- **libwebp stays for the first version** (Jakob, 2026-10-31, after a
+  second research round, conductor logbook
+  `plans/image-format-research/findings.md`): unless that research turns
+  up something new and clearly better, asqr builds on libwebp now, so
+  the pickup re-check above is done. On 127 session images at quality
+  90, `libwebpop` matched `cwebp` (19.0% of the originals, mean SSIM
+  0.9857); `tola-webp` 0.8.1 (MIT) and `otf-pixels-codec-webp` were not
+  yet compared at matched SSIM; `jixel` is a pure-Rust JPEG XL encoder.
+- **Every kept file passes through a processing step behind a trait**
+  (Jakob, 2026-10-31): before a shown file goes into the archive, a
+  processor chosen by the entry's kind (image, Markdown, code, ANSI,
+  diff side, as the viewers know them) turns its bytes into what is
+  kept. For images with `compact` on, that is the WebP re-encoding;
+  for every other kind, and under `exact`, it keeps the bytes as they
+  are. The trait lets a later decision swap the encoder or the format
+  (another WebP encoder, JPEG XL) or add processing for another kind
+  without touching the archiving around it. Rejected: the WebP call
+  inlined in the archiving code.
 - **`ASQR_KEEP_FILES=compact|exact|off`** until asqr has user settings:
   `compact` (the default) re-encodes images as above, `exact` keeps
   every file byte for byte, `off` keeps no files but still records the
