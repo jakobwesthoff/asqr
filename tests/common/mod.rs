@@ -50,6 +50,10 @@ impl Sandbox {
             .env_remove("ASQR_LOG")
             .env_remove("TMUX")
             .env_remove("TMUX_PANE");
+        // `ask` and `validate` look for installed skills from the current
+        // directory up, so a test must not run in the checkout, whose own
+        // skill directories could add a line to stderr.
+        command.current_dir(self.home.path());
         command
     }
 
@@ -66,6 +70,7 @@ impl Sandbox {
             .env_remove("ASQR_LOG")
             .env_remove("TMUX")
             .env_remove("TMUX_PANE");
+        command.current_dir(self.home.path());
         command
     }
 
