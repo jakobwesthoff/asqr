@@ -118,3 +118,29 @@ once inside tmux 3.7c (177×68 cells). Screenshots in
   noticeably slower than the smaller ones that were scaled
   automatically, and is not sure that the demo's numbers measure what
   the render cycle costs afterwards.
+
+## Second tour in Ghostty (2026-10-30)
+
+The demo compared asqr's own scaling with the whole-pixel variant in
+Ghostty 1.3.2 with cells of 15×39 px, directly (220×69 cells) and
+inside tmux 3.7c (220×68 cells). Screenshots in `plans/kitty/shots/`
+(`whole-direct`, `whole-tmux`; the tmux run was started twice).
+
+- With ÷3 (5×13 source pixels per cell), talqi-512 and the test card
+  look like asqr's own scaling: no seams through the eye ring, the
+  diagonals stay continuous, the checkerboard keeps its tone.
+- ÷3 on mascot-1536 shrinks it to 835 px and makes it visibly softer.
+  It is enlarged only 1.65 times, so a divisor that keeps its detail is
+  1, asqr's own scaling.
+- talqi-512 went from 33.50 MB in 117 ms to 3.76 MB in 12 ms directly,
+  and from 32.47 MB in 713 ms to 3.65 MB in 77 ms through tmux; the
+  test card from 44.13 MB in 157 ms to 4.95 MB in 23 ms directly.
+- Jakob found that showing the pictures that are not scaled up is
+  enormously faster.
+
+## Decisions (Jakob, 2026-10-30, asqr session 01M668686YHCAP2QFW7T408RMC)
+
+- Build the whole-pixel variant with the rule that keeps detail: the
+  divisor is the largest divisor of the greatest common divisor of the
+  cell's width and height that is not larger than the picture's
+  enlargement into its cells. A divisor of 1 is asqr's own scaling.
