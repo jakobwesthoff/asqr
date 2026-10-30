@@ -13,6 +13,7 @@
 pub mod cli;
 pub mod format;
 pub mod graphics;
+pub mod image_format;
 pub mod queue;
 pub mod regular_file;
 pub mod terminal_env;

@@ -16,13 +16,13 @@ use std::fs::File;
 use std::io::{self, BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
 
-use image::error::{ImageFormatHint, UnsupportedError, UnsupportedErrorKind};
-use image::{ImageError, ImageFormat, ImageReader};
+use image::ImageError;
 use serde_json::Value;
 
 use super::{
     ContextEntry, FieldPath, LineBreaks, MAX_BYTES, MAX_LINES, Session, line_cut, session_schema,
 };
+use crate::image_format::reader_with_format;
 use crate::regular_file::{self, OpenError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -647,26 +647,9 @@ fn check_decodable(file: &ContextFile, path: FieldPath, found: &mut Vec<Warning>
 }
 
 /// The dimensions of the image in `file`, which `path` names. The format
-/// comes from the file's first bytes, else from the extension of `path`,
-/// as the viewer decides it: TGA, for one, has no signature to recognise.
+/// is decided by [`reader_with_format`], as the viewer decides it.
 fn image_header(file: &File, path: &Path) -> Result<(u32, u32), ImageError> {
-    let mut reader = ImageReader::new(BufReader::new(file)).with_guessed_format()?;
-    if reader.format().is_none()
-        && let Some(extension) = path.extension().filter(|extension| !extension.is_empty())
-    {
-        match ImageFormat::from_extension(extension) {
-            Some(format) => reader.set_format(format),
-            None => {
-                let hint = ImageFormatHint::PathExtension(extension.into());
-                return Err(ImageError::Unsupported(
-                    UnsupportedError::from_format_and_kind(
-                        hint.clone(),
-                        UnsupportedErrorKind::Format(hint),
-                    ),
-                ));
-            }
-        }
-    }
+    let reader = reader_with_format(BufReader::new(file), path)?;
     reader.into_dimensions()
 }
 
@@ -678,6 +661,8 @@ const DECODABLE_FORMATS: &str =
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+
+    use image::{ImageFormat, ImageReader};
 
     use super::*;
 
@@ -1479,7 +1464,7 @@ mod tests {
     /// texts follow.
     #[test]
     fn the_decodable_formats_are_the_documented_ones() {
-        use image::{ImageError, ImageFormat, ImageReader};
+        use image::ImageError;
 
         // `ImageFormat::reading_enabled` claims AVIF without its decoder and
         // denies DDS although it decodes, so the decoders are asked

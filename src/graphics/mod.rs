@@ -20,9 +20,10 @@ pub(crate) mod testing;
 use std::io::Cursor;
 use std::path::Path;
 
-use ::image::error::{ImageFormatHint, UnsupportedError, UnsupportedErrorKind};
-use ::image::{ImageError, ImageFormat};
+use ::image::ImageError;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
+
+use crate::image_format::reader_with_format;
 
 #[cfg(unix)]
 pub use detect::discard_late_answers;
@@ -177,28 +178,9 @@ impl Images {
     /// by the rule that decides which paths may be opened at all and how
     /// large an image file may be.
     ///
-    /// The format comes from the file's first bytes, else from the
-    /// extension of `path`, as `ImageReader::open` finds it: TGA, for
-    /// one, has no signature to recognise. An extension no format knows
-    /// fails with the error that names it.
+    /// [`reader_with_format`] decides the format from the bytes and `path`.
     pub fn decode(&self, bytes: Vec<u8>, path: &str) -> Result<Image, ImageError> {
-        let mut reader = ::image::ImageReader::new(Cursor::new(&bytes)).with_guessed_format()?;
-        if reader.format().is_none()
-            && let Some(extension) = Path::new(path).extension().filter(|ext| !ext.is_empty())
-        {
-            match ImageFormat::from_extension(extension) {
-                Some(format) => reader.set_format(format),
-                None => {
-                    let hint = ImageFormatHint::PathExtension(extension.into());
-                    return Err(ImageError::Unsupported(
-                        UnsupportedError::from_format_and_kind(
-                            hint.clone(),
-                            UnsupportedErrorKind::Format(hint),
-                        ),
-                    ));
-                }
-            }
-        }
+        let reader = reader_with_format(Cursor::new(&bytes), Path::new(path))?;
         // Decoding needs a format, so a picture that decodes had one.
         let format = reader.format();
         let picture = reader.decode()?;
@@ -218,11 +200,11 @@ impl Images {
     pub(crate) fn image(&self, picture: ::image::DynamicImage) -> Image {
         let mut bytes = Vec::new();
         ::image::DynamicImage::ImageRgba8(picture.to_rgba8())
-            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .write_to(&mut Cursor::new(&mut bytes), ::image::ImageFormat::Png)
             .expect("PNG takes 8-bit RGBA, written into memory");
         let read = Read {
             bytes,
-            format: ImageFormat::Png,
+            format: ::image::ImageFormat::Png,
             pixels: (picture.width(), picture.height()),
         };
         Image::new(self, read, picture)
