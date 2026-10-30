@@ -2,7 +2,7 @@
 title: "Keep the files a finished session showed, and replay finished sessions"
 kind: feature
 component: queue
-status: needs-discussion
+status: blocked
 origin: request
 tags: [ux]
 ---
@@ -46,46 +46,37 @@ give the archive a read-only viewer so it can be looked at.
   queue, as it moves the session to the archive: the files the person
   saw, while agents' temporary files still exist. Rejected: at
   `asqr ask`; at the monthly bundling (42% gone after four weeks).
-- **Images are re-encoded to save space,** Jakob's suggestion: WebP at
-  a quality around 90 to 95, and an option (a setting, an environment
-  variable for now) that keeps the files exactly as given instead.
-  Text files are kept as they are and compress in the month bundle.
-- **Hash:** Jakob suggested BLAKE3 for the fingerprints and the copies'
-  names, and asked for the lead's opinion.
-
-## Open (lead, 2026-10-30, to discuss with Jakob)
-
-- **No pure-Rust lossy WebP encoder under a usable licence.**
-  `image-webp` (in asqr's build through `image`, MIT or Apache-2.0)
-  encodes lossless WebP only (docs.rs, `WebPEncoder::new`: "Only
-  supports VP8L lossless encoding"). `zenwebp` 0.4 encodes lossy WebP in
-  pure Rust but is AGPL-3.0 or commercial. The `webp` crate wraps
-  libwebp (C), which the rule of no dependency that is not Rust where a
-  Rust one serves excludes. Candidates that stay in pure Rust:
-  - JPEG quality 90 through `image` (encoder in `image`, decoder
-    `zune-jpeg`, both in the build): 23%; no transparency, so an image
-    with alpha needs lossless WebP.
-  - AVIF through `ravif`/`rav1e`, already in the build through `image`'s
-    `avif` feature without the `asm` feature: 12%. But `image` decodes
-    AVIF only with `avif-native` (dav1d, C), so the replay could not
-    show the copies without a C decoder. Not verified whether a
-    pure-Rust AV1 decoder is usable.
-  - Lossless WebP through `image-webp`: 57% with cwebp; `image-webp`'s
-    own encoder is not measured and is likely larger.
-- **SHA-256 or BLAKE3.** asqr already depends on `sha2` and its results
-  carry `session_sha256` (spec 4.1); `shasum -a 256` verifies it on any
-  machine. BLAKE3 (`blake3` 1.8.7) is faster but needs its `pure`
-  feature to avoid its C and assembly code, and `b3sum` to verify by
-  hand. At about 180 MB a month, speed does not matter.
-- How the archived session points at a copy: the path rewritten to the
-  copy with the original path kept beside it, or the session left as
-  sent with a map file beside it.
-- Whether a single finished session can be removed on purpose (a secret
-  in a screenshot), such as `asqr prune --session <id> --yes`, which
-  rewrites its month's bundle without it.
+- **Images as WebP at quality 90 through libwebp**, the original kept
+  where it is smaller. libwebp is C: Jakob chose it on purpose as an
+  exception to the rule of no dependency that is not Rust, because no
+  pure-Rust lossy WebP encoder has a usable licence (`image-webp`, in
+  the build, encodes lossless only; `zenwebp` is AGPL-3.0 or
+  commercial; checked 2026-10-30). WebP keeps transparency. Rejected:
+  JPEG quality 90 for opaque and lossless WebP for transparent images
+  (about 25%, pure Rust); AVIF (12%, but `image` decodes it only through
+  dav1d, C); lossless WebP alone (57%). Text files are kept as they are
+  and compress in the month bundle.
+- **`ASQR_KEEP_FILES=compact|exact|off`** until asqr has user settings:
+  `compact` (the default) re-encodes images as above, `exact` keeps
+  every file byte for byte, `off` keeps no files but still records the
+  fingerprints. Rejected: two variables.
+- **SHA-256** names the kept files and fingerprints every shown file.
+  asqr already uses it (`sha2`, `session_sha256` in results, ADR 28,
+  which records no reason for it), and `shasum -a 256` checks it on any
+  machine. Rejected: BLAKE3 for the files, with or without moving
+  `session_sha256` to it in format version 3.
+- **One finished session can be removed on purpose:**
+  `asqr prune --session <id>`, a dry run unless `--yes` like every
+  delete, rewrites its month's bundle without it and drops kept files
+  no other session uses. Part of this todo. Rejected: a separate todo;
+  whole months only.
 
 ## Technical notes (lead, 2026-10-30)
 
+- The archived session points at each copy: its `path` names the copy
+  inside the archive, and the original path stays beside it in a field
+  of its own, so the replay shows the copy and the person sees where it
+  came from.
 - Copies are stored under their hash, so a file shown by several
   sessions is kept once, and go into the same month bundle as the
   sessions that showed them (todo 01M67993BS7SNZZ8VVRET8FKYP).
