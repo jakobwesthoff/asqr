@@ -7,3 +7,6 @@
 //! run it and the scene files it reads.
 
 pub mod fonts;
+pub mod paint;
+pub mod palette;
+pub mod raster;

@@ -57,13 +57,24 @@ pub const BOX_THICKNESS: u32 = 2;
 pub struct Face {
     pub file: &'static str,
     pub font: FontRef<'static>,
+    /// Whether the face is the text face, whose glyphs fill the cells as
+    /// a monospace font does, rather than a fallback.
+    pub text: bool,
 }
 
 impl Face {
-    fn load(file: &'static str, bytes: &'static [u8]) -> Face {
+    fn text(file: &'static str, bytes: &'static [u8]) -> Face {
         Face {
             file,
             font: FontRef::try_from_slice(bytes).expect("the committed font files parse"),
+            text: true,
+        }
+    }
+
+    fn fallback(file: &'static str, bytes: &'static [u8]) -> Face {
+        Face {
+            text: false,
+            ..Face::text(file, bytes)
         }
     }
 
@@ -89,16 +100,16 @@ pub(crate) const VICTOR_MONO_SEMIBOLD: &[u8] =
 /// Victor Mono in its four styles, indexed by [`victor_index`].
 static VICTOR_MONO: LazyLock<[Face; 4]> = LazyLock::new(|| {
     [
-        Face::load("VictorMono-SemiBold.ttf", VICTOR_MONO_SEMIBOLD),
-        Face::load(
+        Face::text("VictorMono-SemiBold.ttf", VICTOR_MONO_SEMIBOLD),
+        Face::text(
             "VictorMono-Bold.ttf",
             include_bytes!("../fonts/victor-mono/VictorMono-Bold.ttf"),
         ),
-        Face::load(
+        Face::text(
             "VictorMono-SemiBoldItalic.ttf",
             include_bytes!("../fonts/victor-mono/VictorMono-SemiBoldItalic.ttf"),
         ),
-        Face::load(
+        Face::text(
             "VictorMono-BoldItalic.ttf",
             include_bytes!("../fonts/victor-mono/VictorMono-BoldItalic.ttf"),
         ),
@@ -121,19 +132,19 @@ struct Fallbacks {
 }
 
 static FALLBACKS: LazyLock<Fallbacks> = LazyLock::new(|| Fallbacks {
-    dejavu_sans_mono: Face::load(
+    dejavu_sans_mono: Face::fallback(
         "DejaVuSansMono.ttf",
         include_bytes!("../fonts/dejavu/DejaVuSansMono.ttf"),
     ),
-    dejavu_sans_mono_bold: Face::load(
+    dejavu_sans_mono_bold: Face::fallback(
         "DejaVuSansMono-Bold.ttf",
         include_bytes!("../fonts/dejavu/DejaVuSansMono-Bold.ttf"),
     ),
-    dejavu_sans: Face::load(
+    dejavu_sans: Face::fallback(
         "DejaVuSans.ttf",
         include_bytes!("../fonts/dejavu/DejaVuSans.ttf"),
     ),
-    noto_sans_symbols_2: Face::load(
+    noto_sans_symbols_2: Face::fallback(
         "NotoSansSymbols2-Regular.ttf",
         include_bytes!("../fonts/noto-sans-symbols-2/NotoSansSymbols2-Regular.ttf"),
     ),

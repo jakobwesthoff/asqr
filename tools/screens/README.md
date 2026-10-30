@@ -3,8 +3,51 @@
 A development tool of the asqr repository, not published: the pictures
 of asqr's documentation are drawn with asqr's own code
 ([ADR 89](../../docs/adr/0089-draw-the-documentation-pictures-with-asqrs-own-rendering.md)).
-This crate holds the fonts the pictures are drawn with, and their
-licences.
+This crate holds the fonts the pictures are drawn with, with their
+licences, and turns a drawn ratatui buffer into a PNG picture.
+
+## The look
+
+The pictures show the terminal in these colours, Gruvbox Material Hard
+dark by sainnhe (<https://github.com/sainnhe/gruvbox-material>, MIT):
+
+| | Colour | ratatui |
+|---|---|---|
+| background | `#1d2021` | `Color::Reset` as background |
+| foreground | `#d4be98` | `Color::Reset` as text colour |
+| 0 | `#1d2021` | `Black` |
+| 1 | `#ea6962` | `Red` |
+| 2 | `#a9b665` | `Green` |
+| 3 | `#d8a657` | `Yellow` |
+| 4 | `#7daea3` | `Blue` |
+| 5 | `#d3869b` | `Magenta` |
+| 6 | `#89b482` | `Cyan` |
+| 7 | `#d4be98` | `Gray` |
+| 8 | `#eddeb5` | `DarkGray` |
+| 9 to 15 | as 1 to 7 | `LightRed` to `White` |
+
+ratatui's named colours are the 16 ANSI colours: SGR 30-37 and 40-47 take
+entries 0 to 7, 90-97 and 100-107 entries 8 to 15. `Color::Indexed` 0 to
+15 takes the palette, 16 to 231 xterm's colour cube and 232 to 255 its
+grey ramp; `Color::Rgb` stays as it is.
+
+Reversed text swaps the text colour and the background. Dim text is drawn
+at half opacity over its background, Ghostty's default `faint-opacity`.
+Glyphs are blended over the pixels below in sRGB values, as Ghostty blends
+on macOS by default. A border of 10 pixels in the background colour
+surrounds the screen: a window padding of 5 points, as Ghostty draws it on
+a display of content scale 2.
+
+Box drawing, block elements and the sextants are painted with Ghostty's
+geometry (`src/font/sprite/draw/` in ghostty-org/ghostty at commit
+fbed180a5f18): partial blocks of `round(size * fraction)` pixels,
+quadrants and sextants whose halves and thirds meet without a gap, lines
+2 pixels wide (4 for heavy ones, double ones two light lines with a gap
+of 2), dashes that tile from cell to cell, and arcs and diagonals as
+Ghostty curves them. Ghostty is under the MIT licence, kept in
+`LICENSE-ghostty`. The arcs and the diagonals are anti-aliased by
+distance to their path, so their edge pixels may differ a little from
+Ghostty's.
 
 ## Fonts and licences
 
@@ -53,3 +96,12 @@ for heavy ones). These are the numbers Ghostty computes for the Nerd
 Fonts build of Victor Mono at 14 pt on a display of content scale 2,
 written down as constants in `src/fonts.rs` with the rules they follow.
 The upstream file gives the same numbers, which a test checks.
+
+Victor Mono's glyphs start at their cell's left edge with their own
+bearings and are not clipped to the cell, so an italic may reach into the
+next one, as in Ghostty. A glyph from a fallback face stands on the same
+baseline, centred on its cells, and is scaled down about the baseline
+when it is wider than its cells. A character of two columns takes two
+cells and paints its background over both. Variation selectors and
+joiners inside a cell draw nothing; a combining mark is drawn over the
+character before it.

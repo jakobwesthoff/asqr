@@ -2846,6 +2846,7 @@ name = "screens"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
+ "image",
  "proc-macro2",
  "ratatui",
  "syn 2.0.119",
