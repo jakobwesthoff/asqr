@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use super::Exit;
 use super::format::{print_errors, print_warnings, read_session_file, session_dir};
+use super::hint::{self, Invocation};
 use super::wait::wait_for_result;
 use crate::format::{WarningKind, same_session_id, validate, warnings};
 use crate::queue::{
@@ -28,7 +29,12 @@ pub(super) struct AskOptions {
     pub replaces: Option<String>,
 }
 
-pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) -> Exit {
+pub(super) fn run(
+    location: &QueueLocation,
+    invocation: &Invocation,
+    file: &Path,
+    options: AskOptions,
+) -> Exit {
     let mut session_file = match read_session_file(file) {
         Ok(session_file) => session_file,
         Err(error) => return error.report(file),
@@ -82,6 +88,7 @@ pub(super) fn run(location: &QueueLocation, file: &Path, options: AskOptions) ->
         wait_for_result(location, &id, options.timeout)
     } else {
         println!("{id}");
+        hint::wait_for_it(invocation, &id).print();
         Exit::Success
     }
 }

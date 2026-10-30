@@ -69,6 +69,67 @@ fn warns_when_no_asqr_watches_the_queue() {
     assert!(stderr(&output).contains(&expected), "{}", stderr(&output));
 }
 
+/// The reminder `ask` prints after it dropped session `id` into the
+/// sandbox queue without `--wait`.
+fn wait_reminder(sandbox: &Sandbox, id: &str) -> String {
+    format!(
+        "hint: the person can answer any item with a note; wait for the result and read all of it: `asqr --dir {} wait {id} --timeout 540`, or a lower timeout if your command limit is shorter\n",
+        sandbox.queue_dir().display()
+    )
+}
+
+#[test]
+fn ask_reminds_the_agent_to_wait_for_the_result() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", SESSION);
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0));
+    let err = stderr(&output);
+    assert!(err.ends_with(&wait_reminder(&sandbox, "batch-01")), "{err}");
+}
+
+#[test]
+fn ask_reminds_to_wait_after_an_info_only_session() {
+    // The person can write a note on an info item too, so a session that
+    // asks nothing still comes back with a result to read.
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "report.json",
+        r#"{"asqr": 2, "id": "report", "questions": [{"id": "done", "text": "Done.", "kind": "info"}]}"#,
+    );
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0));
+    let err = stderr(&output);
+    assert!(err.ends_with(&wait_reminder(&sandbox, "report")), "{err}");
+}
+
+#[test]
+fn ask_wait_prints_no_wait_reminder() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", SESSION);
+
+    let output = sandbox
+        .asqr_in_queue(&["ask", "--wait", "--timeout", "0"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    let err = stderr(&output);
+    assert!(!err.contains("hint: the person can answer"), "{err}");
+}
+
 #[test]
 fn does_not_warn_while_an_asqr_holds_the_queue() {
     let sandbox = Sandbox::new();

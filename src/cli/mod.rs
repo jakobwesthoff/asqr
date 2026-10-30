@@ -9,6 +9,7 @@
 mod ask;
 mod exit;
 mod format;
+mod hint;
 mod log;
 mod paths;
 mod prune;
@@ -257,6 +258,12 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
         queue: cli.queue,
         dir: cli.dir,
     };
+    // Commands in hints name the queue the way it was chosen, so this is
+    // read before `resolve` takes the selections.
+    let chosen = flags.queue.is_some()
+        || flags.dir.is_some()
+        || environment.selection.queue.is_some()
+        || environment.selection.dir.is_some();
     let location = match QueueLocation::resolve(flags, environment.selection, platform_data_dir()) {
         Ok(location) => location,
         Err(error) => {
@@ -264,6 +271,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
             return Exit::Usage;
         }
     };
+    let invocation = hint::Invocation::new(&location, chosen);
 
     // Plain `asqr` takes the watch flags, so they may stand before
     // `watch` too; next to any other command they would do nothing.
@@ -321,6 +329,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
             replaces,
         } => ask::run(
             &location,
+            &invocation,
             &file,
             ask::AskOptions {
                 wait,

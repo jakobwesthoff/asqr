@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- asqr gives agents advice on stderr where they tend to go wrong, in
+  lines of their own that start with `hint:`. stdout stays as it was; a
+  caller that merges stderr into stdout (`2>&1`) receives the hints
+  too. `asqr ask` reminds the agent to wait for every session's result
+  and read all of it. A command in advice names the queue with
+  `--queue` or `--dir` when a flag or a variable chose it.
+
 - The empty queue and the terminal title name the queue asqr watches,
   unless it is the default queue: "Nothing to answer in queue
   asqr-todos." and `asqr · asqr-todos · 2 waiting`.

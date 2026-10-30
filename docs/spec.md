@@ -916,6 +916,8 @@ Other variables asqr reads: `ASQR_QUEUE` and `ASQR_DIR` (section 5.2),
   bounds the wait.
 - With `--replaces <id>` (section 5.5), `--wait` waits for the new
   session.
+- Without `--wait`, `ask` reminds the agent on stderr to wait for the
+  result (section 6.7).
 
 ### 6.4 `wait` and `result`
 
@@ -975,6 +977,37 @@ The same for every command:
 | 12 | timeout: no result yet |
 | 13 | no result will come: nothing in the queue has the id, or the session left without one; for `ask --replaces`, the old id is such an id, and nothing was dropped |
 | 14 | the result is `withdrawn`: the asker took the session back |
+
+### 6.7 Hints
+
+Where agents tend to go wrong, asqr adds advice for the next step on
+stderr. A line of advice of its own starts with `hint: `. A hint prints
+every time its situation occurs, and nothing turns hints off. stdout is
+unchanged; a caller that merges stderr into stdout (`2>&1`) receives
+the hints too, also after a successful `ask`. A hint that cannot be
+written, as into a closed pipe, is dropped, and the command ends as it
+would without it.
+
+A command in advice starts with `<asqr>`: `asqr` when neither a flag
+nor `ASQR_QUEUE` or `ASQR_DIR` chose the queue, otherwise `asqr --queue
+<name>` (`--queue=<name>` for a name that starts with `-`), or `asqr
+--dir <path>` with the directory made absolute. A queue a variable
+chose is named by the flag, since the agent's next shell, or the
+person's terminal, may not have the variable. A path in a command
+stands as it is when it holds only ASCII letters and digits, `_`, `.`,
+`/` and `-`, and otherwise in single quotes, each `'` written as
+`'\''`. A relative path that starts with `-` gets `./` in front, and a
+path that is not UTF-8 or holds a control character shows as `<file>`
+or `<dir>`. An id that starts with `-` has to stand last, after `--`,
+with the options before it (`asqr wait --timeout 540 -- -v2`), or as
+`--replaces=<id>`; hints print ids as they are. A wait that advice
+names on its own uses `--timeout 540`, the timeout of the skill's
+example (section 9).
+
+- `ask` without `--wait`, after it dropped the session, as the last
+  line:
+
+      hint: the person can answer any item with a note; wait for the result and read all of it: `<asqr> wait <id> --timeout 540`, or a lower timeout if your command limit is shorter
 
 ## 7. The TUI
 

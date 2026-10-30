@@ -239,8 +239,8 @@ paths --json` shows where the queue's files are.
   questions' `header`s and their order carry the grouping. Do not use a
   made-up question with options like "OK" in place of an info item.
 - A session may hold only info items, as a report the person can answer
-  with notes. Its result still comes back with the person's notes. Wait
-  for it and read it. Such a report follows the same rules. It is short
+  with notes. Its result still comes back with the person's notes. Such
+  a report follows the same rules. It is short
   items in reading order, not one text.
 - Keep an info item's text to a few lines the person takes in at a
   glance. A text taller than the question's area opens cut off at the
