@@ -2171,8 +2171,13 @@ scrolling.
   the one-line hint does `z` still count it as a caption: the
   full-screen view shows the image with `z  image` in the key bar, the
   next `z` the same image alone and the one after that leaves.
-- An image is scaled to its cells with a filter that mixes the pixels
-  each one covers. An image the protocol fails to encode stays empty,
+- asqr scales an image to its cells with a filter that mixes the pixels
+  each one covers. Under the Kitty protocol, an image asqr enlarges by
+  at least a common divisor of the cell's width and height above 1 is
+  scaled into its cells' pixels divided by the largest such divisor,
+  and the terminal enlarges it by that divisor (ADR 80): with cells of
+  15×39 pixels, an image enlarged 3 times or more goes out at a third of
+  its cells' pixels. An image the protocol fails to encode stays empty,
   and the log says why, once.
 - Under the Kitty protocol each frame that sends an image logs the bytes
   it sent, how long the frame took and how long writing it took, and the

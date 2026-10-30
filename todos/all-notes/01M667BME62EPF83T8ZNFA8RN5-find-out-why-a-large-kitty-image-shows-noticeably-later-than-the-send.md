@@ -14,9 +14,9 @@ He asked for this todo on 2026-10-30 (asqr session
 
 ## What was observed
 
-- Earlier, in a field test: ten 768 px option images felt slower than
-  one 6000×6000 image (recorded in the todo about sending Kitty images
-  at their own size).
+- Earlier, in a field test with a release build of `f5f26a3`: ten
+  768 px option images felt slower than one 6000×6000 image, although
+  both went out raw at 2220×2223 px.
 - 2026-10-30, Ghostty 1.3.2, 177×69 cells of 15×39 px, with a demo that
   sends one image per step and measures the write and the time until
   the terminal answers a Kitty query (`a=q`) sent after the image:
@@ -30,6 +30,10 @@ He asked for this todo on 2026-10-30 (asqr session
     what the actual render cycle costs afterwards."
 - Screenshots and numbers are in the conductor logbook of 2026-10-30,
   `~/playground/2026_10_30_asqr-todos-worked-off-by-agents/plans/kitty/`.
+- Since ADR 80, asqr sends a Kitty image it enlarges 3 times or more
+  (with cells of 15×39) at a third of its cells' pixels, a ninth of the
+  bytes, and the terminal enlarges it the rest of the way. How that
+  changes the felt delay is not measured.
 
 ## Open questions
 
@@ -40,7 +44,3 @@ He asked for this todo on 2026-10-30 (asqr session
   layout, deletes and re-sends, tmux passthrough queuing)?
 - How can the delay be measured from outside, for example with a clock
   drawn next to the image and caught on screen recordings?
-
-## Relations
-
-- Relates to: [Send Kitty images at their own size and let the terminal scale them](01M520Z555XDCXKXYHFXSNNBEK-send-kitty-images-at-their-own-size-and-let-the-terminal-scale-them.md)

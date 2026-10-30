@@ -110,6 +110,29 @@ pub(crate) fn transmission(buf: &Buffer) -> &str {
     &symbol[..symbol.find(PLACEHOLDER).expect("a placeholder follows")]
 }
 
+/// The value of `key` in the first chunk of the Kitty transmission in
+/// `buf`, such as `s` for the picture's width in pixels or `c` for the
+/// columns of its placement.
+pub(crate) fn sent_key(buf: &Buffer, key: &str) -> u32 {
+    let command = transmission(buf);
+    let start = command
+        .find(&format!(",{key}="))
+        .unwrap_or_else(|| panic!("the transmission names {key}: {command:?}"))
+        + key.len()
+        + 2;
+    command[start..]
+        .split([',', ';'])
+        .next()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_else(|| panic!("{key} is a number: {command:?}"))
+}
+
+/// The size in pixels of the picture the Kitty transmission in `buf`
+/// sends, its `s` and `v`.
+pub(crate) fn sent_size(buf: &Buffer) -> (u32, u32) {
+    (sent_key(buf, "s"), sent_key(buf, "v"))
+}
+
 /// The Kitty ids of the images `buf` shows: the low three bytes from the
 /// foreground colour of the placeholders, the high byte from the third
 /// mark, which the first placeholder of each row carries (ratatui-image

@@ -29,7 +29,7 @@ use ratatui_image::{FilterType, FontSize, Resize};
 
 use super::kitty::HeldId;
 use super::placeholders::PlacedImage;
-use super::{Images, Protocol};
+use super::{CellSize, Images, Protocol};
 
 /// One image file, as read, and encoded for the size it was last laid out
 /// at.
@@ -77,7 +77,8 @@ struct Encoding {
     kitty_id: Option<HeldId>,
 }
 
-/// The filter that scales a picture to its cells: each pixel of the
+/// The filter asqr scales a picture with, to its cells or, under the Kitty
+/// protocol, to their pixels divided by the divisor: each pixel of the
 /// result mixes the pixels it covers, where the nearest pixel alone would
 /// drop thin lines and text.
 const SCALING: FilterType = FilterType::Triangle;
@@ -101,6 +102,13 @@ impl Image {
     /// picture is scaled to fill the area as far as its proportions
     /// allow; without, it keeps its natural size and only shrinks when it
     /// does not fit.
+    ///
+    /// Under the Kitty protocol the picture fills its cells at their pixels
+    /// divided by the largest common divisor of the cell's width and height
+    /// that its enlargement allows, and the terminal enlarges it by that
+    /// divisor into the same cells. Each cell gets whole pixels of the
+    /// picture; enlarged with a fractional number per cell, Ghostty drew
+    /// seams at cell boundaries (ADR 80).
     ///
     /// Under the Kitty protocol each encoding goes out under a new id.
     /// Ghostty deletes an image when a new transmission under its id
@@ -146,7 +154,17 @@ impl Image {
         } else {
             Resize::Fit(Some(SCALING))
         };
-        let resized = resize.resize(&picture, font, size, None);
+        // The cell size the picture is scaled for: a Kitty image fills
+        // cells as many times smaller as its divisor, while its placement
+        // names the cells in `size`, which the terminal enlarges it into.
+        let scaled_for = match graphics.protocol {
+            Protocol::Kitty => {
+                let divisor = cell_divisor(graphics.cell, read.pixels, size);
+                FontSize::new(font.width / divisor, font.height / divisor)
+            }
+            Protocol::HalfBlocks | Protocol::Sixel | Protocol::Iterm2 => font,
+        };
+        let resized = resize.resize(&picture, scaled_for, size, None);
         drop(picture);
         let encoded = encode(&self.images, resized, size);
         self.settle(encoded);
@@ -261,6 +279,34 @@ fn cells_for(pixels: (u32, u32), font: FontSize, available: Size, enlarge: bool)
     )
 }
 
+/// The divisor of the cell's pixels that a Kitty image of `picture`
+/// (width, height) pixels in `cells` is scaled for (ADR 80): the largest
+/// divisor above 1 of the greatest common divisor of the cell's width and
+/// height that the picture's enlargement into its cells reaches on both
+/// sides, else 1. Each cell then holds whole pixels of the picture, and
+/// the divisor never sends it with fewer pixels than it has. With cells
+/// of 15×39 it is 3 for a picture enlarged 3 times or more.
+fn cell_divisor(cell: CellSize, picture: (u32, u32), cells: Size) -> u16 {
+    let room_width = u64::from(cells.width) * u64::from(cell.width);
+    let room_height = u64::from(cells.height) * u64::from(cell.height);
+    let (width, height) = (u64::from(picture.0), u64::from(picture.1));
+    let common = greatest_common_divisor(cell.width, cell.height);
+    (2..=common)
+        .rev()
+        .filter(|divisor| common.is_multiple_of(*divisor))
+        .find(|&divisor| {
+            u64::from(divisor) * width <= room_width && u64::from(divisor) * height <= room_height
+        })
+        .unwrap_or(1)
+}
+
+fn greatest_common_divisor(mut a: u16, mut b: u16) -> u16 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
 /// The size of a picture of `width`×`height` pixels scaled to fit inside
 /// `room_width`×`room_height`, its proportions kept: ratatui-image's
 /// `fit_area_proportionally`, which it took from the `image` crate.
@@ -290,9 +336,10 @@ fn fit_area_proportionally(
     }
 }
 
-/// `resized`, which fills `size` cells, encoded for the protocol `images`
-/// makes images for. One function builds every protocol, and under the
-/// Kitty protocol under a new id from the run's book.
+/// `resized`, which fills `size` cells, under the Kitty protocol at their
+/// pixels divided by the divisor ([`cell_divisor`]), encoded for the
+/// protocol `images` makes images for. One function builds every protocol,
+/// and under the Kitty protocol under a new id from the run's book.
 ///
 /// It passes what `Picker::new_protocol` passes (ratatui-image
 /// 12.0.0-rc.3 `picker.rs` l.265-300) but for the Kitty id and shared
@@ -350,8 +397,8 @@ mod tests {
 
     use ratatui_image::picker::{Picker, ProtocolType};
 
-    use super::super::Graphics;
-    use super::super::testing::{self, placeholder_cells, transmission};
+    use super::super::testing::{self, placeholder_cells, sent_key, sent_size, transmission};
+    use super::super::{CellSize, Graphics};
     use super::*;
     use crate::terminal_env::TerminalEnv;
 
@@ -523,6 +570,100 @@ mod tests {
         }
     }
 
+    /// The pictures, cell sizes and areas the divisor tests go through:
+    /// the pictures of the cells test, cells with the common divisors 10
+    /// and 3 and with none, and areas from one cell to a wide screen.
+    const DIVISOR_PICTURES: [(u32, u32); 7] = [
+        (1, 1),
+        (7, 3),
+        (20, 40),
+        (33, 1000),
+        (4000, 1),
+        (1, 4000),
+        (640, 480),
+    ];
+    const DIVISOR_CELLS: [(u16, u16); 3] = [(10, 20), (7, 15), (15, 39)];
+
+    /// The divisor divides the cell sides' greatest common divisor, the
+    /// picture's enlargement reaches it on both sides where it is above
+    /// 1, and no larger common divisor is reached.
+    #[test]
+    fn the_divisor_is_the_largest_the_enlargement_allows() {
+        for (width, height) in DIVISOR_CELLS {
+            let cell = CellSize { width, height };
+            let font = FontSize::new(width, height);
+            let common = greatest_common_divisor(width, height);
+            for pixels in DIVISOR_PICTURES {
+                for (columns, rows) in [(1, 1), (4, 8), (80, 24), (300, 100)] {
+                    for enlarge in [false, true] {
+                        let cells = cells_for(pixels, font, Size::new(columns, rows), enlarge);
+                        let reached = |divisor: u16| {
+                            u64::from(divisor) * u64::from(pixels.0)
+                                <= u64::from(cells.width) * u64::from(width)
+                                && u64::from(divisor) * u64::from(pixels.1)
+                                    <= u64::from(cells.height) * u64::from(height)
+                        };
+                        let divisor = cell_divisor(cell, pixels, cells);
+                        let case = format!(
+                            "{pixels:?} in {columns}×{rows} of {width}×{height}, enlarge {enlarge}: ÷{divisor}"
+                        );
+
+                        assert!(common.is_multiple_of(divisor), "{case}");
+                        assert!(divisor == 1 || reached(divisor), "{case}");
+                        assert!(
+                            (divisor + 1..=common)
+                                .filter(|larger| common.is_multiple_of(*larger))
+                                .all(|larger| !reached(larger)),
+                            "{case}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// What a Kitty image sends fills its cells at their pixels divided by
+    /// its divisor, and its placement names those cells.
+    #[test]
+    fn a_kitty_image_goes_out_at_its_cells_pixels_divided_by_the_divisor() {
+        for (width, height) in DIVISOR_CELLS {
+            let cell = CellSize { width, height };
+            let font = FontSize::new(width, height);
+            let images = Images::counting(Graphics {
+                cell,
+                ..Graphics::KITTY
+            });
+            for pixels in DIVISOR_PICTURES {
+                for (columns, rows) in [(1, 1), (4, 8), (80, 24)] {
+                    for enlarge in [false, true] {
+                        let cells = cells_for(pixels, font, Size::new(columns, rows), enlarge);
+                        let divisor = cell_divisor(cell, pixels, cells);
+                        let mut image = images.image(picture(pixels.0, pixels.1));
+
+                        let buf = drawn(&mut image, Rect::new(0, 0, columns, rows), enlarge);
+
+                        let case = format!(
+                            "{pixels:?} in {columns}×{rows} of {width}×{height}, enlarge {enlarge}: ÷{divisor}"
+                        );
+                        assert_eq!(
+                            (sent_key(&buf, "c"), sent_key(&buf, "r")),
+                            (u32::from(cells.width), u32::from(cells.height)),
+                            "{case}"
+                        );
+                        assert_eq!(
+                            sent_size(&buf),
+                            (
+                                u32::from(cells.width) * u32::from(width / divisor),
+                                u32::from(cells.height) * u32::from(height / divisor),
+                            ),
+                            "{case}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// A body that changes size but leaves the image's cells as they were
     /// costs no decoding: bytes that no longer decode still draw the
     /// encoding there is.
@@ -647,6 +788,105 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------
+    // Kitty images the terminal enlarges
+    // -----------------------------------------------------------------
+
+    /// A plain picture of `width`×`height` pixels.
+    fn picture(width: u32, height: u32) -> DynamicImage {
+        ::image::RgbaImage::from_pixel(width, height, ::image::Rgba([0, 0, 255, 255])).into()
+    }
+
+    /// The test's cells of 10×20 share the divisors 2, 5 and 10. A picture
+    /// enlarged 3.75 times into its 240×240 pixels goes out at half of
+    /// them, and the terminal enlarges it by 2 into the same cells.
+    #[test]
+    fn a_kitty_image_enlarged_by_a_common_divisor_goes_out_that_many_times_smaller() {
+        let mut image = Images::kitty().image(picture(64, 64));
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 30, 12), true);
+
+        assert_eq!(sent_size(&buf), (120, 120));
+        assert_eq!((sent_key(&buf, "c"), sent_key(&buf, "r")), (24, 12));
+    }
+
+    /// Enlarged 37.5 times into 300×160 pixels, the picture allows the
+    /// largest divisor of the cells, 10.
+    #[test]
+    fn a_kitty_image_takes_the_largest_divisor_its_enlargement_allows() {
+        let mut image = Images::kitty().image(picture(8, 4));
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 30, 12), true);
+
+        assert_eq!(sent_size(&buf), (30, 16));
+    }
+
+    /// A picture that keeps its natural size still fills whole cells:
+    /// 4×4 pixels take one cell of 10×20, which asqr fills at half its
+    /// pixels for the terminal to enlarge by 2.
+    #[test]
+    fn a_kitty_image_that_keeps_its_size_is_enlarged_by_the_terminal_where_its_cells_allow() {
+        let mut image = Images::kitty().image(picture(4, 4));
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 30, 12), false);
+
+        assert_eq!(sent_size(&buf), (5, 10));
+    }
+
+    /// Enlarged 1.875 times, less than any divisor of the cells above 1,
+    /// the picture goes out at its cells' pixels, as asqr scales it.
+    #[test]
+    fn a_kitty_image_enlarged_less_than_any_divisor_goes_out_as_asqr_scales_it() {
+        let mut image = Images::kitty().image(picture(160, 90));
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 30, 12), true);
+
+        assert_eq!(sent_size(&buf), (300, 180));
+    }
+
+    #[test]
+    fn a_shrunk_kitty_image_goes_out_at_its_cells_pixels() {
+        let mut image = Images::kitty().image(picture(400, 40));
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 20, 2), false);
+
+        assert_eq!(sent_size(&buf), (200, 20));
+    }
+
+    /// Cells of 7×15 share no divisor above 1, so every picture goes out
+    /// at its cells' pixels.
+    #[test]
+    fn cells_without_a_common_divisor_leave_kitty_images_as_asqr_scales_them() {
+        let images = Images::counting(Graphics {
+            cell: CellSize {
+                width: 7,
+                height: 15,
+            },
+            ..Graphics::KITTY
+        });
+        let mut image = images.image(picture(64, 64));
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 30, 12), true);
+
+        assert_eq!(sent_size(&buf), (182, 180));
+    }
+
+    /// The iTerm2 command names the picture's size in pixels, so asqr
+    /// sends it at its cells' pixels.
+    #[test]
+    fn iterm2_images_are_still_scaled_to_their_cells_by_asqr() {
+        let images = Images::counting(Graphics {
+            protocol: Protocol::Iterm2,
+            ..Graphics::KITTY
+        });
+        let mut image = images.image(picture(64, 64));
+
+        let buf = drawn(&mut image, Rect::new(0, 0, 30, 12), true);
+
+        let written: String = buf.content().iter().map(|cell| cell.symbol()).collect();
+        assert!(written.contains("width=240px;height=240px"), "{written:?}");
+    }
+
     /// A Kitty image says where it was drawn: its id, the cells it took,
     /// which are fewer than the area where it keeps its size, and on its
     /// first draw the transmission. Other protocols leave nothing to mend.
@@ -765,7 +1005,8 @@ mod tests {
     }
 
     /// asqr takes the facts it builds protocols from out of ratatui-image's
-    /// picker, and builds the Kitty protocol as the picker does, so the
+    /// picker, and builds the Kitty protocol as the picker does where the
+    /// divisor is 1, as for the red picture in its 2×2 cells, so the
     /// transmission is the same but for the id. A `Picker` takes the
     /// compression capability only from the terminal's answer to its
     /// query, so this compares the transmission without compression.

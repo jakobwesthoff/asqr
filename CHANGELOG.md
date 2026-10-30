@@ -66,6 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the session format.
 - The agent skill's core states each rule once and is at most 17,980
   bytes, so a tool that cuts output at 30,000 characters shows it whole.
+- Under the Kitty graphics protocol (Ghostty, kitty), an image asqr
+  enlarges goes out smaller where the cell size allows, and the
+  terminal enlarges it the rest of the way by a whole factor. With
+  cells of 15×39 pixels, a 512×512 image that takes 167×64 cells goes
+  out at 835×832 pixels, 2.8 MB of pixels, instead of 2505×2496,
+  25.0 MB.
 
 ### Fixed
 
