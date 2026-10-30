@@ -60,3 +60,8 @@ the cursor. This fix comes after that change lands.
   the option, like the review tab's rows, so a wrapped option under the
   cursor is one solid block. Chosen from mockups of edge, indent and
   text, and text only.
+- 2026-10-30 (asqr session 01M663FGJBE1E5Q5VYVJWTREW5): revisited with mockups that include descriptions and
+  the review tab's rows, which on screen fill only their text as well.
+  Jakob chose to keep the fill as it is, on the text only, and to leave
+  the review rows unchanged. The code stays; the documents that claim a
+  fill over the whole row are corrected to say what is filled.

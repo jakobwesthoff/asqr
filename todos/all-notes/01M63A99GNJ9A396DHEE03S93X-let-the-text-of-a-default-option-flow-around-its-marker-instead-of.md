@@ -55,3 +55,8 @@ that start on the first line).
 - Only the first line keeps the room for `◀ default`; the lines below
   wrap at the full width. Chosen from mockups of first line, first two
   lines and every line.
+- 2026-10-30 (asqr session 01M663FGJBE1E5Q5VYVJWTREW5): patine, asqr's Markdown renderer, wraps a whole
+  text at one width, so the first-line room needs a small first-line
+  width option in patine and a patine 1.9.0 release. Jakob agreed: the
+  option goes into patine, and the lead publishes 1.9.0 once the asqr
+  change is ready.
