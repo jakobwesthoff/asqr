@@ -57,13 +57,17 @@ The user's direction, not final:
 ## Decided so far (Jakob, 2026-10-30, in the chat)
 
 - **asqr asks on first start whether it may look for newer versions,
-  with "yes" preselected,** and keeps the answer as a setting (todo
+  with "no" preselected,** and keeps the answer as a setting (todo
   01M623QGQXR4ERM34GYV8H6DVR: the settings file, the first-start screen
   and the settings pane). Each check sends only `asqr/<version>` as its
   `User-Agent`, never queue content or paths. The spec's "no network"
   (`docs/spec.md:34-35`, and "Networking" under "Not in asqr yet")
-  changes with an ADR. Rejected: "no" preselected; a check only on
-  request; on by default without asking.
+  changes with an ADR to "no network unless the person allows it". No
+  check runs before the person has answered that screen, so commands
+  agents call never reach the network first. Jakob chose "yes"
+  preselected at first and changed it to "no" the same day (no update
+  check is switched on without the person choosing it). Rejected: "yes"
+  preselected; a check only on request; on by default without asking.
 - **The notice links to the GitHub release page.** asqr cannot tell how
   it was installed (no code detects it), and a wrong update command costs
   more than a link. Rejected: guessing the install method from the
