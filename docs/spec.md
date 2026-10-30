@@ -1509,8 +1509,7 @@ has context (section 7.4, ADRs 30 and 31):
   every meaning, so nothing depends on colour alone.
 - Under `NO_COLOR` (section 6.2) the TUI draws without colours. Text,
   marks, pointers, bold, dim and reversed stay, so the screen says the
-  same as with colours, except that the fills of the screen behind an
-  overlay lose their reversal (above). The bar of a Markdown quote is dim instead of
+  same as with colours. The bar of a Markdown quote is dim instead of
   blue. Images keep their colours. An `ansi` entry shows without any
   colour, RGB colours included; its attributes stay. Talqi on the empty
   queue is the outline of asqr's emblem in the same glyphs, without any
