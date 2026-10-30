@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has not seen their work, saying what a thing is instead of referring
   to it by a name only they know.
 
+### Fixed
+
+- `asqr validate` and `asqr ask` report a context file that turns into a
+  FIFO while they check it as "not a file". Before, they waited until
+  something wrote to the FIFO.
+
 ## [0.14.0] - 2026-10-29
 
 ### Added

@@ -12,14 +12,18 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::io::Read;
+use std::fs::File;
+use std::io::{self, BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
 
+use image::error::{ImageFormatHint, UnsupportedError, UnsupportedErrorKind};
+use image::{ImageError, ImageFormat, ImageReader};
 use serde_json::Value;
 
 use super::{
     ContextEntry, FieldPath, LineBreaks, MAX_BYTES, MAX_LINES, Session, line_cut, session_schema,
 };
+use crate::regular_file::{self, OpenError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Warning {
@@ -323,20 +327,20 @@ fn check_context(
                 let (size, file) = source_size(&code.path, &code.content, &path, base_dir, found);
                 check_size(size, &path, found);
                 let text = code.content.as_deref();
-                check_lines(text, file.as_deref(), LineBreaks::Any, &path, found);
+                check_lines(text, handle(&file), LineBreaks::Any, &path, found);
             }
             ContextEntry::Markdown(markdown) => {
                 let (size, file) =
                     source_size(&markdown.path, &markdown.content, &path, base_dir, found);
                 check_size(size, &path, found);
                 let text = markdown.content.as_deref();
-                check_lines(text, file.as_deref(), LineBreaks::Any, &path, found);
+                check_lines(text, handle(&file), LineBreaks::Any, &path, found);
             }
             ContextEntry::Ansi(ansi) => {
                 let (size, file) = source_size(&ansi.path, &ansi.content, &path, base_dir, found);
                 check_size(size, &path, found);
                 let text = ansi.content.as_deref();
-                check_lines(text, file.as_deref(), LineBreaks::Newline, &path, found);
+                check_lines(text, handle(&file), LineBreaks::Newline, &path, found);
             }
             ContextEntry::Diff(diff) => {
                 // The viewer works on both texts, so they count together.
@@ -352,16 +356,43 @@ fn check_context(
                         source_size(&side.path, &side.content, &side_path, base_dir, found);
                     size += side_size;
                     let content = side.content.as_deref();
-                    check_unified_diff(content, file.as_deref(), side_path.clone(), found);
+                    check_unified_diff(content, handle(&file), side_path.clone(), found);
                     texts.push((side_path, content, file));
                 }
                 check_size(size, &path, found);
                 for (side_path, content, file) in texts {
-                    check_lines(content, file.as_deref(), LineBreaks::Any, &side_path, found);
+                    check_lines(content, handle(&file), LineBreaks::Any, &side_path, found);
                 }
             }
         }
     }
+}
+
+/// A context file that exists and is a regular file, opened once. Every
+/// check reads from this handle and never opens the path again, as a path
+/// swapped for a FIFO between two opens would hold the check for ever.
+struct ContextFile {
+    path: PathBuf,
+    /// The open can fail on a regular file the system does not let asqr
+    /// read. Such a file still has a size to warn about.
+    opened: io::Result<File>,
+}
+
+impl ContextFile {
+    /// The size in bytes, from the opened file where there is one. The path
+    /// is only asked for its metadata, which never waits.
+    fn size(&self) -> u64 {
+        let metadata = match &self.opened {
+            Ok(file) => file.metadata(),
+            Err(_) => std::fs::metadata(&self.path),
+        };
+        metadata.map_or(0, |metadata| metadata.len())
+    }
+}
+
+/// The opened file of `file`, if it has one.
+fn handle(file: &Option<ContextFile>) -> Option<&File> {
+    file.as_ref()?.opened.as_ref().ok()
 }
 
 /// The size in bytes of text given as a file or inline, and the file it
@@ -373,14 +404,11 @@ fn source_size(
     path: &FieldPath,
     base_dir: Option<&Path>,
     found: &mut Vec<Warning>,
-) -> (u64, Option<PathBuf>) {
+) -> (u64, Option<ContextFile>) {
     let resolved = file
         .as_ref()
         .and_then(|file| check_file(file, &path.field("path"), base_dir, found));
-    let file_size = resolved
-        .as_ref()
-        .and_then(|resolved| std::fs::metadata(resolved).ok())
-        .map_or(0, |metadata| metadata.len());
+    let file_size = resolved.as_ref().map_or(0, ContextFile::size);
     let content_size = content.as_ref().map_or(0, |content| content.len() as u64);
     (file_size + content_size, resolved)
 }
@@ -391,17 +419,20 @@ fn source_size(
 /// its own warning, and reading it would slow `ask` down.
 fn check_unified_diff(
     content: Option<&str>,
-    file: Option<&Path>,
+    file: Option<&File>,
     path: FieldPath,
     found: &mut Vec<Warning>,
 ) {
     let from_file = || {
-        let file = file?;
-        let size = std::fs::metadata(file).ok()?.len();
+        let mut file = file?;
+        let size = file.metadata().ok()?.len();
         if size > LARGE_ENTRY_BYTES {
             return None;
         }
-        let bytes = std::fs::read(file).ok()?;
+        // Another check may have read the file before.
+        file.rewind().ok()?;
+        let mut bytes = Vec::new();
+        file.take(LARGE_ENTRY_BYTES).read_to_end(&mut bytes).ok()?;
         Some(Cow::Owned(String::from_utf8_lossy(&bytes).into_owned()))
     };
     let text = match content {
@@ -477,7 +508,7 @@ fn check_size(size: u64, path: &FieldPath, found: &mut Vec<Warning>) {
 /// else the file `file`, whose lines end at `breaks`.
 fn check_lines(
     content: Option<&str>,
-    file: Option<&Path>,
+    file: Option<&File>,
     breaks: LineBreaks,
     path: &FieldPath,
     found: &mut Vec<Warning>,
@@ -494,30 +525,33 @@ fn check_lines(
     }
 }
 
-/// Whether a viewer would cut the file at `file`, whose lines end at
+/// Whether a viewer would cut the file `file`, whose lines end at
 /// `breaks`, at the line limit. It counts what a viewer reads, the first
 /// [`MAX_BYTES`], and a binary file, which a viewer does not show, counts
 /// as not cut. A file of no more bytes than [`MAX_LINES`] cannot hold more
 /// lines, so it is not read; a larger one takes a read of at most 8 MiB.
-fn file_cut_by_lines(file: &Path, breaks: LineBreaks) -> bool {
-    let size = std::fs::metadata(file).map_or(0, |metadata| metadata.len());
+fn file_cut_by_lines(file: &File, breaks: LineBreaks) -> bool {
+    let size = file.metadata().map_or(0, |metadata| metadata.len());
     if size <= MAX_LINES as u64 {
         return false;
     }
+    // Another check may have read the file before.
+    let mut reader = file;
     let mut bytes = Vec::new();
-    let read =
-        std::fs::File::open(file).and_then(|opened| opened.take(MAX_BYTES).read_to_end(&mut bytes));
+    let read = reader
+        .rewind()
+        .and_then(|()| file.take(MAX_BYTES).read_to_end(&mut bytes));
     read.is_ok() && !bytes.contains(&0) && line_cut(&bytes, MAX_LINES, breaks).is_some()
 }
 
 /// Warns about a relative or missing file, or a path that names no regular
-/// file, and returns the existing file it resolves to.
+/// file, and returns the existing file it resolves to, opened.
 fn check_file(
     file: &str,
     path: &FieldPath,
     base_dir: Option<&Path>,
     found: &mut Vec<Warning>,
-) -> Option<PathBuf> {
+) -> Option<ContextFile> {
     let file = Path::new(file);
     let resolved = if file.is_absolute() {
         Some(file.to_path_buf())
@@ -528,44 +562,112 @@ fn check_file(
         });
         base_dir.map(|base| base.join(file))
     }?;
-    // `metadata` follows symbolic links, so a link to a file is a file and
-    // a dangling link is not found.
-    let problem = match std::fs::metadata(&resolved) {
-        Ok(metadata) if metadata.is_file() => return Some(resolved),
-        Ok(_) => WarningKind::NotAFile(resolved),
-        Err(_) => WarningKind::FileNotFound(resolved),
-    };
-    found.push(Warning {
-        path: path.clone(),
-        kind: problem,
-    });
-    None
+    if let Some(problem) = type_problem(&resolved) {
+        found.push(Warning {
+            path: path.clone(),
+            kind: problem,
+        });
+        return None;
+    }
+    open_listed(resolved, path, found)
 }
 
-fn check_decodable(resolved: &Path, path: FieldPath, found: &mut Vec<Warning>) {
+/// What is wrong with the type of the file at `resolved`, if anything.
+/// `metadata` follows symbolic links, so a link to a file is a file and a
+/// dangling link is not found.
+fn type_problem(resolved: &Path) -> Option<WarningKind> {
+    match std::fs::metadata(resolved) {
+        Ok(metadata) if metadata.is_file() => None,
+        Ok(_) => Some(WarningKind::NotAFile(resolved.to_path_buf())),
+        Err(_) => Some(WarningKind::FileNotFound(resolved.to_path_buf())),
+    }
+}
+
+/// Opens the file at `resolved`, which looked like a regular file a moment
+/// ago. It may have turned into something else since, such as a FIFO that
+/// would hold the open for ever, so the open is the non-blocking one that
+/// checks the type again on the file it opened.
+fn open_listed(
+    resolved: PathBuf,
+    path: &FieldPath,
+    found: &mut Vec<Warning>,
+) -> Option<ContextFile> {
+    let opened = match regular_file::open(&resolved) {
+        Ok(file) => Ok(file),
+        Err(OpenError::NotRegular { .. }) => {
+            found.push(Warning {
+                path: path.clone(),
+                kind: WarningKind::NotAFile(resolved),
+            });
+            return None;
+        }
+        Err(OpenError::Io(error)) => {
+            // A socket, or a device that refuses to be opened, fails here
+            // before its type can be asked for. Only a regular file that
+            // asqr may not read keeps its place among the checks.
+            if let Some(problem) = type_problem(&resolved) {
+                found.push(Warning {
+                    path: path.clone(),
+                    kind: problem,
+                });
+                return None;
+            }
+            Err(error)
+        }
+    };
+    Some(ContextFile {
+        path: resolved,
+        opened,
+    })
+}
+
+fn check_decodable(file: &ContextFile, path: FieldPath, found: &mut Vec<Warning>) {
     // The terminal UI would show a placeholder for this file, and a broken
     // image never becomes an error result (spec section 8.3), so the asker
-    // only learns about it here. The file is
-    // opened the way `graphics/mod.rs` opens it, but only its header
-    // is read: that is enough to find a missing decoder, as for SVG or
-    // AVIF, without decoding every pixel of a large image.
-    let header = image::ImageReader::open(resolved)
-        .and_then(|reader| reader.with_guessed_format())
-        .map_err(image::ImageError::from)
-        .and_then(|reader| reader.into_dimensions());
-    let reason = match header {
-        Ok(_) => return,
-        // The crate's own wording names only what failed. An asker that
-        // picked the wrong format needs to know which ones work.
-        Err(image::ImageError::Unsupported(_)) => {
-            format!("unsupported image format, use one of {DECODABLE_FORMATS}")
-        }
+    // only learns about it here. Only the header is read: that is enough
+    // to find a missing decoder, as for SVG or AVIF, without decoding every
+    // pixel of a large image.
+    let reason = match &file.opened {
+        // The system's own words, as the viewer's card has them.
         Err(error) => error.to_string(),
+        Ok(opened) => match image_header(opened, &file.path) {
+            Ok(_) => return,
+            // The crate's own wording names only what failed. An asker that
+            // picked the wrong format needs to know which ones work.
+            Err(ImageError::Unsupported(_)) => {
+                format!("unsupported image format, use one of {DECODABLE_FORMATS}")
+            }
+            Err(error) => error.to_string(),
+        },
     };
     found.push(Warning {
         path,
         kind: WarningKind::ImageNotDecodable(reason),
     });
+}
+
+/// The dimensions of the image in `file`, which `path` names. The format
+/// comes from the file's first bytes, else from the extension of `path`,
+/// as the viewer decides it: TGA, for one, has no signature to recognise.
+fn image_header(file: &File, path: &Path) -> Result<(u32, u32), ImageError> {
+    let mut reader = ImageReader::new(BufReader::new(file)).with_guessed_format()?;
+    if reader.format().is_none()
+        && let Some(extension) = path.extension().filter(|extension| !extension.is_empty())
+    {
+        match ImageFormat::from_extension(extension) {
+            Some(format) => reader.set_format(format),
+            None => {
+                let hint = ImageFormatHint::PathExtension(extension.into());
+                return Err(ImageError::Unsupported(
+                    UnsupportedError::from_format_and_kind(
+                        hint.clone(),
+                        UnsupportedErrorKind::Format(hint),
+                    ),
+                ));
+            }
+        }
+    }
+    reader.into_dimensions()
 }
 
 /// The formats the terminal UI can show, as the `image` crate's features
@@ -1409,5 +1511,259 @@ mod tests {
                 ImageFormat::Hdr,
             ]
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Files that change or cannot be read while they are checked
+    // -----------------------------------------------------------------
+
+    /// What `open_listed` makes of `resolved`, and the warnings it gave.
+    fn opened(resolved: &Path) -> (Option<ContextFile>, Vec<WarningKind>) {
+        let mut found = Vec::new();
+        let file = open_listed(
+            resolved.to_path_buf(),
+            &FieldPath::root("questions"),
+            &mut found,
+        );
+        (
+            file,
+            found.into_iter().map(|warning| warning.kind).collect(),
+        )
+    }
+
+    /// A file that was opened and then lost its name: only the handle
+    /// still leads to its content.
+    #[cfg(unix)]
+    fn handle_without_path(content: &[u8]) -> File {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("side.txt");
+        std::fs::write(&path, content).expect("file is writable");
+        let opened = regular_file::open(&path).expect("a regular file");
+        std::fs::remove_file(&path).expect("file is removable");
+        opened
+    }
+
+    /// A path swapped for a FIFO after its type was checked: the open must
+    /// not wait for a writer. The check runs apart, so a hang fails the
+    /// test instead of stalling the run.
+    #[cfg(unix)]
+    #[test]
+    fn a_path_swapped_for_a_fifo_is_not_a_file_and_does_not_block() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let fifo = directory.path().join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let swapped = fifo.clone();
+        std::thread::spawn(move || {
+            let (file, found) = opened(&swapped);
+            let _ = sender.send((file.is_some(), found));
+        });
+        let (has_file, found) = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("opening a FIFO must not block");
+
+        assert!(!has_file);
+        assert_eq!(found, [WarningKind::NotAFile(fifo)]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_swapped_for_a_socket_is_not_a_file() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let socket = directory.path().join("s");
+        let _listener = std::os::unix::net::UnixListener::bind(&socket).expect("socket binds");
+
+        let (file, found) = opened(&socket);
+
+        assert!(file.is_none());
+        assert_eq!(found, [WarningKind::NotAFile(socket)]);
+    }
+
+    #[test]
+    fn a_path_swapped_for_a_directory_is_not_a_file() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+
+        let (file, found) = opened(directory.path());
+
+        assert!(file.is_none());
+        assert_eq!(found, [WarningKind::NotAFile(directory.path().to_owned())]);
+    }
+
+    #[test]
+    fn a_path_removed_after_its_check_is_not_found() {
+        let missing = Path::new("/nowhere/fetch.rs");
+
+        let (file, found) = opened(missing);
+
+        assert!(file.is_none());
+        assert_eq!(found, [WarningKind::FileNotFound(missing.to_owned())]);
+    }
+
+    /// A regular file asqr may not read stays among the checks, without a
+    /// warning of its own.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_may_not_be_read_is_kept_without_a_warning() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let secret = directory.path().join("secret.txt");
+        std::fs::write(&secret, "x").expect("file is writable");
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000))
+            .expect("permissions are settable");
+
+        let (file, found) = opened(&secret);
+
+        let file = file.expect("the file is kept");
+        assert!(found.is_empty(), "{found:?}");
+        assert_eq!(
+            file.opened.expect_err("not readable").kind(),
+            io::ErrorKind::PermissionDenied
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_image_still_gets_its_warning() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = directory_with_png();
+        let picture = directory.path().join("picture.png");
+        std::fs::set_permissions(&picture, std::fs::Permissions::from_mode(0o000))
+            .expect("permissions are settable");
+
+        let warnings = warn(&text_question_with_image(&picture), None);
+
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with("questions[0].context[0].path: cannot be shown: ")
+                && warnings[0].to_lowercase().contains("permission denied"),
+            "{warnings:?}"
+        );
+    }
+
+    /// The size of a file that may not be read still counts, alone and in
+    /// the sum of a diff's sides.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_file_above_1_mib_still_gets_the_large_entry_warning() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let large = directory.path().join("large.log");
+        std::fs::write(&large, "x".repeat(MIB + 1)).expect("file is writable");
+        std::fs::set_permissions(&large, std::fs::Permissions::from_mode(0o000))
+            .expect("permissions are settable");
+
+        let alone = warn(
+            &with_context(&serde_json::json!({"type": "code", "path": large})),
+            None,
+        );
+        let in_a_diff = warn(
+            &with_context(&serde_json::json!({"type": "diff",
+                "old": {"content": "a"}, "new": {"path": large}})),
+            None,
+        );
+
+        for warnings in [alone, in_a_diff] {
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(warnings[0].contains("MiB"), "{warnings:?}");
+        }
+    }
+
+    // The three checks that read a file take the opened file and not its
+    // path. These tests hand each one a file whose name is gone.
+
+    #[cfg(unix)]
+    #[test]
+    fn the_unified_diff_check_reads_the_opened_file() {
+        let file = handle_without_path(GIT_DIFF.as_bytes());
+        let mut found = Vec::new();
+
+        check_unified_diff(None, Some(&file), FieldPath::root("new"), &mut found);
+
+        assert_eq!(found.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_line_check_reads_the_opened_file() {
+        let file = handle_without_path(lines_of_x(MAX_LINES + 1).as_bytes());
+
+        assert!(file_cut_by_lines(&file, LineBreaks::Any));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_decoder_check_reads_the_opened_file() {
+        let directory = directory_with_png();
+        let picture = directory.path().join("picture.png");
+        let opened = regular_file::open(&picture).expect("a regular file");
+        std::fs::remove_file(&picture).expect("file is removable");
+        let mut found = Vec::new();
+
+        let file = ContextFile {
+            path: picture,
+            opened: Ok(opened),
+        };
+        check_decodable(&file, FieldPath::root("path"), &mut found);
+
+        assert_eq!(found, []);
+    }
+
+    /// Both checks of a diff side read its file, one after the other.
+    #[test]
+    fn the_unified_diff_and_the_line_check_both_read_one_file() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let patch = directory.path().join("big.patch");
+        let text = format!("{GIT_DIFF}{}", lines_of_x(MAX_LINES + 1));
+        assert!(text.len() < MIB, "small enough for the unified diff check");
+        std::fs::write(&patch, text).expect("written");
+
+        let warnings = warn(
+            &with_context(&serde_json::json!({"type": "diff", "new": {"path": patch}})),
+            None,
+        );
+
+        assert_eq!(
+            warnings,
+            [
+                format!("questions[0].context[0].new: {UNIFIED}"),
+                format!("questions[0].context[0].new: {MANY_LINES}"),
+            ]
+        );
+    }
+
+    /// An image is decoded by what its bytes are, and only an image that
+    /// no bytes identify falls back to the name of its file.
+    #[test]
+    fn the_format_of_an_image_comes_from_its_bytes_before_its_name() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let named = |name: &str, bytes: &[u8]| {
+            let file = directory.path().join(name);
+            std::fs::write(&file, bytes).expect("file is writable");
+            warn(&text_question_with_image(&file), None)
+        };
+        let mut png = Vec::new();
+        image::RgbImage::new(1, 1)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("png is encodable");
+
+        assert_eq!(named("picture.svg", &png), [] as [String; 0]);
+        assert_eq!(named("picture.foo", &png), [] as [String; 0]);
+        assert_eq!(named("picture", &png), [] as [String; 0]);
+        for name in ["notes.svg", "notes.foo", "notes"] {
+            let warnings = named(name, b"just some text");
+            assert_eq!(warnings.len(), 1, "{name}: {warnings:?}");
+            assert!(
+                warnings[0].contains("unsupported image format, use one of"),
+                "{name}: {warnings:?}"
+            );
+        }
     }
 }

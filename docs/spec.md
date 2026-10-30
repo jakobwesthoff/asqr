@@ -290,7 +290,11 @@ add optional fields.
   the warning lists the formats that work. Both check a relative path
   against the absolute directory of the session file, so the warning
   names the file by an absolute path even when the session file was
-  given by its bare name.
+  given by its bare name. A file that turns into a FIFO or another
+  non-regular file between the check of its type and its opening is
+  reported as "not a file": opening it would wait for a writer, so the
+  checks open each file once, without waiting, and check the type of the
+  opened file.
 - when a side of a `diff`, inline or in a file of at most 1 MiB, looks
   like a unified diff: a line that is a full hunk header, `@@ -N[,N]
   +N[,N] @@` with optional text after a blank, so a hunk copied without
