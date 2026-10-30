@@ -2,7 +2,6 @@
 title: "Write a user guide with screenshots, every key and the agent setup"
 kind: docs
 component: project
-status: needs-discussion
 origin: request
 tags: [ux]
 ---
@@ -29,23 +28,57 @@ with it, and no step-by-step description of setting it up with an agent.
   queue lives, how an agent writes a session and reads the result, with
   a worked example for Claude Code and others.
 
-## Open questions
+## Decisions (Jakob, 2026-10-30, in the chat)
 
-- Form and place: a `docs/guide.md` in the repository, a section of the
-  README, or a website.
-- How the screenshots are made so they stay current: VHS tapes (see the
-  related todo), or captures rendered to SVG/PNG as the TUI review did
-  (tmux capture plus an ANSI-to-SVG renderer).
-- Language and depth: a single guide, or a quick start plus a reference.
-- Where the rendered mascot picture (`assets/talqi-512.webp`) gets a
-  place of its own. The user wants it shown somewhere in the
-  documentation (2026-10-15). The README's logo is the terminal emblem
-  (`assets/emblem/talqi-terminal.svg`), and the README only links the
-  picture where it explains Talqi's name.
-- Whether the guide, a website and the skill share one list of task
-  patterns. The skill suggests what a session can hold for common kinds
-  of task under "Patterns for common tasks", and the guide or a website
-  would show the same patterns.
+- **An ntropy vault,** so a website can be built from it later as the
+  ntropy project does: ntropy keeps its site as the vault
+  `docs/website` and exports it with
+  `ntropy --vault docs/website -n site -o dist --strict` in its
+  `.github/workflows/pages.yml`. Rejected: `docs/guide.md`; a long
+  README section; a project-page-starter site.
+- **The vault now, the website later.** The notes read on GitHub
+  meanwhile; a Pages workflow is its own step once the content stands.
+- **Pictures drawn by asqr's own code.** The capture program from the
+  2026-10-30 conductor run (logbook
+  `~/playground/2026_10_30_asqr-todos-worked-off-by-agents/plans/instances-impl/helpers/capture/`)
+  draws screens through asqr's public API (`asqr::tui::render::draw`
+  into a ratatui `TestBackend`) and writes SGR text, and
+  `plans/instances-impl/render_png.py` there renders that into PNGs on
+  a fixed cell grid. It moves into the repository with a `just` recipe,
+  so a release refreshes every picture. Images in the context pane do
+  not show this way (no Kitty protocol); those screens get a stand-in or
+  a manual capture. Rejected: VHS tapes; screenshots by hand.
+- **The full tour:** every screen: the empty queue, a session with its
+  tabs, options, own answers and notes, context beside and below, full
+  screen, diffs unified and side by side, the review tab, the help, the
+  session list, the queue switcher, the start picker, the invalid-session
+  dialog, and the less obvious keys (the example above). Rejected: a
+  quick start with 5 to 8 pictures first.
+- **Agent setup as steps plus one worked example for Claude Code:**
+  install the skill, start asqr in the agent's tmux session, ask the
+  agent to put its questions through asqr, answer, see the result come
+  back. The guide points to `asqr skill` for the format. Rejected:
+  examples for several agents; copying the format into the guide.
+- **Two or three task patterns with a picture each,** from
+  `asqr skill patterns`, so the person sees what agents can ask
+  (`examples/sessions/alt-rework-batch.json` and `mascot-poses.json`
+  can feed them). Rejected: only pointing to the skill.
+- **Talqi at the top of the guide's start page** (`assets/talqi-512.webp`);
+  the README logo stays. Rejected: also in the README.
+- **English only,** like the README, the spec and the skill.
+
+## Technical notes (lead, 2026-10-30)
+
+- The capture program's sessions come from `examples/sessions/`; new
+  sessions written for the guide go there too, so the README examples
+  and the pictures share sources.
+- The key table follows spec 7.6; a check that fails when they differ
+  is cheap and goes in with the guide.
+- `Cargo.toml` excludes `docs/` and `assets/` from the crate, so links
+  from the README into the guide are absolute GitHub URLs.
+- The vault's layout (one note per screen or per topic) and its
+  `ntropy` views are the plan's to propose, following ntropy's own
+  `docs/website`.
 
 ## Relations
 
