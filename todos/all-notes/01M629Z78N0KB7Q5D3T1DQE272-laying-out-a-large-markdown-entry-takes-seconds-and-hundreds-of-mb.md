@@ -2,7 +2,6 @@
 title: "Laying out a large Markdown entry takes seconds and hundreds of MB"
 kind: improvement
 component: tui
-status: needs-discussion
 origin: review
 ---
 # Laying out a large Markdown entry takes seconds and hundreds of MB
@@ -40,22 +39,42 @@ Where this applies:
 
 - The Markdown viewer (`src/tui/render/markdown_viewer.rs`) lays out the
   whole text for the body's width, and again whenever the width changes.
-- A file is read up to 8 MiB, and inline text is taken whole
-  (ADR 0075, Context).
+- A file is read up to 8 MiB (`src/tui/render/source_file.rs:267`).
+  Inline text has no byte limit; since ADR 0075 its lines are cut at
+  500,000 like a file's (`source_file.rs:270-285`). Real Markdown never
+  reaches that line count below 8 MiB, so the cut does not lower its
+  cost.
 - asqr keeps the viewers of three questions at a time (ADR 0046).
 - Layout runs on a loading thread, and keys work meanwhile (ADR 0046).
 - `asqr validate` and `asqr ask` warn about an entry above 1 MiB.
 
-## Options
+## Decisions (Jakob, 2026-10-30, in the chat)
 
-- A byte limit for rendering Markdown, above which the text shows
-  plain, as the code viewer stops highlighting above 1 MiB
-  (`HIGHLIGHT_LIMIT` in `src/tui/render/code.rs`).
-- Lay out only the part in view and what lies near it.
-- Make the layout cheaper in patine (`../patine`).
+- **Above 1 MiB a Markdown entry shows as plain text,** wrapped to the
+  body, whole, with a dim note at the top that it is shown as plain
+  text. Nothing is lost, and it is the rule the code viewer follows
+  above `HIGHLIGHT_LIMIT` (`src/tui/render/code.rs:71`). Rejected:
+  cutting the text at the limit; rendering only the part in view, which
+  needs a range API in patine and breaks references, footnotes and list
+  numbering across blocks (size L).
+- **The limit is 1 MiB,** the number the warning of `asqr validate` and
+  `asqr ask` and the highlighting limit already use. Rejected: 512 KiB,
+  a second number.
+- **Inline Markdown counts the same as a file.** The viewer costs the
+  same for either source, and the warning already counts inline text.
+  Rejected: keeping inline text whole.
 
-## Open questions
+## Technical notes (lead, 2026-10-30)
 
-- Which of these, or which combination.
-- Where a byte limit would sit: 1 MiB already took 0.56 s and 233.5 MB
-  in patine alone.
+- The cost of wrapping plain text is not measured; the plan measures it
+  for 1 to 8 MiB before the plain path is built.
+- The warning text of `validate` and `ask` (`src/format/warnings.rs:89`)
+  can say that such an entry shows as plain text.
+- A blank-only cut text skips patine already (`markdown_viewer.rs:62-79`);
+  with the byte limit, a text of almost only blank lines above 1 MiB
+  takes the plain path too.
+- Docs: spec on text limits (around `docs/spec.md:2427-2442`) and the
+  warnings (around 298-315); a new ADR that amends ADR 0075 (its
+  Context sentence on inline text) and ADR 0034.
+- `HIGHLIGHT_LIMIT` is shared with the code highlighting todo
+  01M629ZGH7Q1AWP40GW16W8BE7; both keep 1 MiB, so they can run apart.
