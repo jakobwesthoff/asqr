@@ -4,6 +4,12 @@
 
 //! Drawing the TUI (spec section 7) from the state in [`super::App`].
 
+// The submodules are private, so a plain `pub` in them reaches nobody, and
+// rustc's `dead_code` cannot tell a `pub` item that fell out of use from one
+// that is part of the API. Items are `pub(super)` or `pub(crate)` unless
+// they are re-exported below for use outside this module.
+#![warn(unreachable_pub)]
+
 mod ansi;
 mod code;
 mod content;

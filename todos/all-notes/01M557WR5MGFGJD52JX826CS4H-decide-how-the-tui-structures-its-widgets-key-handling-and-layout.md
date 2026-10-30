@@ -142,7 +142,3 @@ The agent's view in the discussion, not decided by Jakob:
 - Whether the schema and the rule go into one ADR or two.
 - Whether option 3 or 4 is worth it without a bug that calls for it,
   and whether option 4's cost to the key-only tests is acceptable.
-
-## Relations
-
-- Relates to: [Narrow visibility in src/tui/render and warn on unreachable_pub](01M50P5VB72CX0SW1HPTD3V0B8-narrow-visibility-in-srctuirender-and-warn-on-unreachablepub.md), touches the same modules
