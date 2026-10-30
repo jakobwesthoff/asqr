@@ -32,9 +32,9 @@ give the archive a read-only viewer so it can be looked at.
 
 ## Decisions (Jakob, 2026-10-30, in the chat)
 
-- **Scope:** one piece of work: `asqr history` (a read-only replay of
-  finished sessions in the TUI, with their answers, notes and the kept
-  files), keeping the files, and a fingerprint of every shown file
+- **Scope:** one piece of work: a read-only replay of finished sessions
+  in the TUI, with their answers, notes and the kept files, keeping the
+  files, and a fingerprint of every shown file
   recorded in the archived session whether files are kept or not. An
   export of a finished session (`asqr export <id>` to Markdown or HTML
   with its images) is a separate, later todo. Rejected: keeping files
@@ -96,10 +96,53 @@ give the archive a read-only viewer so it can be looked at.
   taken from the ULID in its archive name, since session ids repeat
   across queues and over time; the replay command finds that reference
   in every queue under the data directory without a queue named (a
-  `--dir` queue outside it is named). Command names are open; a design
-  study runs (conductor logbook `plans/replay-design/`). Rejected for
-  now: a list or key in the TUI; a list over every queue by default;
-  replay by session id within the current queue.
+  `--dir` queue outside it is named). Rejected for now: a list or key in
+  the TUI; a list over every queue by default; replay by session id
+  within the current queue.
+- **Commands and reference** (Jakob, 2026-10-30, after the design study
+  in the conductor logbook, `plans/replay-design/`): `asqr history`
+  prints the list, `asqr replay <ref>` opens one entry and takes the
+  terminal over, which the verb says. The list's columns are REF, WHEN,
+  STATUS, FILES and TITLE. The reference is the last 8 characters of the
+  entry's archive ULID, its random part, so entries finished in the same
+  second still differ; `replay` accepts any end of it of 6 or more
+  characters in any case, and refuses one that is too short, matches
+  nothing or ends two entries, listing the candidates. Rejected:
+  `archive` and `show` (reads like `asqr compact` and the bundles);
+  `history list` and `history show`; the start of the ULID as git does
+  (the timestamp, shared by every entry of a day); accepting a unique
+  session id as well.
+- **The look is direction D of the study** (Jakob, 2026-10-30): the
+  session screen with the answers filled in and nothing writable. The
+  options the person did not pick are dim, the picked one keeps `(•)`.
+  The status line carries `◷ replay · sent <time> · read-only` for the
+  whole replay; a notice replaces it for a moment. The title bar names
+  the queue and the reference. The cursor still moves over every option
+  to show its context. The replay opens on the first question, and the
+  last tab is `Result` (how it ended, every answer on a line). A new key
+  `d` opens the details of a kept file (copy, original path, size, time,
+  SHA-256). A missing file shows asqr's red card with its original path,
+  a file not kept a card with size, time and fingerprint, and a withdrawn
+  session its draft dimmed and marked `◀ draft`. Rejected: a strip row
+  under the intro (A), alone or with the dimming; a bar down the left
+  edge (B); opening on the `Result` tab (C).
+- **A read-only mark that always shows** (Jakob, 2026-10-30): `◷
+  read-only` in the warning colour, without a fill, right after `asqr`
+  in the title bar. The title bar shows in every state of a session,
+  the full-screen view and overlays included, and its left end is never
+  cut, so a notice cannot hide the mark the way it hides the status
+  line. The clock says "from the past" rather than "forbidden".
+  Rejected: a filled badge there; the mark at the right end before the
+  count; a badge in place of `asqr`; `⊘`; the word alone.
+- **Arrivals during a replay** (lead, 2026-10-30): `asqr replay` holds
+  no queue lock and writes nothing; it shows a count of waiting sessions
+  in the title bar and says in the status line where to answer. It
+  sends no notification and has no key to hand over to the live TUI in
+  the first version.
+- **Details left to the lead** (2026-10-30): `--limit` counts per queue
+  under `--all`; an entry whose month bundle cannot be read ends the
+  replay with an error naming the bundle and a non-zero exit. `--json`
+  on `history` is in if cheap; search and the in-TUI history wait.
 
 ## Technical notes (lead, 2026-10-30)
 
