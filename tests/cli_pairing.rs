@@ -200,3 +200,200 @@ fn the_refusal_names_the_tmux_session_of_the_asqr_watching() {
     );
     assert!(stderr.contains(", tmux session other work)"), "{stderr}");
 }
+
+// ---------------------------------------------------------------------
+// What `ask` says about who watches
+// ---------------------------------------------------------------------
+
+const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#;
+
+/// The named queue `name` of the sandbox, watched by "another asqr" (this
+/// test, holding its lock) in pane `%9` of the stand-in's tmux server.
+fn watched_from_pane_9(sandbox: &Sandbox, name: &str) -> asqr::queue::QueueLock {
+    let output = sandbox
+        .asqr()
+        .args(["--queue", name, "paths", "--json"])
+        .output()
+        .expect("runs");
+    let paths: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("JSON");
+    let location = QueueLocation::at(paths["queue"].as_str().expect("a queue"));
+    location.create_layout().expect("layout");
+    let pane = TmuxPane {
+        socket: "/tmp/tmux-test/default".into(),
+        pane: Some("%9".into()),
+    };
+    lock_queue(&location, Some(&pane)).expect("this test plays the running asqr")
+}
+
+/// What `ask` prints on stderr inside tmux session `session`, with the
+/// variables in `environment` set.
+fn ask_in(
+    sandbox: &Sandbox,
+    tmux: &StandInTmux,
+    session: &str,
+    environment: &[(&str, &str)],
+) -> String {
+    let file = sandbox.file("session.json", SESSION);
+    let mut command = tmux.asqr(sandbox, session);
+    command.arg("ask").arg(file);
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let output = command.output().expect("runs");
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn inside_tmux_the_warning_asks_for_asqr_in_a_window_of_the_session() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+    let _watching = watched_from_pane_9(&sandbox, "asqr-todos");
+
+    let stderr = ask_in(&sandbox, &tmux, "playground", &[("TEST_PANES", "%9 asqr")]);
+
+    assert!(
+        stderr.starts_with(
+            "warning: no asqr is watching queue playground; asqr watches asqr-todos (tmux session asqr); the session waits in playground: ask the person to start `asqr` in a window of tmux session playground, or `asqr --queue playground` in a terminal of their own; do not start it yourself\n"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn ask_warns_when_the_session_queue_is_watched_from_another_session() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+    let _watching = watched_from_pane_9(&sandbox, "my-work");
+
+    let stderr = ask_in(&sandbox, &tmux, "my-work", &[("TEST_PANES", "%9 my work")]);
+
+    assert!(
+        stderr.starts_with(
+            "warning: queue my-work is watched by the asqr of tmux session \"my work\", not of this session (\"my-work\"); the session waits there: ask the person whether to answer it there, or to start `asqr --queue <another name>` in a window of this session; do not start it yourself\n"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn ask_warns_when_the_pinned_queue_is_watched_from_another_session() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+    let _watching = watched_from_pane_9(&sandbox, "work");
+
+    let stderr = ask_in(
+        &sandbox,
+        &tmux,
+        "asqr",
+        &[("TEST_PIN", "work"), ("TEST_PANES", "%9 other")],
+    );
+
+    assert!(
+        stderr.starts_with("warning: queue work is watched by the asqr of tmux session \"other\", not of this session (\"asqr\");"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn the_asqr_of_the_own_session_gets_no_warning() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+    let _watching = watched_from_pane_9(&sandbox, "asqr");
+
+    let stderr = ask_in(&sandbox, &tmux, "asqr", &[("TEST_PANES", "%9 asqr")]);
+
+    assert!(
+        stderr.starts_with("hint: the person can answer"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn asqr_queue_beside_another_pin_gets_a_hint() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+
+    let unwatched = ask_in(
+        &sandbox,
+        &tmux,
+        "asqr",
+        &[("ASQR_QUEUE", "work"), ("TEST_PIN", "asqr-todos")],
+    );
+    let _watching = watched_from_pane_9(&sandbox, "asqr-todos");
+    let watched = ask_in(
+        &sandbox,
+        &tmux,
+        "asqr",
+        &[("ASQR_QUEUE", "work"), ("TEST_PIN", "asqr-todos")],
+    );
+
+    assert!(
+        unwatched.contains("\nhint: ASQR_QUEUE chose queue work, but this tmux session's queue is asqr-todos; tell the person, who decides where you ask\n"),
+        "{unwatched}"
+    );
+    assert!(
+        watched.contains("\nhint: ASQR_QUEUE chose queue work, but the asqr of this tmux session watches asqr-todos; tell the person, who decides where you ask\n"),
+        "{watched}"
+    );
+}
+
+#[test]
+fn asqr_queue_equal_to_the_pin_gets_no_hint() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+
+    let stderr = ask_in(
+        &sandbox,
+        &tmux,
+        "asqr",
+        &[("ASQR_QUEUE", "work"), ("TEST_PIN", "work")],
+    );
+
+    assert!(!stderr.contains("chose queue"), "{stderr}");
+}
+
+#[test]
+fn without_a_pin_asqr_queue_gets_no_hint() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+
+    let stderr = ask_in(&sandbox, &tmux, "asqr", &[("ASQR_QUEUE", "work")]);
+
+    assert!(!stderr.contains("chose queue"), "{stderr}");
+}
+
+#[test]
+fn an_unreachable_tmux_with_asqr_queue_set_asks_into_that_queue_without_a_hint() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+
+    let stderr = ask_in(
+        &sandbox,
+        &tmux,
+        "asqr",
+        &[("ASQR_QUEUE", "work"), ("TEST_TMUX_EXIT", "1")],
+    );
+
+    assert!(
+        stderr.starts_with("warning: no asqr is watching queue work;"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("chose queue"), "{stderr}");
+    assert!(!stderr.contains("default"), "{stderr}");
+}
+
+#[test]
+fn after_an_unreachable_tmux_the_advice_names_queue_default() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+
+    let stderr = ask_in(&sandbox, &tmux, "asqr", &[("TEST_TMUX_EXIT", "1")]);
+
+    assert!(
+        stderr
+            .contains("ask the person to start `asqr --queue default` in a terminal of their own"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("`asqr --queue default wait "), "{stderr}");
+}

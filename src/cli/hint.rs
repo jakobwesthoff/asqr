@@ -107,16 +107,24 @@ impl Invocation {
         let dir = std::path::absolute(location.dir()).unwrap_or_else(|_| location.dir().into());
         let command = match (chosen, location.name()) {
             (false, _) => "asqr".to_owned(),
-            // clap reads a value that starts with `-` as a flag, unless it
-            // is joined to its flag.
-            (true, Some(name)) if name.starts_with('-') => format!("asqr --queue={name}"),
-            (true, Some(name)) => format!("asqr --queue {name}"),
+            (true, Some(name)) => queue_command(name),
             (true, None) => format!("asqr --dir {}", shell_word(&dir, "<dir>")),
         };
         let queue = location
             .name()
             .map_or_else(|| dir.display().to_string(), str::to_owned);
         Invocation { command, queue }
+    }
+}
+
+/// `asqr --queue <name>`, which reaches the named queue from anywhere.
+fn queue_command(name: &str) -> String {
+    // clap reads a value that starts with `-` as a flag, unless it is
+    // joined to its flag.
+    if name.starts_with('-') {
+        format!("asqr --queue={name}")
+    } else {
+        format!("asqr --queue {name}")
     }
 }
 
@@ -177,12 +185,81 @@ pub(super) fn started_on(invocation: &Invocation, old: &str) -> Line {
     ))
 }
 
-/// After `ask` dropped a session into a queue no asqr watches (A6). The
-/// session waits there either way, but only the person can start asqr.
-pub(super) fn nobody_watching(invocation: &Invocation) -> Line {
+/// A queue another asqr watches, as advice names it.
+pub(super) struct WatchedQueue {
+    pub name: String,
+    /// The tmux session that asqr runs in, where tmux named one.
+    pub session: Option<String>,
+}
+
+/// After `ask` dropped a session into a queue no asqr watches (A6): the
+/// queues other asqr instances watch, and what the person can start. The
+/// session waits there either way, and only the person starts asqr, so
+/// the advice ends with that. `tmux_session` is the asker's tmux session
+/// where tmux chose the queue: plain `asqr` in a window of that session
+/// watches it.
+pub(super) fn nobody_watching(
+    invocation: &Invocation,
+    watched: &[WatchedQueue],
+    tmux_session: Option<&str>,
+) -> Line {
+    let queue = &invocation.queue;
+    let named: Vec<String> = watched
+        .iter()
+        .map(|watched| match &watched.session {
+            Some(session) => format!("{} (tmux session {session})", watched.name),
+            None => watched.name.clone(),
+        })
+        .collect();
+    let others = match named.split_last() {
+        None => String::new(),
+        Some((last, [])) => format!("asqr watches {last}; "),
+        Some((last, others)) => format!("asqr watches {} and {last}; ", others.join(", ")),
+    };
+    let start = match tmux_session {
+        Some(session) => format!(
+            "`asqr` in a window of tmux session {session}, or `{}` in a terminal of their own",
+            queue_command(queue)
+        ),
+        None => format!("`{}` in a terminal of their own", invocation.command),
+    };
     Line::warning(format!(
-        "no asqr is watching queue {}; tell the person to start `{}` in a terminal of their own; the session waits in the queue until then",
-        invocation.queue, invocation.command
+        "no asqr is watching queue {queue}; {others}the session waits in {queue}: ask the person to start {start}; do not start it yourself"
+    ))
+}
+
+/// After `ask` dropped a session into the queue tmux chose, which the asqr
+/// of another tmux session watches (ADR 85): two session names that give
+/// one queue name, or a pin left by an asqr that has quit.
+pub(super) fn watched_from_another_session(
+    invocation: &Invocation,
+    watcher_session: &str,
+    own_session: &str,
+) -> Line {
+    Line::warning(format!(
+        "queue {} is watched by the asqr of tmux session {watcher_session:?}, not of this session ({own_session:?}); the session waits there: ask the person whether to answer it there, or to start `asqr --queue <another name>` in a window of this session; do not start it yourself",
+        invocation.queue
+    ))
+}
+
+/// `ASQR_QUEUE` or `ASQR_DIR` (`variable`) chose `queue` for `ask`, while
+/// the asker's tmux session pins `pinned`, which `watched` says an asqr
+/// watches. Only the agent's own environment has the variable, so the
+/// agent passes the line on.
+pub(super) fn environment_beside_pin(
+    variable: &str,
+    invocation: &Invocation,
+    pinned: &str,
+    watched: bool,
+) -> Line {
+    let pinned = if watched {
+        format!("the asqr of this tmux session watches {pinned}")
+    } else {
+        format!("this tmux session's queue is {pinned}")
+    };
+    Line::hint(format!(
+        "{variable} chose queue {}, but {pinned}; tell the person, who decides where you ask",
+        invocation.queue
     ))
 }
 
@@ -615,6 +692,72 @@ mod tests {
             super::super::skill::PARTS
                 .iter()
                 .any(|(name, _)| *name == WITHDRAWING_PART)
+        );
+    }
+
+    fn watched(name: &str, session: Option<&str>) -> WatchedQueue {
+        WatchedQueue {
+            name: name.into(),
+            session: session.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn the_warning_names_the_watched_queues_and_their_sessions() {
+        let invocation = Invocation::new(&named("playground"), false);
+        let others = [
+            watched("asqr-todos", Some("asqr")),
+            watched("ntropy", Some("ntropy")),
+            watched("work", None),
+        ];
+
+        assert_eq!(
+            nobody_watching(&invocation, &others, Some("playground")).to_string(),
+            "warning: no asqr is watching queue playground; asqr watches asqr-todos (tmux session asqr), ntropy (tmux session ntropy) and work; the session waits in playground: ask the person to start `asqr` in a window of tmux session playground, or `asqr --queue playground` in a terminal of their own; do not start it yourself"
+        );
+    }
+
+    #[test]
+    fn outside_tmux_the_warning_asks_for_asqr_with_the_queue() {
+        let invocation = Invocation::new(&named("work"), true);
+
+        assert_eq!(
+            nobody_watching(&invocation, &[watched("ntropy", None)], None).to_string(),
+            "warning: no asqr is watching queue work; asqr watches ntropy; the session waits in work: ask the person to start `asqr --queue work` in a terminal of their own; do not start it yourself"
+        );
+    }
+
+    #[test]
+    fn without_other_watchers_the_warning_names_none() {
+        let invocation = Invocation::new(&named("default"), false);
+
+        assert_eq!(
+            nobody_watching(&invocation, &[], None).to_string(),
+            "warning: no asqr is watching queue default; the session waits in default: ask the person to start `asqr` in a terminal of their own; do not start it yourself"
+        );
+    }
+
+    #[test]
+    fn a_queue_watched_from_another_session_is_named_with_both_sessions() {
+        let invocation = Invocation::new(&named("my-work"), false);
+
+        assert_eq!(
+            watched_from_another_session(&invocation, "my work", "my-work").to_string(),
+            "warning: queue my-work is watched by the asqr of tmux session \"my work\", not of this session (\"my-work\"); the session waits there: ask the person whether to answer it there, or to start `asqr --queue <another name>` in a window of this session; do not start it yourself"
+        );
+    }
+
+    #[test]
+    fn a_variable_beside_another_pin_gets_a_hint() {
+        let invocation = Invocation::new(&named("work"), true);
+
+        assert_eq!(
+            environment_beside_pin("ASQR_QUEUE", &invocation, "asqr-todos", true).to_string(),
+            "hint: ASQR_QUEUE chose queue work, but the asqr of this tmux session watches asqr-todos; tell the person, who decides where you ask"
+        );
+        assert_eq!(
+            environment_beside_pin("ASQR_QUEUE", &invocation, "asqr-todos", false).to_string(),
+            "hint: ASQR_QUEUE chose queue work, but this tmux session's queue is asqr-todos; tell the person, who decides where you ask"
         );
     }
 

@@ -15,10 +15,11 @@ use super::Exit;
 use super::format::{print_errors, print_warnings, read_session_file, session_dir};
 use super::hint::{self, Caller, Invocation, Refusing};
 use super::wait::wait_for_result;
-use crate::format::{WarningKind, same_session_id, validate, warnings};
+use crate::format::{WarningKind, is_valid_session_id, same_session_id, validate, warnings};
+use crate::pairing::{self, Tmux, TmuxPane, TmuxSession};
 use crate::queue::{
-    DropError, Dropped, Gate, QueueLocation, ReplaceError, WithdrawError, Withdrawn,
-    drop_replacing, drop_session, lock_holder,
+    DropError, Dropped, Gate, Origin, QueueLocation, ReplaceError, WithdrawError, Withdrawn,
+    drop_replacing, drop_session, list_queues, lock_holder,
 };
 
 pub(super) struct AskOptions {
@@ -29,11 +30,26 @@ pub(super) struct AskOptions {
     pub replaces: Option<String>,
 }
 
+/// What `ask` knows about the queues around its own, for its advice on
+/// who watches (ADR 85).
+pub(super) struct Surroundings<'a> {
+    /// The root of the named queues, to name the watched ones.
+    pub root: Option<&'a Path>,
+    pub tmux: &'a dyn Tmux,
+    pub origin: Origin,
+    /// The asker's tmux pane and what tmux said about its session, where
+    /// tmux was asked and answered.
+    pub tmux_session: Option<(&'a TmuxPane, TmuxSession)>,
+    /// The variable that chose the queue: `ASQR_QUEUE` or `ASQR_DIR`.
+    pub variable: Option<&'static str>,
+}
+
 pub(super) fn run(
     location: &QueueLocation,
     invocation: &Invocation,
     file: &Path,
     options: AskOptions,
+    around: &Surroundings<'_>,
 ) -> Exit {
     let mut session_file = match read_session_file(file) {
         Ok(session_file) => session_file,
@@ -96,7 +112,7 @@ pub(super) fn run(
         }
         Err(exit) => return exit,
     };
-    warn_if_nobody_watches(location, invocation);
+    advise_on_watchers(location, invocation, around);
     // Keyed on the `draft`, not on `--force`: an earlier forced withdrawal
     // of the old session comes back as `Already` with its draft.
     if let (Some(old), Some(Withdrawn::Now(result) | Withdrawn::Already(result))) =
@@ -248,10 +264,82 @@ fn make_path_absolute(object: &mut Value, base: &Path) {
     }
 }
 
-/// The session queues either way, but the asker should tell the person to
-/// start asqr (spec section 5.5).
-fn warn_if_nobody_watches(location: &QueueLocation, invocation: &Invocation) {
-    if matches!(lock_holder(location), Ok(None)) {
-        hint::nobody_watching(invocation).print();
+/// What the asker should know about who watches its queue (spec section
+/// 5.5): that nobody does, and which queues other asqr instances watch;
+/// that the queue tmux chose is watched from another tmux session; that
+/// its variable chose another queue than its tmux session's pin. The
+/// session waits in the queue in every case.
+fn advise_on_watchers(
+    location: &QueueLocation,
+    invocation: &Invocation,
+    around: &Surroundings<'_>,
+) {
+    let from_tmux = matches!(around.origin, Origin::Pin | Origin::SessionName);
+    let own = around.tmux_session.as_ref();
+    match lock_holder(location) {
+        Ok(None) => {
+            let watched = around
+                .root
+                .map(|root| watched_queues(root, location, around.tmux))
+                .unwrap_or_default();
+            let session = own
+                .filter(|_| from_tmux)
+                .map(|(_, session)| session.name.as_str());
+            hint::nobody_watching(invocation, &watched, session).print();
+        }
+        // Two tmux sessions in one queue: names that turn into one queue
+        // name, or a pin left by an asqr that has quit.
+        Ok(Some(holder)) if from_tmux => {
+            if let (Some((pane, session)), Some(place)) = (own, &holder.tmux)
+                && place.socket == pane.socket
+                && let Some(watcher) =
+                    pairing::sessions_of_watchers([&holder], around.tmux).of(&holder)
+                && watcher != session.name
+            {
+                hint::watched_from_another_session(invocation, watcher, &session.name).print();
+            }
+        }
+        _ => {}
     }
+    if let (Some(variable), Some((_, session)), Some(root)) = (around.variable, own, around.root)
+        && let Some(pinned) = session
+            .pinned
+            .as_deref()
+            .filter(|pinned| is_valid_session_id(pinned))
+    {
+        let pinned_queue = QueueLocation::named(root, pinned);
+        if !location.same_queue(&pinned_queue) {
+            let watched = matches!(lock_holder(&pinned_queue), Ok(Some(_)));
+            hint::environment_beside_pin(variable, invocation, pinned, watched).print();
+        }
+    }
+}
+
+/// The named queues under `root` other asqr instances watch, `location`
+/// left out, with the tmux sessions they run in.
+fn watched_queues(
+    root: &Path,
+    location: &QueueLocation,
+    tmux: &dyn Tmux,
+) -> Vec<hint::WatchedQueue> {
+    let watched: Vec<_> = list_queues(root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|summary| summary.holder.is_some() && !summary.location.same_queue(location))
+        .collect();
+    let sessions = pairing::sessions_of_watchers(
+        watched.iter().filter_map(|summary| summary.holder.as_ref()),
+        tmux,
+    );
+    watched
+        .iter()
+        .map(|summary| hint::WatchedQueue {
+            name: summary.name().to_owned(),
+            session: summary
+                .holder
+                .as_ref()
+                .and_then(|holder| sessions.of(holder))
+                .map(str::to_owned),
+        })
+        .collect()
 }

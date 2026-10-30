@@ -29,7 +29,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub use exit::Exit;
 pub use watch::{Pin, Watch};
 
-use crate::pairing::{self, Multiplexer, SystemTmux, Tmux};
+use crate::pairing::{self, Multiplexer, SystemTmux, Tmux, TmuxFailure};
 use crate::queue::{Origin, Paired, QueueLocation, Selection, platform_data_dir};
 use crate::tui::render::PaneLayout;
 
@@ -323,11 +323,30 @@ fn dispatch(
                 | Command::Queues { .. }
         )
     );
-    let paired = match &environment.multiplexer {
+    // `ask` asks tmux also when a variable chose, for the session's pin:
+    // the agent's variable may send it past the session's asqr.
+    let is_ask = matches!(cli.command, Some(Command::Ask { .. }));
+    let unchosen = flags.is_empty() && environment.selection.is_empty();
+    let variable = match (&flags, &environment.selection) {
+        (flags, _) if !flags.is_empty() => None,
+        (_, Selection { queue: Some(_), .. }) => Some("ASQR_QUEUE"),
+        (_, Selection { dir: Some(_), .. }) => Some("ASQR_DIR"),
+        _ => None,
+    };
+    let tmux_answer = match &environment.multiplexer {
         Multiplexer::Tmux(pane)
-            if works_on_a_queue && flags.is_empty() && environment.selection.is_empty() =>
+            if works_on_a_queue && (unchosen || (is_ask && variable.is_some())) =>
         {
-            pairing::paired(tmux, pane)
+            Some((pane, pairing::ask_session(tmux, pane)))
+        }
+        _ => None,
+    };
+    let paired = match &tmux_answer {
+        Some((_, answer)) if unchosen => pairing::paired_by(answer),
+        // Asked for the hint only: a tmux that does not answer gives none.
+        Some((_, Err(TmuxFailure(reason)))) => {
+            tracing::info!(reason, "tmux did not answer; no word on the session's pin");
+            Paired::NotAsked
         }
         _ => Paired::NotAsked,
     };
@@ -409,6 +428,13 @@ fn dispatch(
                 timeout: timeout.map(Duration::from_secs),
                 force,
                 replaces,
+            },
+            &ask::Surroundings {
+                root: root.as_deref(),
+                tmux,
+                origin,
+                tmux_session: tmux_answer.and_then(|(pane, answer)| Some((pane, answer.ok()?))),
+                variable,
             },
         ),
         Command::Wait { id, timeout } => wait::run_wait(

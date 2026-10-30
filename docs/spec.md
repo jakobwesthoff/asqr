@@ -747,11 +747,32 @@ validation gets its error result like any invalid file (section 5.8),
 and the session it replaced leaves the TUI.
 
 When no asqr holds the queue lock, `ask` still drops the file and warns
-on stderr: "no asqr is watching queue <queue>; tell the person to start
-`<asqr>` in a terminal of their own; the session waits in the queue
-until then". `<queue>` is the queue's name, or its absolute directory
-for a queue given by directory, and `<asqr>` the command that reaches
-the queue (section 6.7).
+on stderr. The warning names the named queues other asqr instances
+watch, each with the tmux session that asqr runs in where its lock names
+a pane (section 5.6), and ends with what the person can start, since
+only the person starts asqr. Where the queue came from the tmux session
+(section 5.2):
+
+    warning: no asqr is watching queue playground; asqr watches asqr-todos (tmux session asqr) and ntropy; the session waits in playground: ask the person to start `asqr` in a window of tmux session playground, or `asqr --queue playground` in a terminal of their own; do not start it yourself
+
+Otherwise, outside tmux, or where a flag or a variable chose the queue:
+
+    warning: no asqr is watching queue <queue>; asqr watches asqr-todos; the session waits in <queue>: ask the person to start `<asqr>` in a terminal of their own; do not start it yourself
+
+`<queue>` is the queue's name, or its absolute directory for a queue
+given by directory, and `<asqr>` the command that reaches the queue
+(section 6.7). Several watched queues are listed with commas and a last
+"and"; with none, the part "asqr watches …; " is left out.
+
+Where the queue came from the tmux session and the asqr watching it runs
+in another tmux session of the same tmux server, `ask` warns that the
+session went there: two session names can turn into one queue name
+(section 5.2), and a pin left by an asqr that has quit can name a queue
+another session's asqr watches now. Such a pin is stale state, not a
+choice to share a queue, and two tmux sessions mixed in one queue are
+what the pairing prevents (ADR 85):
+
+    warning: queue my-work is watched by the asqr of tmux session "my work", not of this session ("my-work"); the session waits there: ask the person whether to answer it there, or to start `asqr --queue <another name>` in a window of this session; do not start it yourself
 
 ### 5.6 The instance lock and the drafts lock
 
@@ -1118,12 +1139,25 @@ A result's JSON ends without a newline. When a hint follows a printed
 result, stderr gets an empty line first, so the hint starts a line of
 its own where the two streams are shown together.
 
-Order: after a drop, the line for a withdrawn `draft` comes first, then
-the one for warnings or the reminder to wait. Under `--wait`, the first
+Order: after a drop, the warning about who watches (section 5.5) comes
+first, then the line for a variable beside the session's pin, then the
+line for a withdrawn `draft`, then the one for warnings or the reminder
+to wait. Under `--wait`, the first
 comes before the id, and the one for warnings only when the wait ends
 with 12, before the timeout line of section 6.4. After a printed result,
 the line for a rejection, an error or a `draft` comes first, then the
 one for notes.
+
+- `ask` inside tmux whose queue `ASQR_QUEUE` or `ASQR_DIR` chose, while
+  the tmux session pins another queue (section 7.1): the variable
+  exists in the agent's environment only, so the agent passes the line
+  on. With an asqr watching the pinned queue, and without one:
+
+      hint: ASQR_QUEUE chose queue work, but the asqr of this tmux session watches asqr-todos; tell the person, who decides where you ask
+      hint: ASQR_QUEUE chose queue work, but this tmux session's queue is asqr-todos; tell the person, who decides where you ask
+
+  For `ASQR_DIR` the line names the variable and the absolute
+  directory. A tmux that does not answer gives no line.
 
 - `ask --replaces <old>` whose withdrawn result of `<old>` holds a
   `draft`:

@@ -168,6 +168,24 @@ impl QueueLocation {
         }
     }
 
+    /// Whether `self` and `other` are one queue, that is one directory. On
+    /// a filesystem that ignores case, as macOS's does by default, `work`
+    /// and `Work` are one directory, elsewhere two; comparing the
+    /// directories gets both right. Where one of them does not exist yet,
+    /// the paths are compared.
+    pub fn same_queue(&self, other: &QueueLocation) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if let (Ok(mine), Ok(theirs)) =
+                (std::fs::metadata(&self.dir), std::fs::metadata(&other.dir))
+            {
+                return (mine.dev(), mine.ino()) == (theirs.dev(), theirs.ino());
+            }
+        }
+        self.dir == other.dir
+    }
+
     /// A queue in `dir`, as `--dir` would name it.
     pub fn at(dir: impl Into<PathBuf>) -> Self {
         QueueLocation {
@@ -493,6 +511,41 @@ mod tests {
             Some("asqr")
         );
         assert_ne!(data, cache);
+    }
+
+    #[test]
+    fn the_same_directory_is_the_same_queue() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let work = QueueLocation::named(scratch.path(), "work");
+        work.create_layout().expect("layout");
+        let other = QueueLocation::named(scratch.path(), "other");
+        other.create_layout().expect("layout");
+
+        assert!(work.same_queue(&QueueLocation::named(scratch.path(), "work")));
+        assert!(work.same_queue(&QueueLocation::at(work.dir())));
+        assert!(!work.same_queue(&other));
+    }
+
+    #[test]
+    fn names_that_differ_in_case_are_one_queue_where_the_filesystem_ignores_case() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let work = QueueLocation::named(scratch.path(), "work");
+        work.create_layout().expect("layout");
+        let upper = QueueLocation::named(scratch.path(), "Work");
+        // macOS's filesystem ignores case by default, most Linux ones do
+        // not; the test asks the one it runs on.
+        let ignores_case = upper.dir().exists();
+
+        assert_eq!(work.same_queue(&upper), ignores_case);
+    }
+
+    #[test]
+    fn queues_not_made_yet_compare_by_their_paths() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let work = QueueLocation::named(scratch.path(), "work");
+
+        assert!(work.same_queue(&QueueLocation::named(scratch.path(), "work")));
+        assert!(!work.same_queue(&QueueLocation::named(scratch.path(), "other")));
     }
 
     #[test]

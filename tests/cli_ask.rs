@@ -73,7 +73,7 @@ fn warns_when_no_asqr_watches_the_queue() {
 fn nobody_watching(sandbox: &Sandbox) -> String {
     let queue = sandbox.queue_dir();
     format!(
-        "warning: no asqr is watching queue {0}; tell the person to start `asqr --dir {0}` in a terminal of their own; the session waits in the queue until then\n",
+        "warning: no asqr is watching queue {0}; the session waits in {0}: ask the person to start `asqr --dir {0}` in a terminal of their own; do not start it yourself\n",
         queue.display()
     )
 }

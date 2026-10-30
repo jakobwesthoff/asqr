@@ -79,6 +79,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- When nobody watches the queue, `ask` names the queues other asqr
+  instances watch, with their tmux sessions, and tells the agent to ask
+  the person to start asqr, never to start it itself: inside tmux in a
+  window of the session, outside with the command that reaches the
+  queue. Inside tmux, `ask` warns when the queue of its tmux session is
+  watched by the asqr of another tmux session, and an `ASQR_QUEUE` or
+  `ASQR_DIR` that chose another queue than the session's pin gets a
+  hint for the agent to pass on.
 - The screen behind the help, the intro, the session list and the
   dialog of an invalid session is dim and shows no focus fill, so the
   overlay's own fill is the one on the screen. The status line, the key

@@ -56,6 +56,20 @@ the lock file names the tmux pane of its holder
   everything works through the default queue and the flags and
   variables anyway, and the pairing is convenience on top of them. tmux
   gets 500 ms to answer.
+- When nobody watches the queue, `ask` names the queues other asqr
+  instances watch and their tmux sessions, and tells the agent to ask
+  the person to start asqr, never to start it itself: inside tmux in a
+  window of the session, outside with the command that reaches the
+  queue.
+- An `ask` whose queue came from the pin or the session name, while the
+  asqr watching that queue runs in another tmux session, warns: a pin
+  left by an asqr that has quit is stale state, not a choice to share,
+  and two tmux sessions mixed in one queue are what the pairing
+  prevents.
+- `asqr ask` with `ASQR_QUEUE` or `ASQR_DIR` set inside tmux, while the
+  session pins another queue, adds a hint the agent passes on: the
+  variable exists in the agent's environment, which asqr's own does not
+  show.
 - In advice, a queue from the tmux session is reached by plain `asqr`;
   the default queue taken because tmux did not answer is named with
   `--queue default`.
@@ -72,6 +86,9 @@ the lock file names the tmux pane of its holder
 - Session names that turn into the same queue name, such as `my work`
   and `my-work`, share a queue; on a filesystem that ignores case, as
   macOS's by default, so do names that differ only in case, and a
-  session named `Default` uses the default queue's directory.
+  session named `Default` uses the default queue's directory. `ask`
+  warns when the asqr of the other session watches it.
+- Someone who shares a queue between tmux sessions on purpose sees the
+  warning on every `ask` from the session that does not watch it.
 - An agent outside tmux, while the person's asqr runs inside it, asks
   into `default`.

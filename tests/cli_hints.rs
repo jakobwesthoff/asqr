@@ -149,7 +149,7 @@ fn the_no_watcher_warning_names_a_named_queue_and_its_flag() {
 
     assert!(
         err.contains(
-            "warning: no asqr is watching queue work; tell the person to start `asqr --queue work` in a terminal of their own; the session waits in the queue until then\n"
+            "warning: no asqr is watching queue work; the session waits in work: ask the person to start `asqr --queue work` in a terminal of their own; do not start it yourself\n"
         ),
         "{err}"
     );

@@ -2,98 +2,46 @@
 title: "Let several asqr instances run side by side and route each agent to the right one"
 kind: feature
 component: cli
-status: needs-discussion
 origin: idea
 tags: [ux]
 ---
 # Let several asqr instances run side by side and route each agent to the right one
 
-Raised by the user on 2026-10-29, nothing decided yet. Someone who works
-in several terminal sessions at once wants one asqr per session, and
-wants every agent to put its questions into the asqr of the session it
-runs in. Today that takes manual queue names on both sides, and an agent
-has no way to find out which queue it should use. Starting the right
-asqr has to be easy too, maybe through a picker.
+Someone who works in several tmux sessions runs one asqr in each, and
+every agent puts its questions into the asqr of the session it runs in.
+The pairing through the tmux session is built (ADR 85); the queue
+switcher, the start picker and the rest of the work below are still
+open. The design is settled in the decisions at the end.
 
-## The setup that motivates it
+## What is done
 
-The user often has several tmux sessions open. Each has a few windows:
-Claude Code runs in one, two or three of them, and asqr runs in another.
-Whenever the user switches to that tmux session, the asqr window shows
-what the agents of that session want answered.
+- Inside tmux the queue comes from the pane's tmux session: the pin
+  `ASQR_SESSION_QUEUE`, else the session's name made a valid queue name;
+  the TUI pins its queue once it runs; a tmux that does not answer
+  leaves asqr as outside tmux, without a word (spec 5.2, 7.1, ADR 85).
+- The lock file names the holder's tmux pane; the refusal of a second
+  asqr names its tmux session (spec 5.6).
+- `asqr queues [--json]` (spec 6.5).
+- `ask` names the watched queues when nobody watches, warns when the
+  queue of its tmux session is watched from another tmux session, and
+  gives the `ASQR_QUEUE` hint (spec 5.5, 6.7).
+- The skill: pass no `--queue` unless told, never switch on your own.
+- The screen behind every overlay is dim (ADR 84).
 
-A second tmux session works on something else, with its own agents and
-its own asqr window. Questions from the agents in session A belong in
-the asqr of session A, and questions from session B in the asqr of
-session B. Never mixed, never all in one.
+## What remains
 
-## What exists today
+- `wait` and `result` find a session in another named queue; `withdraw`
+  and `ask --replaces` name that queue and refuse (the lead's T2 and its
+  decision on withdraw).
+- `asqr prune` removes unwatched queues that hold no file, with both
+  locks following their path.
+- The status line counts the sessions waiting in queues nobody watches.
+- The queue switcher on `w`.
+- The start picker outside tmux.
 
-- Named queues: `--queue <name>` and `ASQR_QUEUE` pick a queue under the
-  platform data root, `--dir` and `ASQR_DIR` a directory (ADR 0005,
-  `src/queue/location.rs`, `QueueLocation::resolve`). Flags win over the
-  environment, the environment over the `default` queue.
-- One asqr per queue: the TUI holds a lock on `<queue>/lock`, and a
-  second asqr on the same queue names the holder and exits (ADR 0014).
-- `asqr ask` warns "no asqr is watching queue ..." when nobody holds the
-  lock.
-- The skill (`skills/asqr/SKILL.md`, "Queues") tells the agent to "use
-  the queue the person's `asqr` watches", but gives it no way to learn
-  which one that is.
-
-So separate instances already work when both sides set the same
-`ASQR_QUEUE` by hand. What is missing is the pairing: naming a queue,
-getting that name to the agents of one session, and starting the
-matching asqr without typing it.
-
-## Ideas so far
-
-From the user:
-
-- The agents name the queue they use themselves, and that name is how
-  asqr and agents find each other.
-- asqr shows a selection when it starts, so the person picks which
-  queue this instance watches instead of typing a name.
-
-Further directions to weigh, none checked against the code or tried yet:
-
-- Derive the queue name from the tmux session. Inside a tmux pane `$TMUX`
-  is set, and `tmux display-message -p '#S'` prints the session name, so
-  asqr and an agent in the same tmux session could both arrive at the
-  same name without anyone choosing it.
-- Set `ASQR_QUEUE` per tmux session with `tmux set-environment`. Only
-  processes started afterwards inherit it, so agents already running
-  keep their old value.
-- Derive the name from the repository or working directory instead of
-  the terminal session. That pairs by project, which is a different
-  grouping than the one the user described.
-- A command that lists the queues with the number of waiting sessions
-  and whether an asqr watches each one. It would feed the start picker,
-  and an agent could use it to find the watched queues. `ask` could name
-  the watched queues in its "nobody is watching" warning.
-
-## Open questions
-
-- Who names a queue: the person starting asqr, the agent, or a rule
-  that derives it from the environment (tmux session, repository)?
-- How does an agent learn the name: an inherited environment variable,
-  a query to asqr, a rule the skill teaches, or asking the person?
-- What happens when an agent asks into a queue nobody watches while
-  other queues are watched?
-- What does the start picker show (known queues, waiting sessions,
-  watched or free), and can it create a new queue?
-- How tmux-specific may this be? Plain terminal tabs and other
-  multiplexers need a way too, even if it is less automatic.
-- Queues that nobody uses any more pile up under the data root. Does
-  `prune` or the picker clean them up?
-- The skill changes with whatever is decided, since agents follow it to
-  pick a queue.
-
-## Discussion planned (2026-10-30)
-
-Jakob picked this as the larger design topic to discuss soon
-(asqr session 01M6628SFCCK00ENY6YV0XQZR1). It relates to the queue name on the waiting screen, which
-is being designed at the same time.
+The implementation plan, with the agreed review fixes and the texts the
+lead and the user settled, is
+`~/playground/2026_10_30_asqr-todos-worked-off-by-agents/plans/instances-impl-plan.md`.
 
 ## Decisions (2026-10-30, asqr session 01M666SB2DM25EBG50X16CGMP3)
 

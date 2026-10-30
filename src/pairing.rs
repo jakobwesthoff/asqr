@@ -18,7 +18,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::format::MAX_SESSION_ID_BYTES;
-use crate::queue::Paired;
+use crate::queue::{Holder, Paired};
 
 /// The tmux session variable that holds the queue the session's asqr
 /// watches. It is read from tmux only, never from the process
@@ -267,16 +267,56 @@ pub fn sessions_of_panes(
 /// A tmux that does not answer leaves asqr as outside tmux; the reason
 /// goes into the log.
 pub fn paired(tmux: &dyn Tmux, pane: &TmuxPane) -> Paired {
-    match ask_session(tmux, pane) {
+    paired_by(&ask_session(tmux, pane))
+}
+
+/// What the answer of [`ask_session`] says about the queue, as
+/// [`paired`] gives it, for a caller that keeps the answer too.
+pub fn paired_by(answer: &Result<TmuxSession, TmuxFailure>) -> Paired {
+    match answer {
         Ok(TmuxSession {
             pinned: Some(pinned),
             ..
-        }) => Paired::Pinned(pinned),
-        Ok(TmuxSession { name, .. }) => Paired::Session(queue_for_session(&name)),
+        }) => Paired::Pinned(pinned.clone()),
+        Ok(TmuxSession { name, .. }) => Paired::Session(queue_for_session(name)),
         Err(TmuxFailure(reason)) => {
             tracing::info!(reason, "tmux did not answer; going on as outside tmux");
-            Paired::Unreachable(reason)
+            Paired::Unreachable(reason.clone())
         }
+    }
+}
+
+/// The tmux session of each watcher in `holders` that runs in a tmux
+/// pane, by socket and pane: one call to each tmux server, however many
+/// of its panes watch a queue. A server that does not answer names none.
+pub fn sessions_of_watchers<'a>(
+    holders: impl IntoIterator<Item = &'a Holder>,
+    tmux: &dyn Tmux,
+) -> WatcherSessions {
+    let mut sessions = HashMap::new();
+    for place in holders
+        .into_iter()
+        .filter_map(|holder| holder.tmux.as_ref())
+    {
+        sessions
+            .entry(place.socket.clone())
+            .or_insert_with(|| sessions_of_panes(tmux, &place.socket).unwrap_or_default());
+    }
+    WatcherSessions(sessions)
+}
+
+/// The tmux sessions [`sessions_of_watchers`] found.
+#[derive(Debug, Default)]
+pub struct WatcherSessions(HashMap<String, HashMap<String, String>>);
+
+impl WatcherSessions {
+    /// The tmux session `holder` runs in, where tmux named one.
+    pub fn of(&self, holder: &Holder) -> Option<&str> {
+        let place = holder.tmux.as_ref()?;
+        self.0
+            .get(&place.socket)?
+            .get(&place.pane)
+            .map(String::as_str)
     }
 }
 

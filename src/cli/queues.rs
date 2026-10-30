@@ -5,7 +5,6 @@
 //! `asqr queues` (spec section 6.5): every named queue, what it holds and
 //! which asqr watches it, with the tmux session that asqr runs in.
 
-use std::collections::HashMap;
 use std::path::Path;
 
 use serde_json::json;
@@ -26,10 +25,14 @@ pub(super) fn run(root: Option<&Path>, tmux: &dyn Tmux, json: bool) -> Exit {
             return Exit::Failure;
         }
     };
-    let sessions = watcher_sessions(&summaries, tmux);
+    let sessions = pairing::sessions_of_watchers(
+        summaries
+            .iter()
+            .filter_map(|summary| summary.holder.as_ref()),
+        tmux,
+    );
     let session = |summary: &QueueSummary| -> Option<String> {
-        let place = summary.holder.as_ref()?.tmux.as_ref()?;
-        sessions.get(&place.socket)?.get(&place.pane).cloned()
+        sessions.of(summary.holder.as_ref()?).map(str::to_owned)
     };
 
     if json {
@@ -70,27 +73,4 @@ pub(super) fn run(root: Option<&Path>, tmux: &dyn Tmux, json: bool) -> Exit {
         );
     }
     Exit::Success
-}
-
-/// The tmux sessions of the panes the watching asqr instances run in, by
-/// socket and pane: one call to each tmux server, however many of its
-/// panes watch a queue. A server that does not answer names none.
-fn watcher_sessions(
-    summaries: &[QueueSummary],
-    tmux: &dyn Tmux,
-) -> HashMap<String, HashMap<String, String>> {
-    let mut sessions = HashMap::new();
-    for summary in summaries {
-        let Some(place) = summary
-            .holder
-            .as_ref()
-            .and_then(|holder| holder.tmux.as_ref())
-        else {
-            continue;
-        };
-        sessions
-            .entry(place.socket.clone())
-            .or_insert_with(|| pairing::sessions_of_panes(tmux, &place.socket).unwrap_or_default());
-    }
-    sessions
 }
