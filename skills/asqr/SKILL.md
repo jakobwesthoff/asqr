@@ -53,6 +53,151 @@ Once asked, asqr fits best when:
   answer
 - the answers feed straight into your next step as data
 
+## Asking and waiting
+
+The main pattern works under any time limit on your commands:
+
+```sh
+id=$(asqr ask questions.json)
+asqr wait "$id" --timeout 540
+```
+
+- `asqr ask` validates the file, drops a copy into the queue and prints
+  the id. It exits 0 when the session was dropped.
+- `asqr wait` prints the result JSON on stdout as soon as it is there.
+  When the timeout passes first, it exits 12. Then run the same `wait`
+  again, as often as needed. People take their time, and they may answer
+  hours later.
+- Pick a timeout below your command time limit.
+
+Every session you ask comes back as a result, an info-only one too,
+since the person can write a note on any item. Start `asqr wait` for
+each session you ask, in the background where you can, and read the
+whole result, every note included, before you treat the matter as done.
+When the person asks in the chat about something they may have answered
+in asqr, run `asqr result <id>` or `asqr status --json --since <age>`
+before you answer.
+
+If you can run commands in the background, the variant is one command:
+
+```sh
+asqr ask questions.json --wait
+```
+
+It prints the id on stderr and only the result JSON on stdout, so it can
+be piped into `jq`. `--timeout <secs>` works here too.
+
+`asqr result <id>` looks once without waiting, with the same exit codes.
+
+If `ask` warns "no asqr is watching queue ...", nobody sees your
+questions yet. Tell the person to start `asqr` in a terminal of its own;
+the session waits in the queue until they do.
+
+### Withdrawing a session
+
+When you no longer need the answers to a session, such as when the
+person answered its questions in the chat, withdraw it with
+`asqr withdraw <id>`, so they do not answer it for nothing. Ask a
+session you rebuilt under a new id with
+`asqr ask <file> --replaces <old-id>`, which withdraws the old one.
+Read [references/withdrawing.md](references/withdrawing.md), or
+`asqr skill withdrawing`, before you run either or any `--force`,
+before you ask an id again, and when `ask` or `withdraw` refuses.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | the person submitted, the file was dropped (`ask` without `--wait`), or `withdraw` withdrew the session |
+| 1 | asqr failed, or `ask` or `withdraw` refused (the reason is on stderr) |
+| 2 | wrong arguments |
+| 10 | the person rejected the session, with an optional `reason` |
+| 11 | the file is invalid: `ask` lists the errors; a result with status `error` holds them in `error` |
+| 12 | no result yet: wait again |
+| 13 | no result will come: the id is unknown, or the session is gone; for `ask --replaces`, the old id is, and nothing was dropped |
+| 14 | you withdrew the session: the result has status `withdrawn` |
+
+## Reading the result
+
+```json
+{
+  "asqr": 2,
+  "id": "01K...",
+  "status": "submitted",
+  "submitted_at": "2026-09-27T17:05:12+02:00",
+  "session_sha256": "9f2c...",
+  "note": "go ahead, but keep the old changelog entry",
+  "answers": [
+    { "question": "go", "selected": ["yes"] },
+    { "question": "channels", "selected": ["changelog"], "defaulted": true },
+    { "question": "highlight", "skipped": true, "note": "ask me after the review" }
+  ]
+}
+```
+
+- `status` is `submitted`, `cancelled` (rejected, with an optional
+  `reason`), `error` (with `error`) or `withdrawn` (you withdrew it; no
+  answers, and a `draft` only after a forced withdrawal). A `draft`
+  holds no decisions: read
+  [references/withdrawing.md](references/withdrawing.md), or
+  `asqr skill withdrawing`, before you use one.
+- A submitted result lists every question once, in session order,
+  except `info` items: an info item is listed only when the person wrote
+  a note on it, as `{ "question": "checks", "note": "..." }`. asqr does
+  not record whether the person read an info item. A rejected result
+  (`cancelled`) lists only the questions with an answer, an untouched
+  default included, or a note, in session order.
+- `note` at the top is the person's note to the whole session, such as
+  a condition on their approval or a remark that spans several
+  questions. It is absent when they wrote none. Read it before acting
+  on the answers. A rejected result has `reason`, and may also carry
+  `note` and answers: what the person had answered or noted before
+  rejecting, which they did not submit. The reason may refer to them,
+  so read them together.
+- `selected` holds option ids, `custom` the typed text, `note` the
+  person's note. A skipped question has `skipped: true` and may still
+  carry a note: read it, it often says why.
+- Every typed text may span several lines: `custom`, both kinds of
+  `note` and `reason` can contain `\n`, for example when the person
+  pasted a list or wrote the text in their editor.
+- `defaulted: true` means the person left your default untouched. A
+  question whose default they cleared comes back with `skipped: true`
+  in a submitted result, and a rejected result leaves it out unless it
+  has a note.
+
+## Finding sessions again
+
+`asqr status --json` lists what is waiting and what is answered:
+
+```json
+{
+  "queue": "default",
+  "watched_by": "pid 4242 on laptop",
+  "waiting": [{ "id": "01K...", "draft_has_answers": true }],
+  "answered": [{ "id": "01J...", "status": "submitted" }],
+  "answered_total": 57
+}
+```
+
+`queue` is the queue's name, or its directory for a queue given with
+`--dir`. `watched_by` is `null` when no asqr runs. `waiting` lists every
+waiting session.
+
+`answered` lists the 10 most recently answered sessions, newest first.
+The outbox keeps results from every agent and every earlier session, so
+`answered_total` is usually larger than the list:
+
+- `--since <age>` keeps only sessions answered within that age, such as
+  `30m`, `2h` or `1d` (units `s`, `m`, `h`, `d`, `w`). `answered_total`
+  then counts only those.
+- `--limit <count>` changes the 10. `--all` lists everything; avoid it,
+  the list can be long.
+
+To find a session you lost track of, use `--since` with an age a little
+longer than the time since you asked, then read it with
+`asqr result <id>`. When you know the id, `asqr result <id>` alone is
+enough. `asqr paths --json` shows where the queue's files are.
+
 ## The session file
 
 ```json
@@ -251,151 +396,6 @@ When an error names a type or a kind described here as not supported,
 or as an unknown variant, the asqr that read the file is older than this
 skill: tell the person, who can update or restart it, and ask again once
 they have.
-
-## Asking and waiting
-
-The main pattern works under any time limit on your commands:
-
-```sh
-id=$(asqr ask questions.json)
-asqr wait "$id" --timeout 540
-```
-
-- `asqr ask` validates the file, drops a copy into the queue and prints
-  the id. It exits 0 when the session was dropped.
-- `asqr wait` prints the result JSON on stdout as soon as it is there.
-  When the timeout passes first, it exits 12. Then run the same `wait`
-  again, as often as needed. People take their time, and they may answer
-  hours later.
-- Pick a timeout below your command time limit.
-
-Every session you ask comes back as a result, an info-only one too,
-since the person can write a note on any item. Start `asqr wait` for
-each session you ask, in the background where you can, and read the
-whole result, every note included, before you treat the matter as done.
-When the person asks in the chat about something they may have answered
-in asqr, run `asqr result <id>` or `asqr status --json --since <age>`
-before you answer.
-
-If you can run commands in the background, the variant is one command:
-
-```sh
-asqr ask questions.json --wait
-```
-
-It prints the id on stderr and only the result JSON on stdout, so it can
-be piped into `jq`. `--timeout <secs>` works here too.
-
-`asqr result <id>` looks once without waiting, with the same exit codes.
-
-If `ask` warns "no asqr is watching queue ...", nobody sees your
-questions yet. Tell the person to start `asqr` in a terminal of its own;
-the session waits in the queue until they do.
-
-### Withdrawing a session
-
-When you no longer need the answers to a session, such as when the
-person answered its questions in the chat, withdraw it with
-`asqr withdraw <id>`, so they do not answer it for nothing. Ask a
-session you rebuilt under a new id with
-`asqr ask <file> --replaces <old-id>`, which withdraws the old one.
-Read [references/withdrawing.md](references/withdrawing.md), or
-`asqr skill withdrawing`, before you run either or any `--force`,
-before you ask an id again, and when `ask` or `withdraw` refuses.
-
-## Exit codes
-
-| Code | Meaning |
-|---|---|
-| 0 | the person submitted, the file was dropped (`ask` without `--wait`), or `withdraw` withdrew the session |
-| 1 | asqr failed, or `ask` or `withdraw` refused (the reason is on stderr) |
-| 2 | wrong arguments |
-| 10 | the person rejected the session, with an optional `reason` |
-| 11 | the file is invalid: `ask` lists the errors; a result with status `error` holds them in `error` |
-| 12 | no result yet: wait again |
-| 13 | no result will come: the id is unknown, or the session is gone; for `ask --replaces`, the old id is, and nothing was dropped |
-| 14 | you withdrew the session: the result has status `withdrawn` |
-
-## Reading the result
-
-```json
-{
-  "asqr": 2,
-  "id": "01K...",
-  "status": "submitted",
-  "submitted_at": "2026-09-27T17:05:12+02:00",
-  "session_sha256": "9f2c...",
-  "note": "go ahead, but keep the old changelog entry",
-  "answers": [
-    { "question": "go", "selected": ["yes"] },
-    { "question": "channels", "selected": ["changelog"], "defaulted": true },
-    { "question": "highlight", "skipped": true, "note": "ask me after the review" }
-  ]
-}
-```
-
-- `status` is `submitted`, `cancelled` (rejected, with an optional
-  `reason`), `error` (with `error`) or `withdrawn` (you withdrew it; no
-  answers, and a `draft` only after a forced withdrawal). A `draft`
-  holds no decisions: read
-  [references/withdrawing.md](references/withdrawing.md), or
-  `asqr skill withdrawing`, before you use one.
-- A submitted result lists every question once, in session order,
-  except `info` items: an info item is listed only when the person wrote
-  a note on it, as `{ "question": "checks", "note": "..." }`. asqr does
-  not record whether the person read an info item. A rejected result
-  (`cancelled`) lists only the questions with an answer, an untouched
-  default included, or a note, in session order.
-- `note` at the top is the person's note to the whole session, such as
-  a condition on their approval or a remark that spans several
-  questions. It is absent when they wrote none. Read it before acting
-  on the answers. A rejected result has `reason`, and may also carry
-  `note` and answers: what the person had answered or noted before
-  rejecting, which they did not submit. The reason may refer to them,
-  so read them together.
-- `selected` holds option ids, `custom` the typed text, `note` the
-  person's note. A skipped question has `skipped: true` and may still
-  carry a note: read it, it often says why.
-- Every typed text may span several lines: `custom`, both kinds of
-  `note` and `reason` can contain `\n`, for example when the person
-  pasted a list or wrote the text in their editor.
-- `defaulted: true` means the person left your default untouched. A
-  question whose default they cleared comes back with `skipped: true`
-  in a submitted result, and a rejected result leaves it out unless it
-  has a note.
-
-## Finding sessions again
-
-`asqr status --json` lists what is waiting and what is answered:
-
-```json
-{
-  "queue": "default",
-  "watched_by": "pid 4242 on laptop",
-  "waiting": [{ "id": "01K...", "draft_has_answers": true }],
-  "answered": [{ "id": "01J...", "status": "submitted" }],
-  "answered_total": 57
-}
-```
-
-`queue` is the queue's name, or its directory for a queue given with
-`--dir`. `watched_by` is `null` when no asqr runs. `waiting` lists every
-waiting session.
-
-`answered` lists the 10 most recently answered sessions, newest first.
-The outbox keeps results from every agent and every earlier session, so
-`answered_total` is usually larger than the list:
-
-- `--since <age>` keeps only sessions answered within that age, such as
-  `30m`, `2h` or `1d` (units `s`, `m`, `h`, `d`, `w`). `answered_total`
-  then counts only those.
-- `--limit <count>` changes the 10. `--all` lists everything; avoid it,
-  the list can be long.
-
-To find a session you lost track of, use `--since` with an age a little
-longer than the time since you asked, then read it with
-`asqr result <id>`. When you know the id, `asqr result <id>` alone is
-enough. `asqr paths --json` shows where the queue's files are.
 
 ## Longer work
 

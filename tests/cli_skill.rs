@@ -270,14 +270,31 @@ fn fails_when_the_skill_cannot_be_written() {
     assert_eq!(output.status.code(), Some(1));
 }
 
-/// The skill's first JSON block: the example session it teaches with.
+/// The example session the skill teaches with: its JSON block that holds
+/// `"questions"`. The result and status examples come before it.
 fn example_session() -> &'static str {
-    let start = SKILL
-        .find("```json\n")
+    SKILL
+        .split("```json\n")
+        .skip(1)
+        .map(|block| &block[..block.find("```").expect("the block ends")])
+        .find(|block| block.contains("\"questions\""))
         .expect("the skill shows an example session")
-        + 8;
-    let end = start + SKILL[start..].find("```").expect("the example block ends");
-    &SKILL[start..end]
+}
+
+#[test]
+fn the_skill_teaches_asking_before_the_session_format() {
+    // An agent that stops reading early has then seen how to ask, wait
+    // and read the result, and has not yet seen the format it writes in,
+    // so it cannot believe it is done.
+    let at = |heading: &str| {
+        SKILL
+            .find(&format!("\n## {heading}\n"))
+            .unwrap_or_else(|| panic!("the skill has a section {heading:?}"))
+    };
+
+    assert!(at("Asking and waiting") < at("Exit codes"));
+    assert!(at("Exit codes") < at("Reading the result"));
+    assert!(at("Reading the result") < at("The session file"));
 }
 
 #[test]

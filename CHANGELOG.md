@@ -57,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read all of it. `asqr skill --install <dir>` writes the parts to
   `<dir>/asqr/references/` too and replaces that directory whole, so
   parts an older asqr wrote disappear.
+- The agent skill explains asking, waiting and reading the result
+  before the session format.
 
 ### Fixed
 
