@@ -760,11 +760,17 @@ takes an exclusive advisory lock on it (flock on Unix).
 
 - A lock that stays held for about 200 ms means another instance runs.
   asqr prints "another asqr is watching this queue (pid <pid> on
-  <host>)" and exits with 1. Any other error is a plain failure.
-- The file holds the pid and host name of the holder, only for that
-  message. The file stays after exit and its text may be stale. The
-  lock itself is released by the kernel when the process ends, so there
-  is no stale-lock handling.
+  <host>)" and exits with 1, "(pid <pid> on <host>, tmux session
+  <session>)" where the holder's tmux pane still belongs to a session.
+  Any other error is a plain failure.
+- The file holds the pid and host name of the holder, `pid <pid> on
+  <host>`, and for a holder in a tmux pane a second line `tmux <socket>
+  <pane>` (ADR 85). The session is looked up from the pane when it is
+  shown, with one `list-panes` call on that socket, so a renamed session
+  or a moved window reads right. `status` and the refusal show the first
+  line. The file stays after exit and its text may be stale. The lock
+  itself is released by the kernel when the process ends, so there is no
+  stale-lock handling.
 - Only the TUI holds the lock. `ask` and `status` only test it for a
   moment to see whether an asqr is watching. A starting TUI tries for
   those 200 ms, so such a test never makes it refuse to start.
@@ -1157,8 +1163,20 @@ one for notes.
 
 `asqr` (or `asqr watch`) starts on the queue chosen by section 5.2. It
 needs a terminal on stdin and stdout; otherwise it prints "asqr needs a
-terminal" and exits with 1. It creates the queue's directories and
-takes the queue lock (section 5.6). `q` quits with exit code 0 and gives
+terminal" and exits with 1. It takes the queue lock (section 5.6) and
+creates the queue's directories.
+
+Inside tmux, on a named queue, asqr pins its queue in its tmux session
+once it runs: `tmux set-environment -t <pane> ASQR_SESSION_QUEUE
+<queue>` (ADR 85). It does so on every start, also for a queue that
+came from the session's name, and `asqr --queue default` pins the
+default queue. A queue given by `--dir` or `ASQR_DIR` is not pinned,
+and neither is the default queue taken because tmux did not answer. A
+start that fails before the TUI runs, as without a terminal, leaves the
+pin as it was. A pin tmux refuses leaves asqr as outside tmux, without
+a word. The pin stays when asqr quits, so a restarted asqr and the
+agents keep the queue; a restarted tmux server has no pins. Two asqr in
+one tmux session on different queues: the later start holds the pin. `q` quits with exit code 0 and gives
 the terminal back as it was, also after a panic. On Unix, SIGTERM,
 SIGINT and SIGHUP quit as `q` does. While the person's editor has the
 terminal (section 7.7), SIGINT, which ctrl-c sends there, does not quit

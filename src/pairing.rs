@@ -11,6 +11,7 @@
 //! tmux is reached through [`Tmux`], so tests answer for it and never ask
 //! the tmux they may run in.
 
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -232,6 +233,33 @@ pub fn queue_for_session(name: &str) -> String {
     // Only ASCII is left, so any byte is a character boundary.
     queue.truncate(MAX_SESSION_ID_BYTES);
     queue
+}
+
+/// Pins `queue` in the tmux session of `pane`, for the agents of the
+/// session and every later asqr there (ADR 85).
+pub fn pin(tmux: &dyn Tmux, pane: &TmuxPane, queue: &str) -> Result<(), TmuxFailure> {
+    let Some(id) = pane.pane.as_deref() else {
+        return Err(TmuxFailure("TMUX_PANE is not set".into()));
+    };
+    tmux.run(None, &["set-environment", "-t", id, SESSION_QUEUE, queue])
+        .map(|_| ())
+}
+
+/// The session of each pane of the tmux server at `socket`, by pane id.
+pub fn sessions_of_panes(
+    tmux: &dyn Tmux,
+    socket: &str,
+) -> Result<HashMap<String, String>, TmuxFailure> {
+    let answer = tmux.run(
+        Some(socket),
+        &["list-panes", "-a", "-F", "#{pane_id} #{session_name}"],
+    )?;
+    // A pane id has no blank, a session name may.
+    Ok(answer
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .map(|(pane, session)| (pane.to_owned(), session.to_owned()))
+        .collect())
 }
 
 /// What the tmux session of `pane` says about its queue, for
@@ -466,6 +494,70 @@ mod tests {
             paired(&tmux, &pane("%3")),
             Paired::Unreachable("tmux is not installed".into())
         );
+    }
+
+    #[test]
+    fn the_pin_is_set_in_the_session_of_the_pane() {
+        let tmux = StandIn::answering("");
+
+        pin(&tmux, &pane("%3"), "my-work").expect("pinned");
+
+        assert_eq!(
+            tmux.calls(),
+            [[
+                "set-environment",
+                "-t",
+                "%3",
+                "ASQR_SESSION_QUEUE",
+                "my-work"
+            ]]
+        );
+    }
+
+    #[test]
+    fn a_pin_tmux_refuses_is_a_failure() {
+        let tmux = StandIn::failing("tmux exited with 1: no server running");
+
+        assert!(pin(&tmux, &pane("%3"), "my-work").is_err());
+    }
+
+    #[test]
+    fn a_pane_without_an_id_is_not_pinned() {
+        let without = TmuxPane {
+            socket: "/tmp/tmux-501/default".into(),
+            pane: None,
+        };
+
+        assert!(pin(&testing::Unasked, &without, "my-work").is_err());
+    }
+
+    #[test]
+    fn the_sessions_of_the_panes_come_from_one_call_on_the_socket() {
+        let tmux = StandIn::answering("%0 asqr\n%74 my work\n\n");
+
+        let sessions = sessions_of_panes(&tmux, "/tmp/tmux-501/default").expect("tmux answers");
+
+        assert_eq!(sessions.get("%74").map(String::as_str), Some("my work"));
+        assert_eq!(sessions.get("%0").map(String::as_str), Some("asqr"));
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(
+            tmux.calls(),
+            [[
+                "-S",
+                "/tmp/tmux-501/default",
+                "list-panes",
+                "-a",
+                "-F",
+                "#{pane_id} #{session_name}"
+            ]]
+        );
+    }
+
+    #[test]
+    fn a_server_that_does_not_answer_gives_no_sessions() {
+        let tmux = StandIn::failing("tmux exited with 1: no server running");
+
+        assert!(sessions_of_panes(&tmux, "/tmp/tmux-501/default").is_err());
     }
 
     // -----------------------------------------------------------------

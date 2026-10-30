@@ -160,7 +160,8 @@ fn ask_wait_prints_no_wait_reminder() {
 fn does_not_warn_while_an_asqr_holds_the_queue() {
     let sandbox = Sandbox::new();
     let file = sandbox.file("session.json", SESSION);
-    let _watching = lock_queue(&location(&sandbox)).expect("this test plays the running asqr");
+    let _watching =
+        lock_queue(&location(&sandbox), None).expect("this test plays the running asqr");
 
     let output = sandbox
         .asqr_in_queue(&["ask"])

@@ -26,7 +26,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 pub use exit::Exit;
-pub use watch::Watch;
+pub use watch::{Pin, Watch};
 
 use crate::pairing::{self, Multiplexer, SystemTmux, Tmux};
 use crate::queue::{Origin, Paired, QueueLocation, Selection, platform_data_dir};
@@ -375,6 +375,11 @@ fn dispatch(
                 &args,
                 environment.no_color,
                 environment.home,
+                watch::Pairing {
+                    multiplexer: &environment.multiplexer,
+                    origin,
+                    tmux,
+                },
                 terminal_ui,
             )
         }
@@ -642,7 +647,7 @@ mod tests {
     #[test]
     fn a_queue_someone_else_watches_is_refused() {
         let scratch = tempfile::tempdir().expect("temp dir");
-        let _held = lock_queue(&QueueLocation::at(scratch.path())).expect("locked");
+        let _held = lock_queue(&QueueLocation::at(scratch.path()), None).expect("locked");
 
         assert_eq!(watched(scratch.path(), &[]), (Exit::Failure, None));
     }
@@ -654,6 +659,16 @@ mod tests {
         std::fs::write(&blocked, "a file where the queue should be").expect("written");
 
         assert_eq!(watched(&blocked, &[]), (Exit::Failure, None));
+    }
+
+    #[test]
+    fn a_queue_whose_directories_cannot_be_made_is_a_failure() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        // The lock goes in, the inbox cannot.
+        std::fs::write(scratch.path().join("inbox"), "a file where the inbox goes")
+            .expect("written");
+
+        assert_eq!(watched(scratch.path(), &[]), (Exit::Failure, None));
     }
 
     /// The [`Environment`] read from the variables in `set`.
@@ -906,6 +921,102 @@ mod tests {
                 socket: "/tmp/tmux-501/default".into(),
                 pane: Some("%66".into()),
             })
+        );
+    }
+
+    /// The pin the TUI started by `args` is to set, and the calls `tmux`
+    /// got before the TUI started.
+    fn pin_of(args: &[&str], tmux: &StandIn) -> Option<Pin> {
+        let root = tempfile::tempdir().expect("temp dir");
+        let mut argv = vec!["asqr"];
+        argv.extend(args);
+        let cli = Cli::try_parse_from(argv).expect("parses");
+        let mut started = None;
+        dispatch(
+            cli,
+            in_tmux_pane(),
+            tmux,
+            Some(root.path().to_path_buf()),
+            |watch| {
+                started = Some(watch.pin().cloned());
+                Exit::Success
+            },
+        );
+        started.expect("the TUI started")
+    }
+
+    fn pin(queue: &str) -> Option<Pin> {
+        Some(Pin {
+            pane: TmuxPane {
+                socket: "/tmp/tmux-501/default".into(),
+                pane: Some("%3".into()),
+            },
+            queue: queue.into(),
+        })
+    }
+
+    #[test]
+    fn the_watch_carries_the_pin_of_a_queue_from_the_session() {
+        let tmux = StandIn::answering("my work\n");
+
+        assert_eq!(pin_of(&[], &tmux), pin("my-work"));
+    }
+
+    #[test]
+    fn the_watch_carries_the_pin_of_the_default_queue_named_by_flag() {
+        let tmux = StandIn::answering("my work\n");
+
+        assert_eq!(pin_of(&["--queue", "default"], &tmux), pin("default"));
+    }
+
+    #[test]
+    fn a_queue_directory_carries_no_pin() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let dir = scratch.path().to_str().expect("UTF-8 temp path");
+        let tmux = StandIn::answering("my work\n");
+
+        assert_eq!(pin_of(&["--dir", dir], &tmux), None);
+    }
+
+    #[test]
+    fn after_tmux_did_not_answer_nothing_is_pinned() {
+        let tmux = StandIn::failing("tmux is not installed");
+
+        assert_eq!(pin_of(&[], &tmux), None);
+    }
+
+    #[test]
+    fn outside_tmux_nothing_is_pinned() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let cli = Cli::try_parse_from(["asqr"]).expect("parses");
+        let mut started = None;
+
+        dispatch(
+            cli,
+            Environment::default(),
+            &Unasked,
+            Some(root.path().to_path_buf()),
+            |watch| {
+                started = Some(watch.pin().cloned());
+                Exit::Success
+            },
+        );
+
+        assert_eq!(started, Some(None));
+    }
+
+    #[test]
+    fn starting_never_pins_before_the_terminal_ui() {
+        let tmux = StandIn::answering("my work\n");
+
+        pin_of(&[], &tmux);
+
+        assert!(
+            tmux.calls()
+                .iter()
+                .all(|call| !call.contains(&"set-environment".to_owned())),
+            "{:?}",
+            tmux.calls()
         );
     }
 

@@ -438,7 +438,8 @@ fn status_counts_a_cleared_question_as_an_answer_in_the_draft() {
 #[test]
 fn status_names_the_watching_instance_and_unreadable_results() {
     let sandbox = Sandbox::new();
-    let _watching = lock_queue(&location(&sandbox)).expect("this test plays the running asqr");
+    let _watching =
+        lock_queue(&location(&sandbox), None).expect("this test plays the running asqr");
     location(&sandbox).create_layout().expect("layout");
     std::fs::write(sandbox.queue_dir().join("outbox/odd.json"), "[]").expect("written");
 
@@ -464,6 +465,29 @@ fn status_names_the_watching_instance_and_unreadable_results() {
             .starts_with("pid ")
     );
     assert!(status["answered"][0]["status"].is_null(), "{status}");
+}
+
+#[test]
+fn status_names_only_the_first_line_of_a_holder_in_a_tmux_pane() {
+    let sandbox = Sandbox::new();
+    let pane = asqr::pairing::TmuxPane {
+        socket: "/tmp/tmux-501/default".into(),
+        pane: Some("%74".into()),
+    };
+    let _watching =
+        lock_queue(&location(&sandbox), Some(&pane)).expect("this test plays the running asqr");
+
+    let json = stdout(
+        &sandbox
+            .asqr_in_queue(&["status", "--json"])
+            .output()
+            .expect("runs"),
+    );
+
+    let status: serde_json::Value = serde_json::from_str(&json).expect("JSON");
+    let holder = status["watched_by"].as_str().expect("holder");
+    assert!(holder.starts_with("pid "), "{holder}");
+    assert!(!holder.contains('\n'), "{holder:?}");
 }
 
 #[test]

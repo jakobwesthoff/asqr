@@ -813,6 +813,32 @@ fn wait_for_log(log: &std::path::Path, text: &str) {
 /// asqr cannot ask that tmux, and asks the terminal for its graphics
 /// protocol at once, through tmux's passthrough. Only the query asks for a
 /// status report.
+/// The TUI pins its queue in the tmux session of its pane once it runs
+/// (ADR 85), and the pin stays when it quits.
+#[test]
+fn the_tui_pins_its_queue_in_the_session_of_its_pane() {
+    let sandbox = Sandbox::new();
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--queue", "work", "--no-notify"],
+        PASSTHROUGH_ON,
+        &[("TMUX_PANE", "%7")],
+    );
+
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("Nothing to answer");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let commands =
+        std::fs::read_to_string(sandbox.home().join(TMUX_COMMANDS)).expect("tmux was run");
+    let pins: Vec<&str> = commands
+        .lines()
+        .filter(|command| command.starts_with("set-environment"))
+        .collect();
+    assert_eq!(pins, ["set-environment -t %7 ASQR_SESSION_QUEUE work"]);
+}
+
 #[test]
 fn over_ssh_from_a_tmux_pane_the_terminal_is_queried_through_the_passthrough() {
     let sandbox = Sandbox::new();

@@ -9,6 +9,9 @@ Accepted
 Amends [5. Keep all queues under one platform data root](0005-keep-all-queues-under-one-platform-data-root.md):
 inside tmux the queue comes from the pane's tmux session
 
+Amends [14. Lock a queue to one asqr instance](0014-lock-a-queue-to-one-asqr-instance.md):
+the lock file names the tmux pane of its holder
+
 ## Context
 
 - A person who works in several tmux sessions runs an asqr in each, and
@@ -40,8 +43,16 @@ inside tmux the queue comes from the pane's tmux session
   is cut at 200 bytes.
 - `ASQR_SESSION_QUEUE` is read only from tmux, never from the process
   environment. A value that is no valid queue name is a usage error.
-- When tmux cannot be asked from inside tmux, asqr behaves as outside
-  tmux, without a word: outside tmux, and in other multiplexers,
+- The TUI pins the queue it watches: on every start inside tmux on a
+  named queue it sets `ASQR_SESSION_QUEUE` in its session once it runs,
+  a queue from the session name included. `asqr --queue default` pins
+  the default queue. A queue given by `--dir` or `ASQR_DIR` is not
+  pinned. The pin stays when asqr quits.
+- The lock file gets a second line, `tmux <socket> <pane>`, when its
+  holder runs in a tmux pane. The session behind the pane is looked up
+  when it is shown.
+- When tmux cannot be asked from inside tmux, or does not take the pin,
+  asqr behaves as outside tmux, without a word: outside tmux, and in other multiplexers,
   everything works through the default queue and the flags and
   variables anyway, and the pairing is convenience on top of them. tmux
   gets 500 ms to answer.
@@ -54,6 +65,10 @@ inside tmux the queue comes from the pane's tmux session
 
 - An agent inside tmux passes no queue, and its subagents inherit the
   pane.
+- A renamed session keeps its pin. A restarted tmux server loses every
+  pin, and the session names apply again.
+- Two asqr in one tmux session on different queues: the later start
+  holds the pin.
 - Session names that turn into the same queue name, such as `my work`
   and `my-work`, share a queue; on a filesystem that ignores case, as
   macOS's by default, so do names that differ only in case, and a

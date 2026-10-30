@@ -85,7 +85,7 @@ fn answered(location: &QueueLocation) -> std::io::Result<Vec<Answered>> {
 pub(super) fn run(location: &QueueLocation, options: StatusOptions) -> Exit {
     let gathered = scan_inbox(location).and_then(|scan| {
         let answered = answered(location)?;
-        let holder = lock_holder(location)?;
+        let holder = lock_holder(location)?.map(|holder| holder.text);
         Ok((scan.sessions, answered, holder))
     });
     let (waiting, mut answered, holder) = match gathered {

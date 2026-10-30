@@ -10,6 +10,8 @@ mod common;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
+use asqr::pairing::TmuxPane;
+use asqr::queue::{QueueLocation, lock_queue};
 use assert_cmd::Command;
 use common::{Sandbox, stdout};
 
@@ -33,11 +35,13 @@ impl StandInTmux {
                 "#!/bin/sh\n\
                  echo \"$*\" >> '{}'\n\
                  [ -n \"$TEST_TMUX_EXIT\" ] && exit \"$TEST_TMUX_EXIT\"\n\
+                 [ \"$1\" = -S ] && shift 2\n\
                  case \"$1\" in\n\
                  display-message)\n\
                    echo \"$TEST_SESSION\"\n\
                    [ -n \"$TEST_PIN\" ] && echo \"ASQR_SESSION_QUEUE=$TEST_PIN\"\n\
                    ;;\n\
+                 list-panes) echo \"$TEST_PANES\" ;;\n\
                  esac\n\
                  exit 0\n",
                 calls.display()
@@ -144,4 +148,55 @@ fn asqr_skill_never_asks_tmux() {
 
     assert!(output.status.success());
     assert_eq!(tmux.calls(), "");
+}
+
+#[test]
+fn a_start_without_a_terminal_does_not_pin() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+
+    let output = tmux.asqr(&sandbox, "my work").output().expect("runs");
+
+    assert!(!output.status.success(), "no terminal to run in");
+    assert!(
+        !tmux.calls().contains("set-environment"),
+        "{}",
+        tmux.calls()
+    );
+}
+
+#[test]
+fn the_refusal_names_the_tmux_session_of_the_asqr_watching() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+    // The queue of tmux session `my work`, which an asqr in another
+    // session watches.
+    let output = tmux
+        .asqr(&sandbox, "my work")
+        .args(["paths", "--json"])
+        .output()
+        .expect("runs");
+    let paths: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("JSON");
+    let location = QueueLocation::at(paths["queue"].as_str().expect("a queue"));
+    let pane = TmuxPane {
+        socket: "/tmp/tmux-test/default".into(),
+        pane: Some("%9".into()),
+    };
+    let _watching = lock_queue(&location, Some(&pane)).expect("this test plays the running asqr");
+
+    let output = tmux
+        .asqr(&sandbox, "my work")
+        .env("TEST_PANES", "%9 other work")
+        .output()
+        .expect("runs");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!(
+            "another asqr is watching this queue (pid {} on ",
+            std::process::id()
+        )),
+        "{stderr}"
+    );
+    assert!(stderr.contains(", tmux session other work)"), "{stderr}");
 }

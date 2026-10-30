@@ -33,7 +33,7 @@ fn refuses_to_start_without_a_terminal() {
 #[test]
 fn refuses_a_queue_another_asqr_watches() {
     let sandbox = Sandbox::new();
-    let _held = lock_queue(&QueueLocation::at(sandbox.queue_dir())).expect("locked");
+    let _held = lock_queue(&QueueLocation::at(sandbox.queue_dir()), None).expect("locked");
 
     let output = sandbox.asqr_in_queue(&[]).output().expect("runs");
 

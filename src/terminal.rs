@@ -26,7 +26,7 @@ use asqr::graphics::{
 };
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
-use asqr::pairing::{SystemTmux, Tmux};
+use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
@@ -208,6 +208,15 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     // The files `o` wrote in earlier runs that may go are removed here,
     // under the queue's lock.
     let mut opened = OpenedFiles::in_temp_dir();
+    // The pin goes in once the TUI runs, so a start that failed earlier
+    // leaves the session's agents where they were (ADR 85). A pin tmux
+    // refuses leaves asqr as outside tmux, without a word.
+    if let Some(pin) = watch.pin()
+        && let Err(TmuxFailure(reason)) =
+            pairing::pin(&SystemTmux::default(), &pin.pane, &pin.queue)
+    {
+        tracing::info!(reason, "tmux did not take the pin");
+    }
     run(
         &mut terminal,
         &mut app,

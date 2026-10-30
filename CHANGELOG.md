@@ -13,9 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without any setup: a command with no `--queue`, `--dir`,
   `ASQR_QUEUE` or `ASQR_DIR` uses the queue the session's pin names
   (`ASQR_SESSION_QUEUE`, read from tmux), else a queue named after the
-  tmux session, such as `my-work` for session `my work`. Outside tmux
-  nothing changes, and when tmux does not answer within 500 ms asqr
-  behaves as outside tmux. The agent skill tells agents to pass no
+  tmux session, such as `my-work` for session `my work`. asqr pins the
+  queue it watches in its tmux session on every start, so `asqr --queue
+  <name>` in a session moves its agents along, also the ones already
+  running, and the pin stays after asqr quits. Outside tmux nothing
+  changes, and when tmux does not answer within 500 ms asqr behaves as
+  outside tmux. The lock file names the tmux pane of the asqr holding
+  it on a second line, and the refusal of a second asqr names that
+  asqr's tmux session. The agent skill tells agents to pass no
   `--queue` unless told, and never to switch on their own to a queue
   another asqr watches.
 - asqr gives agents advice on stderr where they tend to go wrong, in
