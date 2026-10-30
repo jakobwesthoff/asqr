@@ -6,8 +6,9 @@
 //! text starts and the style it starts in. The tests draw into buffers whose
 //! area starts at the origin, so a cell's column and row index the buffer
 //! directly. Tests of lines not yet drawn read their text here too. Also
-//! the paths that every loader of a file must refuse, and a Markdown table
-//! that the Markdown viewer and the text fields both show as records.
+//! the paths that every loader of a file must refuse, a Markdown table
+//! that the Markdown viewer and the text fields both show as records, and
+//! what the code under test logged, which the run loop's tests read too.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -221,4 +222,42 @@ pub(super) fn refused_paths() -> (tempfile::TempDir, [String; 3]) {
         inside,
     ];
     (directory, paths)
+}
+
+// ---------------------------------------------------------------------
+// Reading the log
+// ---------------------------------------------------------------------
+
+/// What `run` logged on this thread, as asqr's log file has it.
+pub(crate) fn logged(run: impl FnOnce()) -> String {
+    #[derive(Clone, Default)]
+    struct Written(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Written {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("no test thread panicked while writing")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let written = Written::default();
+    let log = written.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_writer(move || log.clone())
+        .finish();
+    tracing::subscriber::with_default(subscriber, run);
+    let bytes = written
+        .0
+        .lock()
+        .expect("no test thread panicked while writing")
+        .clone();
+    String::from_utf8(bytes).expect("the log is UTF-8")
 }

@@ -31,7 +31,7 @@ mod source_file;
 mod source_line;
 mod tabs;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 mod text;
 pub(crate) mod theme;
 mod viewer;

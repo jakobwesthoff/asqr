@@ -1233,6 +1233,24 @@ fn a_kitty_image_is_placed_with_its_size_in_cells() {
     assert!(cells("c=") > 0 && cells("r=") > 0, "{keys:?}");
 }
 
+/// The line that names the detected protocol also says whether asqr
+/// compresses Kitty images, so a log tells what went out. asqr does not
+/// ask the terminal for `o=z`, so it is `false`.
+#[test]
+fn the_detected_protocol_s_log_line_says_whether_kitty_images_are_compressed() {
+    let sandbox = Sandbox::new();
+    let mut tui = showing_a_kitty_image(&sandbox);
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+
+    let log = read_log(&sandbox.log_path());
+    let line = log
+        .lines()
+        .find(|line| line.contains("graphics protocol detected protocol="))
+        .expect("the detected protocol is logged");
+    assert!(line.contains("kitty_compression=false"), "{line}");
+}
+
 /// Under the Kitty protocol, an image sent again on regaining the focus
 /// has its old copy deleted after a frame that no longer shows it, and
 /// the one shown when asqr quits is deleted before the title is given

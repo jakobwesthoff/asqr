@@ -33,7 +33,7 @@ use super::source_line::columns;
 use super::tabs::tab_bar;
 use super::theme;
 use crate::format::ContextEntry;
-use crate::graphics::{Images, KittyBook, disarm_placeholders};
+use crate::graphics::{Images, KittyBook, PlacedImage, disarm_placeholders};
 use crate::tui::text_field::FieldShape;
 use crate::tui::{App, Extent, Invalid, Notice, Overlay, PanePage, RowCut, SessionState, Tone};
 
@@ -107,6 +107,9 @@ pub struct Drawn {
     /// Whether the frame showed the active session with no overlay or
     /// dialog over it, for [`App::set_session_shown`].
     pub session_shown: bool,
+    /// The bytes of the Kitty transmission the frame carries, 0 where it
+    /// sends no image, for the log of what showing an image cost.
+    pub image_sent: usize,
 }
 
 /// What the screen shows besides the state, and what it keeps from one
@@ -449,6 +452,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 row_cut,
                 invalid_dialog: false,
                 session_shown: overlay.is_none(),
+                image_sent: 0,
             };
             (drawn, hints, image)
         }
@@ -499,6 +503,10 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     if let Some(image) = &image {
         image.mend(frame.buffer_mut());
     }
+    drawn.image_sent = image
+        .as_ref()
+        .and_then(PlacedImage::transmission)
+        .map_or(0, str::len);
 
     drawn
 }

@@ -135,6 +135,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         protocol = ?graphics.protocol,
         cell = %format!("{}x{}", graphics.cell.width, graphics.cell.height),
         passthrough = ?graphics.passthrough,
+        kitty_compression = graphics.kitty_compression,
         "graphics protocol detected"
     );
     log_window_size();

@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parts.
 - The agent skill names the asqr version it belongs to in its
   frontmatter, as `asqr-version` under `metadata`.
+- The log names the bytes of each frame that sends a Kitty image, how
+  long the frame took and how long writing it took, and the line of the
+  detected graphics protocol says whether asqr compresses Kitty images.
 
 ### Changed
 

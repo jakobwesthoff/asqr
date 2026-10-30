@@ -220,8 +220,9 @@ impl PlacedImage {
         self.id
     }
 
-    #[cfg(test)]
-    pub(crate) fn transmission(&self) -> Option<&str> {
+    /// The transmission this frame put in front of the image, which only
+    /// the first draw of an encoding carries.
+    pub fn transmission(&self) -> Option<&str> {
         self.transmission.as_deref()
     }
 }

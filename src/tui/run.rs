@@ -13,6 +13,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::mpsc::Receiver;
+use std::time::Instant;
 
 use anyhow::Context;
 use ratatui::Terminal;
@@ -388,9 +389,26 @@ where
             clear_screen(terminal)?;
         }
         let mut drawn = Drawn::default();
+        // A frame that sends a Kitty image is logged with its bytes, the
+        // time of the whole draw, which includes the wait for the image's
+        // layout, and the time from the drawn buffer to the flushed write,
+        // which is what tmux slows.
+        let started = Instant::now();
+        let mut built = started;
         terminal
-            .draw(|frame| drawn = draw(frame, app, view))
+            .draw(|frame| {
+                drawn = draw(frame, app, view);
+                built = Instant::now();
+            })
             .context("drawing the screen")?;
+        if drawn.image_sent > 0 {
+            tracing::info!(
+                bytes = drawn.image_sent,
+                took = ?started.elapsed(),
+                written = ?built.elapsed(),
+                "frame sent a Kitty image"
+            );
+        }
         // The frame is flushed and shows no Kitty image that went, so the
         // terminal may let go of them (ADR 42). A frame that failed returned
         // above and left them in the book, for the deletes on quitting.
@@ -536,9 +554,9 @@ mod tests {
 
     use super::*;
     use crate::format::{SessionResult, Status};
-    use crate::graphics::testing::kitty_ids_on_screen;
+    use crate::graphics::testing::{kitty_ids_on_screen, transmission};
     use crate::graphics::{Graphics, Images, Passthrough, Protocol};
-    use crate::tui::render::PaneLayout;
+    use crate::tui::render::{PaneLayout, test_support};
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
         "context": [{"type": "image", "path": "/nowhere/cat.png"}],
@@ -2673,6 +2691,51 @@ mod tests {
     }
 
     const PICTURE: &str = r#"{"type": "image", "path": "{picture}"}"#;
+
+    /// The frame that sends a Kitty image logs the bytes of the
+    /// transmission, how long the frame took and how long writing it took,
+    /// so the log tells what showing an image cost. The test's view waits
+    /// for the image to load, so the run's one frame sends it.
+    #[test]
+    fn a_frame_that_sends_a_kitty_image_logs_its_bytes_and_times() {
+        let mut watched = Watched::new();
+        watched.put("only", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
+
+        let log = test_support::logged(|| {
+            watched.run(&mut app, &mut inbox, &mut view, Vec::new());
+        });
+
+        let sent = transmission(watched.terminal.backend().backend.buffer()).len();
+        let lines: Vec<&str> = log
+            .lines()
+            .filter(|line| line.contains("frame sent a Kitty image"))
+            .collect();
+        assert_eq!(lines.len(), 1, "{log}");
+        assert!(lines[0].contains(&format!("bytes={sent} ")), "{log}");
+        assert!(
+            lines[0].contains(" took=") && lines[0].contains(" written="),
+            "{log}"
+        );
+    }
+
+    /// A frame that shows a Kitty image sent before sends nothing, and
+    /// logs nothing about it: a resize to the same size keeps the
+    /// encoding.
+    #[test]
+    fn a_frame_that_shows_a_kitty_image_already_sent_logs_nothing() {
+        let mut watched = Watched::new();
+        watched.put("only", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
+
+        let log = test_support::logged(|| {
+            watched.run(&mut app, &mut inbox, &mut view, vec![Event::Resize]);
+        });
+
+        assert_eq!(log.matches("frame sent a Kitty image").count(), 1, "{log}");
+    }
 
     #[test]
     fn finishing_the_only_session_deletes_its_image_after_the_empty_queue_frame() {

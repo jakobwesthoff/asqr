@@ -3435,40 +3435,6 @@ mod tests {
         assert!(!viewer.failed(), "a viewer that shows no problem says so");
     }
 
-    /// What `run` logged, as asqr's log file has it.
-    fn logged(run: impl FnOnce()) -> String {
-        #[derive(Clone, Default)]
-        struct Written(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-        impl std::io::Write for Written {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                self.0
-                    .lock()
-                    .expect("no test thread panicked while writing")
-                    .extend_from_slice(bytes);
-                Ok(bytes.len())
-            }
-
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let written = Written::default();
-        let log = written.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_ansi(false)
-            .with_writer(move || log.clone())
-            .finish();
-        tracing::subscriber::with_default(subscriber, run);
-        let bytes = written
-            .0
-            .lock()
-            .expect("no test thread panicked while writing")
-            .clone();
-        String::from_utf8(bytes).expect("the log is UTF-8")
-    }
-
     #[test]
     fn a_card_logs_the_original_message_once() {
         let reason = std::fs::metadata("/nowhere/fetch.rs")
@@ -3476,7 +3442,7 @@ mod tests {
             .to_string();
         let code = entry(r#"{"type": "code", "path": "/nowhere/fetch.rs"}"#);
 
-        let log = logged(|| {
+        let log = test_support::logged(|| {
             let mut viewers = viewers();
             for (width, height) in [(40, 10), (40, 10), (30, 8)] {
                 viewers.laid_out("s", QUESTION, &code, width, height, COLOURED);
@@ -3502,7 +3468,7 @@ mod tests {
         std::fs::write(&cut, &bytes[..bytes.len() / 2]).expect("file is writable");
         let image = entry(&serde_json::json!({"type": "image", "path": cut}).to_string());
 
-        let log = logged(|| {
+        let log = test_support::logged(|| {
             viewers().laid_out("s", QUESTION, &image, 40, 10, COLOURED);
         });
 
