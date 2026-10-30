@@ -4,10 +4,11 @@
 
 //! `asqr prune` (spec section 5.9).
 
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use super::Exit;
-use crate::queue::{QueueLocation, prune};
+use crate::queue::{QueueLocation, prune, prune_empty_queues};
 
 /// Parses an age such as `30d`: a whole number and one unit, `s`, `m`, `h`,
 /// `d` or `w`. Used as clap's value parser, so a malformed age is a usage
@@ -33,8 +34,22 @@ pub(super) fn parse_age(input: &str) -> Result<Duration, String> {
         .ok_or_else(|| format!("{input} is too long an age"))
 }
 
-pub(super) fn run(location: &QueueLocation, older_than: Duration, include_results: bool) -> Exit {
-    match prune(location, older_than, include_results, SystemTime::now()) {
+/// Prunes the queue at `location`, then removes the named queues under
+/// `root` that nobody watches and that hold no file.
+pub(super) fn run(
+    location: &QueueLocation,
+    root: Option<&Path>,
+    older_than: Duration,
+    include_results: bool,
+) -> Exit {
+    let pruned =
+        prune(location, older_than, include_results, SystemTime::now()).and_then(|mut removed| {
+            if let Some(root) = root {
+                removed.extend(prune_empty_queues(root)?);
+            }
+            Ok(removed)
+        });
+    match pruned {
         Ok(removed) => {
             for path in removed {
                 tracing::info!(path = %path.display(), "pruned");

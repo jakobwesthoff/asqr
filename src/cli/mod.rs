@@ -465,7 +465,7 @@ fn dispatch(
         Command::Prune {
             older_than,
             results,
-        } => prune::run(&location, older_than, results),
+        } => prune::run(&location, root.as_deref(), older_than, results),
         Command::Skill { part, install } => skill::run(part.as_deref(), install.as_deref()),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),
@@ -1057,6 +1057,20 @@ mod tests {
             "{:?}",
             tmux.calls()
         );
+    }
+
+    #[test]
+    fn prune_without_a_data_directory_prunes_the_queue_directory_alone() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let dir = scratch.path().to_str().expect("UTF-8 temp path");
+        let cli = Cli::try_parse_from(["asqr", "--dir", dir, "prune", "--older-than", "1d"])
+            .expect("parses");
+
+        let exit = dispatch(cli, Environment::default(), &Unasked, None, |_| {
+            unreachable!("no TUI for prune")
+        });
+
+        assert_eq!(exit, Exit::Success);
     }
 
     #[test]

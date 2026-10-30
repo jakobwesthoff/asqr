@@ -91,6 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warn where they found it; `withdraw` and `ask --replaces` name that
   queue and take nothing back. An unknown id's error says that every
   named queue was searched.
+- `asqr prune` also removes the named queues no asqr watches that hold
+  no file, such as one a mistyped `--queue` made, and prints each.
 - The screen behind the help, the intro, the session list and the
   dialog of an invalid session is dim and shows no focus fill, so the
   overlay's own fill is the one on the screen. The status line, the key

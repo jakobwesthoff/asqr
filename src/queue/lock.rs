@@ -10,6 +10,7 @@
 
 use std::fs::{File, TryLockError};
 use std::io::{self, Read, Seek, Write};
+use std::path::Path;
 
 use thiserror::Error;
 
@@ -49,13 +50,81 @@ pub enum LockError {
 }
 
 fn open_lock_file(location: &QueueLocation) -> io::Result<File> {
+    open_in_queue(location, &location.lock_file())
+}
+
+/// Opens the lock file at `path` in the queue at `location`, creating
+/// both where they are missing, as after `asqr prune` removed the queue.
+fn open_in_queue(location: &QueueLocation, path: &Path) -> io::Result<File> {
     std::fs::create_dir_all(location.dir())?;
     File::options()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .open(location.lock_file())
+        .open(path)
+}
+
+/// The outcome of [`take`].
+enum Taken {
+    Locked(File),
+    /// Someone else held the lock through every attempt; the file names
+    /// the holder.
+    Held(File),
+}
+
+/// Takes the exclusive lock on the lock file at `path`, which `open`
+/// opens, trying `attempts` times, [`LOCK_RETRY`] apart.
+///
+/// `flock` locks the open file, not its path. `asqr prune` removes the
+/// lock files of a queue it removes while it holds their locks, so a
+/// process that opened one before and waited gets the lock of a file no
+/// path names, which guards nothing: the next process opens a new file at
+/// the path and locks that one too. So a lock taken is kept only on the
+/// file the path still names; otherwise the path is opened again with
+/// `open` and tried at once.
+fn take(
+    path: &Path,
+    mut open: impl FnMut() -> io::Result<File>,
+    attempts: u32,
+) -> io::Result<Taken> {
+    let mut file = open()?;
+    let mut tried = 0;
+    loop {
+        if acquired(file.try_lock())? {
+            if still_at(&file, path)? {
+                return Ok(Taken::Locked(file));
+            }
+            file = open()?;
+            continue;
+        }
+        tried += 1;
+        if tried >= attempts {
+            return Ok(Taken::Held(file));
+        }
+        std::thread::sleep(LOCK_RETRY);
+    }
+}
+
+/// Whether `file` is the file `path` names now: the same device and inode.
+/// A path that names nothing any more names another file.
+#[cfg(unix)]
+fn still_at(file: &File, path: &Path) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+
+    let held = file.metadata()?;
+    match std::fs::metadata(path) {
+        Ok(named) => Ok((held.dev(), held.ino()) == (named.dev(), named.ino())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// asqr is released for macOS and Linux only; elsewhere the check is not
+/// made.
+#[cfg(not(unix))]
+fn still_at(_file: &File, _path: &Path) -> io::Result<bool> {
+    Ok(true)
 }
 
 fn read_holder(file: &mut File) -> io::Result<Holder> {
@@ -101,17 +170,13 @@ pub fn lock_queue(
     location: &QueueLocation,
     tmux: Option<&TmuxPane>,
 ) -> Result<QueueLock, LockError> {
-    let mut file = open_lock_file(location)?;
+    let path = location.lock_file();
     // `lock_holder` takes a shared lock for a moment, so a refusal is only
     // final once it lasts longer than such a check.
-    let mut attempts = 0;
-    while !acquired(file.try_lock())? {
-        attempts += 1;
-        if attempts == LOCK_ATTEMPTS {
-            return Err(LockError::Held(read_holder(&mut file)?));
-        }
-        std::thread::sleep(LOCK_RETRY);
-    }
+    let mut file = match take(&path, || open_lock_file(location), LOCK_ATTEMPTS)? {
+        Taken::Locked(file) => file,
+        Taken::Held(mut file) => return Err(LockError::Held(read_holder(&mut file)?)),
+    };
     let host = gethostname::gethostname();
     file.set_len(0)?;
     file.rewind()?;
@@ -131,6 +196,17 @@ pub fn lock_queue(
         writeln!(file, "tmux {socket} {pane}")?;
     }
     Ok(QueueLock { _file: file })
+}
+
+/// Takes the queue lock once, without waiting and without writing this
+/// process into the file, or gives `None` while someone holds it: for
+/// `asqr prune`, which removes a queue only while nobody watches it.
+pub fn try_lock_queue(location: &QueueLocation) -> io::Result<Option<QueueLock>> {
+    let path = location.lock_file();
+    Ok(match take(&path, || open_lock_file(location), 1)? {
+        Taken::Locked(file) => Some(QueueLock { _file: file }),
+        Taken::Held(_) => None,
+    })
 }
 
 /// Who holds the queue lock, if anyone, without taking it. Commands that
@@ -179,24 +255,14 @@ pub struct DraftsLock {
 /// the last attempt is an error of kind [`io::ErrorKind::WouldBlock`]
 /// saying that the queue is busy.
 pub fn lock_drafts(location: &QueueLocation, attempts: u32) -> io::Result<DraftsLock> {
-    let file = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(location.drafts_lock_file())?;
-    let mut tried = 1;
-    while !acquired(file.try_lock())? {
-        if tried >= attempts {
-            return Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "the queue is busy",
-            ));
-        }
-        tried += 1;
-        std::thread::sleep(LOCK_RETRY);
+    let path = location.drafts_lock_file();
+    match take(&path, || open_in_queue(location, &path), attempts)? {
+        Taken::Locked(file) => Ok(DraftsLock { _file: file }),
+        Taken::Held(_) => Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "the queue is busy",
+        )),
     }
-    Ok(DraftsLock { _file: file })
 }
 
 /// A step of an operation under the drafts lock, after which the
@@ -491,6 +557,119 @@ mod tests {
         let failed = lock_drafts(&location, 1).expect_err("a directory is no lock file");
 
         assert_ne!(failed.kind(), io::ErrorKind::WouldBlock);
+    }
+
+    /// Whether `file` is the file at `path`.
+    fn is_at(file: &File, path: &std::path::Path) -> bool {
+        use std::os::unix::fs::MetadataExt;
+
+        let held = file.metadata().expect("the open file");
+        let named = std::fs::metadata(path).expect("the file at the path");
+        (held.dev(), held.ino()) == (named.dev(), named.ino())
+    }
+
+    /// An `open` for [`take`] that gives `first` and then what `then` opens:
+    /// a waiter that opened a lock file before it was removed.
+    fn opening(
+        first: File,
+        then: impl Fn() -> io::Result<File>,
+    ) -> impl FnMut() -> io::Result<File> {
+        let mut first = Some(first);
+        move || first.take().map_or_else(&then, Ok)
+    }
+
+    /// A waiter opened the lock file at `path`; then it was removed, as
+    /// `asqr prune` removes it, and a new one was made at the path.
+    fn stale_lock_file(location: &QueueLocation, path: &std::path::Path) -> File {
+        let waiter = open_in_queue(location, path).expect("opens");
+        std::fs::remove_file(path).expect("removed");
+        std::fs::write(path, "").expect("made anew");
+        waiter
+    }
+
+    #[test]
+    fn the_instance_lock_on_a_removed_file_is_taken_again_on_the_new_one() {
+        let (_scratch, location) = queue();
+        let path = location.lock_file();
+        let waiter = stale_lock_file(&location, &path);
+
+        let taken = take(&path, opening(waiter, || open_lock_file(&location)), 1).expect("takes");
+
+        let Taken::Locked(file) = taken else {
+            panic!("nobody else holds it");
+        };
+        assert!(
+            is_at(&file, &path),
+            "the lock is on the file the path names"
+        );
+    }
+
+    #[test]
+    fn the_drafts_lock_on_a_removed_file_is_taken_again_on_the_new_one() {
+        let (_scratch, location) = queue();
+        let path = location.drafts_lock_file();
+        let waiter = stale_lock_file(&location, &path);
+
+        let taken = take(
+            &path,
+            opening(waiter, || open_in_queue(&location, &path)),
+            1,
+        )
+        .expect("takes");
+
+        let Taken::Locked(file) = taken else {
+            panic!("nobody else holds it");
+        };
+        assert!(
+            is_at(&file, &path),
+            "the lock is on the file the path names"
+        );
+    }
+
+    #[test]
+    fn a_lock_file_whose_path_is_gone_is_made_anew() {
+        let (_scratch, location) = queue();
+        let path = location.lock_file();
+        let waiter = open_lock_file(&location).expect("opens");
+        std::fs::remove_dir_all(location.dir()).expect("the queue is removed");
+
+        let taken = take(&path, opening(waiter, || open_lock_file(&location)), 1).expect("takes");
+
+        let Taken::Locked(file) = taken else {
+            panic!("nobody else holds it");
+        };
+        assert!(is_at(&file, &path));
+    }
+
+    #[test]
+    fn a_lock_file_whose_path_cannot_be_looked_at_is_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_scratch, location) = queue();
+        let path = location.lock_file();
+        let file = open_lock_file(&location).expect("opens");
+        std::fs::set_permissions(location.dir(), std::fs::Permissions::from_mode(0o000))
+            .expect("permissions change");
+
+        let taken = take(
+            &path,
+            opening(file, || Err(io::Error::other("not opened again"))),
+            1,
+        );
+        std::fs::set_permissions(location.dir(), std::fs::Permissions::from_mode(0o755))
+            .expect("permissions back");
+
+        assert!(taken.is_err());
+    }
+
+    #[test]
+    fn the_drafts_lock_creates_a_missing_queue_directory() {
+        let (_scratch, location) = queue();
+
+        let held = lock_drafts(&location, 1).expect("locks a queue not made yet");
+
+        assert!(location.drafts_lock_file().is_file());
+        drop(held);
     }
 
     #[test]

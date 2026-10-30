@@ -821,6 +821,16 @@ TUI keeps the answers and shows the error as a notice, and recovery
 leaves the session to its next run. The file stays after use, like
 `lock`. A TUI of an asqr from before the drafts lock does not take it.
 
+Both locks follow their path (ADR 85). `flock` locks the open file, and
+`asqr prune` removes the lock files of a queue it removes while it holds
+both locks (section 5.9). A process that took a lock checks that the
+file it holds is still the one the path names, by device and inode;
+when the path names another file or none, it lets go, opens the path
+again, creating the queue's directory, and tries at once. So a process
+that waited on a removed file never holds a lock nobody else can see.
+Taking either lock creates the queue's directory, and `ask` creates the
+four directories only once it holds the drafts lock.
+
 ### 5.7 Finishing a session
 
 Submit, reject (both on the review tab), an error result and a
@@ -908,6 +918,16 @@ Nothing is deleted automatically, apart from drafts in step 3 of section
   duration. Its help text says plainly that unread results are removed
   too.
 - Drafts are never pruned.
+- `prune` also removes every named queue under the root (section 5.2)
+  that no asqr watches and that holds no file: its four directories are
+  empty or missing and nothing else lies in it. `lock` and `drafts.lock`
+  hold no session data and do not count. It takes both locks without
+  waiting and skips a queue where either is taken, removes the four
+  directories and then the lock files while it holds them, and the
+  queue's directory last; each removed queue prints as `removed
+  <directory>`. The default queue goes too when it holds nothing, and is
+  made again on its next use. Which queues go does not depend on
+  `--queue` or `--dir`.
 - Both print every file they remove, as `removed <path>`.
 
 ### 5.10 Withdrawing a session

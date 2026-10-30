@@ -112,3 +112,64 @@ fn fails_when_the_archive_cannot_be_read() {
 
     assert_eq!(output.status.code(), Some(1));
 }
+
+#[test]
+fn removes_a_named_queue_that_holds_nothing_and_prints_it() {
+    let sandbox = Sandbox::new();
+    // A mistyped queue name made a queue on its first use.
+    let output = sandbox
+        .asqr()
+        .args(["--queue", "asqr-todo", "status"])
+        .output()
+        .expect("runs");
+    assert!(output.status.success());
+    let paths = sandbox
+        .asqr()
+        .args(["--queue", "asqr-todo", "paths", "--json"])
+        .output()
+        .expect("runs");
+    let paths: serde_json::Value = serde_json::from_str(&stdout(&paths)).expect("JSON");
+    let stray = paths["queue"].as_str().expect("a queue").to_owned();
+    std::fs::create_dir_all(std::path::Path::new(&stray).join("inbox")).expect("made");
+
+    let output = sandbox
+        .asqr()
+        .args(["prune", "--older-than", "30d"])
+        .output()
+        .expect("runs");
+
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), format!("removed {stray}\n"));
+    assert!(!std::path::Path::new(&stray).exists());
+}
+
+#[test]
+fn queues_that_cannot_be_listed_fail_the_prune() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let sandbox = Sandbox::new();
+    let paths = sandbox
+        .asqr()
+        .args(["--queue", "work", "paths", "--json"])
+        .output()
+        .expect("runs");
+    let paths: serde_json::Value = serde_json::from_str(&stdout(&paths)).expect("JSON");
+    let queue = std::path::PathBuf::from(paths["queue"].as_str().expect("a queue"));
+    std::fs::create_dir_all(&queue).expect("made");
+    let queues = queue.parent().expect("the queues directory").to_path_buf();
+    std::fs::set_permissions(&queues, std::fs::Permissions::from_mode(0o000))
+        .expect("permissions change");
+
+    let output = sandbox
+        .asqr_in_queue(&["prune", "--older-than", "30d"])
+        .output()
+        .expect("runs");
+    std::fs::set_permissions(&queues, std::fs::Permissions::from_mode(0o755))
+        .expect("permissions back");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).starts_with("error: cannot prune the queue: "),
+        "{output:?}"
+    );
+}

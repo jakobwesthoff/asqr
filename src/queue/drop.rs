@@ -78,8 +78,11 @@ pub fn drop_session_with(
     force: bool,
     mut gate: Gate<'_>,
 ) -> Result<Dropped, DropError> {
-    location.create_layout()?;
+    // The directories are made under the drafts lock, which `asqr prune`
+    // holds while it removes an empty queue: a drop never writes into a
+    // queue removed after it made the directories.
     let _lock = lock_drafts(location, gate.attempts)?;
+    location.create_layout()?;
     let checked = check_drop(location, id, force)?;
     (gate.step)(Step::Checked);
     write_drop(location, id, bytes, checked, &mut gate.step)

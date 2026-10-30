@@ -176,8 +176,9 @@ pub fn drop_replacing(
     mut gate: Gate<'_>,
 ) -> Result<(Withdrawn, Dropped), ReplaceError> {
     let refused = |error| ReplaceError::Drop(DropError::Io(error));
-    location.create_layout().map_err(refused)?;
+    // Made under the drafts lock, as `drop_session_with` makes them.
     let _lock = lock_drafts(location, gate.attempts).map_err(refused)?;
+    location.create_layout().map_err(refused)?;
     let checked = check_drop(location, id, force).map_err(ReplaceError::Drop)?;
     let withdrawn =
         withdraw_locked(location, old, force, &mut gate.step).map_err(ReplaceError::Withdraw)?;

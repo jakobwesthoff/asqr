@@ -10,7 +10,8 @@ Amends [5. Keep all queues under one platform data root](0005-keep-all-queues-un
 inside tmux the queue comes from the pane's tmux session
 
 Amends [14. Lock a queue to one asqr instance](0014-lock-a-queue-to-one-asqr-instance.md):
-the lock file names the tmux pane of its holder
+the lock file names the tmux pane of its holder, and a lock follows its
+path
 
 ## Context
 
@@ -51,6 +52,12 @@ the lock file names the tmux pane of its holder
 - The lock file gets a second line, `tmux <socket> <pane>`, when its
   holder runs in a tmux pane. The session behind the pane is looked up
   when it is shown.
+- `asqr prune` removes the named queues nobody watches that hold no
+  file; their lock files hold no session data and do not count. It
+  removes the lock files while it holds both locks.
+- `flock` locks an open file, not its path, so a lock taken on a file
+  its path no longer names is let go and taken again on the file the
+  path names; a removed queue never leaves two holders.
 - When tmux cannot be asked from inside tmux, or does not take the pin,
   asqr behaves as outside tmux, without a word: outside tmux, and in other multiplexers,
   everything works through the default queue and the flags and
