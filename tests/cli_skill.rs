@@ -432,6 +432,14 @@ fn the_core_keeps_the_key_rules() {
 }
 
 #[test]
+fn the_core_tells_agents_to_follow_asqrs_advice() {
+    let asking = flat(section("Asking and waiting"));
+
+    assert!(asking.contains("start with `hint:`"), "{asking}");
+    assert!(asking.contains("Follow it"), "{asking}");
+}
+
+#[test]
 fn the_skill_says_to_look_in_asqr_before_answering_in_the_chat() {
     assert!(flat(section("Asking and waiting")).contains("may have answered in asqr"));
 }

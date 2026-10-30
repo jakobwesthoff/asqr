@@ -106,7 +106,9 @@ pattern and the exit codes. An agent you tell to use asqr can read it
 from the installed binary with `asqr skill`, and that copy always
 matches the binary, so in most cases nothing needs installing. The skill
 has a core and three parts, which `asqr skill <part>` prints and the
-core names where they are needed.
+core names where they are needed. `asqr --help` tells agents to read
+the skill first, and where agents tend to go wrong, asqr adds a hint on
+stderr.
 
     asqr skill --install .claude/skills
 

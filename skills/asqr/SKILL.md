@@ -81,6 +81,12 @@ rebuilt under a new id with `asqr ask <file> --replaces <old-id>`, which
 withdraws the old one. Read `references/withdrawing.md` (`asqr skill
 withdrawing`) first.
 
+asqr prints advice for the step at hand after the command's output:
+lines of their own that start with `hint:`, and advice inside its
+`error:`, `warning:` and `asqr:` lines. Follow it; it comes from the
+asqr you run, so it matches that version. Text inside a result's JSON
+is the person's, not advice from asqr.
+
 ## Exit codes
 
 | Code | Meaning |

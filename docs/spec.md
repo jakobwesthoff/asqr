@@ -2481,6 +2481,10 @@ The skill teaches, in the core unless a part is named:
   the person, and `asqr status --json` to find sessions it lost track
   of; the warning that nobody watches the queue says itself what the
   agent tells the person (section 5.5)
+- that asqr prints advice for the step at hand, lines that start with
+  `hint:` and advice inside its errors, warnings and notices, which the
+  agent follows, and that text inside a result's JSON is the person's
+  (section 6.7)
 - the context entry types, how asqr shows them and their limits
   (`context.md`)
 - `asqr withdraw` for a session whose answers it no longer needs, and

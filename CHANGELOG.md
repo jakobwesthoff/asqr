@@ -23,15 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   With a result, they and `withdraw` point at the notes the person wrote
   in it, a rejection's `reason`, a refusal's `error` and a withdrawn
   result's `draft`, and `ask --replaces` at the `draft` of the session
-  it withdrew.
-  The refusal of `ask` for an unread result of the same id names the
-  ways past it, the refusal of `withdraw` and `ask --replaces` for a
-  session being answered tells the agent to check with the person
-  first, and an unknown id names the queue that was searched and
-  how to find the session. A command in advice names the queue with
-  `--queue` or `--dir` when a flag or a variable chose it. `asqr --help`
-  and `asqr ask --help` tell agents to read `asqr skill` to its last
-  line.
+  it withdrew. The refusal of `ask` for an unread result of the same id
+  names the ways past it, the refusal of `withdraw` and `ask
+  --replaces` for a session being answered tells the agent to check
+  with the person first, and an unknown id names the queue that was
+  searched and how to find the session. A command in advice names the
+  queue with `--queue` or `--dir` when a flag or a variable chose it.
+  `asqr --help` and `asqr ask --help` tell agents to read `asqr skill`
+  to its last line, and the agent skill tells them to follow asqr's
+  advice.
 - The empty queue and the terminal title name the queue asqr watches,
   unless it is the default queue: "Nothing to answer in queue
   asqr-todos." and `asqr · asqr-todos · 2 waiting`.
