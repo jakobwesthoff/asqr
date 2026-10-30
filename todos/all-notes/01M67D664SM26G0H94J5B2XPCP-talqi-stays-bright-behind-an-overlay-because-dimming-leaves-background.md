@@ -2,7 +2,6 @@
 title: "Talqi stays bright behind an overlay because dimming leaves background colours as they are"
 kind: bug
 component: tui
-status: needs-discussion
 origin: review
 tags: [ux]
 ---
@@ -33,11 +32,34 @@ terminal.
   as a diff's changed lines and the submit button, which `dim.rs`
   leaves to SGR 2.
 
-## Idea to examine (Jakob, 2026-10-30)
+## Decision (Jakob, 2026-10-30, in the chat)
 
-Replace the colours of the dimmed cells by a dimmed greyscale of their
-brightness, foreground and background alike, instead of relying on SGR
-2. Open: how a named ANSI colour or the terminal's default colour
-(whose RGB value asqr does not know) gets a brightness, what terminals
-without 24-bit colour get, and whether Kitty image placeholders keep
-their style as now.
+**Behind an overlay Talqi is drawn as his colourless outline, and
+`dim_behind` takes the fill off every reversed cell.** The outline is
+the art asqr already draws under NO_COLOR (`src/tui/render/empty.rs:40`),
+which SGR 2 dims fully on a dark or light theme, at any colour depth
+and under NO_COLOR. Diff fills and the submit button then show as dim
+coloured text. Rejected, compared as mockups (conductor logbook,
+`plans/dimming-investigation.md` and `plans/dimming-*.png`):
+
+- a dimmed greyscale of every cell's brightness: asqr does not know the
+  RGB value of named ANSI colours and the terminal's default colour, so
+  text turns near black on a dark theme and fills become dark blocks on
+  a light one;
+- greyscale only for RGB colours (Talqi): a dark block on a light theme,
+  black or white on 16 colours, since asqr detects no colour depth;
+- blending RGB backgrounds toward dark: fixes Talqi only.
+
+## Technical notes (lead, 2026-10-30)
+
+- `dim_behind` does not find Talqi in the buffer. `draw_screen`
+  (`src/tui/render/screen.rs:391-401`) knows whether an overlay is open
+  (`app.overlay()`) before it renders `EmptyQueue`, so it asks for the
+  outline there, as it does for NO_COLOR (`no_color: view.no_color`);
+  the field becomes one that means "draw the outline". `dim_behind`
+  stays a rule over cells: it already takes the focus fill off, and
+  takes REVERSED off every cell the same way.
+- The invalid-session dialog hides Talqi already
+  (`talqi: app.invalid_shown().is_none()`).
+- ADR 84 gains the rule (a new ADR amending it); the overlay snapshots
+  and `src/tui/render/dim.rs` tests change.
