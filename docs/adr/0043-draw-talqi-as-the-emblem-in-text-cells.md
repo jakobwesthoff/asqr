@@ -9,6 +9,9 @@ Accepted
 Amended by [81. Name the chosen queue](0081-name-the-chosen-queue.md):
 the sentence under Talqi names a chosen queue
 
+Amended by [88. Draw Talqi as his outline behind an overlay](0088-draw-talqi-as-his-outline-behind-an-overlay.md):
+Talqi is the outline also behind an overlay
+
 ## Context
 
 With no session waiting, the main area holds one centred sentence,

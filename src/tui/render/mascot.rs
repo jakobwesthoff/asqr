@@ -4,7 +4,7 @@
 
 //! Talqi, asqr's mascot, as the empty queue shows it (spec section 7.5,
 //! ADR 43): the terminal emblem as a fixed block of text cells, in colour
-//! or as an outline under `NO_COLOR`, in glyphs chosen for the terminal.
+//! or as an outline without colour, in glyphs chosen for the terminal.
 
 mod glyphs;
 mod template;

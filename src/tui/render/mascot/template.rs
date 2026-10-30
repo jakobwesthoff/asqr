@@ -26,7 +26,7 @@ pub enum Glyphs {
 
 impl Glyphs {
     /// The template of the emblem in these glyphs: in colour, or the
-    /// outline for `NO_COLOR`.
+    /// outline, which has no colour: for `NO_COLOR` and behind an overlay.
     pub(in crate::tui::render) fn template(self, outline: bool) -> &'static Template {
         static COLOUR_SEXTANT: LazyLock<Template> =
             LazyLock::new(|| built_in(include_str!("talqi-colour-sextant.ansi")));

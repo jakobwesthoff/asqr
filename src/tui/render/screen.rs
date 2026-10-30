@@ -395,7 +395,10 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 queue: view.named_queue(),
                 glyphs: view.glyphs,
                 talqi: app.invalid_shown().is_none(),
-                no_color: view.no_color,
+                // Dimming adds `DIM` and leaves background colours as they
+                // are, and the outline sets none, so it is what Talqi is
+                // behind an overlay.
+                outline: view.no_color || overlay.is_some(),
             };
             frame.render_widget(empty, main);
             (Drawn::default(), empty_queue_hints(), None)
@@ -2215,8 +2218,11 @@ mod tests {
         assert!(cell.modifier.contains(Modifier::BOLD | Modifier::DIM));
     }
 
+    /// The fills of asqr's own other than the focus lose their reversal
+    /// behind an overlay and show as dim text, in their colour where there
+    /// are colours.
     #[test]
-    fn dimming_keeps_the_fills_that_are_not_the_focus() {
+    fn dimming_takes_the_fill_of_the_submit_button_off() {
         // On the review the cursor stands on the submit button, whose fill
         // is its own and not the focus.
         let one = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
@@ -2224,12 +2230,19 @@ mod tests {
         let mut app = app(&[("one", one)]);
         keys(&mut app, "1?");
 
-        let backend = screen(&app, 120, 40);
-        let buf = backend.buffer();
+        for (no_color, colour) in [(false, Color::Cyan), (true, Color::Reset)] {
+            let mut view =
+                View::for_tests("q", PaneLayout::Auto, Images::half_blocks()).no_color(no_color);
+            let backend = screen_in(&app, &mut view, 120, 40);
+            let buf = backend.buffer();
 
-        let button = &buf[find(buf, "[ Submit ]")];
-        assert!(button.modifier.contains(Modifier::REVERSED), "{button:?}");
-        assert!(button.modifier.contains(Modifier::DIM), "{button:?}");
+            let button = &buf[find(buf, "[ Submit ]")];
+            assert_eq!(
+                (button.fg, button.modifier),
+                (colour, Modifier::BOLD | Modifier::DIM),
+                "no_color {no_color}"
+            );
+        }
     }
 
     fn waiting_in_work(count: usize) -> Vec<crate::queue::WaitingQueue> {
@@ -2919,6 +2932,38 @@ mod tests {
         let closed = screen(&app, 80, 36);
         let rect = emblem_rect(80, 36).expect("room for Talqi");
         assert_drawn(closed.buffer(), Glyphs::Quadrant, false, rect);
+    }
+
+    /// The queue switcher is the one overlay over the empty queue. Behind
+    /// it Talqi is the dimmed outline, with colours as under `NO_COLOR`.
+    #[test]
+    fn talqi_is_the_dimmed_outline_behind_the_queue_switcher() {
+        for no_color in [false, true] {
+            let mut app = App::default();
+            app.open_queues(queues(in_tmux_asqr()));
+            let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks())
+                .no_color(no_color);
+
+            let backend = screen_in(&app, &mut view, 80, 40);
+            let buf = backend.buffer();
+
+            // The frame of the switcher covers the middle of Talqi.
+            let (left, top) = find(buf, "╭");
+            let (_, bottom) = find(buf, "╰");
+            let frame = Rect::new(left, top, 80 - 2 * left, bottom + 1 - top);
+            let emblem = emblem_rect(80, 40).expect("room for Talqi");
+            let mut expected = Buffer::empty(buf.area);
+            Glyphs::Quadrant
+                .template(true)
+                .render(emblem, &mut expected);
+            dim_behind(&mut expected, emblem, None);
+            for position in emblem.positions().filter(|p| !frame.contains(*p)) {
+                assert_eq!(
+                    buf[position], expected[position],
+                    "{position:?}, no_color {no_color}"
+                );
+            }
+        }
     }
 
     /// A frame shows the session only with nothing over it and at a size
@@ -5919,6 +5964,41 @@ mod tests {
             first.contains("+ n03") && !first.contains("o03"),
             "{unified}"
         );
+    }
+
+    /// Behind the help, the removed and the added lines of a diff are dim
+    /// text in red and green, without the reversal of their fill. The
+    /// screen is wide enough for the pane to stand beside the help.
+    #[test]
+    fn the_changed_lines_of_a_diff_behind_the_help_are_dim_text() {
+        // The pane shows `o01` at first and, scrolled to `n03`, the added
+        // lines.
+        for (no_color, scrolled, text, colour) in [
+            (false, false, "o01", Color::Red),
+            (false, true, "n04", Color::Green),
+            (true, false, "o01", Color::Reset),
+            (true, true, "n04", Color::Reset),
+        ] {
+            let (mut app, mut view) = (long_replace(), view().no_color(no_color));
+            screen_handing_on_pane(&mut app, &mut view, 200, 30);
+            if scrolled {
+                for key in to_n03() {
+                    special(&mut app, key);
+                    screen_handing_on_pane(&mut app, &mut view, 200, 30);
+                }
+            }
+            keys(&mut app, "?");
+
+            let backend = screen_handing_on_pane(&mut app, &mut view, 200, 30);
+            let buf = backend.buffer();
+
+            let cell = &buf[find(buf, text)];
+            assert_eq!(
+                (cell.fg, cell.modifier),
+                (colour, Modifier::DIM),
+                "{text}, no_color {no_color}"
+            );
+        }
     }
 
     /// The pane drawn with a key waiting behind the draw, which shows

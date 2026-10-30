@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Behind an overlay, Talqi on the empty queue is drawn as his colourless
+  outline, and the submit button and a diff's changed lines show as dim
+  text in their colour, where colours are on, instead of staying bright.
+
 ## [0.15.0] - 2026-10-30
 
 ### Added

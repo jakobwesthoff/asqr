@@ -146,8 +146,8 @@ palette's own values, not to a terminal theme.
 
 Illustrations are the exception. Talqi on the empty queue is the
 terminal emblem drawn in text cells, each with its own RGB foreground
-and background. Under `NO_COLOR`, Talqi is the outline of the emblem,
-without any colour.
+and background. Under `NO_COLOR` and behind an overlay, Talqi is the
+outline of the emblem, without any colour.
 
 An `ansi` context entry shows the colours its own text sets, RGB colours
 included; under `NO_COLOR` it shows none.
@@ -172,8 +172,10 @@ included; under `NO_COLOR` it shows none.
   has the focus, the question's current row keeps its pointer and bold
   text but loses its fill.
 - Behind an overlay the screen is dim and drops its focus fill, so the
-  overlay's own fill is the one on the screen. The status line and the
-  key bar stay as they are, and so do the cells of a Kitty image.
+  overlay's own fill is the one on the screen. The submit button and a
+  diff's changed lines are dim text in their colour there, not fills.
+  The status line and the key bar stay as they are, and so do the cells
+  of a Kitty image.
 - Code and Markdown keep the colours their highlighting gives them,
   including yellow inline code, and an `ansi` entry the colours its text
   sets. A Markdown quote's bar is blue, apart

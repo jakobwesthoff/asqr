@@ -9,6 +9,10 @@ Accepted
 Amends [37. Colour the TUI by roles](0037-colour-the-tui-by-roles.md):
 the screen behind an overlay is dim and shows no focus fill
 
+Amended by [88. Draw Talqi as his outline behind an overlay](0088-draw-talqi-as-his-outline-behind-an-overlay.md):
+the dimming takes the fill off the submit button and a diff's changed
+lines as well as the focus fill
+
 ## Context
 
 - The help, the intro, the session list and the dialog of an invalid

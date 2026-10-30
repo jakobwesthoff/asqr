@@ -36,9 +36,9 @@ pub(super) struct EmptyQueue<'a> {
     /// Whether Talqi shows: the dialog of an invalid session hides him
     /// while it is open (ADR 49).
     pub(super) talqi: bool,
-    /// Whether the screen is drawn without colours (`NO_COLOR`). Talqi is
-    /// then the emblem's outline, which has no colour at all.
-    pub(super) no_color: bool,
+    /// Whether Talqi is the emblem's outline, which has no colour at all:
+    /// under `NO_COLOR`, and behind an overlay.
+    pub(super) outline: bool,
 }
 
 impl Widget for EmptyQueue<'_> {
@@ -49,7 +49,7 @@ impl Widget for EmptyQueue<'_> {
             (None, sentence_alone(area))
         };
         if let Some(emblem) = emblem {
-            self.glyphs.template(self.no_color).render(emblem, buf);
+            self.glyphs.template(self.outline).render(emblem, buf);
         }
         match self.queue {
             None => Paragraph::new(SENTENCE)
@@ -190,35 +190,35 @@ mod tests {
     }
 
     /// The empty queue drawn into a buffer of `width`×`height`.
-    fn drawn(glyphs: Glyphs, no_color: bool, width: u16, height: u16) -> Buffer {
+    fn drawn(glyphs: Glyphs, outline: bool, width: u16, height: u16) -> Buffer {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
         EmptyQueue {
             queue: None,
             glyphs,
             talqi: true,
-            no_color,
+            outline,
         }
         .render(area, &mut buf);
         buf
     }
 
-    /// With colours Talqi is the colour template, under NO_COLOR the
-    /// outline, each in the glyphs asked for, above the sentence.
+    /// Talqi is the colour template, or the outline where asked for, each
+    /// in the glyphs asked for, above the sentence.
     #[test]
     fn talqi_is_the_template_of_the_glyphs_and_the_colours_above_the_sentence() {
         for glyphs in [Glyphs::Sextant, Glyphs::Quadrant] {
-            for no_color in [false, true] {
-                let buf = drawn(glyphs, no_color, 80, 30);
+            for outline in [false, true] {
+                let buf = drawn(glyphs, outline, 80, 30);
 
                 let (emblem, sentence) = emblem_screen_areas(buf.area);
                 let emblem = emblem.expect("room for the emblem");
                 let mut expected = Buffer::empty(buf.area);
-                glyphs.template(no_color).render(emblem, &mut expected);
+                glyphs.template(outline).render(emblem, &mut expected);
                 for position in emblem.positions() {
                     assert_eq!(
                         buf[position], expected[position],
-                        "{glyphs:?} {no_color} {position:?}"
+                        "{glyphs:?} {outline} {position:?}"
                     );
                 }
                 assert_eq!(find(&buf, "Nothing to answer").1, sentence.y);
@@ -241,7 +241,7 @@ mod tests {
             queue: Some(queue),
             glyphs: Glyphs::Sextant,
             talqi: true,
-            no_color: false,
+            outline: false,
         }
         .render(area, &mut buf);
         buf
@@ -353,8 +353,8 @@ mod tests {
 
     #[test]
     fn a_small_main_area_shows_the_sentence_alone() {
-        for no_color in [false, true] {
-            let buf = drawn(Glyphs::Sextant, no_color, 80, 25);
+        for outline in [false, true] {
+            let buf = drawn(Glyphs::Sextant, outline, 80, 25);
 
             let (_, sentence) = emblem_screen_areas(buf.area);
             let mut expected = Buffer::empty(buf.area);
@@ -362,7 +362,7 @@ mod tests {
                 .centered()
                 .wrap(Wrap { trim: true })
                 .render(sentence, &mut expected);
-            assert_eq!(buf, expected, "{no_color}");
+            assert_eq!(buf, expected, "{outline}");
         }
     }
 }

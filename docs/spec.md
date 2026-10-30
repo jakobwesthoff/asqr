@@ -1498,19 +1498,24 @@ has context (section 7.4, ADRs 30 and 31):
   the overlay's own fill is the one on the screen (ADR 84). The status
   line and the key bar keep their styles; an overlay that reaches the
   status line, as a long intro does, covers it. The cells of a Kitty
-  image keep theirs, since a placeholder's colour names its image. Other
-  fills, such as the submit button, stay, dim.
+  image keep theirs, since a placeholder's colour names its image. The
+  other fills of asqr's own, the submit button and a diff's changed
+  lines, lose their reversal and show as dim text, in their colour where
+  colours are on; the reversed cells of an `ansi` entry and the text
+  cursor keep theirs (ADR 88).
 - Code, Markdown and a diff's unchanged lines keep their highlighting
   colours, and an `ansi` entry
   the colours its text sets. Marks, pointers, text and the fills carry
   every meaning, so nothing depends on colour alone.
 - Under `NO_COLOR` (section 6.2) the TUI draws without colours. Text,
   marks, pointers, bold, dim and reversed stay, so the screen says the
-  same as with colours. The bar of a Markdown quote is dim instead of
+  same as with colours, except that the fills of the screen behind an
+  overlay lose their reversal (above). The bar of a Markdown quote is dim instead of
   blue. Images keep their colours. An `ansi` entry shows without any
   colour, RGB colours included; its attributes stay. Talqi on the empty
   queue is the outline of asqr's emblem in the same glyphs, without any
   colour; cells between its lines keep the background (section 7.5).
+  Behind an overlay Talqi is that outline as well.
 
 ### 7.4 Size and layout
 
@@ -1634,7 +1639,9 @@ has context (section 7.4, ADRs 30 and 31):
   glyph with its own 24-bit foreground and background. Cells outside
   the figure keep the terminal's background. Talqi is centred across,
   and Talqi and sentence together are centred down the screen. Talqi is
-  text built into asqr and uses no image protocol.
+  text built into asqr and uses no image protocol. Behind an overlay,
+  Talqi is the outline in the same glyphs, without colour (section 7.3,
+  ADR 88).
 - Talqi shows on terminals of at least 32 rows and 44 columns, with
   colours and without (section 7.3), for every queue. On smaller ones,
   80×24 included, the sentence stands alone, still naming a queue other

@@ -104,10 +104,20 @@ pub(crate) fn focus_fill() -> Style {
 
 /// Whether `cell` shows the focus fill: reversed text in the focus
 /// colour. No other role draws so, which the test over every role keeps
-/// true, so the screen behind an overlay can drop the fill by its look
-/// (ADR 84).
+/// true, so the screen behind an overlay can take the colour off this
+/// fill by its look (ADR 84).
 pub(crate) fn has_focus_fill(cell: &Cell) -> bool {
     cell.modifier.contains(Modifier::REVERSED) && focus_fill().fg == Some(cell.fg)
+}
+
+/// Whether `cell` shows one of the fills asqr draws besides the focus
+/// fill: reversed text in the colour of the submit button or of a diff's
+/// added or removed lines. These are named colours of the theme, which
+/// the colours that content brings, such as an `ansi` entry's palette
+/// slots, are not.
+pub(crate) fn has_own_fill(cell: &Cell) -> bool {
+    let fills = [button().fg, success().fg, error().fg];
+    cell.modifier.contains(Modifier::REVERSED) && fills.contains(&Some(cell.fg))
 }
 
 /// The submit button: always filled in the primary colour, the one fill
@@ -256,8 +266,8 @@ mod tests {
         roles
     }
 
-    /// The screen behind an overlay drops the focus fill by its look, so a
-    /// role that looked the same would lose its own fill there.
+    /// Behind an overlay the focus fill loses its colour as well as its
+    /// reversal, so a role that looked the same would lose its colour there.
     #[test]
     fn no_other_role_looks_like_the_focus_fill() {
         let filled = |style: Style| {
@@ -269,6 +279,37 @@ mod tests {
         assert!(filled(focus_fill()));
         for (name, style) in other_roles() {
             assert!(!filled(style), "{name} looks like the focus fill");
+        }
+    }
+
+    /// The cell `style` draws, as `has_own_fill` sees it.
+    fn own_fill(style: Style) -> bool {
+        let mut cell = Cell::default();
+        cell.set_style(style);
+        has_own_fill(&cell)
+    }
+
+    #[test]
+    fn the_button_and_the_changed_lines_of_a_diff_are_asqrs_own_fills() {
+        assert!(own_fill(button()));
+        assert!(own_fill(error().reversed()));
+        assert!(own_fill(success().reversed()));
+    }
+
+    /// Only the reversed colours of asqr's fills count: a text role, the
+    /// cursor, the focus fill and reversed cells in other colours are not
+    /// among them.
+    #[test]
+    fn no_other_style_is_an_own_fill() {
+        assert!(!own_fill(focus_fill()));
+        assert!(!own_fill(cursor()));
+        assert!(!own_fill(Style::new().fg(Color::Indexed(1)).reversed()));
+        assert!(!own_fill(Style::new().fg(Color::Rgb(1, 2, 3)).reversed()));
+        for (name, style) in other_roles() {
+            assert!(
+                !own_fill(style) || name == "button",
+                "{name} looks like a fill"
+            );
         }
     }
 
