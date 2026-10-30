@@ -903,12 +903,67 @@ fn w_switches_to_another_queue_and_pins_it() {
     );
 }
 
+/// Outside tmux, with a queue besides `default` and none chosen, asqr
+/// asks which queue to watch first (ADR 86); `default` is not taken.
+#[test]
+fn the_picker_watches_the_queue_picked() {
+    let sandbox = Sandbox::new();
+    ask_into(&sandbox, "other", "first");
+    let mut tui = Tui::start_with(&sandbox, &["--no-notify"], PASSTHROUGH_ON, &[("TMUX", "")]);
+
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("enter  watch");
+    // The rows: default, other; the cursor opens on default.
+    tui.press("j");
+    tui.wait_for("tell your agents: --queue other");
+    tui.send("\r");
+    tui.wait_for("Pick a fruit");
+    tui.wait_for("other · 1 waiting");
+    ask_into(&sandbox, "other", "second");
+    tui.wait_for("other · 2 waiting");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+}
+
+/// A signal while the picker shows ends asqr as it ends the run, and the
+/// terminal is given back.
+#[test]
+fn sigterm_while_the_picker_shows_gives_the_terminal_back() {
+    let sandbox = Sandbox::new();
+    ask_into(&sandbox, "other", "first");
+    let mut tui = Tui::start_with(&sandbox, &[], PASSTHROUGH_ON, &[("TMUX", "")]);
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("enter  watch");
+    let pid = tui.child.process_id().expect("asqr runs");
+
+    let sent = std::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(pid.to_string())
+        .status()
+        .expect("kill runs");
+    assert!(sent.success());
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let output = tui.output();
+    let main_screen = last(&output, "\x1b[?1049l");
+    assert!(
+        last(&output, "\x1b[?2004l") < main_screen,
+        "bracketed paste off before the main screen: {output:?}"
+    );
+}
+
 /// Without the pane, tmux would answer for another session: a switch
 /// pins nothing.
 #[test]
 fn without_a_tmux_pane_a_switch_pins_nothing() {
     let sandbox = Sandbox::new();
     let mut tui = switched_to_other(&sandbox, &[]);
+    assert!(
+        !tui.screen().contains("tmux kept the old pin"),
+        "no pin is tried, so none fails:\n{}",
+        tui.screen()
+    );
 
     tui.press("q");
 

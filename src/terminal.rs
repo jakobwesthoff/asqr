@@ -32,8 +32,9 @@ use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
     Alerts, Clock, Event, EventSource, Held, Host, InboxWatcher, KeepAlive, KeyReader, OpenedFiles,
-    ProgressTerminal, QueueChoice, Refusal, SleepClock, alert, opener_failure, prepare_switch,
-    progress_sequence, progress_terminal, queue_choice, run, spawn_reaped, start, watch_inbox,
+    ProgressTerminal, QueueChoice, Refusal, SleepClock, Switcher, Taken, alert, opener_failure,
+    pick_queue, prepare_switch, progress_sequence, progress_terminal, queue_choice, queue_label,
+    run, spawn_reaped, start, take_picked, watch_inbox,
 };
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -43,6 +44,9 @@ use ratatui::crossterm::terminal::SetTitle;
 use ratatui::crossterm::{cursor, execute, queue, terminal};
 use ratatui_image::picker::cap_parser::QueryStdioOptions;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
+
+/// asqr's name and version, which the start picker's key bar names.
+const VERSION: &str = concat!("asqr ", env!("CARGO_PKG_VERSION"));
 
 /// How often the queues besides the watched one are looked at again.
 const QUEUES_TICK: Duration = Duration::from_secs(5);
@@ -63,19 +67,33 @@ pub fn run_terminal_ui(mut watch: Watch) -> Exit {
 }
 
 fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
-    let lock = watch.take_lock();
-    let location = watch.location();
     let (sender, events) = mpsc::channel();
-
-    // The watcher comes first and the first scan second, so no file can
-    // arrive unseen in between (spec section 5.4).
-    let inbox_sender = sender.clone();
     let inbox_events = sender.clone();
-    let watcher = watch_inbox(location, move || {
-        let _ = inbox_sender.send(Event::InboxChanged);
-    })
-    .context("watching the inbox")?;
-    let (mut app, mut inbox) = start(location.clone())?;
+    // A queue chosen at the start is held already. Its watcher comes first
+    // and the first scan second, so no file can arrive unseen in between
+    // (spec section 5.4). The start picker takes its queue the same way,
+    // once the terminal is set up and the person picked one.
+    let started = match watch.take_lock() {
+        Some(lock) => {
+            let location = watch.location().clone();
+            let changes = inbox_events.clone();
+            let watcher = watch_inbox(&location, move || {
+                let _ = changes.send(Event::InboxChanged);
+            })
+            .context("watching the inbox")?;
+            let (app, inbox) = start(location.clone())?;
+            Some(Taken {
+                held: Held {
+                    location,
+                    lock,
+                    watcher,
+                },
+                app,
+                inbox,
+            })
+        }
+        None => None,
+    };
 
     // asqr honours NO_COLOR itself, in the drawn buffer, and crossterm has
     // to write what is left there. crossterm 0.29 reads NO_COLOR too and
@@ -183,10 +201,39 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
     // pauses while another program has the terminal.
     let keys = KeyReader::spawn(CrosstermEvents, sender);
 
-    let queue = match location.name() {
-        Some(name) => name.to_owned(),
-        None => location.dir().display().to_string(),
+    let Taken {
+        held: Held {
+            location,
+            lock,
+            watcher,
+        },
+        mut app,
+        mut inbox,
+    } = match started {
+        Some(started) => started,
+        None => {
+            let choice = watch
+                .pick()
+                .expect("a watch without a lock carries the picker's queues");
+            let picked = pick_queue(
+                &mut terminal,
+                Switcher::picker(choice.clone()),
+                &events,
+                VERSION,
+                |target| {
+                    let changes = inbox_events.clone();
+                    take_picked(target, move || {
+                        let _ = changes.send(Event::InboxChanged);
+                    })
+                },
+            )?;
+            match picked {
+                Some(taken) => taken,
+                None => return Ok(()),
+            }
+        }
     };
+    let queue = queue_label(&location);
     let mut host = TerminalHost {
         alerts: watch.alerts(),
         title: watch.title(),
@@ -200,7 +247,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
         watched: location.clone(),
         // A queue given by `--dir` stays in the switcher for the run.
         dir_queue: location.name().is_none().then(|| location.clone()),
-        lock,
+        lock: Some(lock),
         watcher,
         inbox_events,
         lock_pane: watch.lock_pane().cloned(),
@@ -847,7 +894,7 @@ impl Host for TerminalHost {
     fn queues(&mut self) -> QueueChoice {
         queue_choice(
             self.root.as_deref(),
-            &self.watched,
+            Some(&self.watched),
             self.dir_queue.as_ref(),
             self.pin_pane.as_ref(),
             &SystemTmux::default(),

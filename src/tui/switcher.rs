@@ -94,6 +94,9 @@ pub struct Switcher {
     name: String,
     /// Whether the new-queue row has the keys.
     typing: bool,
+    /// Whether this is the start picker, which watches the queue picked
+    /// and whose `q` quits asqr.
+    picking: bool,
 }
 
 impl Switcher {
@@ -106,7 +109,31 @@ impl Switcher {
             cursor,
             name: String::new(),
             typing: false,
+            picking: false,
         }
+    }
+
+    /// The start picker over `choice` (ADR 86), the cursor on `default`
+    /// where this asqr may watch it, else on the first queue it may, or on
+    /// the new-queue row, which then has the keys.
+    pub fn picker(choice: QueueChoice) -> Self {
+        let cursor = choice
+            .rows
+            .iter()
+            .position(|row| row.location.is_default())
+            .unwrap_or(0);
+        let mut picker = Switcher {
+            cursor,
+            picking: true,
+            ..Switcher::new(choice)
+        };
+        picker.typing = picker.on_name_row();
+        picker
+    }
+
+    /// Whether this is the start picker.
+    pub fn picking(&self) -> bool {
+        self.picking
     }
 
     pub fn choice(&self) -> &QueueChoice {
@@ -173,6 +200,10 @@ impl Switcher {
             };
         }
         match key.code {
+            // The picker has no queue to go back to: `q` quits asqr, and
+            // `esc` and `w` do nothing.
+            KeyCode::Char('q') if self.picking => SwitcherKey::Quit,
+            KeyCode::Esc | KeyCode::Char('w') if self.picking => SwitcherKey::Stay,
             KeyCode::Esc | KeyCode::Char('q' | 'w') => SwitcherKey::Close,
             KeyCode::Up | KeyCode::Char('k') => self.move_cursor(false),
             KeyCode::Down | KeyCode::Char('j') => self.move_cursor(true),
@@ -533,6 +564,78 @@ mod tests {
         typed(&mut switcher, "asqr-todos");
 
         assert_eq!(switcher.handle(key(KeyCode::Enter)), SwitcherKey::Close);
+    }
+
+    // -----------------------------------------------------------------
+    // The start picker
+    // -----------------------------------------------------------------
+
+    /// `asqr-todos`, `default` and `work`, none watched, outside tmux.
+    fn picker() -> Switcher {
+        let mut choice = choice();
+        choice.rows[0].watched = false;
+        choice.place = Place::Outside;
+        Switcher::picker(choice)
+    }
+
+    #[test]
+    fn the_picker_starts_on_default() {
+        let picker = picker();
+
+        assert_eq!(picker.cursor(), 1);
+        assert!(picker.picking());
+    }
+
+    #[test]
+    fn with_default_taken_the_picker_starts_on_the_first_free_queue() {
+        let mut choice = choice();
+        choice.rows.remove(1);
+        choice.rows[0].watched = false;
+
+        assert_eq!(Switcher::picker(choice).cursor(), 0);
+    }
+
+    #[test]
+    fn with_no_free_queue_the_picker_starts_typing_a_new_one() {
+        let mut choice = choice();
+        choice.rows.clear();
+
+        let picker = Switcher::picker(choice);
+
+        assert_eq!((picker.cursor(), picker.typing()), (0, true));
+    }
+
+    #[test]
+    fn in_the_picker_q_quits_and_esc_and_w_do_nothing() {
+        let mut picker = picker();
+
+        assert_eq!(picker.handle(key(KeyCode::Esc)), SwitcherKey::Stay);
+        assert_eq!(picker.handle(char('w')), SwitcherKey::Stay);
+        assert_eq!(picker.handle(char('q')), SwitcherKey::Quit);
+    }
+
+    #[test]
+    fn in_the_picker_q_types_in_the_name_and_esc_stops_typing() {
+        let mut picker = picker();
+        for _ in 0..2 {
+            picker.handle(key(KeyCode::Down));
+        }
+
+        assert_eq!(picker.handle(char('q')), SwitcherKey::Stay);
+        assert_eq!(picker.name(), "q");
+        picker.handle(key(KeyCode::Esc));
+        assert!(!picker.typing());
+        assert_eq!(picker.handle(char('q')), SwitcherKey::Quit);
+    }
+
+    #[test]
+    fn enter_in_the_picker_watches_the_queue_under_the_cursor() {
+        let mut picker = picker();
+
+        assert_eq!(
+            picker.handle(key(KeyCode::Enter)),
+            SwitcherKey::Switch(named("default"))
+        );
     }
 
     #[test]

@@ -16,6 +16,8 @@ Accepted
   of the time it is empty.
 - Without a way to move, the person quits asqr and starts it on another
   queue, after first finding out which queues hold anything.
+- Outside tmux nothing tells the person which queues exist when asqr
+  starts.
 - asqr's own environment says nothing about the shell an agent runs in:
   `ASQR_QUEUE` set where asqr starts may be unset for the agent, and
   the other way round.
@@ -81,6 +83,16 @@ The switcher:
   pins a named queue last inside tmux. A step that fails leaves asqr on
   the old queue with a notice. After a switch the status line reads
   `watching <q> · N sessions wait in <old>`.
+
+The start picker:
+
+- Outside tmux, with no queue chosen and a queue besides `default` that
+  no other asqr watches, `asqr` shows the switcher's list before it
+  takes a lock, with `enter  watch` and `q  quit`. The cursor starts on
+  `default` where no other asqr watches it, and the footer follows the
+  cursor as in the switcher outside tmux: `tell your agents: --queue
+  <name>`, none on `default`. A queue that cannot be taken leaves the
+  picker open with the switch's notice.
 
 ## Consequences
 

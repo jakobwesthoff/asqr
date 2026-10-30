@@ -53,6 +53,7 @@ Options raised so far: keep the path as given, show its last component,
 show `~` for the home directory, or make a relative path absolute
 (`std::path::absolute`, no filesystem access) before cutting it.
 
-## Relations
-
-- Relates to: [Let several asqr instances run side by side and route each agent to the right one](01M63MZBJYJ1ANX77CW5QAR9AG-let-several-asqr-instances-run-side-by-side-and-route-each-agent-to-the.md)
+The queue switcher (`w`, ADR 86) shows a `--dir` queue by its path with
+`~` for the home folder, cut from its start where its row is too
+narrow, and outside tmux its footer names the whole path or points to
+the row.

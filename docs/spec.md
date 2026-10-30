@@ -1258,6 +1258,22 @@ needs a terminal on stdin and stdout; otherwise it prints "asqr needs a
 terminal" and exits with 1. It takes the queue lock (section 5.6) and
 creates the queue's directories.
 
+Outside tmux, with no queue chosen by a flag or a variable, and with a
+queue besides `default` under the data directory that no other asqr
+watches, asqr shows the start picker first (ADR 86), before it takes a
+lock. It is the queue switcher's frame of section 7.6 under a title
+line that reads `asqr`, without `◀ this asqr`, with the key bar `↑/↓
+move   enter  watch   q  quit` and asqr's version at its right end. The
+cursor starts on `default` where no other asqr watches it, else on the
+first queue it may watch, else on the new-queue row. The footer follows
+the cursor as outside tmux in the switcher. `enter` takes the queue
+under the cursor, or the one named on the new-queue row, as a switch
+takes it, and asqr runs on it; a queue another asqr took meanwhile, or
+one that cannot be watched or read, leaves the picker open with the
+switch's notice in its status line (section 7.9). `q` and `ctrl-c` quit,
+and so do SIGTERM, SIGINT and SIGHUP; on the new-queue row `q` types,
+and `esc` stops typing there and does nothing elsewhere.
+
 Inside tmux, on a named queue, asqr pins its queue in its tmux session
 once it runs: `tmux set-environment -t <pane> ASQR_SESSION_QUEUE
 <queue>` (ADR 85). It does so on every start, also for a queue that

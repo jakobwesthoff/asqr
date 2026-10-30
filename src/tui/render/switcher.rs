@@ -7,18 +7,21 @@
 //! blank line the queues other asqr instances watch, dim. The footer on
 //! the frame's bottom edge says what `enter` does to the agents.
 
+use ratatui::Frame;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
+use super::keys::{key_line_with_version, picker_hints};
 use super::overlay::{overlay_block, popup};
 use super::parts::POINTER;
+use super::problem;
 use super::screen::shorten_from_left;
 use super::source_line::columns;
 use super::theme;
 use crate::queue::DEFAULT_QUEUE;
-use crate::tui::{Place, QueueRow, Switcher};
+use crate::tui::{Notice, Place, QueueRow, Switcher};
 
 /// The marker at the end of the queue this asqr watches.
 const THIS_ASQR: &str = "◀ this asqr";
@@ -37,6 +40,27 @@ const FRAME_COLUMNS: usize = 4;
 /// The columns the bottom edge takes besides the footer: the corners, a
 /// blank on either side and at least one stroke of the edge.
 const FOOTER_EDGE: usize = 5;
+
+/// Draws the start picker `picker` over the whole of `frame`: asqr's name
+/// in the title line, the queues in the middle, `notice` in the status
+/// line and the picker's keys with `version` in the key bar.
+pub fn draw_picker(frame: &mut Frame, picker: &Switcher, notice: Option<&Notice>, version: &str) {
+    let area = frame.area();
+    let [title, _, status, keys] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+    let buf = frame.buffer_mut();
+    Line::from(Span::styled(" asqr", theme::app_name())).render(title, buf);
+    if let Some(notice) = notice {
+        problem::status_line(notice, status.width).render(status, buf);
+    }
+    key_line_with_version(&picker_hints(picker.typing()), keys.width, version).render(keys, buf);
+    draw_switcher(area, buf, picker);
+}
 
 /// Draws `switcher` in a frame in the middle of `area`.
 pub(super) fn draw_switcher(area: Rect, buf: &mut Buffer, switcher: &Switcher) {
@@ -168,7 +192,14 @@ impl Columns {
             .max()
             .unwrap_or_default();
         let waiting_part = if waiting > 0 { GAP.len() + waiting } else { 0 };
-        let others = (GAP.len() + columns(THIS_ASQR) + waiting_part).max(
+        // The start picker has no watched queue, and no marker to leave
+        // room for.
+        let marker = if choice.rows.iter().any(|row| row.watched) {
+            GAP.len() + columns(THIS_ASQR)
+        } else {
+            0
+        };
+        let others = (marker + waiting_part).max(
             choice
                 .taken
                 .iter()
@@ -605,6 +636,67 @@ mod tests {
             shown[1].starts_with("│   ~/projects/clients/some-client/2026/asqr/queue"),
             "{shown:#?}"
         );
+    }
+
+    /// The start picker over the mockup's queues, none watched, drawn at
+    /// 80×24 with `notice`.
+    fn picker_screen(keys: &[KeyCode], notice: Option<&Notice>) -> ratatui::backend::TestBackend {
+        let mut choice = choice(Place::Outside);
+        choice.rows[1].watched = false;
+        let mut picker = Switcher::picker(choice);
+        for &code in keys {
+            press(&mut picker, code);
+        }
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).expect("terminal");
+        terminal
+            .draw(|frame| draw_picker(frame, &picker, notice, "asqr 0.0.0"))
+            .expect("draws");
+        terminal.backend().clone()
+    }
+
+    #[test]
+    fn the_picker_shows_the_queues_under_asqr_s_name_with_its_keys() {
+        let backend = picker_screen(&[KeyCode::Up], None);
+        let buf = backend.buffer();
+
+        find(buf, "❯ asqr-todos   2 waiting");
+        insta::assert_snapshot!("picker", backend);
+        assert_eq!(row(buf, 0).trim_end(), " asqr");
+        assert_eq!(look_at(buf, "asqr"), (Color::Cyan, Modifier::BOLD));
+        assert_eq!(
+            row(buf, 23),
+            format!(
+                " ↑/↓  move   enter  watch   q  quit{}asqr 0.0.0",
+                " ".repeat(34)
+            )
+        );
+        assert!(
+            !buf[find(buf, "asqr-todos")]
+                .modifier
+                .contains(Modifier::DIM)
+        );
+    }
+
+    #[test]
+    fn the_picker_on_default_has_no_footer() {
+        let backend = picker_screen(&[], None);
+
+        insta::assert_snapshot!("picker_on_default", backend);
+        assert!(!backend.to_string().contains("tell your agents"));
+    }
+
+    #[test]
+    fn the_picker_shows_a_notice_and_the_keys_of_a_typed_name() {
+        let notice = Notice::new(crate::tui::Tone::Error, "another asqr is watching queue x");
+        let backend = picker_screen(&[KeyCode::Down], Some(&notice));
+        let buf = backend.buffer();
+
+        assert_eq!(
+            row(buf, 22).trim_end(),
+            "✗ another asqr is watching queue x"
+        );
+        assert!(row(buf, 23).starts_with(" enter  create   esc  stop typing"));
     }
 
     #[test]

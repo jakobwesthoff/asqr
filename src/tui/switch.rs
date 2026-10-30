@@ -17,12 +17,12 @@ use crate::queue::{LockError, QueueLocation, QueueLock, list_queues, lock_queue,
 
 /// The queues for the switcher, looked at now: the named queues under
 /// `root`, and `dir`, a queue this run was given by `--dir`, first. This
-/// asqr watches `watched`. `pane` is asqr's tmux pane where tmux answers,
+/// asqr watches `watched`, and none while the start picker shows. `pane` is asqr's tmux pane where tmux answers,
 /// whose session says what a switch does to the agents; `home` shows as
 /// `~` in a path.
 pub fn queue_choice(
     root: Option<&Path>,
-    watched: &QueueLocation,
+    watched: Option<&QueueLocation>,
     dir: Option<&QueueLocation>,
     pane: Option<&TmuxPane>,
     tmux: &dyn Tmux,
@@ -49,7 +49,7 @@ pub fn queue_choice(
             Some(name) => name.to_owned(),
             None => shown_path(&summary.location.dir().display().to_string(), home),
         };
-        let mine = summary.location.same_queue(watched);
+        let mine = watched.is_some_and(|watched| summary.location.same_queue(watched));
         match &summary.holder {
             Some(holder) if !mine => taken.push(TakenQueue {
                 label,
@@ -118,6 +118,37 @@ pub fn prepare_switch(
     })
 }
 
+/// A queue picked at the start, ready to be watched: held, and read for
+/// the first time.
+pub struct Taken {
+    pub held: Held,
+    pub app: App,
+    pub inbox: Inbox,
+}
+
+/// Takes `target`, picked in the start picker, as a switch takes its
+/// queue (see [`prepare_switch`]), and reads it. What fails is the notice
+/// the picker shows; nothing is held then.
+pub fn take_picked(
+    target: &QueueLocation,
+    changed: impl FnMut() + Send + 'static,
+) -> Result<Taken, Notice> {
+    let name = queue_label(target);
+    let held = prepare_switch(target, None, changed).map_err(|refusal| refused(&name, refusal))?;
+    // A failed read drops `held`, and with it the lock and the watcher.
+    let (app, inbox) = start(target.clone())
+        .map_err(|error| cannot_watch(&name, &error.root_cause().to_string()))?;
+    Ok(Taken { held, app, inbox })
+}
+
+/// The notice for a queue named `name` that `refusal` keeps asqr from.
+fn refused(name: &str, refusal: Refusal) -> Notice {
+    match refusal {
+        Refusal::Taken => Notice::naming(Tone::Error, "another asqr is watching queue ", name, ""),
+        Refusal::Failed(reason) => cannot_watch(name, &reason),
+    }
+}
+
 /// How a queue is named in the status line and the title: by its name, or
 /// by its directory for a queue given by `--dir`.
 pub fn queue_label(location: &QueueLocation) -> String {
@@ -142,17 +173,8 @@ pub fn switch_queue(
     let (new, old) = (queue_label(target), queue_label(inbox.location()));
     let held = match host.prepare(target) {
         Ok(held) => held,
-        Err(Refusal::Taken) => {
-            app.show(Notice::naming(
-                Tone::Error,
-                "another asqr is watching queue ",
-                &new,
-                "",
-            ));
-            return;
-        }
-        Err(Refusal::Failed(reason)) => {
-            app.show(cannot_watch(&new, &reason));
+        Err(refusal) => {
+            app.show(refused(&new, refusal));
             return;
         }
     };
@@ -276,7 +298,14 @@ mod tests {
         let _theirs = lock_queue(&ntropy, Some(&pane("%7"))).expect("locked");
         let tmux = Sessions::default();
 
-        let choice = queue_choice(Some(root), &watched, None, Some(&pane("%0")), &tmux, None);
+        let choice = queue_choice(
+            Some(root),
+            Some(&watched),
+            None,
+            Some(&pane("%0")),
+            &tmux,
+            None,
+        );
 
         let rows: Vec<_> = choice
             .rows
@@ -302,7 +331,7 @@ mod tests {
 
         let choice = queue_choice(
             Some(scratch.path()),
-            &watched,
+            Some(&watched),
             None,
             None,
             &pairing::testing::Unasked,
@@ -320,7 +349,7 @@ mod tests {
 
         let choice = queue_choice(
             Some(scratch.path()),
-            &watched,
+            Some(&watched),
             None,
             Some(&pane("%0")),
             &tmux,
@@ -341,7 +370,7 @@ mod tests {
 
         let choice = queue_choice(
             Some(&root),
-            &watched,
+            Some(&watched),
             Some(&dir),
             None,
             &pairing::testing::Unasked,
@@ -452,6 +481,78 @@ mod tests {
                 ""
             )
         );
+    }
+
+    #[test]
+    fn a_picked_queue_is_held_and_read() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = QueueLocation::named(scratch.path(), "work");
+
+        let taken = take_picked(&target, || {}).map_err(|notice| notice.text);
+
+        let taken = taken.expect("taken");
+        assert_eq!(taken.held.location, target);
+        assert_eq!(taken.inbox.location(), &target);
+        assert!(lock_holder(&target).expect("readable").is_some());
+    }
+
+    #[test]
+    fn a_picked_queue_another_asqr_took_is_a_notice() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = queue(scratch.path(), "work", 0);
+        let _theirs = lock_queue(&target, None).expect("locked");
+
+        let refused = take_picked(&target, || {}).err();
+
+        assert_eq!(
+            refused,
+            Some(Notice::naming(
+                Tone::Error,
+                "another asqr is watching queue ",
+                "work",
+                ""
+            ))
+        );
+    }
+
+    #[test]
+    fn a_picked_queue_that_cannot_be_watched_is_a_notice_and_holds_nothing() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = QueueLocation::named(scratch.path(), "broken");
+        std::fs::create_dir_all(target.dir()).expect("dir");
+        std::fs::write(target.inbox(), "").expect("a file where the inbox belongs");
+
+        let refused = take_picked(&target, || {}).err().map(|notice| notice.text);
+
+        assert!(
+            refused
+                .as_deref()
+                .is_some_and(|text| text.starts_with("cannot watch queue broken: ")),
+            "{refused:?}"
+        );
+        assert_eq!(lock_holder(&target).expect("readable"), None);
+    }
+
+    #[test]
+    fn a_picked_queue_that_cannot_be_read_is_a_notice_and_holds_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = queue(scratch.path(), "work", 0);
+        std::fs::set_permissions(target.inbox(), std::fs::Permissions::from_mode(0o000))
+            .expect("permissions change");
+
+        let refused = take_picked(&target, || {}).err().map(|notice| notice.text);
+        std::fs::set_permissions(target.inbox(), std::fs::Permissions::from_mode(0o755))
+            .expect("permissions back");
+
+        assert!(
+            refused
+                .as_deref()
+                .is_some_and(|text| text.starts_with("cannot watch queue work: ")),
+            "{refused:?}"
+        );
+        assert_eq!(lock_holder(&target).expect("readable"), None);
     }
 
     #[test]

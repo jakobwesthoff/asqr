@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use super::{Exit, WatchArgs};
 use crate::pairing::{self, Multiplexer, Tmux, TmuxPane};
 use crate::queue::{Holder, LockError, Origin, QueueLocation, QueueLock, lock_queue};
-use crate::tui::Alerts;
 use crate::tui::render::PaneLayout;
+use crate::tui::{Alerts, QueueChoice, queue_choice};
 
 /// The queue a TUI pins in its tmux session once it runs (ADR 85).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +41,9 @@ pub struct Watch {
     tmux_answered: bool,
     /// Held until the TUI's host takes it over.
     lock: Option<QueueLock>,
+    /// The queues of the start picker, where the TUI picks its queue
+    /// first and holds no lock yet (ADR 86).
+    pick: Option<QueueChoice>,
 }
 
 impl Watch {
@@ -93,6 +96,11 @@ impl Watch {
     pub fn take_lock(&mut self) -> Option<QueueLock> {
         self.lock.take()
     }
+
+    /// The queues of the start picker, where the TUI shows it.
+    pub fn pick(&self) -> Option<&QueueChoice> {
+        self.pick.as_ref()
+    }
 }
 
 /// Where the TUI runs and how it got its queue, for the pane line of the
@@ -115,6 +123,32 @@ pub(super) fn run(
         Multiplexer::Tmux(pane) => Some(pane),
         Multiplexer::None => None,
     };
+    let alerts = Alerts {
+        notify: !args.no_notify,
+        bell: !args.no_bell,
+    };
+    // Outside tmux, with nothing chosen, the person picks the queue when a
+    // queue besides `default` is there to pick; the TUI takes its lock
+    // then (ADR 86).
+    let pick = match (pane, pairing.origin, location.root()) {
+        (None, Origin::Default, Some(root)) => start_pick(root, pairing.tmux, home.as_deref()),
+        _ => None,
+    };
+    if pick.is_some() {
+        return terminal_ui(Watch {
+            location,
+            alerts,
+            layout: args.layout.unwrap_or_default(),
+            title: !args.no_title,
+            no_color,
+            home,
+            pin: None,
+            tmux: None,
+            tmux_answered: false,
+            lock: None,
+            pick,
+        });
+    }
     // The lock comes before the layout: `prune` removes an unwatched
     // queue, and once this process holds the lock, the queue is watched.
     let lock = match lock_queue(&location, pane) {
@@ -151,10 +185,7 @@ pub(super) fn run(
     };
     terminal_ui(Watch {
         location,
-        alerts: Alerts {
-            notify: !args.no_notify,
-            bell: !args.no_bell,
-        },
+        alerts,
         layout: args.layout.unwrap_or_default(),
         title: !args.no_title,
         no_color,
@@ -163,7 +194,19 @@ pub(super) fn run(
         tmux: pane.cloned(),
         tmux_answered: pairing.origin != Origin::Unreachable,
         lock: Some(lock),
+        pick: None,
     })
+}
+
+/// The queues of the start picker, when `root` holds a queue besides
+/// `default` that no asqr watches.
+fn start_pick(root: &Path, tmux: &dyn Tmux, home: Option<&Path>) -> Option<QueueChoice> {
+    let choice = queue_choice(Some(root), None, None, None, tmux, home);
+    choice
+        .rows
+        .iter()
+        .any(|row| !row.location.is_default())
+        .then_some(choice)
 }
 
 /// The holder of a lock as a refusal names it: its pid and host, and its

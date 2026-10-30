@@ -1,0 +1,28 @@
+---
+source: src/tui/render/switcher.rs
+expression: backend
+---
+" asqr                                                                           "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                    ╭ Queues ───────────────────────────────╮                   "
+"                    │   asqr-todo                           │                   "
+"                    │ ❯ asqr-todos   2 waiting              │                   "
+"                    │   default      1 waiting              │                   "
+"                    │   ✎ New queue: —                      │                   "
+"                    │                                       │                   "
+"                    │   ntropy       watched in tmux ntropy │                   "
+"                    ╰─ tell your agents: --queue asqr-todos ╯                   "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ↑/↓  move   enter  watch   q  quit                                  asqr 0.0.0 "

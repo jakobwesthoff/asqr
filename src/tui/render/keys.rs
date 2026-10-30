@@ -235,6 +235,20 @@ pub(super) fn empty_queue_hints() -> Vec<Hint> {
     vec![hint("w", "queues", Rank::Cursor), QUIT_HINT]
 }
 
+/// The keys of the start picker, whose new-queue row is a field while
+/// it is `typing`.
+pub(super) fn picker_hints(typing: bool) -> Vec<Hint> {
+    if typing {
+        switcher_hints(true)
+    } else {
+        vec![
+            hint("↑/↓", "move", Rank::Cursor),
+            hint("enter", "watch", Rank::Cursor),
+            QUIT_HINT,
+        ]
+    }
+}
+
 /// The keys of the queue switcher, whose new-queue row is a field while
 /// it is `typing`.
 pub(super) fn switcher_hints(typing: bool) -> Vec<Hint> {

@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the old one, and pins the new queue inside tmux; a step that fails
   leaves asqr where it was, with a notice. The empty queue's key bar
   names `w  queues`.
+- Outside tmux, `asqr` with a queue besides `default` and none chosen
+  shows the queues first and watches the one picked, with the
+  `--queue` to tell the agents in its footer.
 - `asqr queues [--json]` lists every named queue with the sessions
   waiting in it, its results and the asqr watching it, with the tmux
   session that asqr runs in.

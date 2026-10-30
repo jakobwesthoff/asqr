@@ -48,6 +48,7 @@ pub(crate) use problem::shown_path;
 pub(crate) use screen::shorten_from_left;
 pub use screen::{Drawn, MIN_HEIGHT, MIN_WIDTH, View, draw};
 pub(crate) use source_line::{TAB_STOP, columns, picture};
+pub use switcher::draw_picker;
 pub(crate) use wrap::{Glyph, styled_line, wrap_rows};
 
 /// Why the file at `path` may not be opened, by the rule every viewer

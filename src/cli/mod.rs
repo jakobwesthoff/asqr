@@ -1109,6 +1109,105 @@ mod tests {
         assert_eq!(taken, (true, false));
     }
 
+    /// Whether the TUI started by `args` in `environment` picks its queue
+    /// first, with queue directories `queues` under the root, and whether
+    /// it holds a lock then; `prepare` runs on the root before the start.
+    fn picks(
+        args: &[&str],
+        environment: Environment,
+        queues: &[&str],
+        prepare: impl FnOnce(&Path) -> Option<crate::queue::QueueLock>,
+    ) -> (bool, bool) {
+        let root = tempfile::tempdir().expect("temp dir");
+        for queue in queues {
+            QueueLocation::named(root.path(), queue)
+                .create_layout()
+                .expect("layout");
+        }
+        let _held = prepare(root.path());
+        let mut argv = vec!["asqr"];
+        argv.extend(args);
+        let cli = Cli::try_parse_from(argv).expect("parses");
+        let mut found = None;
+        dispatch(
+            cli,
+            environment,
+            &StandIn::answering("my work\n"),
+            Some(root.path().to_path_buf()),
+            |mut watch| {
+                found = Some((watch.pick().is_some(), watch.take_lock().is_some()));
+                Exit::Success
+            },
+        );
+        found.expect("the TUI started")
+    }
+
+    #[test]
+    fn outside_tmux_with_several_queues_asqr_picks_first() {
+        assert_eq!(
+            picks(&[], Environment::default(), &["work"], |_| None),
+            (true, false),
+            "a pick, and no lock yet"
+        );
+    }
+
+    #[test]
+    fn a_flag_skips_the_picker() {
+        assert_eq!(
+            picks(
+                &["--queue", "default"],
+                Environment::default(),
+                &["work"],
+                |_| None
+            ),
+            (false, true)
+        );
+    }
+
+    #[test]
+    fn a_variable_skips_the_picker() {
+        let environment = Environment {
+            selection: Selection {
+                queue: Some("work".into()),
+                dir: None,
+            },
+            ..Environment::default()
+        };
+
+        assert_eq!(picks(&[], environment, &["work"], |_| None), (false, true));
+    }
+
+    #[test]
+    fn inside_tmux_there_is_no_picker() {
+        assert_eq!(
+            picks(&[], in_tmux_pane(), &["work"], |_| None),
+            (false, true)
+        );
+    }
+
+    #[test]
+    fn with_only_the_default_queue_there_is_no_picker() {
+        assert_eq!(
+            picks(&[], Environment::default(), &["default"], |_| None),
+            (false, true)
+        );
+    }
+
+    #[test]
+    fn a_queue_another_asqr_watches_brings_no_picker() {
+        let watched = |root: &Path| {
+            Some(
+                crate::queue::lock_queue(&QueueLocation::named(root, "work"), None)
+                    .expect("locked"),
+            )
+        };
+
+        assert_eq!(
+            picks(&[], Environment::default(), &["work"], watched),
+            (false, true)
+        );
+    }
+
     #[test]
     fn starting_never_pins_before_the_terminal_ui() {
         let tmux = StandIn::answering("my work\n");
