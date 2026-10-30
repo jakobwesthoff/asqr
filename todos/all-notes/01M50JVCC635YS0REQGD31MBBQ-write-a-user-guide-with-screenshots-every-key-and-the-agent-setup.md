@@ -38,16 +38,45 @@ with it, and no step-by-step description of setting it up with an agent.
   README section; a project-page-starter site.
 - **The vault now, the website later.** The notes read on GitHub
   meanwhile; a Pages workflow is its own step once the content stands.
-- **Pictures drawn by asqr's own code.** The capture program from the
-  2026-10-30 conductor run (logbook
-  `~/playground/2026_10_30_asqr-todos-worked-off-by-agents/plans/instances-impl/helpers/capture/`)
-  draws screens through asqr's public API (`asqr::tui::render::draw`
-  into a ratatui `TestBackend`) and writes SGR text, and
-  `plans/instances-impl/render_png.py` there renders that into PNGs on
-  a fixed cell grid. It moves into the repository with a `just` recipe,
-  so a release refreshes every picture. Images in the context pane do
-  not show this way (no Kitty protocol); those screens get a stand-in or
-  a manual capture. Rejected: VHS tapes; screenshots by hand.
+- **Pictures drawn by asqr's own code, with a Rust tool in the
+  repository.** A small dev crate, `tools/screens/`, not published and
+  run with `just screens`, draws each screen through asqr's public API
+  (`asqr::tui::App`, keys through `App::handle`,
+  `asqr::tui::render::draw` into a ratatui `TestBackend`) and rasterizes
+  the cell buffer straight into PNG in pure Rust (for example
+  `ab_glyph` with the `image` crate asqr already uses). Screens are data,
+  one small TOML file per picture: the sessions, the keys to press, the
+  terminal size, the queue state, the caption. A release refreshes every
+  picture with one command. The tool has a README of its own on how to
+  use it. Rejected: VHS tapes; screenshots by hand; keeping the
+  prototype from the 2026-10-30 conductor run as it is (a Rust program
+  that writes SGR text plus Python scripts that parse it again and
+  render with macOS fonts, with hard-coded paths and screens; logbook
+  `~/playground/2026_10_30_asqr-todos-worked-off-by-agents/plans/instances-impl/helpers/capture/`
+  and `render_png.py`, the model for the new tool); hanging the pictures
+  off the insta snapshot tests, so that accepting a snapshot never
+  changes a picture.
+- **Jakob's terminal look in every picture,** from his Ghostty config:
+  - colours: Gruvbox Material Hard dark (sainnhe/gruvbox-material, MIT),
+    background `#1d2021`, foreground `#d4be98`, palette 0 to 15
+    `#1d2021 #ea6962 #a9b665 #d8a657 #7daea3 #d3869b #89b482 #d4be98
+    #eddeb5 #ea6962 #a9b665 #d8a657 #7daea3 #d3869b #89b482 #d4be98`;
+  - font: Victor Mono, SemiBold for regular text, Bold, SemiBold Italic
+    and Bold Italic (Ghostty uses the Nerd Fonts build "VictorMono Nerd
+    Font Mono" at 14 pt).
+- **Fonts committed with their licences.** The upstream Victor Mono
+  (rubjo/victor-mono) is under the SIL Open Font License 1.1 with no
+  reserved font name (checked 2026-10-30), so it may be redistributed.
+  The Nerd Fonts build is not committed: its metadata says "All rights
+  reserved" and it carries icon sets under licences of their own, and
+  asqr draws no Nerd Font icon. Victor Mono lacks `✎ ☐ ☒ ✓ ✔ ✗ ⏎ ⎋`,
+  which Ghostty takes from macOS fallback fonts; DejaVu Sans Mono
+  (Bitstream Vera licence, free) has all of them and is the fallback.
+  A test checks that the fonts cover every glyph asqr draws.
+- **Later, real images:** as the tool draws the PNG itself, it can
+  paste the actual picture into the context pane where asqr places an
+  image, instead of half blocks, once asqr's drawing reports where it
+  placed one. Not part of the first step.
 - **The full tour:** every screen: the empty queue, a session with its
   tabs, options, own answers and notes, context beside and below, full
   screen, diffs unified and side by side, the review tab, the help, the
@@ -69,7 +98,9 @@ with it, and no step-by-step description of setting it up with an agent.
 
 ## Technical notes (lead, 2026-10-30)
 
-- The capture program's sessions come from `examples/sessions/`; new
+- The tool comes first, as its own step; the vault and its pages
+  follow.
+- The prototype's sessions come from `examples/sessions/`; new
   sessions written for the guide go there too, so the README examples
   and the pictures share sources.
 - The key table follows spec 7.6; a check that fails when they differ
