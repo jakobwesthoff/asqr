@@ -73,3 +73,48 @@ separate step he tries out right after; the lead reminds him then.
 - First a simple demo Jakob can start quickly, possibly outside asqr,
   that shows how the two ways behave and look, with a way to switch
   between them.
+
+## First tour in Ghostty (2026-10-30)
+
+A throwaway demo (`examples/kitty_scaling.rs`, untracked, kept in
+`~/playground/2026_10_30_asqr-todos-worked-off-by-agents/plans/kitty/`)
+walked fixed combinations, and Jakob took a screenshot of each in
+Ghostty 1.3.2 with cells of 15×39 px, once directly (177×69 cells) and
+once inside tmux 3.7c (177×68 cells). Screenshots in
+`plans/kitty/shots/`.
+
+- Sending the picture at its own size and letting Ghostty enlarge it
+  shows seams at cell boundaries: thin horizontal lines through
+  talqi-512 about every 8 cell rows, and broken 1-pixel diagonals in a
+  test card enlarged about 13 times. asqr's own scaling shows none.
+  Likely cause, not proven: Ghostty rounds each cell's slice of the
+  source to whole pixels, and here a cell held a fractional number of
+  them (512 px over 65 rows).
+- asqr-scaled raw frames of 33.6 to 34.4 MB took 0.12 to 0.22 s
+  directly and 0.72 to 2.05 s through tmux 3.7c, far from the 39.4 s
+  measured with a private tmux server above. At its own size, talqi-512
+  (1.45 MB) took 6 ms directly and 34 ms through tmux.
+- zlib made the frames slower directly (9.83 MB in 455 ms against
+  34.43 MB raw in 150 ms) and helped only the large frame through tmux
+  (8.90 MB in 533 ms against 33.59 MB raw in 735 ms).
+- Padding with transparent black or the edge colour looked the same;
+  the only padded case was 1 px at an enlargement of 1.04.
+- The demo's "terminal answered" time ends when Ghostty answers a query
+  sent after the frame, which says it has read the picture, not that it
+  shows it.
+
+## Decisions (Jakob, 2026-10-30, asqr session 01M666TG80F3WXVV7K8P1PW3PH)
+
+- Scaling: try one more variant first. asqr scales the picture to its
+  cells' pixels divided by a common divisor of the cell's width and
+  height (15×39 → ÷3, 5×13 source pixels per cell), so every cell shows
+  whole source pixels and the terminal enlarges by exactly that
+  divisor; compared against asqr's own scaling on talqi-512, the test
+  card and mascot-1536, directly and inside tmux.
+- zlib: off; asqr keeps sending raw, and the compression probe is
+  dropped.
+- Why a 6000×6000 image felt quicker than ten 768 px option images gets
+  a todo of its own. Jakob is fairly sure the large pictures felt
+  noticeably slower than the smaller ones that were scaled
+  automatically, and is not sure that the demo's numbers measure what
+  the render cycle costs afterwards.
