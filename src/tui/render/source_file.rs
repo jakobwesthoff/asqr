@@ -20,6 +20,7 @@ use super::problem::Card;
 use super::source_line::Note;
 use crate::format::line_cut;
 pub use crate::format::{LineBreaks, MAX_BYTES, MAX_LINES};
+use crate::regular_file::{OpenError, check_type, open as open_checked};
 
 /// The limit that ended the text of a source, which the notes around the
 /// text name.
@@ -172,73 +173,33 @@ pub fn regular_file(path: &str) -> Result<(), Unreadable> {
     if Path::new(path).is_relative() {
         return Err(Unreadable::refused(path, "RelativePath", "relative path"));
     }
-    // Opening a FIFO waits for a writer, and a device such as /dev/zero
-    // never ends, so only a regular file is opened at all. The type is
-    // checked before the open, as the open is what would block, and
-    // again on the opened file (see `open_checked`).
+    // The type is checked before the open as well as on the opened file
+    // (see [`open_checked`]), so a path that is plainly no regular file
+    // is never opened.
     let metadata = fs::metadata(path).map_err(|error| Unreadable::io(path, &error))?;
-    refuse_irregular(path, &metadata)
-}
-
-/// Refuses `path` unless `metadata` says it is a regular file.
-fn refuse_irregular(path: &str, metadata: &fs::Metadata) -> Result<(), Unreadable> {
-    if metadata.is_file() {
-        return Ok(());
-    }
-    // Both read the same to the person; the log tells them apart.
-    let check = if metadata.is_dir() {
-        "Directory"
-    } else {
-        "NotRegular"
-    };
-    Err(Unreadable::refused(path, check, "not a regular file"))
+    check_type(&metadata).map_err(|error| refused(path, error))
 }
 
 /// The file at `path` opened for reading, by the rule every viewer of a
 /// file follows: what [`regular_file`] refuses is never opened.
 pub fn open_regular(path: &str) -> Result<File, Unreadable> {
     regular_file(path)?;
-    open_checked(path)
+    open_checked(Path::new(path)).map_err(|error| refused(path, error))
 }
 
-/// Opens `path` and refuses what turns out to be no regular file. The
-/// check before the open sees the path; a file swapped for a FIFO after
-/// it is caught here, on the file actually opened.
-///
-/// On Unix the open does not wait: opening a FIFO for reading blocks
-/// until a writer comes, which would hold the thread that loads the entry
-/// for ever. Once the file is known to be regular, its reads block as
-/// usual again.
-#[cfg(unix)]
-fn open_checked(path: &str) -> Result<File, Unreadable> {
-    use rustix::fs::{Mode, OFlags, fcntl_getfl, fcntl_setfl, open};
-
-    let io = |error: rustix::io::Errno| Unreadable::io(path, &error.into());
-    let file = File::from(
-        open(
-            path,
-            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-        .map_err(io)?,
-    );
-    let metadata = file
-        .metadata()
-        .map_err(|error| Unreadable::io(path, &error))?;
-    refuse_irregular(path, &metadata)?;
-    fcntl_setfl(&file, fcntl_getfl(&file).map_err(io)? - OFlags::NONBLOCK).map_err(io)?;
-    Ok(file)
-}
-
-/// Opens `path` and refuses what turns out to be no regular file.
-#[cfg(not(unix))]
-fn open_checked(path: &str) -> Result<File, Unreadable> {
-    let file = File::open(path).map_err(|error| Unreadable::io(path, &error))?;
-    let metadata = file
-        .metadata()
-        .map_err(|error| Unreadable::io(path, &error))?;
-    refuse_irregular(path, &metadata)?;
-    Ok(file)
+/// `error`, in the words a viewer shows for the file at `path`. A path that
+/// is a directory or another file that is no regular file reads the same to
+/// the person; the log tells them apart.
+fn refused(path: &str, error: OpenError) -> Unreadable {
+    match error {
+        OpenError::NotRegular { directory: true } => {
+            Unreadable::refused(path, "Directory", "not a regular file")
+        }
+        OpenError::NotRegular { directory: false } => {
+            Unreadable::refused(path, "NotRegular", "not a regular file")
+        }
+        OpenError::Io(error) => Unreadable::io(path, &error),
+    }
 }
 
 /// How large an image file asqr reads. An image keeps its file's bytes
@@ -687,46 +648,6 @@ mod tests {
         let refused = checked.expect_err("a FIFO");
         assert_eq!(refused.cause, "NotRegular");
         assert_eq!(refused.reason, "not a regular file");
-    }
-
-    /// A path that passed the check before the open and was then swapped
-    /// for a FIFO: the open itself must not wait for a writer.
-    #[cfg(unix)]
-    #[test]
-    fn opening_a_path_swapped_for_a_fifo_refuses_without_waiting_for_a_writer() {
-        let directory = tempfile::tempdir().expect("temporary directory is creatable");
-        let fifo = directory.path().join("pipe");
-        let made = std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .expect("mkfifo runs");
-        assert!(made.success());
-        let path = fifo.to_str().expect("a UTF-8 path").to_owned();
-
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = sender.send(open_checked(&path).map(|_| ()));
-        });
-        let opened = receiver
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("opening a FIFO must not block");
-
-        let refused = opened.expect_err("a FIFO");
-        assert_eq!(refused.cause, "NotRegular");
-        assert_eq!(refused.reason, "not a regular file");
-    }
-
-    /// Reads from the opened file block as usual: a file left in
-    /// non-blocking mode could fail a read with `WouldBlock`.
-    #[cfg(unix)]
-    #[test]
-    fn an_opened_file_reads_without_o_nonblock() {
-        let (_directory, path) = file(b"one\n");
-
-        let opened = open_regular(&path).expect("a regular file");
-
-        let flags = rustix::fs::fcntl_getfl(&opened).expect("flags are readable");
-        assert!(!flags.contains(rustix::fs::OFlags::NONBLOCK), "{flags:?}");
     }
 
     #[test]
