@@ -17,6 +17,7 @@ use super::{
     EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, RowCut, SessionState,
 };
 use crate::format::{Answer, ContextEntry, SessionResult, same_session_id};
+use crate::queue::WaitingQueue;
 
 /// How a finished session ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +142,8 @@ pub struct App {
     /// frame does, as before the first or under the message of a terminal
     /// too small for asqr.
     dialog_seen: bool,
+    /// The queues no asqr watches in which sessions wait (ADR 86).
+    elsewhere: Vec<WaitingQueue>,
 }
 
 impl App {
@@ -230,6 +233,19 @@ impl App {
     /// that finds several invalid files shows each of them in turn.
     pub fn report_invalid(&mut self, invalid: Invalid) {
         self.invalid.push_back(invalid);
+    }
+
+    /// Takes the queues no asqr watches in which sessions wait, and says
+    /// whether that changed what the status line shows.
+    pub fn set_elsewhere(&mut self, queues: Vec<WaitingQueue>) -> bool {
+        let changed = self.elsewhere != queues;
+        self.elsewhere = queues;
+        changed
+    }
+
+    /// The queues no asqr watches in which sessions wait.
+    pub fn elsewhere(&self) -> &[WaitingQueue] {
+        &self.elsewhere
     }
 
     /// Takes whether the last frame showed the dialog of an invalid

@@ -1402,6 +1402,20 @@ has context (section 7.4, ADRs 30 and 31):
   queue) and messages (about the last key) until the next key or paste,
   a notice over a message. Each has a kind that gives it its colour
   (section 7.9).
+- While the status line has no notice and no message, it says how many
+  sessions wait in named queues no asqr watches, this asqr's queue left
+  out (ADR 86): `2 sessions wait in asqr-todos`, `1 session waits in
+  asqr-todos`, or for several queues `5 sessions wait in 3 other
+  queues`. The number is bold and the words dim; it never takes a
+  warning colour, rings or notifies, since several queues can be fine.
+  Nothing shows while no session waits elsewhere. A session counts,
+  however old, until it is answered or withdrawn; outside tmux that
+  includes the sessions of agents never told a queue, in `default`,
+  while this asqr watches another queue. asqr looks at the queues when
+  it starts and every 5 seconds; a queue that cannot be read counts as
+  empty. Where the line does not fit, a single queue's name is cut from
+  its start down to 12 columns, then the queues read `other queues`,
+  then the line reads `N wait elsewhere`.
 - The key bar shows the keys that work where the cursor is; they change
   inside a field. Each key is bold in the primary colour and its
   description dim, without a fill. Hints that do not fit its width are

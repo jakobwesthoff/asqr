@@ -54,6 +54,31 @@ pub fn list_queues(root: &Path) -> io::Result<Vec<QueueSummary>> {
         .collect())
 }
 
+/// A named queue no asqr watches and the sessions waiting in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaitingQueue {
+    pub name: String,
+    pub waiting: usize,
+}
+
+/// The named queues under `root` that no asqr watches and in which
+/// sessions wait, `watched` left out: the sessions nobody sees while this
+/// asqr watches `watched`. A session counts however old it is, until it is
+/// answered or withdrawn. A root that cannot be read gives none.
+pub fn waiting_elsewhere(root: &Path, watched: &QueueLocation) -> Vec<WaitingQueue> {
+    list_queues(root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|summary| {
+            summary.waiting > 0 && summary.holder.is_none() && !summary.location.same_queue(watched)
+        })
+        .map(|summary| WaitingQueue {
+            name: summary.name().to_owned(),
+            waiting: summary.waiting,
+        })
+        .collect()
+}
+
 fn summarize(location: QueueLocation) -> QueueSummary {
     let sessions = |dir: &Path| {
         entries_if_present(dir)
@@ -171,6 +196,56 @@ mod tests {
             counts(&summaries.expect("lists")),
             [("default", 0, 0, false), ("work", 0, 0, false)]
         );
+    }
+
+    #[test]
+    fn sessions_wait_elsewhere_in_unwatched_queues_but_this_one() {
+        let (_scratch, root) = root();
+        for (name, count) in [("mine", 1), ("work", 2), ("watched", 3), ("empty", 0)] {
+            let location = queue(&root, name);
+            for n in 0..count {
+                std::fs::write(location.inbox().join(format!("s{n}.json")), "{}").expect("written");
+            }
+        }
+        let _watching = lock_queue(&QueueLocation::named(&root, "watched"), None).expect("locked");
+
+        let elsewhere = waiting_elsewhere(&root, &QueueLocation::named(&root, "mine"));
+
+        assert_eq!(
+            elsewhere,
+            [WaitingQueue {
+                name: "work".into(),
+                waiting: 2
+            }]
+        );
+    }
+
+    #[test]
+    fn from_a_queue_directory_every_named_queue_counts() {
+        let (_scratch, root) = root();
+        let work = queue(&root, "work");
+        std::fs::write(work.inbox().join("s.json"), "{}").expect("written");
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        let elsewhere = waiting_elsewhere(&root, &QueueLocation::at(dir.path()));
+
+        assert_eq!(elsewhere.len(), 1);
+    }
+
+    #[test]
+    fn a_root_that_cannot_be_read_has_nothing_waiting_elsewhere() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_scratch, root) = root();
+        queue(&root, "work");
+        std::fs::set_permissions(root.join("queues"), std::fs::Permissions::from_mode(0o000))
+            .expect("permissions change");
+
+        let elsewhere = waiting_elsewhere(&root, &QueueLocation::named(&root, "mine"));
+        std::fs::set_permissions(root.join("queues"), std::fs::Permissions::from_mode(0o755))
+            .expect("permissions back");
+
+        assert_eq!(elsewhere, []);
     }
 
     #[test]

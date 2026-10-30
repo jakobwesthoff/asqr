@@ -11,7 +11,7 @@
 //! sequences are tested against a byte buffer.
 
 use std::io::{self, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -27,6 +27,7 @@ use asqr::graphics::{
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure};
+use asqr::queue::{QueueLocation, WaitingQueue, platform_data_dir, waiting_elsewhere};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
@@ -42,6 +43,9 @@ use ratatui::crossterm::terminal::SetTitle;
 use ratatui::crossterm::{cursor, execute, queue, terminal};
 use ratatui_image::picker::cap_parser::QueryStdioOptions;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
+
+/// How often the queues besides the watched one are looked at again.
+const QUEUES_TICK: Duration = Duration::from_secs(5);
 
 /// Runs the TUI on the queue `watch` holds, in this process's terminal.
 pub fn run_terminal_ui(watch: Watch) -> Exit {
@@ -171,6 +175,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
 
     let loaded = sender.clone();
     let ticks = sender.clone();
+    let queues_ticks = sender.clone();
     let openers = sender.clone();
     // The thread reads for the life of the process and ends with it; it
     // pauses while another program has the terminal.
@@ -189,7 +194,16 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         keys,
         editing,
         openers,
+        root: platform_data_dir(),
+        watched: location.clone(),
     };
+    // The other queues are looked at again every few seconds (ADR 86);
+    // the thread ends with the run loop, whose channel it feeds.
+    std::thread::spawn(move || {
+        while queues_ticks.send(Event::QueuesTick).is_ok() {
+            std::thread::sleep(QUEUES_TICK);
+        }
+    });
     let mut view = View::new(&queue, watch.layout(), images)
         .chosen_queue(!location.is_default())
         .no_color(watch.no_color())
@@ -788,9 +802,20 @@ struct TerminalHost {
     /// Where the threads that wait for the system's opener report its
     /// failures: the run loop.
     openers: mpsc::Sender<Event>,
+    /// The root of the named queues, where sessions may wait unwatched,
+    /// and the queue this asqr watches.
+    root: Option<PathBuf>,
+    watched: QueueLocation,
 }
 
 impl Host for TerminalHost {
+    fn elsewhere(&mut self) -> Vec<WaitingQueue> {
+        self.root
+            .as_deref()
+            .map(|root| waiting_elsewhere(root, &self.watched))
+            .unwrap_or_default()
+    }
+
     fn edit(&mut self, path: &Path) -> io::Result<()> {
         ready_to_edit(|| edit::get_editor().map(drop), &self.keys, PAUSE_DEADLINE)?;
         // Ticks would only pile up while the run loop waits here.

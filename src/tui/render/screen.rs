@@ -19,6 +19,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use super::content::{TabState, draw_tab};
 use super::context::{DrawnPane, Ledge, draw_pane};
 use super::dim::dim_behind;
+use super::elsewhere::other_queues_line;
 use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
 use super::keys::{
@@ -580,7 +581,12 @@ fn status_line(app: &App, state: Option<&SessionState>, width: u16) -> Line<'sta
         .current_notice()
         .or(invalid.as_ref())
         .or_else(|| state.and_then(SessionState::message));
-    notice.map_or_else(Line::default, |notice| problem::status_line(notice, width))
+    match notice {
+        Some(notice) => problem::status_line(notice, width),
+        // At rest the line says how many sessions wait where no asqr
+        // watches (ADR 86).
+        None => other_queues_line(app.elsewhere(), false, width).unwrap_or_default(),
+    }
 }
 
 #[cfg(test)]
@@ -2199,6 +2205,50 @@ mod tests {
         let button = &buf[find(buf, "[ Submit ]")];
         assert!(button.modifier.contains(Modifier::REVERSED), "{button:?}");
         assert!(button.modifier.contains(Modifier::DIM), "{button:?}");
+    }
+
+    fn waiting_in_work(count: usize) -> Vec<crate::queue::WaitingQueue> {
+        vec![crate::queue::WaitingQueue {
+            name: "work".into(),
+            waiting: count,
+        }]
+    }
+
+    #[test]
+    fn the_status_line_names_sessions_waiting_elsewhere() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.set_elsewhere(waiting_in_work(2));
+
+        let backend = screen(&app, 80, 24);
+
+        assert_eq!(
+            row(backend.buffer(), 22).trim_end(),
+            "2 sessions wait in work"
+        );
+    }
+
+    #[test]
+    fn the_empty_queue_names_sessions_waiting_elsewhere() {
+        let mut app = App::default();
+        app.set_elsewhere(waiting_in_work(1));
+
+        let backend = screen(&app, 80, 24);
+
+        assert_eq!(
+            row(backend.buffer(), 22).trim_end(),
+            "1 session waits in work"
+        );
+    }
+
+    #[test]
+    fn a_notice_wins_over_the_sessions_waiting_elsewhere() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.set_elsewhere(waiting_in_work(2));
+        app.notice(Tone::Info, "news");
+
+        let backend = screen(&app, 80, 24);
+
+        assert_eq!(row(backend.buffer(), 22).trim_end(), "news");
     }
 
     #[test]

@@ -28,7 +28,7 @@ use super::{
     session_progress,
 };
 use crate::graphics::KittyDeletes;
-use crate::queue::QueueLocation;
+use crate::queue::{QueueLocation, WaitingQueue};
 
 /// What wakes the loop.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +51,9 @@ pub enum Event {
     /// A period of the keep-alive passed: the terminal clears the progress
     /// unless it gets it again (ADR 73).
     KeepAlive,
+    /// A period passed after which the queues besides this one are looked
+    /// at again, for the sessions waiting where no asqr watches (ADR 86).
+    QueuesTick,
     /// The key reader ended, with the reason it gives: nothing reads the
     /// terminal's input any more.
     InputEnded(String),
@@ -73,6 +76,7 @@ impl Event {
             | Event::FocusGained
             | Event::Loaded
             | Event::KeepAlive
+            | Event::QueuesTick
             | Event::InputEnded(_)
             | Event::OpenerFailed(_) => false,
         }
@@ -101,6 +105,8 @@ pub trait Host {
     /// terminal whose input could not be freed, `Other` for an editor that
     /// exited with an error.
     fn edit(&mut self, path: &Path) -> io::Result<()>;
+    /// The queues no asqr watches in which sessions wait, looked at now.
+    fn elsewhere(&mut self) -> Vec<WaitingQueue>;
 }
 
 /// Opens the field of `request` in the person's editor through `host` and
@@ -356,6 +362,7 @@ where
     // The person's editor had the terminal, so the next frame is drawn
     // whole (ADR 74).
     let mut redraw = false;
+    app.set_elsewhere(host.elsewhere());
     loop {
         let title = terminal_title(app, view.named_queue());
         if title != sent_title {
@@ -376,7 +383,10 @@ where
         // sends what they all would. Everything else stays, the end of
         // the input included.
         while let Ok(event) = events.try_recv() {
-            let piled_up = event == Event::KeepAlive && ahead.contains(&Event::KeepAlive);
+            // Ticks for the other queues pile up the same way, and one
+            // look serves them all.
+            let piled_up =
+                matches!(event, Event::KeepAlive | Event::QueuesTick) && ahead.contains(&event);
             if event != Event::Loaded && !piled_up {
                 ahead.push_back(event);
             }
@@ -457,11 +467,19 @@ where
                     Err(_) => return Ok(()),
                 },
             };
-            if event != Event::KeepAlive {
-                break event;
-            }
-            if let SentProgress::Shown(percent) = sent_progress {
-                host.progress(Some(percent));
+            match event {
+                Event::KeepAlive => {
+                    if let SentProgress::Shown(percent) = sent_progress {
+                        host.progress(Some(percent));
+                    }
+                }
+                // A look at the other queues draws only what it changed.
+                Event::QueuesTick => {
+                    if app.set_elsewhere(host.elsewhere()) {
+                        break event;
+                    }
+                }
+                event => break event,
             }
         };
         let effect = match event {
@@ -471,7 +489,7 @@ where
             Event::Key(key) => app.handle(key),
             Event::Paste(text) => app.paste(&text),
             // A keep-alive was taken above and never gets here.
-            Event::Resize | Event::Loaded | Event::KeepAlive => continue,
+            Event::Resize | Event::Loaded | Event::KeepAlive | Event::QueuesTick => continue,
             // The opener ends on a thread of its own, after the key that
             // started it; only its failure comes back.
             Event::OpenerFailed(failure) => {
@@ -586,12 +604,26 @@ mod tests {
         editor: Option<Editor>,
         /// The files the editor got, in order.
         edited: Vec<PathBuf>,
+        /// What each look at the other queues finds, in turn; the last
+        /// stays, and none means nothing waits elsewhere.
+        elsewhere: VecDeque<Vec<WaitingQueue>>,
+        /// How often the loop looked at the other queues.
+        looked_elsewhere: usize,
     }
 
     /// A stand-in for the person's editor.
     type Editor = Box<dyn FnMut(&Path) -> io::Result<()>>;
 
     impl Host for Recorder {
+        fn elsewhere(&mut self) -> Vec<WaitingQueue> {
+            self.looked_elsewhere += 1;
+            if self.elsewhere.len() > 1 {
+                self.elsewhere.pop_front().unwrap_or_default()
+            } else {
+                self.elsewhere.front().cloned().unwrap_or_default()
+            }
+        }
+
         fn progress(&mut self, percent: Option<u8>) {
             self.progress.push(percent);
         }
@@ -1409,6 +1441,71 @@ mod tests {
         harness.run(vec![Event::KeepAlive]).expect("runs");
 
         assert_eq!(harness.host.progress, []);
+    }
+
+    fn waiting_in(name: &str, waiting: usize) -> Vec<WaitingQueue> {
+        vec![WaitingQueue {
+            name: name.into(),
+            waiting,
+        }]
+    }
+
+    #[test]
+    fn the_other_queues_are_looked_at_when_asqr_starts() {
+        let mut harness = Harness::new();
+        harness.host.elsewhere = VecDeque::from([waiting_in("work", 2)]);
+
+        harness.run(vec![]).expect("runs");
+
+        assert!(
+            harness.screen().contains("2 sessions wait in work"),
+            "{}",
+            harness.screen()
+        );
+    }
+
+    #[test]
+    fn a_queues_tick_looks_at_the_other_queues_again() {
+        let mut harness = Harness::new();
+        harness.host.elsewhere = VecDeque::from([waiting_in("work", 2), waiting_in("work", 3)]);
+
+        harness.run(vec![Event::QueuesTick]).expect("runs");
+
+        assert!(
+            harness.screen().contains("3 sessions wait in work"),
+            "{}",
+            harness.screen()
+        );
+    }
+
+    #[test]
+    fn queues_ticks_waiting_together_look_once() {
+        let mut harness = Harness::new();
+
+        harness
+            .run(vec![
+                Event::QueuesTick,
+                Event::QueuesTick,
+                Event::QueuesTick,
+            ])
+            .expect("runs");
+
+        assert_eq!(
+            harness.host.looked_elsewhere, 2,
+            "at the start and once more"
+        );
+    }
+
+    #[test]
+    fn a_queues_tick_that_changes_nothing_draws_no_frame() {
+        let log = logged(SESSION, Images::half_blocks(), vec![Event::QueuesTick]);
+
+        assert_eq!(log, ["frame"]);
+    }
+
+    #[test]
+    fn a_queues_tick_is_no_input() {
+        assert!(!Event::QueuesTick.is_input());
     }
 
     #[test]
