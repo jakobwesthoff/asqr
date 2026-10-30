@@ -237,6 +237,18 @@ fn each_part_stays_under_30000_bytes() {
 }
 
 #[test]
+fn the_core_fits_in_17945_bytes() {
+    // The core arrives whole where Claude Code's Bash tool shows up to
+    // roughly 30,000 characters of output inline. The cap is the size of
+    // the core with every rule stated once. The example session, the exit
+    // codes and the rules on info items, on writing for a person who has
+    // not seen your work and on waiting for and reading every result keep
+    // it above 16,000 bytes.
+    let size = SKILL.len();
+    assert!(size <= 17_945, "the core is {size} bytes");
+}
+
+#[test]
 fn installing_again_replaces_an_older_skill() {
     let sandbox = Sandbox::new();
     let root = sandbox.home().join("skills");
@@ -271,7 +283,7 @@ fn fails_when_the_skill_cannot_be_written() {
 }
 
 /// The example session the skill teaches with: its JSON block that holds
-/// `"questions"`. The result and status examples come before it.
+/// `"questions"`. The result example comes before it.
 fn example_session() -> &'static str {
     SKILL
         .split("```json\n")
@@ -294,7 +306,7 @@ fn the_skill_teaches_asking_before_the_session_format() {
 
     assert!(at("Asking and waiting") < at("Exit codes"));
     assert!(at("Exit codes") < at("Reading the result"));
-    assert!(at("Reading the result") < at("The session file"));
+    assert!(at("Reading the result") < at("The session file: every field you write"));
 }
 
 #[test]

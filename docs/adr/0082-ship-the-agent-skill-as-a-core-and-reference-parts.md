@@ -29,7 +29,14 @@ that installed it
 ## Decision
 
 - `skills/asqr/SKILL.md`, the core, holds every rule whose violation no
-  asqr check catches, and the ask, wait and read procedure.
+  asqr check catches, and the ask, wait and read procedure, which comes
+  before the session format. It states each rule once. A test caps it
+  at 17,945 bytes, so a tool that returns up to roughly 30,000
+  characters inline shows it whole. The cap is the size of the core with
+  every rule stated once; the example session, the exit codes and the
+  rules on info items, on writing for a person who has not seen the
+  agent's work and on waiting for and reading every result keep it above
+  16,000 bytes.
 - Three parts under `skills/asqr/references/` hold details that
   `asqr validate` and `asqr ask` already guard, or that apply on one
   branch of the work: `context.md` (the context entry types, how asqr

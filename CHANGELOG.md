@@ -59,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parts an older asqr wrote disappear.
 - The agent skill explains asking, waiting and reading the result
   before the session format.
+- The agent skill's core states each rule once and is at most 17,945
+  bytes, so a tool that cuts output at 30,000 characters shows it whole.
 
 ### Fixed
 

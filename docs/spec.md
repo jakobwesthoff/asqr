@@ -2308,10 +2308,10 @@ replaces `<dir>/asqr/references/` whole and leaves any other file in
 running it again replaces an older copy, parts included.
 
 The core holds every rule whose violation no asqr check catches and the
-ask, wait and read procedure, which comes before the session format. A
-part holds details that `asqr validate`
-and `asqr ask` already guard, or that apply on one branch of the work,
-and stays under 30,000 bytes. The core's first paragraph tells the agent
+ask, wait and read procedure, which comes before the session format. It
+states each rule once and stays at most 17,945 bytes (ADR 82). A part
+holds details that `asqr validate` and `asqr ask` already guard, or that
+apply on one branch of the work, and stays under 30,000 bytes. The core's first paragraph tells the agent
 to read it to its last line and names that line, `End of the asqr
 skill.`; each part starts by naming the core and ends with a line of its
 own. The core names each part by its path and by `asqr skill <part>`,

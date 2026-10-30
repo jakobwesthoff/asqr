@@ -121,6 +121,11 @@ Every entry has a `type` and an optional `title`:
   value. A long line of a code block wraps behind a `↪` marker. Name the
   language of a code block's fence so it is highlighted. A file asqr
   cannot read shows as an error card with the reason.
+- `intro`, a question's `text` and an option's `label` and
+  `description` show tables the same way: one that does not fit the
+  space, or would have to break a word in it, shows as records. A line
+  wider than the space there, such as a long line of code, wraps behind
+  a `↪` marker.
 - Keep a code, Markdown, ANSI or diff entry, and an image's caption,
   under 1 MiB (both sides of a diff together, escape sequences
   included); `validate` and `ask` warn above that. asqr shows at most
