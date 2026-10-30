@@ -20,6 +20,8 @@ Amends [15. Configure through flags and environment and log into the cache direc
   libraries that log through the `log` crate, such as notify and mio.
   Without a filter it takes those at `info` and above, and none at
   `debug` reach it.
+- Each frame that sends a Kitty image logs its bytes and times, a
+  resize that encodes the image again included.
 
 ## Decision
 
@@ -33,6 +35,11 @@ Amends [15. Configure through flags and environment and log into the cache direc
 - A value that does not parse stops no command and prints nothing, as
   the TUI owns the terminal. The log then takes `info` and above, and a
   warning in it names `ASQR_LOG`, the value and the parse error.
+- The line of a frame that sends a Kitty image is logged at `debug`: it
+  is a measurement from every frame that sends an image, not an event
+  of everyday use, and the log is never rotated. The sweep of the files
+  `o` opened (ADR 78) logs at `debug` too; every other line keeps its
+  level.
 - The filter is the `env-filter` feature of `tracing-subscriber`, which
   brings in the crate `matchers`.
 

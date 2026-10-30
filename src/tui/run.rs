@@ -392,7 +392,8 @@ where
         // A frame that sends a Kitty image is logged with its bytes, the
         // time of the whole draw, which includes the wait for the image's
         // layout, and the time from the drawn buffer to the flushed write,
-        // which is what tmux slows.
+        // which is what tmux slows. It is a measurement from every such
+        // frame, so it is logged at `debug` (ADR 83).
         let started = Instant::now();
         let mut built = started;
         terminal
@@ -402,7 +403,7 @@ where
             })
             .context("drawing the screen")?;
         if drawn.image_sent > 0 {
-            tracing::info!(
+            tracing::debug!(
                 bytes = drawn.image_sent,
                 took = ?started.elapsed(),
                 written = ?built.elapsed(),
@@ -2692,10 +2693,11 @@ mod tests {
 
     const PICTURE: &str = r#"{"type": "image", "path": "{picture}"}"#;
 
-    /// The frame that sends a Kitty image logs the bytes of the
-    /// transmission, how long the frame took and how long writing it took,
-    /// so the log tells what showing an image cost. The test's view waits
-    /// for the image to load, so the run's one frame sends it.
+    /// Under `ASQR_LOG=debug`, the frame that sends a Kitty image logs the
+    /// bytes of the transmission, how long the frame took and how long
+    /// writing it took, so the log tells what showing an image cost. The
+    /// test's view waits for the image to load, so the run's one frame
+    /// sends it.
     #[test]
     fn a_frame_that_sends_a_kitty_image_logs_its_bytes_and_times() {
         let mut watched = Watched::new();
@@ -2703,7 +2705,7 @@ mod tests {
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
-        let log = test_support::logged(|| {
+        let log = test_support::logged_with(Some("debug"), || {
             watched.run(&mut app, &mut inbox, &mut view, Vec::new());
         });
 
@@ -2721,8 +2723,8 @@ mod tests {
     }
 
     /// A frame that shows a Kitty image sent before sends nothing, and
-    /// logs nothing about it: a resize to the same size keeps the
-    /// encoding.
+    /// logs nothing about it, `ASQR_LOG=debug` or not: a resize to the
+    /// same size keeps the encoding.
     #[test]
     fn a_frame_that_shows_a_kitty_image_already_sent_logs_nothing() {
         let mut watched = Watched::new();
@@ -2730,11 +2732,32 @@ mod tests {
         let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
 
-        let log = test_support::logged(|| {
+        let log = test_support::logged_with(Some("debug"), || {
             watched.run(&mut app, &mut inbox, &mut view, vec![Event::Resize]);
         });
 
         assert_eq!(log.matches("frame sent a Kitty image").count(), 1, "{log}");
+    }
+
+    /// The line of a frame that sends a Kitty image is a measurement from
+    /// every such frame, so it stays out of the log unless `ASQR_LOG` asks
+    /// for `debug` (ADR 83).
+    #[test]
+    fn without_asqr_log_a_frame_that_sends_a_kitty_image_logs_nothing() {
+        let mut watched = Watched::new();
+        watched.put("only", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) = start(watched.harness.location.clone()).expect("started");
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::kitty());
+
+        let log = test_support::logged(|| {
+            watched.run(&mut app, &mut inbox, &mut view, Vec::new());
+        });
+
+        assert!(
+            !transmission(watched.terminal.backend().backend.buffer()).is_empty(),
+            "the frame sent the image"
+        );
+        assert_eq!(log.matches("frame sent a Kitty image").count(), 0, "{log}");
     }
 
     #[test]

@@ -1252,6 +1252,39 @@ fn the_detected_protocol_s_log_line_says_whether_kitty_images_are_compressed() {
     assert!(line.contains("kitty_compression=false"), "{line}");
 }
 
+/// Without `ASQR_LOG`, the frame that sends a Kitty image leaves no line
+/// in the log (ADR 83). asqr quits only once the image went out, so a
+/// missing line is not a frame that never came.
+#[test]
+fn without_asqr_log_the_log_has_no_kitty_frame_lines() {
+    let sandbox = Sandbox::new();
+    let mut tui = showing_a_kitty_image(&sandbox);
+    sent_kitty_image(&tui, 0);
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+
+    let log = read_log(&sandbox.log_path());
+    assert!(
+        log.contains("graphics protocol detected protocol="),
+        "{log}"
+    );
+    assert!(!log.contains("frame sent a Kitty image"), "{log}");
+}
+
+/// `ASQR_LOG=debug` brings the frame that sends a Kitty image into the
+/// log, through the variable as asqr reads it.
+#[test]
+fn asqr_log_debug_writes_the_frames_that_send_a_kitty_image() {
+    let sandbox = Sandbox::new();
+    let mut tui = showing_a_kitty_image_with(&sandbox, PASSTHROUGH_ON, &[("ASQR_LOG", "debug")]);
+    sent_kitty_image(&tui, 0);
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+
+    let log = read_log(&sandbox.log_path());
+    assert!(log.contains("frame sent a Kitty image"), "{log}");
+}
+
 /// Under the Kitty protocol, an image sent again on regaining the focus
 /// has its old copy deleted after a frame that no longer shows it, and
 /// the one shown when asqr quits is deleted before the title is given

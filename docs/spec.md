@@ -2319,10 +2319,10 @@ scrolling.
   15×39 pixels, an image enlarged 3 times or more goes out at a third of
   its cells' pixels. An image the protocol fails to encode stays empty,
   and the log says why, once.
-- Under the Kitty protocol each frame that sends an image logs the bytes
-  it sent, how long the frame took and how long writing it took, and the
-  log line of the detected protocol says whether asqr compresses Kitty
-  images.
+- Under the Kitty protocol, with `ASQR_LOG=debug` (section 5.2), each
+  frame that sends an image logs the bytes it sent, how long the frame
+  took and how long writing it took. The log line of the detected
+  protocol says whether asqr compresses Kitty images.
 - An image entry is read when it is loaded and kept while it is inside
   the window (section 8.2): asqr keeps the file as it read it, not its
   decoded pixels, and decodes it again only when it is to show at

@@ -55,9 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ASQR_LOG=debug`, or levels per target such as `info,asqr=debug`.
   Unset, the log takes `info` and above. A value that does not parse
   leaves the log at `info` with a warning in it and prints nothing.
-- The log names the bytes of each frame that sends a Kitty image, how
-  long the frame took and how long writing it took, and the line of the
-  detected graphics protocol says whether asqr compresses Kitty images.
+- With `ASQR_LOG=debug`, the log names the bytes of each frame that
+  sends a Kitty image, how long the frame took and how long writing it
+  took. The line of the detected graphics protocol says whether asqr
+  compresses Kitty images.
 
 ### Changed
 
