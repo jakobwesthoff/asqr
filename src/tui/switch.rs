@@ -144,7 +144,9 @@ pub fn take_picked(
 /// The notice for a queue named `name` that `refusal` keeps asqr from.
 fn refused(name: &str, refusal: Refusal) -> Notice {
     match refusal {
-        Refusal::Taken => Notice::naming(Tone::Error, "another asqr is watching queue ", name, ""),
+        Refusal::Taken => {
+            Notice::naming_queue(Tone::Error, "another asqr is watching queue ", name, "")
+        }
         Refusal::Failed(reason) => cannot_watch(name, &reason),
     }
 }
@@ -197,7 +199,7 @@ pub fn switch_queue(
     };
     if let Err((id, error)) = inbox.save_drafts(app) {
         tracing::warn!(%id, %error, "could not save a draft before a switch");
-        app.show(Notice::naming(
+        app.show(Notice::naming_queue(
             Tone::Error,
             &format!("cannot save the draft of {id}; still watching "),
             &old,
@@ -217,7 +219,7 @@ pub fn switch_queue(
 /// The notice for a switch to `new` that failed after its lock, for
 /// `reason`.
 fn cannot_watch(new: &str, reason: &str) -> Notice {
-    Notice::naming(
+    Notice::naming_queue(
         Tone::Error,
         "cannot watch queue ",
         new,
@@ -231,7 +233,7 @@ fn switched_notice(new: &str, old: &str, left: usize, pinned: Result<(), TmuxFai
     let watching = format!("watching {new} · ");
     if let Err(TmuxFailure(reason)) = pinned {
         tracing::info!(reason, "tmux did not take the pin after a switch");
-        return Notice::naming(
+        return Notice::naming_queue(
             Tone::Warning,
             &format!("{watching}tmux kept the old pin, agents stay on "),
             old,
@@ -240,13 +242,13 @@ fn switched_notice(new: &str, old: &str, left: usize, pinned: Result<(), TmuxFai
     }
     match left {
         0 => Notice::new(Tone::Info, format!("watching {new}")),
-        1 => Notice::naming(
+        1 => Notice::naming_queue(
             Tone::Info,
             &format!("{watching}1 session waits in "),
             old,
             "",
         ),
-        _ => Notice::naming(
+        _ => Notice::naming_queue(
             Tone::Info,
             &format!("{watching}{left} sessions wait in "),
             old,
@@ -457,7 +459,7 @@ mod tests {
 
         assert_eq!(
             notice(2),
-            Notice::naming(
+            Notice::naming_queue(
                 Tone::Info,
                 "watching default · 2 sessions wait in ",
                 "asqr-todos",
@@ -482,7 +484,7 @@ mod tests {
 
         assert_eq!(
             notice,
-            Notice::naming(
+            Notice::naming_queue(
                 Tone::Warning,
                 "watching default · tmux kept the old pin, agents stay on ",
                 "asqr-todos",
@@ -514,7 +516,7 @@ mod tests {
 
         assert_eq!(
             refused,
-            Some(Notice::naming(
+            Some(Notice::naming_queue(
                 Tone::Error,
                 "another asqr is watching queue ",
                 "work",

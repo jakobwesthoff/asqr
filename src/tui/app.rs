@@ -94,10 +94,24 @@ pub enum Tone {
 pub struct Notice {
     pub tone: Tone,
     pub text: String,
-    /// Where `text` holds a session's name, which has no bound on its
-    /// length: the status line cuts the name to the room its other parts
-    /// leave, so they show whole (ADR 38).
+    /// Where `text` holds a session's or a queue's name, which has no
+    /// bound on its length.
     pub name: Option<Range<usize>>,
+    /// What the status line cuts first where the notice does not fit.
+    pub gives_way: GivesWay,
+}
+
+/// The part of a notice that names something that the status line cuts
+/// first where the notice does not fit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum GivesWay {
+    /// The name, to the room its other parts leave, so they show whole: the
+    /// closing quote and the counts of a session's notice (ADR 38).
+    #[default]
+    Name,
+    /// The text after the name, so a queue's name shows whole before a
+    /// reason (ADR 86).
+    After,
 }
 
 impl Notice {
@@ -106,6 +120,7 @@ impl Notice {
             tone,
             text: text.into(),
             name: None,
+            gives_way: GivesWay::Name,
         }
     }
 
@@ -117,6 +132,17 @@ impl Notice {
             tone,
             text: format!("{before}{name}{after}"),
             name: Some(start..start + name.len()),
+            gives_way: GivesWay::Name,
+        }
+    }
+
+    /// A notice that names a queue, as [`Notice::naming`] names a session:
+    /// where it does not fit, the text after the queue's name gives way
+    /// first (ADR 86).
+    pub fn naming_queue(tone: Tone, before: &str, name: &str, after: &str) -> Self {
+        Notice {
+            gives_way: GivesWay::After,
+            ..Notice::naming(tone, before, name, after)
         }
     }
 }
@@ -1072,6 +1098,7 @@ mod tests {
                 tone: Tone::Warning,
                 text: text.to_owned(),
                 name: None,
+                gives_way: GivesWay::Name,
             })
         );
 

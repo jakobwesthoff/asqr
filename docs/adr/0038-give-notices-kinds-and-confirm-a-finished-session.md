@@ -12,6 +12,8 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 
 Amended by [65. Announce a reload only for a session the person has seen](0065-announce-a-reload-only-for-a-session-the-person-has-seen.md)
 
+Amended by [86. Show and switch the watched queue in the TUI](0086-show-and-switch-the-watched-queue-in-the-tui.md)
+
 ## Context
 
 The line above the key bar shows a notice about the queue or a message

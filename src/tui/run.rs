@@ -632,6 +632,8 @@ mod tests {
         switched: Vec<Held>,
         /// tmux refuses the pin after a switch, when set.
         refuse_pin: bool,
+        /// A switch is refused so, when set, as a watcher that fails.
+        refuse_switch: Option<Refusal>,
     }
 
     /// A stand-in for the person's editor.
@@ -649,7 +651,10 @@ mod tests {
 
         /// The switch the terminal makes, in the test's directories.
         fn prepare(&mut self, target: &QueueLocation) -> Result<Held, Refusal> {
-            crate::tui::prepare_switch(target, None, || {})
+            match &self.refuse_switch {
+                Some(refusal) => Err(refusal.clone()),
+                None => crate::tui::prepare_switch(target, None, || {}),
+            }
         }
 
         fn switch(&mut self, held: Held) -> Result<(), TmuxFailure> {
@@ -1761,6 +1766,26 @@ mod tests {
         );
         assert_eq!(inbox.location(), &harness.location);
         assert_eq!(crate::queue::lock_holder(&work).expect("readable"), None);
+    }
+
+    /// The status line keeps the queue's name and cuts the reason after it,
+    /// however long, as Linux's watcher gives one (ADR 86).
+    #[test]
+    fn a_long_refusal_reason_keeps_the_queue_name() {
+        let mut harness = two_queues();
+        harness.host.refuse_switch = Some(Refusal::Failed(format!(
+            "Permission denied (os error 13) about [{:?}]",
+            "/tmp/a-long-temporary-directory/data/queues/work/inbox".repeat(2)
+        )));
+
+        harness.run(switch_to_work()).expect("runs");
+
+        let line = status_line(&harness);
+        assert!(
+            line.starts_with("✗ cannot watch queue work: Permission denied"),
+            "{line}"
+        );
+        assert!(line.ends_with('…'), "{line}");
     }
 
     #[test]

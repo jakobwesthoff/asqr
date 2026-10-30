@@ -6,6 +6,10 @@ Date: 2026-10-30
 
 Accepted
 
+Amends [38. Give notices kinds and confirm a finished session](0038-give-notices-kinds-and-confirm-a-finished-session.md):
+a notice that names a queue keeps the name and cuts the text after it
+first
+
 ## Context
 
 - One asqr watches one queue (ADR 14), and inside tmux each tmux
@@ -83,6 +87,10 @@ The switcher:
   pins a named queue last inside tmux. A step that fails leaves asqr on
   the old queue with a notice. After a switch the status line reads
   `watching <q> · N sessions wait in <old>`.
+- Where a notice that names a queue does not fit the status line, the
+  text after the name is cut first, at its end with `…`, and the name is
+  cut only where it does not fit alone, without that text; a notice that
+  names a session keeps the rule of ADR 38.
 
 The start picker:
 

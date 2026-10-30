@@ -2153,6 +2153,9 @@ keeps the session and shows its own notice instead.
   queue it watched: another asqr took the queue first; its directories,
   its inbox watcher or its first read failed; or the draft of a session
   of the old queue could not be saved, whose answers stay on screen.
+  Where such a notice does not fit, the text after the queue's name is
+  cut first, at its end with `…`, and the name only where it does not
+  fit alone, without that text (ADR 86).
 - A replaced session file keeps the answers that still fit (section
   5.4), while a question the person has not touched takes the new
   file's defaults, and keeps where the person was: the question shown,

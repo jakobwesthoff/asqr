@@ -26,7 +26,7 @@ use super::theme;
 use super::viewer::{ContentSize, Viewer};
 use super::wrap::{cut, wrap};
 use crate::graphics::PlacedImage;
-use crate::tui::{Notice, Offset, Tone};
+use crate::tui::{GivesWay, Notice, Offset, Tone};
 
 // ---------------------------------------------------------------------
 // The problem
@@ -294,8 +294,10 @@ impl Viewer for Card {
 /// `notice` as the status line shows it in `width` columns: in its tone's
 /// colour, an error or a warning after its mark. A notice that names a
 /// session is cut in the name, which ends in `…` then, to the room the
-/// mark and the rest leave, so they show whole (ADR 38); any other is cut
-/// at the edge.
+/// mark and the rest leave, so they show whole (ADR 38). One that names a
+/// queue keeps the name and cuts the text after it at its end, and only a
+/// name that does not fit alone is cut, without that text (ADR 86). Any
+/// other is cut at the edge.
 pub(super) fn status_line(notice: &Notice, width: u16) -> Line<'static> {
     let mark = Severity::of(notice.tone)
         .map(|severity| Span::styled(format!("{} ", severity.mark()), Style::new().bold()));
@@ -303,9 +305,20 @@ pub(super) fn status_line(notice: &Notice, width: u16) -> Line<'static> {
         None => notice.text.clone(),
         Some(name) => {
             let (before, after) = (&notice.text[..name.start], &notice.text[name.end..]);
-            let taken = mark.as_ref().map_or(0, Span::width) + columns(before) + columns(after);
-            let name = cut(&notice.text[name], usize::from(width).saturating_sub(taken));
-            format!("{before}{name}{after}")
+            let room = usize::from(width)
+                .saturating_sub(mark.as_ref().map_or(0, Span::width) + columns(before));
+            let name = &notice.text[name];
+            match notice.gives_way {
+                GivesWay::Name => {
+                    let name = cut(name, room.saturating_sub(columns(after)));
+                    format!("{before}{name}{after}")
+                }
+                GivesWay::After if columns(name) <= room => {
+                    let after = cut(after, room - columns(name));
+                    format!("{before}{name}{after}")
+                }
+                GivesWay::After => format!("{before}{}", cut(name, room)),
+            }
         }
     };
     let spans: Vec<Span<'static>> = mark.into_iter().chain([Span::from(text)]).collect();
@@ -396,6 +409,61 @@ mod tests {
     use crate::tui::Offset;
 
     const MISSING: &str = "No such file or directory (os error 2)";
+
+    // -----------------------------------------------------------------
+    // The status line
+    // -----------------------------------------------------------------
+
+    const REASON: &str =
+        ": Permission denied (os error 13) about [\"/tmp/.tmpeoLSIc/data/queues/work/inbox\"]";
+
+    fn shown(notice: &Notice, width: u16) -> String {
+        status_line(notice, width).to_string()
+    }
+
+    #[test]
+    fn a_long_text_after_a_queue_name_gives_way_before_the_name() {
+        let notice = Notice::naming_queue(Tone::Error, "cannot watch queue ", "work", REASON);
+
+        let line = shown(&notice, 60);
+
+        assert!(
+            line.starts_with("✗ cannot watch queue work: Permission denied"),
+            "{line}"
+        );
+        assert!(line.ends_with('…'), "{line}");
+        assert_eq!(columns(&line), 60, "{line}");
+    }
+
+    #[test]
+    fn a_queue_name_too_long_alone_is_cut_and_the_text_after_it_goes() {
+        let name = "notes-for-the-0.15-cycle-and-more";
+        let notice = Notice::naming_queue(Tone::Error, "cannot watch queue ", name, REASON);
+
+        assert_eq!(shown(&notice, 30), "✗ cannot watch queue notes-fo…");
+    }
+
+    #[test]
+    fn a_queue_notice_that_fits_shows_whole() {
+        let notice = Notice::naming_queue(Tone::Error, "cannot watch queue ", "work", ": gone");
+
+        assert_eq!(shown(&notice, 60), "✗ cannot watch queue work: gone");
+    }
+
+    #[test]
+    fn a_session_notice_cuts_the_name_so_the_rest_shows_whole() {
+        let notice = Notice::naming(
+            Tone::Info,
+            "↩ withdrawn \"",
+            "Release 0.2.0 with a long title",
+            "\" by the asker",
+        );
+
+        assert_eq!(
+            shown(&notice, 40),
+            "↩ withdrawn \"Release 0.2.…\" by the asker"
+        );
+    }
 
     fn card(reason: &str, path: &str) -> Card {
         Card::error(reason, path, None)

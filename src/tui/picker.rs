@@ -118,7 +118,7 @@ mod tests {
             let name = target.name().expect("named").to_owned();
             asked.push(name.clone());
             if refused.contains(&name.as_str()) {
-                Err(Notice::naming(
+                Err(Notice::naming_queue(
                     Tone::Error,
                     "another asqr is watching queue ",
                     &name,
