@@ -122,7 +122,7 @@
           "type": "null"
         }
       ],
-      "description": "A withdrawn result's unsent draft: what the person had answered and\nnoted when the asker withdrew the session. These are no decisions,\nas the person never sent them; they may only serve as presets in a\nreplacement session. Absent when the person had entered nothing."
+      "description": "A withdrawn result's unsent draft: what the person had answered and\nnoted when the asker withdrew the session. These are no decisions,\nas the person never sent them; they may only serve as presets in a\nreplacement session. Absent when the person had entered nothing it\ncan carry, such as only a cleared default."
     },
     "error": {
       "description": "What is wrong with an invalid session file.",

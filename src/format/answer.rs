@@ -122,8 +122,9 @@ fn shaped(question: &Question, answer: &Answer) -> Answer {
         question: question.id.clone(),
         selected,
         custom,
-        // Drafts alone mark own text as unpicked.
+        // Drafts alone mark own text as unpicked and a question as cleared.
         custom_unpicked: false,
+        cleared: false,
         note: answer.note.clone(),
         defaulted: answer.defaulted,
         skipped: false,
@@ -297,6 +298,23 @@ mod tests {
         assert_eq!(
             result_answers(&session(MULTI_WITHOUT_OWN), &[both]),
             [selected("m", &["a", "b"])]
+        );
+    }
+
+    #[test]
+    fn a_result_never_carries_the_cleared_mark() {
+        // The mark belongs to drafts alone, whatever else the answer holds.
+        let marked = |answer: Answer| Answer {
+            cleared: true,
+            ..answer
+        };
+
+        assert_eq!(
+            result_answers(
+                &session(&[SINGLE, TEXT].join(",")),
+                &[marked(selected("s", &["a"])), marked(Answer::new("t"))]
+            ),
+            [selected("s", &["a"]), Answer::skipped("t")]
         );
     }
 

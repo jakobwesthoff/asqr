@@ -394,10 +394,13 @@ asqr withdraw "$id"
   "not a result file" instead.
 - When the person has started answering, `withdraw` refuses with exit
   code 1. A default you set that they left as it is does not count as
-  starting. Ask them before you take the session away; `--force`
-  withdraws it anyway, and asqr tells them that you withdrew it.
+  starting; one they cleared does. Ask them before you take the session
+  away; `--force` withdraws it anyway, and asqr tells them that you
+  withdrew it.
 - The result of such a withdrawal carries what they had entered in
-  `draft`: their `note` and the `answers` they had given so far. These
+  `draft`: their `note` and the `answers` they had given so far. A
+  question they only cleared, such as a default or a pick they removed,
+  is not in it; when that is all they did, the result has no `draft`. These
   are not decisions: they never sent them, and they might have rejected
   the session in the end. Use them only as presets in a replacement
   session (`"default": true` on the options they picked, which asqr

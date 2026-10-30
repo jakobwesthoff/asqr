@@ -225,9 +225,11 @@ fn read_result(path: &Path) -> Option<SessionResult> {
 /// of a rejected result: the questions they answered or noted, and the
 /// note to the whole session, trimmed. A rejected result keeps an
 /// untouched default, flagged; here it goes, as it is the asker's own
-/// preset and nothing the person entered (spec section 4.1). None without
-/// a readable draft, for a session file that is no valid session, and for
-/// a draft that holds nothing the person entered.
+/// preset and nothing the person entered (spec section 4.1). A question
+/// marked `cleared` goes too: it is skipped without a note, which the
+/// shape of a rejected result leaves out. None
+/// without a readable draft, for a session file that is no valid session,
+/// and for a draft that holds nothing else the person entered.
 fn unsent_draft(location: &QueueLocation, id: &str, bytes: &[u8]) -> Option<UnsentDraft> {
     let draft = load_draft(location, id).ok().flatten()?;
     let (_, session) = parse_session(bytes).ok()?;
@@ -406,6 +408,31 @@ mod tests {
                 .expect("readable")
                 .is_some()
         );
+    }
+
+    /// A draft of `id` in which the person only cleared the default of
+    /// `q`.
+    fn cleared_default(location: &QueueLocation, id: &str) {
+        let cleared = Answer {
+            cleared: true,
+            ..Answer::new("q")
+        };
+        save_draft(location, &SessionResult::draft(id, "q", vec![cleared])).expect("saved");
+    }
+
+    #[test]
+    fn refuses_while_the_draft_holds_a_cleared_default() {
+        let (_scratch, location) = queue();
+        asked(&location, "batch-01");
+        cleared_default(&location, "batch-01");
+
+        let refused = withdraw_session(&location, "batch-01", false);
+
+        assert!(
+            matches!(&refused, Err(WithdrawError::BeingAnswered(id)) if id == "batch-01"),
+            "{refused:?}"
+        );
+        assert_eq!(names(&location.inbox()), ["batch-01.json"]);
     }
 
     #[test]
@@ -866,6 +893,24 @@ mod tests {
         );
         assert_eq!(names(&location.inbox()), ["round-1.json"]);
         assert_eq!(names(&location.outbox()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_replacement_is_refused_while_the_old_draft_holds_a_cleared_default() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        cleared_default(&location, "round-1");
+
+        let refused = drop_replacing(&location, "round-1", "round-2", NEW, false, Gate::default());
+
+        assert!(
+            matches!(
+                refused,
+                Err(ReplaceError::Withdraw(WithdrawError::BeingAnswered(_)))
+            ),
+            "{refused:?}"
+        );
+        assert_eq!(names(&location.inbox()), ["round-1.json"]);
     }
 
     #[test]

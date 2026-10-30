@@ -408,8 +408,11 @@ rules are validation's alone.
     without an untouched default, which is the asker's preset and
     nothing the person entered (section 4.3). These
     are no decisions: the person never sent them, and an asker uses
-    them at most as presets of a replacement session. `draft` is absent
-    when the person had entered nothing.
+    them at most as presets of a replacement session. A question the
+    person only cleared (`cleared` in the draft, section 4.3) is skipped
+    without a note and so is not in `answers`. `draft` is absent when the
+    person had entered nothing it can carry, such as only a cleared
+    default.
 - `submitted_at` holds the time of finishing, as RFC 3339 with the
   offset. It is present for every status.
 - `session_sha256` is the SHA-256 of the session file's bytes as read
@@ -491,6 +494,11 @@ with `custom_unpicked: true` on its answer. The field appears only in
 drafts, and the result schema leaves it out. It is new within format
 version 2: asqr 0.13.1 and earlier ignore it, so the text counts there
 again.
+A question the person changed and left without a selection, typed text
+that is not blank or a note that is not blank, as when they cleared its
+default, has `cleared: true` on its answer. The field appears only in
+drafts, and the result schema leaves it out. It is new within format
+version 2: asqr 0.14.0 and earlier ignore it (ADR 77).
 It is written on every change while the session waits in the inbox; a
 change to a session whose file has left the inbox writes no draft. The
 look at the inbox and the write run under the drafts lock (section 5.6).
@@ -498,22 +506,40 @@ On restore, answers are matched by
 question id and option id, and anything that no longer fits is dropped:
 a question or option that is gone, and typed text on a question that
 has no field for it any more, such as a `single` or `multi` whose
-`custom` is off now. An untouched default (`"defaulted":
-true`) restores as the defaults the question sets in the file as it is
-now, so a default the asker moved, added or removed since shows as the
-file sets it. A draft that cannot be read is logged and ignored, and the
+`custom` is off now. A question the person never touched, whose answer
+is an untouched default (`"defaulted": true`) or has nothing at all,
+restores as the defaults the question sets in the file as it is now, so
+a default the asker moved, added or removed since shows as the file
+sets it. A pick or own text the file removed from a `single` or `multi`
+keeps the question touched: it stays skipped and is marked `cleared`,
+since the person moved off any default there and a default coming back
+with `"defaulted": true` would tell the asker they left it. A `text`
+question or an info item has no options and so no default that could
+come back; there only what it can hold, its text or note, keeps it
+touched. A draft written by asqr 0.14.0 or earlier holds a cleared
+default as an answer with nothing in it, so that default comes back
+selected. A draft that cannot be read is logged and ignored, and the
 session starts fresh, with only its defaults selected.
 
 A draft "has an answer" (section 5.5) when any question has a selection
-the person made, typed text that is not blank or a note that is not
-blank, when the session note is not blank, or when the draft cannot be
-read. The reject reason does not count. A selection counts even where
+the person made, typed text that is not blank, a note that is not blank
+or the `cleared` mark, when the session note is not blank, or when the
+draft cannot be read. The reject reason does not count. A selection counts even where
 it does not answer the question yet, since it is still work a
 replacement would throw away. An untouched default (`"defaulted":
 true`) is the asker's preset and does not count, so the draft of a
 session the person only moved through, saved as they went from one
 question to the next, has no answer. A default the person picked again, a toggle or a note on the
-question removes the flag (section 4.2) and counts.
+question removes the flag (section 4.2) and counts. So does a question
+marked `cleared`, info items included: a cleared default, a pick cleared
+on a question without a default, or own text or a note typed and erased
+again. It is still work the person did on the question, and a
+replacement would throw it away. The mark cannot tell a cleared default
+from a question with nothing left to lose, as the draft does not know
+the session's defaults, so it counts both. An asker can still withdraw
+with `--force`, and the person is then told (section 7.9). `enter` on
+the own-answer row of a `single` without a pick and without unpicked
+text changes nothing and leaves the question untouched.
 
 ## 5. Queues and files
 
@@ -805,7 +831,9 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
   "<id>" is being answered; withdraw it anyway with --force". With
   `--force` it is withdrawn anyway, and the result's `draft` carries
   what the person had entered. A draft that cannot be read counts as
-  one with an answer and gives no `draft`.
+  one with an answer and gives no `draft`. Nor does a draft whose only
+  answers are questions marked `cleared` (section 4.3): the result's
+  `draft` has nothing to carry for them.
 - A session answered already, whose result is in the outbox, is refused:
   "session "<id>" is answered already; read the result with `asqr result
   <id>`". So is a session whose finish was interrupted after its result
@@ -1667,7 +1695,8 @@ keeps the session and shows its own notice instead.
   result carries a `draft`, so what the person entered went to the
   asker. The third, a warning, shows when the TUI held answers the
   result does not carry, as when the person typed while the withdrawal
-  ran. An untouched default is no answer here (section 4.3). A session
+  ran, or when the person had only cleared questions (section 4.3),
+  which `draft` does not carry. An untouched default is no answer here (section 4.3). A session
   withdrawn while the person wrote one of its fields in their editor
   gets the form of section 7.7, a warning that names the kept file
   first, with the same endings. Only a session the person has had on

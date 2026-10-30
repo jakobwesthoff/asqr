@@ -25,6 +25,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an own answer drops the own text it held for that question. Before,
   the text stayed in the answer without a row to edit or clear it, the
   review showed it and a submit sent it.
+- A question the person changed and left empty counts as started: a
+  cleared default, a pick cleared on a question without a default, and
+  own text or a note typed and erased again. `asqr withdraw` and `asqr
+  ask --replaces` refuse such a session without `--force`, and with it
+  asqr tells the person the session was withdrawn; `asqr ask` of the
+  same id refuses it, also with `--force`, and `asqr status` lists its
+  draft under `draft_has_answers`. The draft marks such a question with
+  `cleared: true`, which asqr 0.14.0 and earlier ignore. `enter` on an
+  empty own-answer row of a `single` without a pick no longer counts as
+  a change. Before, the session went without `--force`, and the person's
+  choice with it.
+- A session restored from its draft picks a default the file gained on
+  a question the person never touched, as a replaced file does. Before,
+  a restart left such a default unpicked on a question that had none. A
+  cleared default in a draft from asqr 0.14.0 or earlier comes back
+  selected.
 
 ## [0.14.0] - 2026-10-29
 

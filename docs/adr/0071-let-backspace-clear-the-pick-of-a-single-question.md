@@ -13,6 +13,9 @@ Amends [28. Session and result format version 2](0028-session-and-result-format-
 own text answers a `single` only while it is the pick, and a draft marks
 own text the person unpicked
 
+Amended by [77. Count a cleared default as the person having started](0077-count-a-cleared-default-as-the-person-having-started.md):
+a cleared default counts as an answer in a draft
+
 ## Context
 
 - Every question is optional (ADR 28, spec sections 3.2 and 4.2).

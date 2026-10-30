@@ -99,6 +99,26 @@ fn withdraw_refuses_a_session_being_answered_with_1() {
 }
 
 #[test]
+fn withdraw_refuses_a_session_whose_only_change_is_a_cleared_default_with_1() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "batch");
+    let cleared = Answer {
+        cleared: true,
+        ..Answer::new("q")
+    };
+    save_draft(
+        &location(&sandbox),
+        &SessionResult::draft("batch", "q", vec![cleared]),
+    )
+    .expect("saved");
+
+    let refused = withdraw(&sandbox, &["batch"]);
+
+    assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
+    assert!(sandbox.queue_dir().join("inbox/batch.json").is_file());
+}
+
+#[test]
 fn withdraw_force_takes_it_anyway_with_the_unsent_draft() {
     let sandbox = Sandbox::new();
     ask(&sandbox, "batch");

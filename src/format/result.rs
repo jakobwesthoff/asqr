@@ -63,7 +63,8 @@ pub struct SessionResult {
     /// A withdrawn result's unsent draft: what the person had answered and
     /// noted when the asker withdrew the session. These are no decisions,
     /// as the person never sent them; they may only serve as presets in a
-    /// replacement session. Absent when the person had entered nothing.
+    /// replacement session. Absent when the person had entered nothing it
+    /// can carry, such as only a cleared default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<UnsentDraft>,
 }
@@ -116,6 +117,15 @@ pub struct Answer {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(skip)]
     pub custom_unpicked: bool,
+
+    /// Drafts only: the person changed the question and left no
+    /// selection, typed text that is not blank or note that is not blank
+    /// in it, as when they clear its default. It counts as having started
+    /// on the question (spec section 4.3). A result never carries it, so
+    /// the result schema leaves it out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(skip)]
+    pub cleared: bool,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -489,6 +499,28 @@ mod tests {
         assert_eq!(
             written["answers"],
             json!([{ "question": "q1", "custom": "own", "custom_unpicked": true }])
+        );
+        assert_eq!(
+            serde_json::from_value::<SessionResult>(written).expect("parses"),
+            draft
+        );
+    }
+
+    #[test]
+    fn a_draft_marks_a_question_the_person_cleared() {
+        let draft = SessionResult::draft(
+            "batch-01",
+            "q1",
+            vec![Answer {
+                cleared: true,
+                ..Answer::new("q1")
+            }],
+        );
+        let written = serde_json::to_value(&draft).expect("draft serializes");
+
+        assert_eq!(
+            written["answers"],
+            json!([{ "question": "q1", "cleared": true }])
         );
         assert_eq!(
             serde_json::from_value::<SessionResult>(written).expect("parses"),

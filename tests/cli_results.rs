@@ -325,6 +325,32 @@ fn status_lists_waiting_and_answered_sessions() {
 }
 
 #[test]
+fn status_counts_a_cleared_question_as_an_answer_in_the_draft() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "cleared");
+    let cleared = Answer {
+        cleared: true,
+        ..Answer::new("q")
+    };
+    save_draft(
+        &location(&sandbox),
+        &SessionResult::draft("cleared", "q", vec![cleared]),
+    )
+    .expect("saved");
+
+    let json = sandbox
+        .asqr_in_queue(&["status", "--json"])
+        .output()
+        .expect("runs");
+
+    let status: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("status JSON");
+    assert_eq!(
+        status["waiting"],
+        serde_json::json!([{ "id": "cleared", "draft_has_answers": true }])
+    );
+}
+
+#[test]
 fn status_names_the_watching_instance_and_unreadable_results() {
     let sandbox = Sandbox::new();
     let _watching = lock_queue(&location(&sandbox)).expect("this test plays the running asqr");

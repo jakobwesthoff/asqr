@@ -74,16 +74,19 @@ pub fn delete_draft(location: &QueueLocation, id: &str) -> io::Result<()> {
 }
 
 /// Whether `answer` holds something the person entered: a selection they
-/// made, typed text or a note that is not blank (spec section 4.3). An
+/// made, typed text or a note that is not blank, or the `cleared` mark of
+/// a question they changed and left empty (spec section 4.3). An
 /// untouched default is the asker's preset, not the person's input. A
 /// selection counts even where it does not answer the question yet (a
 /// `multi` below `min`), since it is still work that a replacement would
-/// throw away. A default picked again, a toggle or a note removes the
+/// throw away, and so is a cleared default, a cleared pick or text typed
+/// and erased. A default picked again, a toggle or a note removes the
 /// `defaulted` flag (section 4.2), so each of them counts.
 pub fn person_entered(answer: &Answer) -> bool {
     (!answer.selected.is_empty() && !answer.defaulted)
         || filled(&answer.custom)
         || filled(&answer.note)
+        || answer.cleared
 }
 
 /// Whether the person entered anything into `draft`: an answer that
@@ -236,6 +239,17 @@ mod tests {
         };
 
         assert!(!draft_has_answer(&draft("d", vec![defaulted])));
+    }
+
+    #[test]
+    fn a_cleared_question_counts_as_an_answer() {
+        let cleared: Answer = serde_json::from_value(serde_json::json!({
+            "question": "q",
+            "cleared": true,
+        }))
+        .expect("a draft answer parses");
+
+        assert!(draft_has_answer(&draft("d", vec![cleared])));
     }
 
     #[test]

@@ -1739,6 +1739,51 @@ mod tests {
         );
     }
 
+    /// Shows the session of [`with_default`] and clears its default with
+    /// `backspace`: the cursor starts on option `a`, the default.
+    fn default_cleared(location: &QueueLocation) -> (Inbox, App) {
+        put(location, "batch.json", &with_default());
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        shown(&mut app);
+        let effect = app.handle(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        inbox.apply(&mut app, effect);
+        (inbox, app)
+    }
+
+    #[test]
+    fn a_cleared_default_is_withdrawn_only_with_force() {
+        let (_scratch, location) = queue();
+        default_cleared(&location);
+
+        let refused = withdraw_session(&location, "batch", false);
+
+        assert!(
+            matches!(refused, Err(crate::queue::WithdrawError::BeingAnswered(_))),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn a_session_withdrawn_with_a_cleared_default_warns_that_it_is_dropped() {
+        // The result's draft carries no cleared question, so the person's
+        // choice goes with the session.
+        let (_scratch, location) = queue();
+        let (mut inbox, mut app) = default_cleared(&location);
+
+        withdraw_session(&location, "batch", true).expect("withdrawn");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker; your answers to it are dropped"
+            ))
+        );
+    }
+
     #[test]
     fn a_re_picked_default_still_counts() {
         let (_scratch, location) = queue();

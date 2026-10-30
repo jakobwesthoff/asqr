@@ -414,19 +414,7 @@ impl SessionState {
     /// the person has seen (see [`Self::seen`]): they never had any other
     /// on screen, so "was reloaded" tells them nothing about it.
     pub fn replace_session(&mut self, session: Session) {
-        // A question the person has not touched holds nothing of theirs,
-        // so it starts from the new file's defaults, as on a fresh start.
-        // Left in the draft, an empty answer would restore as touched and
-        // keep a default the file added from being picked.
-        let mut draft = self.to_draft();
-        draft.answers.retain(|answer| {
-            self.session
-                .questions
-                .iter()
-                .zip(&self.working)
-                .any(|(question, working)| question.id == answer.question && working.touched)
-        });
-        let mut replaced = SessionState::new(self.id.clone(), session, Some(&draft));
+        let mut replaced = SessionState::new(self.id.clone(), session, Some(&self.to_draft()));
         replaced.revision = self.revision + 1;
         replaced.seen = self.seen;
 
@@ -866,6 +854,12 @@ impl SessionState {
                     selected: working.selected.clone(),
                     custom: filled(&working.custom),
                     custom_unpicked: working.custom_unpicked,
+                    // Nothing else in the answer would show that the person
+                    // changed the question, as when they cleared its default.
+                    cleared: working.touched
+                        && working.selected.is_empty()
+                        && working.custom.trim().is_empty()
+                        && working.note.trim().is_empty(),
                     note: filled(&working.note),
                     defaulted: !working.touched && !working.selected.is_empty(),
                     skipped: false,
@@ -1448,13 +1442,17 @@ impl SessionState {
 
     /// Picks the own answer and moves on. On a single question that
     /// deselects the options, since the own answer counts only without one,
-    /// and picks own text that `backspace` left unpicked.
+    /// and picks own text that `backspace` left unpicked. Where neither
+    /// applies the question stays as it was, untouched if it was, so the
+    /// draft does not count it as started.
     fn pick_own(&mut self) -> Effect {
         if self.kind() == Some(Kind::Single) {
             let working = &mut self.working[self.tab];
-            working.selected.clear();
-            working.custom_unpicked = false;
-            working.touched = true;
+            if !working.selected.is_empty() || working.custom_unpicked {
+                working.selected.clear();
+                working.custom_unpicked = false;
+                working.touched = true;
+            }
         }
         self.go_to_tab(self.tab + 1)
     }
@@ -1778,13 +1776,30 @@ fn defaults(question: &Question) -> Vec<String> {
 
 /// A working answer from a draft, keeping only what fits the question.
 ///
-/// An untouched default is the asker's preset, not the person's pick, so
-/// it restores as the defaults the question sets now: a default the file
-/// moved, added or removed since the draft was saved shows as the file
-/// sets it. The person typed nothing into such a question, as every edit
-/// and every pick marks it touched.
+/// A question the person never touched holds nothing of theirs: its answer
+/// is an untouched default or has nothing at all, as every edit and every
+/// pick shows in the answer or marks it `cleared`. It restores as the
+/// defaults the question sets now, so a default the file moved, added or
+/// removed since the draft was saved shows as the file sets it.
+///
+/// A pick or own text the file removed from a `single` or `multi` keeps
+/// the question touched, so it stays skipped: the person moved off any
+/// default there, and the default coming back flagged would tell the asker
+/// they left it. A `text` question or an info item has no options and so no
+/// default that could come back; there only what it can hold counts, and
+/// what it cannot show is no work of the person's that the draft keeps.
 fn restored(question: &Question, answer: &Answer) -> Working {
-    let mut selected: Vec<String> = if answer.defaulted {
+    let touched = !answer.defaulted
+        && (answer.cleared
+            || answer.note.is_some()
+            || match question.kind {
+                Kind::Single | Kind::Multi => {
+                    !answer.selected.is_empty() || answer.custom.is_some()
+                }
+                Kind::Text => answer.custom.is_some(),
+                Kind::Info => false,
+            });
+    let mut selected: Vec<String> = if !touched {
         defaults(question)
     } else {
         option_ids(question)
@@ -1813,7 +1828,7 @@ fn restored(question: &Question, answer: &Answer) -> Working {
         custom,
         custom_unpicked,
         note: cleaned(answer.note.as_deref().unwrap_or_default()),
-        touched: !answer.defaulted,
+        touched,
     }
 }
 
@@ -1882,6 +1897,15 @@ mod tests {
             .into_iter()
             .find(|answer| answer.question == question)
             .expect("every question has an answer")
+    }
+
+    /// The answer to `question` the person changed and left with nothing
+    /// in it, as a draft marks it.
+    fn cleared(question: &str) -> Answer {
+        Answer {
+            cleared: true,
+            ..Answer::new(question)
+        }
     }
 
     /// Moves right until tab `tab` is current, leaving any focused field
@@ -2122,7 +2146,7 @@ mod tests {
 
         state.handle(code(KeyCode::Backspace));
 
-        assert_eq!(answer(&state, "single"), Answer::new("single"));
+        assert_eq!(answer(&state, "single"), cleared("single"));
         assert_eq!(
             state.counts(),
             Counts {
@@ -2163,8 +2187,8 @@ mod tests {
         let restored = SessionState::new("batch", session(), Some(&state.to_draft()));
         state.replace_session(session());
 
-        assert_eq!(answer(&restored, "single"), Answer::new("single"));
-        assert_eq!(answer(&state, "single"), Answer::new("single"));
+        assert_eq!(answer(&restored, "single"), cleared("single"));
+        assert_eq!(answer(&state, "single"), cleared("single"));
     }
 
     #[test]
@@ -4642,6 +4666,235 @@ mod tests {
         state.replace_session(without_own_answers());
 
         assert_eq!(answer(&state, "single").custom, None);
+    }
+
+    // ---------------------------------------------------------------
+    // A question the person changed and left empty
+    // ---------------------------------------------------------------
+
+    fn has_answer(state: &SessionState) -> bool {
+        crate::queue::draft_has_answer(&state.to_draft())
+    }
+
+    /// The test session with option `x` of `multi` as its default.
+    fn default_on_x() -> String {
+        SESSION.replace(r#""label": "X""#, r#""label": "X", "default": true"#)
+    }
+
+    #[test]
+    fn a_cleared_default_counts_as_an_answer_in_the_draft() {
+        let mut state = state();
+        press(&mut state, "j");
+
+        state.handle(code(KeyCode::Backspace));
+
+        assert!(has_answer(&state));
+    }
+
+    #[test]
+    fn a_default_toggled_off_a_multi_counts_as_an_answer_in_the_draft() {
+        let mut state = SessionState::new(
+            "batch",
+            serde_json::from_str(&default_on_x()).expect("parses"),
+            None,
+        );
+        go_to_tab(&mut state, 1);
+
+        press(&mut state, "1");
+
+        assert_eq!(answer(&state, "multi"), cleared("multi"));
+        assert!(has_answer(&state));
+    }
+
+    #[test]
+    fn a_cleared_pick_without_a_default_counts_as_an_answer_in_the_draft() {
+        let mut state = state();
+        go_to_tab(&mut state, 3);
+        press(&mut state, "1h");
+
+        state.handle(code(KeyCode::Backspace));
+
+        assert!(has_answer(&state));
+    }
+
+    #[test]
+    fn own_text_typed_and_erased_counts_as_an_answer_in_the_draft() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+        press(&mut state, "x");
+
+        state.handle(code(KeyCode::Backspace));
+
+        assert_eq!(answer(&state, "text"), cleared("text"));
+        assert!(has_answer(&state));
+    }
+
+    #[test]
+    fn a_note_typed_and_erased_counts_as_an_answer_in_the_draft() {
+        let mut state = state();
+        go_to_tab(&mut state, 1);
+        press(&mut state, "nx");
+
+        state.handle(code(KeyCode::Backspace));
+
+        assert_eq!(answer(&state, "multi"), cleared("multi"));
+        assert!(has_answer(&state));
+    }
+
+    #[test]
+    fn blank_typed_text_counts_as_an_answer_in_the_draft() {
+        let mut state = state();
+        go_to_tab(&mut state, 2);
+
+        press(&mut state, " ");
+
+        assert!(has_answer(&state));
+    }
+
+    #[test]
+    fn enter_on_an_empty_own_answer_changes_nothing_in_the_draft() {
+        // `enter` on the own-answer row picks it, which on a single without
+        // a pick and without text changes nothing the person could lose.
+        let without_default =
+            SESSION.replace(r#""label": "B", "default": true"#, r#""label": "B""#);
+        let mut state = SessionState::new(
+            "batch",
+            serde_json::from_str(&without_default).expect("parses"),
+            None,
+        );
+        press(&mut state, "jj");
+
+        state.handle(code(KeyCode::Enter));
+
+        assert_eq!(state.tab(), 1, "enter moved on");
+        assert_eq!(answer(&state, "single"), Answer::new("single"));
+        assert!(!has_answer(&state));
+    }
+
+    #[test]
+    fn a_restored_draft_selects_a_default_added_to_an_untouched_question() {
+        let draft = state().to_draft();
+
+        let restored = SessionState::new(
+            "batch",
+            serde_json::from_str(&default_on_x()).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(
+            answer(&restored, "multi"),
+            Answer {
+                selected: vec!["x".into()],
+                defaulted: true,
+                ..Answer::new("multi")
+            }
+        );
+    }
+
+    #[test]
+    fn a_restored_draft_drops_a_pick_on_a_question_that_became_a_text_question() {
+        // A text question has no options, so nothing of the pick shows,
+        // and no default can come back in its place.
+        let draft = SessionResult::draft(
+            "batch",
+            "text",
+            vec![Answer {
+                selected: vec!["a".into()],
+                ..Answer::new("text")
+            }],
+        );
+
+        let restored = SessionState::new(
+            "batch",
+            serde_json::from_str(SESSION).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(answer(&restored, "text"), Answer::new("text"));
+        assert!(!has_answer(&restored));
+    }
+
+    #[test]
+    fn a_single_that_lost_its_own_answer_stays_off_its_default() {
+        // The person moved off default `b` to answer in their own words; the
+        // default coming back flagged would tell the asker they left it.
+        let draft = SessionResult::draft(
+            "batch",
+            "single",
+            vec![Answer {
+                custom: Some("mine".into()),
+                ..Answer::new("single")
+            }],
+        );
+
+        let restored = SessionState::new("batch", without_own_answers(), Some(&draft));
+
+        assert_eq!(answer(&restored, "single"), cleared("single"));
+    }
+
+    #[test]
+    fn a_cleared_question_without_a_default_keeps_no_default_the_file_gains() {
+        let draft = SessionResult::draft("batch", "plain", vec![cleared("plain")]);
+        let gained = SESSION.replace(r#""label": "Only""#, r#""label": "Only", "default": true"#);
+
+        let restored = SessionState::new(
+            "batch",
+            serde_json::from_str(&gained).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(answer(&restored, "plain"), cleared("plain"));
+    }
+
+    #[test]
+    fn a_restored_note_keeps_a_default_the_file_gains_off() {
+        let noted = Answer {
+            note: Some("why".into()),
+            ..Answer::new("multi")
+        };
+        let draft = SessionResult::draft("batch", "multi", vec![noted.clone()]);
+
+        let restored = SessionState::new(
+            "batch",
+            serde_json::from_str(&default_on_x()).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(answer(&restored, "multi"), noted);
+    }
+
+    #[test]
+    fn restored_own_text_keeps_the_default_off() {
+        let typed = Answer {
+            custom: Some("mine".into()),
+            ..Answer::new("single")
+        };
+        let draft = SessionResult::draft("batch", "single", vec![typed.clone()]);
+
+        let restored = SessionState::new(
+            "batch",
+            serde_json::from_str(SESSION).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(answer(&restored, "single"), typed);
+    }
+
+    #[test]
+    fn a_restored_selection_keeps_a_default_the_file_gains_off() {
+        let picked = Answer {
+            selected: vec!["y".into()],
+            ..Answer::new("multi")
+        };
+        let draft = SessionResult::draft("batch", "multi", vec![picked.clone()]);
+
+        let restored = SessionState::new(
+            "batch",
+            serde_json::from_str(&default_on_x()).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(answer(&restored, "multi"), picked);
     }
 
     #[test]

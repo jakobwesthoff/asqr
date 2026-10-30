@@ -30,6 +30,8 @@ Amended by [71. Let backspace clear the pick of a single question](0071-let-back
 
 Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
 
+Amended by [77. Count a cleared default as the person having started](0077-count-a-cleared-default-as-the-person-having-started.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

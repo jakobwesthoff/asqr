@@ -256,6 +256,29 @@ mod tests {
     }
 
     #[test]
+    fn a_waiting_session_whose_draft_holds_a_cleared_default_is_not_replaced() {
+        let (_scratch, location) = queue();
+        drop_session(&location, "batch-01", b"one", false).expect("dropped");
+        let cleared = Answer {
+            cleared: true,
+            ..Answer::new("q")
+        };
+        save_draft(
+            &location,
+            &SessionResult::draft("batch-01", "q", vec![cleared]),
+        )
+        .expect("saved");
+
+        let refused = drop_session(&location, "batch-01", b"two", false);
+
+        assert!(matches!(refused, Err(DropError::BeingAnswered(_))));
+        assert_eq!(
+            fs::read(location.inbox().join("batch-01.json")).expect("readable"),
+            b"one"
+        );
+    }
+
+    #[test]
     fn refuses_to_replace_a_session_that_is_being_answered() {
         let (_scratch, location) = queue();
         drop_session(&location, "batch-01", b"one", false).expect("dropped");
