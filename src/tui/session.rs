@@ -285,9 +285,14 @@ pub struct SessionState {
     /// The context entry shown, drawn over the question's area (`z`). It
     /// reads like a pager, so the pane has the focus while it shows.
     full_screen: Option<FullScreen>,
-    /// The diff the person switched to side by side (`s`), which shows so
-    /// while it is the entry shown (see [`Self::side_by_side`]).
-    side_by_side: Option<EntryKey>,
+    /// The layout diffs open in, as the settings say.
+    default_diff_layout: DiffLayout,
+    /// The diff the person switched to the other layout with `s`, and the
+    /// layout they chose. It shows so while it is the entry shown (see
+    /// [`Self::side_by_side`]). The layout is kept as chosen, not as a flip
+    /// of the default, so a change of the default never moves a diff the
+    /// person switched.
+    switched: Option<(EntryKey, DiffLayout)>,
     /// The context pane takes the keys. Kept apart from `focus`, so the
     /// field or note being typed in has its text and cursor again when the
     /// pane gives the focus back.
@@ -381,7 +386,8 @@ impl SessionState {
             help: false,
             message: None,
             full_screen: None,
-            side_by_side: None,
+            default_diff_layout: DiffLayout::default(),
+            switched: None,
             pane_focus: false,
             pane_page: None,
             offsets: HashMap::new(),
@@ -422,6 +428,7 @@ impl SessionState {
         let mut replaced = SessionState::new(self.id.clone(), session, Some(&self.to_draft()));
         replaced.revision = self.revision + 1;
         replaced.seen = self.seen;
+        replaced.default_diff_layout = self.default_diff_layout;
 
         if self.on_review() {
             replaced.tab = replaced.session.questions.len();
@@ -462,7 +469,7 @@ impl SessionState {
         if shown(self).is_some() && shown(self) == shown(&replaced) {
             replaced.pane_focus = self.pane_focus;
             replaced.full_screen = self.full_screen;
-            replaced.side_by_side = self.side_by_side;
+            replaced.switched = self.switched;
         }
         // An offset and the layout it counts in go together.
         let reads_as_before = |key: &EntryKey| {
@@ -667,9 +674,34 @@ impl SessionState {
             .is_some_and(|full_screen| full_screen.alone)
     }
 
-    /// Whether the diff shown shows side by side.
+    /// Whether the diff shown shows side by side: in the layout the person
+    /// switched it to, else in the layout diffs open in. Only a diff does.
     pub fn side_by_side(&self) -> bool {
-        self.side_by_side.is_some() && self.side_by_side == self.shown_entry().map(|(key, _)| key)
+        let Some((key, ContextEntry::Diff(_))) = self.shown_entry() else {
+            return false;
+        };
+        let layout = match self.switched {
+            Some((switched, layout)) if switched == key => layout,
+            _ => self.default_diff_layout,
+        };
+        layout == DiffLayout::SideBySide
+    }
+
+    /// Sets the layout diffs open in. A diff the person switched keeps the
+    /// layout they chose.
+    pub fn set_default_diff_layout(&mut self, layout: DiffLayout) {
+        self.default_diff_layout = layout;
+    }
+
+    /// Shows the diff shown in `layout`: a layout other than the one diffs
+    /// open in is remembered for this entry, and the one they open in
+    /// forgets any switch.
+    fn choose_diff_layout(&mut self, layout: DiffLayout) {
+        self.switched = self
+            .shown_entry()
+            .map(|(key, _)| key)
+            .filter(|_| layout != self.default_diff_layout)
+            .map(|key| (key, layout));
     }
 
     /// Whether the context pane takes the keys.
@@ -1023,14 +1055,18 @@ impl SessionState {
 
     /// Handles one key.
     ///
-    /// A diff switched to side by side shows so while it is the entry
+    /// A diff switched to the other layout shows so while it is the entry
     /// shown, as the full-screen view does: once a key shows another entry,
-    /// the switch ends, and coming back shows the diff unified. A paste
-    /// never moves the cursor, so it never ends it.
+    /// the switch ends, and coming back shows the diff in the layout diffs
+    /// open in. A paste never moves the cursor, so it never ends it.
     pub fn handle(&mut self, key: KeyEvent) -> Effect {
         let effect = self.handle_key(key);
-        if !self.side_by_side() {
-            self.side_by_side = None;
+        let shown = self.shown_entry().map(|(key, _)| key);
+        if self
+            .switched
+            .is_some_and(|(switched, _)| Some(switched) != shown)
+        {
+            self.switched = None;
         }
         effect
     }
@@ -1172,10 +1208,9 @@ impl SessionState {
     /// pane shows, as beside the one-line hint, the switch holds for the
     /// full-screen view, and while the diff loads, its draw decides.
     ///
-    /// A diff switched side by side in a body too narrow for two columns
-    /// shows unified while the switch stays on. `s` there turns the switch
-    /// off, which changes nothing on screen, so it says why the diff stays
-    /// unified. The last draw's room decides, not its layout: a second `s`
+    /// A diff that counts as side by side in a body too narrow for two
+    /// columns shows unified. `s` there switches it to unified, which
+    /// changes nothing on screen, so it says why the diff stays unified. The last draw's room decides, not its layout: a second `s`
     /// before any draw meets a page laid out unified that has the room.
     fn switch_side_by_side(&mut self) -> Effect {
         let refusal = match self.shown_entry() {
@@ -1184,7 +1219,7 @@ impl SessionState {
                 Some("only a diff shows side by side")
             }
             Some(_) if self.side_by_side() => {
-                self.side_by_side = None;
+                self.choose_diff_layout(DiffLayout::Unified);
                 if let Some(PanePage {
                     diff: Some(diff), ..
                 }) = self.pane_page
@@ -1218,7 +1253,7 @@ impl SessionState {
         };
         match refusal {
             Some(refusal) => self.message = Some(Notice::new(Tone::Warning, refusal)),
-            None => self.side_by_side = self.shown_entry().map(|(key, _)| key),
+            None => self.choose_diff_layout(DiffLayout::SideBySide),
         }
         Effect::None
     }
@@ -4150,6 +4185,110 @@ mod tests {
         state.replace_session(serde_json::from_str(DIFFS).expect("test session parses"));
 
         assert!(state.side_by_side());
+    }
+
+    /// The session of [`DIFFS`] whose diffs open as `default`, its pane
+    /// drawn as `page`.
+    fn diffs_opening_as(default: DiffLayout, page: Option<PanePage>) -> SessionState {
+        let mut state = diffs(page);
+        state.set_default_diff_layout(default);
+        state
+    }
+
+    #[test]
+    fn a_diff_opens_side_by_side_when_that_is_the_default() {
+        let state = diffs_opening_as(DiffLayout::SideBySide, Some(diff_page(true)));
+
+        assert!(state.side_by_side());
+    }
+
+    #[test]
+    fn side_by_side_is_false_for_an_entry_that_is_no_diff_whatever_the_default() {
+        let mut state = diffs_opening_as(DiffLayout::SideBySide, Some(diff_page(true)));
+
+        press(&mut state, "jj");
+        assert!(!state.side_by_side(), "option C shows code");
+        press(&mut state, "jj");
+        assert!(!state.side_by_side(), "the text question shows no entry");
+    }
+
+    #[test]
+    fn s_switches_a_side_by_side_default_to_unified_and_back() {
+        let mut state = diffs_opening_as(DiffLayout::SideBySide, Some(diff_page(true)));
+
+        press(&mut state, "s");
+        assert!(!state.side_by_side());
+        assert_eq!(state.message(), None);
+        press(&mut state, "s");
+        assert!(state.side_by_side());
+    }
+
+    #[test]
+    fn the_switch_ends_when_another_entry_shows_and_the_default_returns() {
+        let mut state = diffs_opening_as(DiffLayout::SideBySide, Some(diff_page(true)));
+        press(&mut state, "s");
+        assert!(!state.side_by_side());
+
+        press(&mut state, "j");
+        assert!(state.side_by_side(), "option B's diff opens as the default");
+        press(&mut state, "k");
+        assert!(
+            state.side_by_side(),
+            "option A's diff opens as the default again"
+        );
+    }
+
+    #[test]
+    fn a_diff_the_person_switched_stays_when_the_default_changes() {
+        let mut state = diffs_opening_as(DiffLayout::Unified, Some(diff_page(true)));
+        press(&mut state, "s");
+        assert!(state.side_by_side());
+        state.set_default_diff_layout(DiffLayout::SideBySide);
+        assert!(
+            state.side_by_side(),
+            "chosen side by side, default now the same"
+        );
+        state.set_default_diff_layout(DiffLayout::Unified);
+        assert!(state.side_by_side(), "the choice holds against the default");
+
+        let mut state = diffs_opening_as(DiffLayout::SideBySide, Some(diff_page(true)));
+        press(&mut state, "s");
+        assert!(!state.side_by_side());
+        state.set_default_diff_layout(DiffLayout::Unified);
+        assert!(!state.side_by_side());
+        state.set_default_diff_layout(DiffLayout::SideBySide);
+        assert!(
+            !state.side_by_side(),
+            "the choice holds against the default"
+        );
+    }
+
+    #[test]
+    fn a_replaced_session_file_keeps_the_side_by_side_default() {
+        let mut state = diffs_opening_as(DiffLayout::SideBySide, Some(diff_page(true)));
+        press(&mut state, "j");
+
+        state.replace_session(serde_json::from_str(DIFFS).expect("test session parses"));
+
+        assert!(state.side_by_side(), "the shown entry stays");
+        press(&mut state, "j");
+        press(&mut state, "k");
+        assert!(state.side_by_side(), "another entry shows the default too");
+    }
+
+    #[test]
+    fn s_where_a_side_by_side_default_does_not_fit_says_why() {
+        let mut state = diffs_opening_as(DiffLayout::SideBySide, Some(diff_page(false)));
+
+        press(&mut state, "s");
+
+        assert!(!state.side_by_side());
+        assert_eq!(
+            state.message(),
+            Some(&refused(
+                "too narrow for side by side, switched to unified; z shows it full screen"
+            ))
+        );
     }
 
     #[test]

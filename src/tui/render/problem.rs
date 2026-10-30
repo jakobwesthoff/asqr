@@ -20,7 +20,7 @@ use ratatui::widgets::{Block, BorderType, Padding, Paragraph, Widget};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::overlay::popup;
-use super::panes::READING_WIDTH;
+use super::panes::FRAME_WIDTH;
 use super::source_line::columns;
 use super::theme;
 use super::viewer::{ContentSize, Viewer};
@@ -351,7 +351,7 @@ pub(super) fn draw_dialog(area: Rect, buf: &mut Buffer, title: &str, problem: &P
     let most = area
         .width
         .saturating_sub(4)
-        .min(READING_WIDTH + FRAME_COLUMNS);
+        .min(FRAME_WIDTH + FRAME_COLUMNS);
     let inner = usize::from(most.saturating_sub(FRAME_COLUMNS)).max(1);
 
     let mut rows = wrap(Line::from(problem.headline.clone()), inner, 0, 0);

@@ -20,7 +20,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Widget};
 
 use super::context::{DrawnPane, Ledge, context_hint, draw_pane, pane_body};
-use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
+use super::panes::{self, Arrangement, PaneLayout, ReadingWidth};
 use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
 use super::patine_adapter::WIDEST_GRAPHEME;
 use super::source_line::{columns, fitting};
@@ -116,6 +116,8 @@ impl Content {
 /// What the current tab keeps from one draw to the next.
 pub(super) struct TabState {
     layout: PaneLayout,
+    /// The widest the question's text gets.
+    pub(super) reading: ReadingWidth,
     /// The last arrangement with a context area shown, beside or below;
     /// [`panes::choose`] keeps it while a resize stays near a square
     /// shape. A hint leaves it as it is.
@@ -131,6 +133,7 @@ impl TabState {
     pub(super) fn new(layout: PaneLayout, images: Images) -> Self {
         TabState {
             layout,
+            reading: ReadingWidth::default(),
             shown: None,
             question_height: QuestionHeight::default(),
             viewers: Viewers::new(images),
@@ -142,6 +145,7 @@ impl TabState {
     pub(super) fn for_tests(layout: PaneLayout, images: Images) -> Self {
         TabState {
             layout,
+            reading: ReadingWidth::default(),
             shown: None,
             question_height: QuestionHeight::default(),
             viewers: Viewers::for_tests(images),
@@ -189,8 +193,14 @@ impl QuestionHeight {
     /// The questions are counted with their quotes in `quote`. A quote's
     /// bar takes the same columns in every style, so the rows kept from
     /// another frame stay right.
-    pub(super) fn need(&mut self, state: &SessionState, area: Rect, quote: QuoteStyle) -> usize {
-        let width = area.width.min(READING_WIDTH);
+    pub(super) fn need(
+        &mut self,
+        state: &SessionState,
+        area: Rect,
+        quote: QuoteStyle,
+        reading: ReadingWidth,
+    ) -> usize {
+        let width = area.width.min(reading.columns());
         let measured = (
             area.width,
             area.height,
@@ -285,10 +295,10 @@ pub(super) fn draw_tab(
         None => review_content(state, usize::from(width), quote),
     };
     let question_rows = match arrangement {
-        Some(Arrangement::Below) => tab.question_height.need(state, area, quote),
+        Some(Arrangement::Below) => tab.question_height.need(state, area, quote, tab.reading),
         _ => 0,
     };
-    let (text_area, context_area) = panes::areas(area, arrangement, question_rows);
+    let (text_area, context_area) = panes::areas(area, arrangement, question_rows, tab.reading);
     let content = content_at(text_area.width);
 
     let ledge = if arrangement == Some(Arrangement::Below) {

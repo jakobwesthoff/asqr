@@ -43,7 +43,7 @@ mod wrap;
 pub(crate) use diff::unified_text;
 pub use loading::loader_panicked;
 pub use mascot::Glyphs;
-pub use panes::PaneLayout;
+pub use panes::{PaneLayout, ReadingWidth};
 pub(crate) use problem::shown_path;
 pub(crate) use screen::shorten_from_left;
 pub use screen::{Drawn, MIN_HEIGHT, MIN_WIDTH, View, draw};

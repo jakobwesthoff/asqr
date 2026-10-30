@@ -14,8 +14,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
 use super::{
-    EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, QueueChoice, REFUSED_NAME,
-    RowCut, SessionState, Switcher, SwitcherKey, TOO_LONG_NAME,
+    DiffLayout, EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, QueueChoice,
+    REFUSED_NAME, RowCut, SessionState, Switcher, SwitcherKey, TOO_LONG_NAME,
 };
 use crate::format::{Answer, ContextEntry, SessionResult, same_session_id};
 use crate::queue::{QueueLocation, WaitingQueue};
@@ -207,6 +207,8 @@ pub struct App {
     elsewhere: Vec<WaitingQueue>,
     /// The open queue switcher.
     switcher: Option<Switcher>,
+    /// The layout diffs open in.
+    diff_layout: DiffLayout,
 }
 
 impl App {
@@ -218,7 +220,7 @@ impl App {
     /// overlay closes, as there is nothing left to show and it would still
     /// take every key. A shorter intro needs nothing here: the draw shows
     /// it from within its length, and the next key scrolls from there.
-    pub fn add(&mut self, state: SessionState) {
+    pub fn add(&mut self, mut state: SessionState) {
         match self.position(state.id()) {
             Some(index) => {
                 self.sessions[index].replace_session(state.session().clone());
@@ -226,7 +228,10 @@ impl App {
                     self.intro = None;
                 }
             }
-            None => self.sessions.push(state),
+            None => {
+                state.set_default_diff_layout(self.diff_layout);
+                self.sessions.push(state);
+            }
         }
     }
 
@@ -309,6 +314,16 @@ impl App {
     /// The queues no asqr watches in which sessions wait.
     pub fn elsewhere(&self) -> &[WaitingQueue] {
         &self.elsewhere
+    }
+
+    /// Sets the layout diffs open in, for the sessions shown now and for
+    /// those added later. A diff the person switched with `s` keeps its
+    /// layout.
+    pub fn set_diff_layout(&mut self, layout: DiffLayout) {
+        self.diff_layout = layout;
+        for state in &mut self.sessions {
+            state.set_default_diff_layout(layout);
+        }
     }
 
     /// Opens the queue switcher over `choice`.
@@ -627,6 +642,41 @@ mod tests {
             app.add(state(id));
         }
         app
+    }
+
+    /// A session whose one question shows a diff.
+    fn diff_state(id: &str) -> SessionState {
+        let session = serde_json::from_str(
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                "context": [{"type": "diff", "old": {"content": "a\n"}, "new": {"content": "b\n"}}],
+                "options": [{"id": "a", "label": "A"}]}]}"#,
+        )
+        .expect("test session parses");
+        SessionState::new(id, session, None)
+    }
+
+    #[test]
+    fn a_session_added_after_the_diff_layout_changed_opens_in_it() {
+        let mut app = App::default();
+        app.set_diff_layout(DiffLayout::SideBySide);
+
+        app.add(diff_state("later"));
+
+        assert!(app.active().expect("a session").side_by_side());
+    }
+
+    #[test]
+    fn a_changed_diff_layout_reaches_the_open_sessions() {
+        let mut app = App::default();
+        app.add(diff_state("first"));
+        app.add(diff_state("second"));
+        assert!(app.sessions().iter().all(|state| !state.side_by_side()));
+
+        app.set_diff_layout(DiffLayout::SideBySide);
+
+        assert!(app.sessions().iter().all(SessionState::side_by_side));
+        app.set_diff_layout(DiffLayout::Unified);
+        assert!(app.sessions().iter().all(|state| !state.side_by_side()));
     }
 
     fn active_id(app: &App) -> Option<&str> {

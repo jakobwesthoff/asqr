@@ -28,7 +28,7 @@ use super::keys::{
 };
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
-use super::panes::{MIN_BELOW_HEIGHT, PaneLayout};
+use super::panes::{MIN_BELOW_HEIGHT, PaneLayout, ReadingWidth};
 use super::patine_adapter::quote_style;
 use super::problem::{self, Problem, draw_dialog};
 use super::source_line::columns;
@@ -195,6 +195,13 @@ impl<'a> View<'a> {
         self.tab.retain(&[]);
     }
 
+    /// This view, with the question's text no wider than `reading`.
+    #[must_use]
+    pub fn reading_width(mut self, reading: ReadingWidth) -> Self {
+        self.tab.reading = reading;
+        self
+    }
+
     /// This view, drawn without colours when `no_color` is set.
     #[must_use]
     pub fn no_color(self, no_color: bool) -> Self {
@@ -355,7 +362,15 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     let spare = area.height.saturating_sub(FRAME_ROWS + MIN_BELOW_HEIGHT);
     let header_lines = app
         .active()
-        .map(|state| header_lines(state, usize::from(area.width), usize::from(spare), quote))
+        .map(|state| {
+            header_lines(
+                state,
+                usize::from(area.width),
+                usize::from(spare),
+                quote,
+                view.tab.reading,
+            )
+        })
         .unwrap_or_default();
     // The empty queue keeps a header row, below which Talqi's place is
     // measured.
@@ -376,8 +391,14 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
 
     let waiting = app.sessions().len();
     match app.active() {
-        Some(state) => title_bar(state, &view.queue, waiting, usize::from(title.width))
-            .render(title, frame.buffer_mut()),
+        Some(state) => title_bar(
+            state,
+            &view.queue,
+            waiting,
+            usize::from(title.width),
+            view.tab.reading,
+        )
+        .render(title, frame.buffer_mut()),
         None => draw_title(title, frame.buffer_mut(), &view.queue, waiting),
     }
     frame.render_widget(status_line(app, app.active(), status.width), status);
@@ -627,7 +648,6 @@ mod tests {
     use ratatui::style::{Color, Modifier, Style};
 
     use super::super::empty::emblem_screen_areas;
-    use super::super::panes::READING_WIDTH;
     use super::super::test_support::{self, Gate, find, find_from, look_at, row, style_at};
     use super::*;
     use crate::format::{Session, result_answers};
@@ -659,6 +679,26 @@ mod tests {
     fn screen(app: &App, width: u16, height: u16) -> TestBackend {
         screen_of_queue(app, "default", width, height)
     }
+
+    /// The screen with the question's text no wider than `reading`.
+    fn screen_reading(app: &App, reading: ReadingWidth, width: u16, height: u16) -> TestBackend {
+        screen_in(
+            app,
+            &mut View::for_tests("default", PaneLayout::Auto, Images::half_blocks())
+                .reading_width(reading),
+            width,
+            height,
+        )
+    }
+
+    /// The columns each reading width lets the question's text take, `None`
+    /// for the whole width.
+    const READING_WIDTHS: [(ReadingWidth, Option<u16>); 4] = [
+        (ReadingWidth::Columns80, Some(80)),
+        (ReadingWidth::Columns100, Some(100)),
+        (ReadingWidth::Columns120, Some(120)),
+        (ReadingWidth::Full, None),
+    ];
 
     fn screen_of_queue(app: &App, queue: &str, width: u16, height: u16) -> TestBackend {
         screen_in(
@@ -4295,14 +4335,18 @@ mod tests {
     fn a_question_without_context_stays_within_the_reading_width() {
         let app = long_question("");
         // The text starts after the one-column margin, so its last column
-        // is the reading width itself.
-        for width in [104, 120, 160, 230] {
-            let backend = screen(&app, width, 30);
-            let rightmost = rightmost_text_column(&backend);
-            assert!(
-                (95..=READING_WIDTH).contains(&rightmost),
-                "{width} columns end at {rightmost}:\n{backend}"
-            );
+        // is the reading width itself, or the last column inside the
+        // margins where the terminal is narrower.
+        for (reading, columns) in READING_WIDTHS {
+            for width in [104, 120, 160, 230] {
+                let backend = screen_reading(&app, reading, width, 30);
+                let rightmost = rightmost_text_column(&backend);
+                let most = columns.unwrap_or(u16::MAX).min(width - 2);
+                assert!(
+                    (most - 12..=most).contains(&rightmost),
+                    "{reading:?} in {width} columns ends at {rightmost}:\n{backend}"
+                );
+            }
         }
         insta::assert_snapshot!("reading_width_160x30", screen(&app, 160, 30));
     }
@@ -4318,8 +4362,99 @@ mod tests {
         special(&mut app, KeyCode::Esc);
         keys(&mut app, "l");
 
-        let backend = screen(&app, 200, 24);
-        assert_eq!(rightmost_text_column(&backend), READING_WIDTH, "{backend}");
+        for (reading, columns) in READING_WIDTHS {
+            let backend = screen_reading(&app, reading, 200, 24);
+            assert_eq!(
+                rightmost_text_column(&backend),
+                columns.unwrap_or(198),
+                "{reading:?}:\n{backend}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_reading_width_never_moves_context_between_beside_and_below() {
+        let file = png();
+        let image = file.path().to_str().expect("UTF-8 path");
+        let with_context = long_question(&format!(
+            r#""context": [{{"type": "image", "path": {image:?}}}],"#
+        ));
+
+        // The image starts four columns after the question's width, which
+        // is half of the area up to the reading width.
+        let cases = [
+            (ReadingWidth::Columns80, 160, 82),
+            (ReadingWidth::Columns100, 160, 82),
+            (ReadingWidth::Columns120, 160, 82),
+            (ReadingWidth::Full, 160, 82),
+            (ReadingWidth::Columns80, 230, 84),
+            (ReadingWidth::Columns100, 230, 104),
+            (ReadingWidth::Columns120, 230, 117),
+            (ReadingWidth::Full, 230, 117),
+        ];
+        for (reading, width, start) in cases {
+            let backend = screen_reading(&with_context, reading, width, 40);
+            let (columns, _) = image_cells(&backend);
+            assert_eq!(
+                *columns.start(),
+                start,
+                "{reading:?} in {width}:\n{backend}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_header_ends_where_the_question_text_ends() {
+        let app = long_header();
+        for (reading, columns) in READING_WIDTHS {
+            let backend = screen_reading(&app, reading, 160, 30);
+            let lines = test_support::rows(backend.buffer());
+            let cap = columns.unwrap_or(158);
+
+            for (row, line) in lines.iter().enumerate().take(4).skip(1) {
+                let used = line.trim_end().chars().count();
+                assert!(
+                    used <= usize::from(cap) + 1,
+                    "{reading:?} header row {row} ends at {used}:\n{backend}"
+                );
+            }
+            let title_end = lines[0].find('…').expect("the title is cut");
+            let title = lines[0][..title_end].chars().count();
+            match columns {
+                Some(columns) => assert_eq!(title, usize::from(columns), "{reading:?}:\n{backend}"),
+                // The count at the right end leaves the title the rest of
+                // the bar.
+                None => assert!(
+                    title > 120,
+                    "{reading:?} cuts the title at {title}:\n{backend}"
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn the_intro_overlay_keeps_to_100_columns_whatever_the_reading_width() {
+        let intro = "A long line of the intro that goes on and on. ".repeat(12);
+        let session = format!(
+            r#"{{"asqr": 2, "intro": {intro:?}, "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#
+        );
+        let mut app = app(&[("intro", &session)]);
+        // The field has the keys on a text question: leave it first.
+        special(&mut app, KeyCode::Esc);
+        keys(&mut app, "i");
+
+        let widest = |reading| {
+            let backend = screen_reading(&app, reading, 160, 30);
+            let frame = test_support::rows(backend.buffer())
+                .into_iter()
+                .filter(|row| row.contains('│'))
+                .map(|row| row.trim_end().chars().count() - row.trim_start().chars().count())
+                .max();
+            (frame, backend)
+        };
+        let (narrow, _) = widest(ReadingWidth::Columns80);
+        let (full, backend) = widest(ReadingWidth::Full);
+        assert_eq!(narrow, full, "{backend}");
     }
 
     #[test]
@@ -4546,9 +4681,12 @@ mod tests {
     /// tab area of a 60×30 terminal, or `width` columns of it.
     fn need(app: &App, view: &mut View, width: u16) -> usize {
         let state = app.active().expect("a session is waiting");
-        view.tab
-            .question_height
-            .need(state, Rect::new(1, 5, width, 24), quote_style(false))
+        view.tab.question_height.need(
+            state,
+            Rect::new(1, 5, width, 24),
+            quote_style(false),
+            ReadingWidth::default(),
+        )
     }
 
     fn ctrl_j(app: &mut App) {
@@ -6096,5 +6234,24 @@ mod tests {
         insta::assert_snapshot!("diff_side_by_side_full_screen_120x30", side_by_side);
         let unified = after(&mut app, &mut view, &[KeyCode::Char('s')]);
         insta::assert_snapshot!("diff_unified_full_screen_120x30", unified);
+    }
+
+    #[test]
+    fn a_diff_opens_side_by_side_where_the_setting_says_so_and_s_shows_it_unified() {
+        let (mut app, mut view) = (long_replace(), view());
+        app.set_diff_layout(crate::tui::DiffLayout::SideBySide);
+
+        let opened = after(&mut app, &mut view, &[KeyCode::Char('z')]);
+        assert!(first_body_row(&opened).ends_with(" │  1   ctx"), "{opened}");
+        let bar = test_support::rows(opened.buffer())
+            .pop()
+            .expect("a key bar");
+        assert!(bar.contains("s  unified"), "{opened}");
+
+        let unified = after(&mut app, &mut view, &[KeyCode::Char('s')]);
+        assert!(
+            !first_body_row(&unified).ends_with(" │  1   ctx"),
+            "{unified}"
+        );
     }
 }

@@ -16,7 +16,7 @@ use ratatui::widgets::{
     StatefulWidget, Widget,
 };
 
-use super::panes::READING_WIDTH;
+use super::panes::FRAME_WIDTH;
 use super::parts::POINTER;
 use super::text::field_lines;
 use super::theme;
@@ -63,7 +63,7 @@ pub(super) fn draw_intro(
     quote: QuoteStyle,
 ) -> Extent {
     // The text keeps to the reading width inside the frame.
-    let width = area.width.saturating_sub(4).min(READING_WIDTH + 4);
+    let width = area.width.saturating_sub(4).min(FRAME_WIDTH + 4);
     let inner = overlay_block("Intro", None)
         .inner(Rect::new(0, 0, width, 2))
         .width;

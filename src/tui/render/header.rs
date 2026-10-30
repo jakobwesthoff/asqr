@@ -10,7 +10,7 @@
 use patine::QuoteStyle;
 use ratatui::text::{Line, Span};
 
-use super::panes::READING_WIDTH;
+use super::panes::ReadingWidth;
 use super::parts::question_key;
 use super::source_line::{columns, fitting};
 use super::text::field_lines;
@@ -31,8 +31,8 @@ const GAP: usize = 2;
 /// The columns the header's text takes after [`INDENT`] on a terminal of
 /// `width` columns. It ends where the question's text ends: a column
 /// before the edge, and never past the reading width.
-fn text_width(width: usize) -> usize {
-    let header = width.min(usize::from(READING_WIDTH) + 2);
+fn text_width(width: usize, reading: ReadingWidth) -> usize {
+    let header = width.min(usize::from(reading.columns()).saturating_add(2));
     header.saturating_sub(1 + INDENT)
 }
 
@@ -53,8 +53,9 @@ pub(super) fn title_bar(
     queue: &str,
     waiting: usize,
     width: usize,
+    reading: ReadingWidth,
 ) -> Line<'static> {
-    let text_width = text_width(width);
+    let text_width = text_width(width, reading);
     let title = one_line(state.name()).unwrap_or_default();
     let count = format!("{waiting} waiting ");
     let queue = format!("{queue} · ");
@@ -95,8 +96,9 @@ pub(super) fn header_lines(
     width: usize,
     spare: usize,
     quote: QuoteStyle,
+    reading: ReadingWidth,
 ) -> Vec<Line<'static>> {
-    let text_width = text_width(width);
+    let text_width = text_width(width, reading);
     let meta = meta_line(state, text_width);
     // The intro keeps patine's styles in the text colour: it is the
     // asker's content, not a hint.
@@ -222,7 +224,13 @@ mod tests {
     #[test]
     fn the_title_bar_names_the_session_by_its_title_else_by_its_id() {
         let title = |fields: &str| {
-            let bar = title_bar(&session_with(fields), "default", 1, 40);
+            let bar = title_bar(
+                &session_with(fields),
+                "default",
+                1,
+                40,
+                ReadingWidth::default(),
+            );
             bar.spans[2].clone()
         };
 
@@ -239,7 +247,7 @@ mod tests {
 
         // 7 + 15 + 2 + 20 columns would not fit with the queue, so it goes.
         assert_eq!(
-            line_texts(&[title_bar(&state, "default", 1, 40)]),
+            line_texts(&[title_bar(&state, "default", 1, 40, ReadingWidth::default())]),
             [format!(" asqr  Round two of it{}1 waiting ", " ".repeat(8))]
         );
     }
@@ -248,7 +256,14 @@ mod tests {
     fn follows_shows_the_title_in_quotes_else_the_value_as_written() {
         let mut state = session_with(r#""from": "agent", "follows": "round-1","#);
         let meta = |state: &SessionState| {
-            line_texts(&header_lines(state, 80, 10, quote_style(false)))[0].clone()
+            line_texts(&header_lines(
+                state,
+                80,
+                10,
+                quote_style(false),
+                ReadingWidth::default(),
+            ))[0]
+                .clone()
         };
 
         assert_eq!(meta(&state), "       from agent · follows round-1");
@@ -267,7 +282,7 @@ mod tests {
         // 20 columns leave the intro 12 after the indent and the column
         // before the edge.
         let state = session_with(r#""intro": "Round **two** of the new layout here","#);
-        let lines = header_lines(&state, 20, 10, quote_style(false));
+        let lines = header_lines(&state, 20, 10, quote_style(false), ReadingWidth::default());
 
         assert_eq!(
             line_texts(&lines),
