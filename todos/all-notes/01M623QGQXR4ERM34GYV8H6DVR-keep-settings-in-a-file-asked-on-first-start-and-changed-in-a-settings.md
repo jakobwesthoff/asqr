@@ -109,6 +109,32 @@ settings pane in the TUI.
     has to show that `←`/`→` cycle through its values (the look of
     both is decided below). Rejected: `enter` opening the setting in
     place with its values as option rows (two keys per change).
+  - **The explanation sits in the frame's footer,** below the list, as
+    the queue switcher's footer explains its row: it always explains
+    the row under the cursor (what the setting does, what the chosen
+    value means), and the frame does not jump as the cursor moves. The
+    row under the cursor shows `‹ value ›` to say that `←`/`→` cycle
+    its values. Rejected: two explanation lines under the focused row;
+    every value shown on the row.
+  - **A setting set outside asqr is locked and explained in the
+    footer.** Its row shows the value in effect, without `‹ ›`, and
+    "set outside asqr"; `←`/`→` do nothing there and no error notice
+    appears. The footer says in full sentences what holds, why and what
+    to do, without developer shorthand, for example: "Your shell sets
+    ASQR_LAYOUT=below, so asqr always shows context below the question,
+    whatever you choose here. To choose here, remove ASQR_LAYOUT from
+    your shell setup (for example ~/.zshrc) and start asqr again." For a
+    flag: "You started asqr with --layout below, so this run shows
+    context below the question. Without the flag, the next start uses
+    your choice here." Rejected: changing the file's value while the
+    override holds; the design study's "from ASQR_KEEP_FILES" with a
+    notice on `enter`.
+  - **All texts of the pane are written for someone who has never read
+    the docs;** the wording is gone through with Jakob before the work
+    starts, like the first-start texts.
+  - **The first-start texts are rewritten with Jakob** when the
+    first-start screen is built: the drafts in the design study
+    (`d1-1`, `d1-2`) do not say clearly what each choice means.
   - **A saved change shows a green notice in the status line,** such as
     "✔ saved diff layout: side-by-side", like the notices after a queue
     switch; a write that fails shows a red notice and the value holds
