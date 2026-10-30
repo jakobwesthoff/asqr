@@ -16,7 +16,10 @@ use super::format::{print_errors, print_warnings, read_session_file, session_dir
 use super::hint::{self, Caller, Invocation, Refusing};
 use super::skill_age;
 use super::wait::{Elsewhere, elsewhere, wait_for_result};
-use crate::format::{WarningKind, is_valid_session_id, same_session_id, validate, warnings};
+use crate::format::{
+    WarningKind, array_mut, is_valid_session_id, make_context_paths_absolute, same_session_id,
+    validate, warnings,
+};
 use crate::pairing::{self, Tmux, TmuxPane, TmuxSession};
 use crate::queue::{
     DropError, Dropped, Gate, Origin, QueueLocation, ReplaceError, WithdrawError, Withdrawn,
@@ -83,7 +86,7 @@ pub(super) fn run(
         .unwrap_or_else(|| ulid::Ulid::generate().to_string());
     let raw = &mut session_file.raw;
     raw["id"] = Value::from(id.as_str());
-    make_paths_absolute(raw, file);
+    make_context_paths_absolute(raw, file);
     drop_note_false(raw);
     let mut bytes = serde_json::to_vec_pretty(raw).expect("a serde_json Value always serializes");
     bytes.push(b'\n');
@@ -226,20 +229,6 @@ fn replace(
     }
 }
 
-/// Rewrites the relative paths of context entries against the directory
-/// of `file`, since a relative path means nothing once the session sits in
-/// an inbox. The raw JSON is edited, not the typed session, so unknown
-/// fields survive.
-fn make_paths_absolute(raw: &mut Value, file: &Path) {
-    let base = file.parent().unwrap_or(Path::new(""));
-    for question in array_mut(raw, "questions") {
-        make_context_absolute(question, base);
-        for option in array_mut(question, "options") {
-            make_context_absolute(option, base);
-        }
-    }
-}
-
 /// Removes `"note": false` from every question. Every question takes a
 /// note (ADR 68) and this asqr ignores the field, but an older asqr watching
 /// the queue would still turn the note off.
@@ -250,44 +239,6 @@ fn drop_note_false(raw: &mut Value) {
         {
             fields.remove("note");
         }
-    }
-}
-
-/// The elements of the array in `field` of `object`, none when it is
-/// missing. Indexing a `Value` mutably would insert a `null` for a missing
-/// field, which the dropped file would then carry.
-fn array_mut<'a>(object: &'a mut Value, field: &str) -> impl Iterator<Item = &'a mut Value> {
-    object
-        .get_mut(field)
-        .and_then(Value::as_array_mut)
-        .into_iter()
-        .flatten()
-}
-
-/// Rewrites every path in the `context` of a question or an option: the
-/// `path` of an image, code or Markdown entry and the paths of a diff's
-/// sides.
-fn make_context_absolute(holder: &mut Value, base: &Path) {
-    for entry in array_mut(holder, "context") {
-        make_path_absolute(entry, base);
-        for side in ["old", "new"] {
-            if let Some(side) = entry.get_mut(side) {
-                make_path_absolute(side, base);
-            }
-        }
-    }
-}
-
-/// Rewrites the `path` field of `object`, if it is there and relative.
-fn make_path_absolute(object: &mut Value, base: &Path) {
-    let Some(path) = object.get("path").and_then(Value::as_str) else {
-        return;
-    };
-    let path = Path::new(path);
-    if path.is_relative()
-        && let Ok(absolute) = std::path::absolute(base.join(path))
-    {
-        object["path"] = Value::from(absolute.to_string_lossy().into_owned());
     }
 }
 

@@ -7,6 +7,7 @@
 
 mod answer;
 mod context;
+mod context_paths;
 mod id;
 mod result;
 mod schema;
@@ -17,6 +18,8 @@ mod warnings;
 
 pub use answer::*;
 pub use context::*;
+pub(crate) use context_paths::array_mut;
+pub use context_paths::make_context_paths_absolute;
 pub use id::*;
 pub use result::*;
 pub use schema::*;
