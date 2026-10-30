@@ -34,6 +34,11 @@ pub(crate) fn app_name() -> Style {
     primary().bold()
 }
 
+/// The name of a chosen queue on the empty queue (ADR 81).
+pub(crate) fn queue_name() -> Style {
+    primary().bold()
+}
+
 /// A key in the key bar and in the help.
 pub(crate) fn key() -> Style {
     primary().bold()
@@ -223,6 +228,14 @@ mod tests {
         assert_eq!(key(), bold_cyan);
         assert_eq!(chosen(), bold_cyan);
         assert_eq!(default_marker(), bold_cyan);
+    }
+
+    #[test]
+    fn the_queue_name_is_bold_primary() {
+        assert_eq!(
+            queue_name(),
+            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        );
     }
 
     #[test]

@@ -1264,9 +1264,16 @@ has context (section 7.4, ADRs 30 and 31):
 ### 7.5 The empty queue
 
 - With nothing waiting, the screen says "Nothing to answer. New sessions
-  show up here as soon as they arrive." Notices still show. While the
-  dialog of an invalid session shows (section 7.9), the sentence stands
-  alone. Otherwise, above the sentence, with a blank row between them,
+  show up here as soon as they arrive." For any queue but the default
+  one (section 5.2) it names the queue in two lines instead: "Nothing to
+  answer in queue <queue>." and below it "New sessions show up here as
+  soon as they arrive." `<queue>` is the name or the `--dir` directory as
+  given, bold in the primary colour. Where the first line does not fit,
+  the name takes a line of its own, whole; only a name too long for that
+  line shows its end behind `…`, cut at a `/` where possible (ADR 81).
+  Either way the sentence takes at most the 3 rows kept for it. Notices
+  still show. While the dialog of an invalid session shows (section
+  7.9), the sentence stands alone. Otherwise, above the sentence, with a blank row between them,
   Talqi, asqr's mascot, shows as asqr's terminal emblem drawn in text
   cells (ADR 43): a fixed block of 44 columns by 22 rows, each cell a
   glyph with its own 24-bit foreground and background. Cells outside
@@ -1274,8 +1281,9 @@ has context (section 7.4, ADRs 30 and 31):
   and Talqi and sentence together are centred down the screen. Talqi is
   text built into asqr and uses no image protocol.
 - Talqi shows on terminals of at least 32 rows and 44 columns, with
-  colours and without (section 7.3). On smaller ones, 80×24 included,
-  the sentence stands alone.
+  colours and without (section 7.3), for every queue. On smaller ones,
+  80×24 included, the sentence stands alone, still naming a queue other
+  than the default one.
 - Terminals asqr recognises as drawing sextant characters themselves
   (kitty, Ghostty, WezTerm, iTerm2 from 3.6.7, foot, terminals built on
   VTE, Konsole, Alacritty, Rio and Contour, from the versions ADR 43

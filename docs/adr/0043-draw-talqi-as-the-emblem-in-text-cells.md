@@ -6,6 +6,9 @@ Date: 2026-10-15
 
 Accepted
 
+Amended by [81. Name the chosen queue](0081-name-the-chosen-queue.md):
+the sentence under Talqi names a chosen queue
+
 ## Context
 
 With no session waiting, the main area holds one centred sentence,

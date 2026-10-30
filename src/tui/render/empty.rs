@@ -7,19 +7,31 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 
 use super::mascot::{EMBLEM_COLUMNS, EMBLEM_ROWS, Glyphs};
+use super::screen::shorten_from_left;
+use super::source_line::columns;
+use super::theme;
 
-/// What the empty queue says.
+/// What the empty queue of the default queue says.
 const SENTENCE: &str = "Nothing to answer. New sessions show up here as soon as they arrive.";
+
+/// The start of the sentence of a chosen queue, which its name follows,
+/// and the sentence's second line (ADR 81).
+const NAMING: &str = "Nothing to answer in queue";
+const NEW_SESSIONS: &str = "New sessions show up here as soon as they arrive.";
 
 /// The rows kept for the sentence, which wraps on a narrow screen.
 const SENTENCE_ROWS: u16 = 3;
 
 /// The empty queue: Talqi's emblem in `glyphs` above the sentence, where
 /// `talqi` holds.
-pub(super) struct EmptyQueue {
+pub(super) struct EmptyQueue<'a> {
+    /// The chosen queue the sentence names, `None` for the default queue
+    /// (ADR 81).
+    pub(super) queue: Option<&'a str>,
     pub(super) glyphs: Glyphs,
     /// Whether Talqi shows: the dialog of an invalid session hides him
     /// while it is open (ADR 49).
@@ -29,7 +41,7 @@ pub(super) struct EmptyQueue {
     pub(super) no_color: bool,
 }
 
-impl Widget for EmptyQueue {
+impl Widget for EmptyQueue<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let (emblem, sentence) = if self.talqi {
             emblem_screen_areas(area)
@@ -39,11 +51,45 @@ impl Widget for EmptyQueue {
         if let Some(emblem) = emblem {
             self.glyphs.template(self.no_color).render(emblem, buf);
         }
-        Paragraph::new(SENTENCE)
-            .centered()
-            .wrap(Wrap { trim: true })
-            .render(sentence, buf);
+        match self.queue {
+            None => Paragraph::new(SENTENCE)
+                .centered()
+                .wrap(Wrap { trim: true })
+                .render(sentence, buf),
+            Some(queue) => Paragraph::new(naming_lines(queue, sentence.width))
+                .centered()
+                .render(sentence, buf),
+        }
     }
+}
+
+/// The sentence that names the chosen `queue`, in rows of `width`
+/// columns: two, and three where the name does not fit beside the
+/// sentence's start.
+///
+/// A name on a row of its own stays whole, since a cut name tells queues
+/// apart less well than a wrapped one. Only a name too long for that row
+/// shows its end behind `…`, as the title bar shortens it. The second
+/// line, 49 columns, fits the narrowest sentence, 56 columns on a screen
+/// of 60, so the sentence never needs more than the rows kept for it.
+fn naming_lines(queue: &str, width: u16) -> Vec<Line<'static>> {
+    let width = usize::from(width);
+    let name = Span::styled(
+        shorten_from_left(queue, width.saturating_sub(1)),
+        theme::queue_name(),
+    );
+    let beside = columns(&format!("{NAMING} {}.", name.content)) <= width;
+    let mut lines = if beside {
+        vec![Line::from(vec![
+            Span::raw(format!("{NAMING} ")),
+            name,
+            Span::raw("."),
+        ])]
+    } else {
+        vec![Line::from(NAMING), Line::from(vec![name, Span::raw(".")])]
+    };
+    lines.push(Line::from(NEW_SESSIONS));
+    lines
 }
 
 /// Where the empty queue in `main` draws Talqi, if anywhere, and the
@@ -97,7 +143,9 @@ fn above_the_sentence(main: Rect, emblem: Rect) -> (Option<Rect>, Rect) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::find;
+    use ratatui::style::{Color, Modifier};
+
+    use super::super::test_support::{find, look_at, row};
     use super::*;
 
     /// The sentence centred in a main area of `width`×`height` that starts
@@ -146,6 +194,7 @@ mod tests {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
         EmptyQueue {
+            queue: None,
             glyphs,
             talqi: true,
             no_color,
@@ -175,6 +224,131 @@ mod tests {
                 assert_eq!(find(&buf, "Nothing to answer").1, sentence.y);
             }
         }
+    }
+
+    // -----------------------------------------------------------------
+    // A chosen queue (ADR 81)
+    // -----------------------------------------------------------------
+
+    const NEW_SESSIONS_LINE: &str = "New sessions show up here as soon as they arrive.";
+
+    /// The empty queue of the chosen `queue`, with colours, drawn into a
+    /// buffer of `width`×`height`.
+    fn drawn_for(queue: &str, width: u16, height: u16) -> Buffer {
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        EmptyQueue {
+            queue: Some(queue),
+            glyphs: Glyphs::Sextant,
+            talqi: true,
+            no_color: false,
+        }
+        .render(area, &mut buf);
+        buf
+    }
+
+    /// The rows of the sentence in `buf`, from the one that starts it,
+    /// without the blanks around them, up to the first empty row.
+    fn sentence_rows(buf: &Buffer) -> Vec<String> {
+        let (_, top) = find(buf, "Nothing to answer");
+        (top..buf.area.height)
+            .map(|y| row(buf, y).trim_start().to_owned())
+            .take_while(|text| !text.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn a_chosen_queue_is_named_in_the_first_of_two_lines() {
+        let buf = drawn_for("asqr-todos", 80, 30);
+
+        let (_, sentence) = emblem_screen_areas(buf.area);
+        let first = "Nothing to answer in queue asqr-todos.";
+        assert_eq!(find(&buf, first).1, sentence.y, "under Talqi's blank row");
+        assert_eq!(sentence_rows(&buf), [first, NEW_SESSIONS_LINE]);
+        for line in [first, NEW_SESSIONS_LINE] {
+            let left = find(&buf, line).0;
+            let right = 80 - left - u16::try_from(line.len()).expect("short");
+            assert!(left.abs_diff(right) <= 1, "centred: {line}");
+        }
+        assert_eq!(look_at(&buf, "asqr-todos"), (Color::Cyan, Modifier::BOLD));
+        assert_eq!(look_at(&buf, "Nothing"), (Color::Reset, Modifier::empty()));
+        assert_eq!(look_at(&buf, "New"), (Color::Reset, Modifier::empty()));
+    }
+
+    /// Wide characters take two columns each: this name of 21 columns, 31
+    /// bytes, fits beside the start of the sentence on a narrow screen.
+    #[test]
+    fn a_name_of_wide_characters_is_measured_in_columns() {
+        let buf = drawn_for("日本語のキュー/日本語", 60, 15);
+
+        assert_eq!(
+            sentence_rows(&buf),
+            [
+                "Nothing to answer in queue 日本語のキュー/日本語.",
+                NEW_SESSIONS_LINE
+            ]
+        );
+    }
+
+    #[test]
+    fn a_name_too_long_for_the_line_takes_a_line_of_its_own() {
+        let buf = drawn_for("asqr-todos-worked-off-by-agents", 60, 15);
+
+        assert_eq!(
+            sentence_rows(&buf),
+            [
+                "Nothing to answer in queue",
+                "asqr-todos-worked-off-by-agents.",
+                NEW_SESSIONS_LINE
+            ]
+        );
+        assert_eq!(
+            look_at(&buf, "asqr-todos-worked"),
+            (Color::Cyan, Modifier::BOLD)
+        );
+    }
+
+    /// The name's row holds 56 columns at the smallest width, the name 55
+    /// of them before its full stop.
+    #[test]
+    fn a_name_too_long_for_a_line_is_shortened_from_the_left() {
+        let name = format!("{}{}", "a".repeat(16), "b".repeat(54));
+        let buf = drawn_for(&name, 60, 15);
+        assert_eq!(
+            sentence_rows(&buf),
+            [
+                "Nothing to answer in queue".to_owned(),
+                format!("…{}.", "b".repeat(54)),
+                NEW_SESSIONS_LINE.to_owned()
+            ]
+        );
+        assert_eq!(look_at(&buf, "…"), (Color::Cyan, Modifier::BOLD));
+
+        let path = format!("/srv/{}/{}/queue", "x".repeat(40), "y".repeat(30));
+        let buf = drawn_for(&path, 60, 15);
+        assert_eq!(
+            sentence_rows(&buf)[1],
+            format!("…/{}/queue.", "y".repeat(30)),
+            "cut at a slash"
+        );
+    }
+
+    /// The default queue's screen stays as it was, Talqi and the sentence
+    /// in one line.
+    #[test]
+    fn without_a_chosen_queue_the_sentence_is_today_s() {
+        let buf = drawn(Glyphs::Sextant, false, 80, 30);
+
+        let (emblem, sentence) = emblem_screen_areas(buf.area);
+        let mut expected = Buffer::empty(buf.area);
+        Glyphs::Sextant
+            .template(false)
+            .render(emblem.expect("room for the emblem"), &mut expected);
+        Paragraph::new(SENTENCE)
+            .centered()
+            .wrap(Wrap { trim: true })
+            .render(sentence, &mut expected);
+        assert_eq!(buf, expected);
     }
 
     #[test]

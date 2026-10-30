@@ -22,6 +22,10 @@ changed diff lines are filled
 Amended by [76. Mark the default option](0076-mark-the-default-option.md):
 the marker of a default option is bold in the primary colour
 
+Amended by [81. Name the chosen queue](0081-name-the-chosen-queue.md):
+the name of a chosen queue on the empty queue is bold in the primary
+colour
+
 ## Context
 
 A TUI that marks nearly everything the same way, with reversed video,

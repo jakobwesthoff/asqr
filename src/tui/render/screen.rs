@@ -369,6 +369,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     let (mut drawn, hints, image) = match app.active() {
         None => {
             let empty = EmptyQueue {
+                queue: view.named_queue(),
                 glyphs: view.glyphs,
                 talqi: app.invalid_shown().is_none(),
                 no_color: view.no_color,
@@ -1586,6 +1587,47 @@ mod tests {
             title_line(&screen_of_queue(&app, "default", 60, 15)),
             " asqr · queue: default · 0 sessions waiting",
             "a title that fits stays as it is"
+        );
+    }
+
+    /// The view of the queue `asqr-todos`, chosen with `--queue`.
+    fn chosen_view<'a>() -> View<'a> {
+        View::for_tests("asqr-todos", PaneLayout::Auto, Images::half_blocks()).chosen_queue(true)
+    }
+
+    #[test]
+    fn a_chosen_queue_is_named_on_the_empty_queue() {
+        let mut view = chosen_view();
+        insta::assert_snapshot!(screen_in(&App::default(), &mut view, 80, 17));
+    }
+
+    /// The name takes no row of Talqi's: he shows from 32 rows for every
+    /// queue, and below them the sentence names the queue alone.
+    #[test]
+    fn talqi_still_shows_from_32_rows_with_a_chosen_queue() {
+        let first = "Nothing to answer in queue asqr-todos.";
+        let next = "New sessions show up here as soon as they arrive.";
+
+        let large = screen_in(&App::default(), &mut chosen_view(), 80, 32);
+        let rect = emblem_rect(80, 32).expect("room for Talqi");
+        assert_drawn(large.buffer(), Glyphs::Quadrant, false, rect);
+        assert_eq!(find(large.buffer(), first).1, 27);
+        assert_eq!(find(large.buffer(), next).1, 28);
+
+        let small = screen_in(&App::default(), &mut chosen_view(), 80, 31);
+        assert_eq!(emblem_rect(80, 31), None);
+        let (_, top) = find(small.buffer(), first);
+        assert_eq!(find(small.buffer(), next).1, top + 1);
+    }
+
+    #[test]
+    fn the_queue_name_is_bold_without_colour_under_no_color() {
+        let mut view = chosen_view().no_color(true);
+        let backend = screen_in(&App::default(), &mut view, 80, 17);
+
+        assert_eq!(
+            look_at(backend.buffer(), "asqr-todos."),
+            (Color::Reset, Modifier::BOLD)
         );
     }
 

@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The terminal title names the queue asqr watches, such as
-  `asqr · asqr-todos · 2 waiting`, unless it is the default queue.
+- The empty queue and the terminal title name the queue asqr watches,
+  unless it is the default queue: "Nothing to answer in queue
+  asqr-todos." and `asqr · asqr-todos · 2 waiting`.
 
 ### Changed
 
