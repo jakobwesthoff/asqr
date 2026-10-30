@@ -877,7 +877,7 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
 | `asqr prune --older-than <duration> [--results]` | section 5.9 |
-| `asqr skill [--install <dir>]` | prints the skill, or writes it to `<dir>/asqr/SKILL.md` (section 9) |
+| `asqr skill [<part> \| --install <dir>]` | prints the skill's core or one of its parts, or writes the skill to `<dir>/asqr/` (section 9) |
 
 ### 6.2 Flags and environment
 
@@ -2292,14 +2292,31 @@ scrolling.
 
 Agents are the main askers. asqr ships a skill for them (ADR 6).
 
-The skill lives in the repo at `skills/asqr/SKILL.md` in the Agent Skills
-format (`name` and `description` frontmatter, a plain Markdown body). It
-is compiled into the binary, so `asqr skill` prints the version that
-matches the installed asqr. `asqr skill --install <dir>` takes a skills
-root and writes `<dir>/asqr/SKILL.md`, so `asqr skill --install
-.claude/skills` works.
+The skill lives in the repo in the directory `skills/asqr/` in the Agent
+Skills format: `SKILL.md`, the core, with `name` and `description`
+frontmatter and a plain Markdown body, and the parts `context.md`,
+`withdrawing.md` and `patterns.md` under `references/` (ADR 82). All
+four are compiled into the binary, so `asqr skill` prints the core that
+matches the asqr that runs it, and `asqr skill <part>` prints one part,
+such as `asqr skill context`. An unknown part is a usage error (exit 2)
+that names the parts and says that `asqr skill` prints the skill of
+this asqr. An agent told to use asqr can read the skill this way, so
+installing it is possible but in most cases not needed. `asqr skill
+--install <dir>` takes a skills root, writes `<dir>/asqr/SKILL.md`,
+replaces `<dir>/asqr/references/` whole and leaves any other file in
+`<dir>/asqr/` alone, so `asqr skill --install .claude/skills` works and
+running it again replaces an older copy, parts included.
 
-The skill teaches:
+The core holds every rule whose violation no asqr check catches and the
+ask, wait and read procedure. A part holds details that `asqr validate`
+and `asqr ask` already guard, or that apply on one branch of the work,
+and stays under 30,000 bytes. The core's first paragraph tells the agent
+to read it to its last line and names that line, `End of the asqr
+skill.`; each part starts by naming the core and ends with a line of its
+own. The core names each part by its path and by `asqr skill <part>`,
+in a list at the top and at the step that needs it.
+
+The skill teaches, in the core unless a part is named:
 
 - that it is used only when the user explicitly asks the agent to use
   asqr; the skill's description says so, and an agent never switches to
@@ -2321,20 +2338,23 @@ The skill teaches:
   supported, both of which the agent should pass on to the person, and
   `asqr status --json` to find
   sessions it lost track of
-- `asqr withdraw` for a session whose answers it no longer needs, that
-  `--force` takes one the person has started answering, and that a
-  withdrawn result's `draft` holds no decisions, only presets for a
-  replacement session, and that its typed text and notes, which have no
-  preset, are quoted in the replacement's question text
-- `asqr ask --replaces` for a session rebuilt under another id, that
-  its `--force` also ends a session the person is in the middle of, so
-  it is for the exception, and that a fresh id avoids an unread result
-  of the new id without it
+- the context entry types, how asqr shows them and their limits
+  (`context.md`)
+- `asqr withdraw` for a session whose answers it no longer needs, and
+  `asqr ask --replaces` for a session rebuilt under another id; in
+  `withdrawing.md`, that `--force` takes one the person has started
+  answering, that a withdrawn result's `draft` holds no decisions, only
+  presets for a replacement session, and that its typed text and notes,
+  which have no preset, are quoted in the replacement's question text,
+  that the `--force` of `--replaces` also ends a session the person is
+  in the middle of, so it is for the exception, and that a fresh id
+  avoids an unread result of the new id without it
 - longer sessions: batches, follow-up rounds with `follows`, and keeping
   a record of the answers
 - patterns for common kinds of task, such as comparing image variants
   or deciding before implementing, as a starting point the agent adapts
   or leaves aside, and that they never make a task a reason to use asqr
+  (`patterns.md`)
 
 ## 10. Not in asqr yet
 

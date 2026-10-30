@@ -1473,8 +1473,8 @@ mod tests {
         );
     }
 
-    /// `DECODABLE_FORMATS`, SKILL.md, the `image` field's description and
-    /// spec section 8.8 name these formats. The set follows the `image`
+    /// `DECODABLE_FORMATS`, `skills/asqr/references/context.md`, the
+    /// `image` field's description and spec section 8.8 name these formats. The set follows the `image`
     /// crate's features, so this test fails when they change until those
     /// texts follow.
     #[test]

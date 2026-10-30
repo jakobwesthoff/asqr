@@ -3,6 +3,14 @@ name: asqr
 description: Ask the person you work with many questions at once through asqr, a terminal inbox for questions, and get their answers back as JSON. Only use it when the user explicitly asks you to use asqr for something; never switch to it on your own.
 ---
 
+Read this file to its last line before you use asqr. Its rules apply
+to every session. The last line is `End of the asqr skill.` If you
+have not seen that line, because you read only a head or a range, got
+a preview with a file path, or got cut-off output, read the file again
+in full: from its path, or from the file your tool saved the output of
+`asqr skill` to. Read a file under `references/` when a step below
+names it. Each of those files ends with its own end line too.
+
 # asqr
 
 asqr (pronounced "asker") lets you hand the person a whole batch of
@@ -10,6 +18,23 @@ questions and get the answers back as a file. You write a session file,
 drop it into a queue with `asqr ask`, and the person answers it in a
 terminal of their own where `asqr` runs. When they submit, asqr writes a
 result file that you read back.
+
+Three files hold details you need only for some steps. The step names
+its file when you reach it.
+
+- [references/context.md](references/context.md), or
+  `asqr skill context`: before you write any `context` entry or
+  `caption`.
+- [references/withdrawing.md](references/withdrawing.md), or
+  `asqr skill withdrawing`: before you run `asqr withdraw`,
+  `ask --replaces` or any `--force`, before you ask an id again, when
+  `ask` or `withdraw` refuses, and when a result has status
+  `withdrawn` or a `draft`.
+- [references/patterns.md](references/patterns.md), or
+  `asqr skill patterns`: before you build a session to compare visual
+  variants, decide before implementing, review findings, pick
+  candidates in a pipeline, walk through a debug, triage a backlog,
+  restructure a document or collect ratings.
 
 ## When to use it
 
@@ -165,129 +190,13 @@ Once asked, asqr fits best when:
   Give each entry a `title` that says what it is. An option can have its
   own `context`, shown instead while the cursor is on that option, so
   the person can flip through variants in one question and pick one.
-  Every entry has a `type` and an optional `title`:
-  - `{ "type": "image", "path": "..." }`: an image file. asqr shows PNG,
-    JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM, QOI,
-    DDS, OpenEXR, HDR and farbfeld. It cannot show SVG or AVIF, so
-    convert those to PNG first. The person only sees an error card with
-    the reason for an image asqr cannot show, and `validate` and `ask`
-    warn about it. asqr scales an image up to fill the pane, apart from
-    the rows a caption takes, which suits most images: the person sees
-    them larger when the space is there. Add `"enlarge": false` only when
-    the exact pixel size matters, such as pixel art, a screenshot whose
-    size is the point, or an icon at its real size; the image then keeps
-    its natural size and only shrinks when it does not fit.
-    Add `"caption"` with one short line of Markdown, two at most, that
-    says only what matters about the image, such as `"caption": "Draft
-    3: warmer palette, thicker outline"`. The person sees it under the
-    image, which takes the rows the caption leaves, so a longer caption
-    makes the image smaller, and one that leaves it too little room
-    hides it from the pane until the person presses `z`. Do not put a
-    prompt paragraph or a list into a caption: longer material, such as
-    the full prompt or a list of notes, goes into the question's `text`
-    or another context entry. `z` shows the image alone where the pane
-    shows. A caption follows the rules of a Markdown entry (a single
-    newline joins the lines). Other entry types ignore a caption, and
-    `validate` and `ask` warn about it as an unknown field.
-  - `{ "type": "code", "path": "..." }` or `{ "type": "code", "content":
-    "..." }`: text shown exactly as written and highlighted, like a
-    fenced code block: source code, a log, terminal output, a
-    configuration file. `language`, such as `rust`, picks the
-    highlighting; without it the extension of `path`, then of `title`,
-    decides. A Markdown file as `code` shows its source, which is what
-    you want when the Markdown itself is under review.
-  - `{ "type": "markdown", "path": "..." }` or `{ "type": "markdown",
-    "content": "..." }`: Markdown the person reads rendered, such as
-    notes, a plan or a draft section of documentation. A Markdown entry
-    follows CommonMark, unlike the question text: a single newline joins
-    the lines (a blank line starts a paragraph, a trailing backslash
-    breaks the line), and raw HTML is left out, so put `<` into code
-    spans, such as `` `Vec<String>` ``.
-  - `{ "type": "ansi", "path": "..." }` or `{ "type": "ansi",
-    "content": "..." }`: text in the colours its own escape sequences
-    set, such as the output of a command run with its colours or a
-    mockup of a terminal screen. asqr shows the colours, bold, dim,
-    italic, underline, reversed and crossed out that SGR sequences
-    (`ESC [ … m`) set, and drops every other escape sequence. Cursor
-    movement is dropped too: the output of a full-screen program, which
-    places its text by moving the cursor, does not show as on its
-    screen; capture a command that prints line by line. Ask your tool
-    for its colours, as `git diff --color=always` does. In JSON, write
-    the escape character as `\u001b`, as in
-    `"\u001b[31mfailed\u001b[0m"`; a file at `path` holds the raw bytes.
-    The named colours and the first 16 of the 256 (`30` to `37`, `90` to
-    `97`, `38;5;0` to `38;5;15`, and their backgrounds) follow the
-    person's terminal theme; colours 16 to 255 and RGB colours show as
-    given, so draw a mockup in the named colours. Under `NO_COLOR` the
-    person sees the text without any colour. Long lines do not wrap, and
-    there are no line numbers.
-  - Choose by what the person should see: the text as written is
-    `code`, rendered prose is `markdown`, text in the colours you or your
-    tool chose is `ansi`. None of them is the place for your explanation
-    of the question; that goes into the question's `text`.
-  - Inline text goes into `content` in every entry, the sides of a diff
-    included. The key `text` belongs to questions only.
-  - asqr shows U+10EEEE, the character the Kitty graphics protocol uses
-    to place images, as `�` in every text, so it cannot place an image
-    on the person's screen.
-  - `{ "type": "diff", "old": {...}, "new": {...} }`: a change, which asqr
-    diffs itself. `old` is the text before the change and `new` the text
-    after it, each `{ "path": "..." }` or `{ "content": "..." }`: two
-    versions of the same text, never a unified diff of your own, which
-    asqr would show as a changed file of `+` and `-` lines. `validate`
-    and `ask` warn that a side "looks like a unified diff" when it holds
-    one; give the two versions instead. The two
-    versions can be whole files or the same excerpt of both; the line
-    numbers then count from the excerpt's first line. Leave out
-    `old` for a new file and `new` for a deleted one, never both: a
-    diff needs at least one side. `name` is the
-    file's name, such as `src/fetch.rs`, shown in the header when there
-    is no `title`. Its extension picks the language the unchanged lines
-    around the change are highlighted in; the removed and added lines
-    show on a red and a green fill. `language`, such as `tsx`, overrides
-    the language `name` gives: give it when `name` does not say the
-    language you want, such as a `.txt` name whose text is Rust. Without
-    `language`, the extension of `name` decides, or the whole name when
-    it has none, as `Makefile` and `Dockerfile` do. Show a suggested
-    change as a diff, not as a code block of the new version: only the
-    diff shows what the change replaces. A new file shows as a diff of
-    added lines only, without syntax colours; when the person should
-    read new code highlighted, give it as a `code` entry. Give a `title`
-    that says what the change does, such as "Retry with backoff".
-  - asqr shows a diff unified: only the changed lines with 3 unchanged
-    lines around each change, a separator between such hunks, the old
-    and the new line number of every line, removed lines in a red fill
-    and added lines in a green fill across the pane, and the unchanged
-    lines highlighted in the diff's language. The person can switch a
-    diff to side by side, the old version on the left and the new one on
-    the right with each removed line next to an added one; each side
-    keeps its own line numbers, removed and added lines keep their red
-    and green fill within their column, and unchanged lines their
-    highlighting. A diff whose two versions
-    together exceed 1 MiB shows without highlighting. A long line does
-    not wrap; the person scrolls sideways. Identical versions show "no
-    changes".
-  - asqr shows a code entry highlighted, with line numbers in a gutter.
-    Long lines do not wrap; the person scrolls sideways. A Markdown entry
-    is rendered and wrapped to the pane: headings, emphasis, lists, task
-    lists, quotes, tables and highlighted code blocks. A table too wide
-    for the pane, or one that would have to break a word to fit, shows as
-    records: a block of lines for each row, each column's name before its
-    value. A long line of a code block wraps behind a `↪` marker. Name the
-    language of a code block's fence so it is highlighted. A file asqr
-    cannot read shows as an error card with the reason.
-  - Keep a code, Markdown, ANSI or diff entry, and an image's caption,
-    under 1 MiB (both sides of a diff together, escape sequences
-    included); `validate` and `ask` warn above that. asqr shows at most
-    the first 8 MiB of a file and the first 500,000 lines of each text,
-    each side of a diff on its own, with a note where it cuts, and
-    `validate` and `ask` warn about more lines. Show an excerpt instead
-    of a whole large file.
+  Before you write any `context` entry or `caption`, read
+  [references/context.md](references/context.md), or
+  `asqr skill context`: the entry types `image`, `code`, `markdown`,
+  `ansi` and `diff`, how asqr shows each, and their size limits.
   - Paths are absolute. `asqr ask` turns relative paths into absolute
     ones, resolved against the session file. asqr reads a file when it
     shows it, so leave it in place until the person has answered.
-  - Questions and options have no `image` field. A file that still uses
-    one gets a warning, and the image does not show.
 - `intro`, question `text`, option `label` and option `description` are
   Markdown and show rendered: headings, emphasis, inline code, lists, task lists
   (`- [ ]`, `- [x]`), quotes, links, tables, rules and code blocks. Name the language of a code block's
@@ -385,74 +294,14 @@ the session waits in the queue until they do.
 
 ### Withdrawing a session
 
-When you no longer need the answers to a session you asked, withdraw
-it, so the person does not answer it for nothing:
-
-```sh
-asqr withdraw "$id"
-```
-
-- Withdraw when the questions are settled another way, such as when the
-  person answered them in the chat. For a session you rebuilt, use
-  `ask --replaces` (below).
-- `withdraw` takes the session out of the person's queue and prints a
-  result with `"status": "withdrawn"`. Every `asqr wait` for the
-  session ends with exit code 14, your own in the background included,
-  and `asqr result` returns the same result later. An asqr older than
-  this skill does not know the status: its `wait` ends with exit 1 and
-  "not a result file" instead.
-- When the person has started answering, `withdraw` refuses with exit
-  code 1. A default you set that they left as it is does not count as
-  starting; one they cleared does. Ask them before you take the session
-  away; `--force` withdraws it anyway, and asqr tells them that you
-  withdrew it.
-- The result of such a withdrawal carries what they had entered in
-  `draft`: their `note` and the `answers` they had given so far. A
-  question they only cleared, such as a default or a pick they removed,
-  is not in it; when that is all they did, the result has no `draft`. These
-  are not decisions: they never sent them, and they might have rejected
-  the session in the end. Use them only as presets in a replacement
-  session (`"default": true` on the options they picked, which asqr
-  shows marked `◀ default`; say in the question's text that these are
-  their earlier answers, so the marker does not read as your
-  recommendation), where they confirm everything again. Typed text
-  (`custom`) and notes have no preset in the format: quote them in the
-  replacement question's text, such as "Earlier you wrote: ...", so the
-  person can paste or retype them. When you build no replacement,
-  ignore them.
-- When the person has answered already, `withdraw` refuses with exit
-  code 1: read the answers with `asqr result <id>`.
-- Withdrawing twice is fine: the second call prints the same result and
-  exits 0.
-- A rebuilt session under the same id needs no `withdraw`: `ask` it
-  again, and it replaces the waiting one unless the person has started
-  answering it. Questions they have not touched show the defaults of
-  the new file. When it refuses because the person has started
-  answering, stderr names the way on. After a withdrawal its result
-  stays in the outbox, so asking the same id again needs `--force`.
-
-To replace a session you rebuilt under a new id, ask the new one with
-`--replaces`:
-
-```sh
-id=$(asqr ask questions.json --replaces "$old_id")
-```
-
-It withdraws the old session and drops the new one in one step, and
-prints the new id. It refuses where `withdraw` or `ask` would refuse,
-with the same exit codes; 13 means the old id is unknown. When it
-refuses, nothing changes: the old session stays and the new one is not
-dropped. If stderr says the old session was withdrawn already, run the
-same command again: it finds the old one withdrawn and drops the new
-one.
-
-`--force` with `--replaces` also ends a session the person is in the
-middle of: their answers so far go into the old result's `draft`, and
-they have to start over on the new one. Use it only as the exception,
-after asking them. It also moves an unread result of the new id aside;
-reading a result with `asqr result` does not move it, so to get past an
-old result of that id without `--force`, leave `id` out of the new file
-and let `ask` assign a fresh one.
+When you no longer need the answers to a session, such as when the
+person answered its questions in the chat, withdraw it with
+`asqr withdraw <id>`, so they do not answer it for nothing. Ask a
+session you rebuilt under a new id with
+`asqr ask <file> --replaces <old-id>`, which withdraws the old one.
+Read [references/withdrawing.md](references/withdrawing.md), or
+`asqr skill withdrawing`, before you run either or any `--force`,
+before you ask an id again, and when `ask` or `withdraw` refuses.
 
 ## Exit codes
 
@@ -466,12 +315,6 @@ and let `ask` assign a fresh one.
 | 12 | no result yet: wait again |
 | 13 | no result will come: the id is unknown, or the session is gone; for `ask --replaces`, the old id is, and nothing was dropped |
 | 14 | you withdrew the session: the result has status `withdrawn` |
-
-`ask` refuses to replace a session the person has started answering, and
-refuses while an unread result with the same id is in the outbox.
-`--force` moves that result into the archive first. `ask --replaces`
-refuses the same way for the old session, and its `--force` takes that
-one too.
 
 ## Reading the result
 
@@ -493,7 +336,10 @@ one too.
 
 - `status` is `submitted`, `cancelled` (rejected, with an optional
   `reason`), `error` (with `error`) or `withdrawn` (you withdrew it; no
-  answers, and a `draft` only after a forced withdrawal, see above).
+  answers, and a `draft` only after a forced withdrawal). A `draft`
+  holds no decisions: read
+  [references/withdrawing.md](references/withdrawing.md), or
+  `asqr skill withdrawing`, before you use one.
 - A submitted result lists every question once, in session order,
   except `info` items: an info item is listed only when the person wrote
   a note on it, as `{ "question": "checks", "note": "..." }`. asqr does
@@ -568,54 +414,13 @@ enough. `asqr paths --json` shows where the queue's files are.
 
 ## Patterns for common tasks
 
-Once the user has asked you to use asqr, these patterns suggest what a
-session can hold for a kind of task. They are a starting point. Adapt or
-extend one for the task at hand, combine them, or leave them aside where
-something else fits better. They never make a task a reason to use asqr
-without that request.
-
-- **Compare visual variants.** One question per thing to decide, such as
-  each icon. Each variant is an option with a short label such as
-  `Draft 3`, its image as `context` and a one-line `caption` on what
-  sets it apart. Ask for a `single` pick, or a `multi` pick of keepers.
-- **Decide before implementing.** One question per open point, with
-  what you settled that bears on it in its `text`. Settled points that
-  bear on several questions or on none, and that the person needs, go
-  into short `info` items, one topic each, just before the questions
-  they bear on, or first when they bear on none. The recommended option
-  comes first and as the `default`, a short trade-off goes in each
-  `description`, and the current state or each option's own `diff` in
-  `context`.
-- **Review findings.** One question per finding. Its `text` gives before
-  and after in two sentences and the risk, its `context` the fix as a
-  `diff` with a `name`, which highlights the unchanged lines. Options
-  such as post as a review comment, fix, or drop.
-- **Pick candidates inside a pipeline.** Ask for the candidates of one
-  step as a `multi` pick, each option with its own `context` where the
-  person needs to see the candidate, and `max` when the next step takes
-  at most so many.
-- **Debug walk-through.** Say what you found in a few lines, in the
-  text of the question on the fix. Each candidate fix is an option of it
-  whose `context` is its `diff`, so the log or trace goes into a short
-  `info` item just before it, as that item's `context`, with a line on
-  what to look for. Then one `multi` pick of the tests you would add.
-  What you found that bears on neither question, such as a second bug
-  you left alone, goes into a short info item before them.
-- **Triage a backlog** of bug reports, todos or updates. One question
-  per item. Its `text` says in a sentence or two what is wrong or
-  missing today and what would change, for a person who has not read
-  the item, then your take and fix idea. Its strongest evidence, such
-  as a screenshot or a log, goes into `context`, the options are such as
-  pursue, defer or close, and your recommendation is the `default`. A
-  title, a size or a priority code alone says nothing to the person.
-- **Restructure a document.** One question per section, with the
-  section's own text as a `markdown` entry in its `context`, the places
-  it could go as options with the reason in each `description`, and an
-  own answer for somewhere else.
-- **Rating grid.** One `single` question per candidate and aspect, such
-  as length with too long, right and too short, tone or humour. Each has
-  the candidate as `context` and a `header` such as `B tone`. Ask the
-  next round, built from the ratings, with `follows`.
+[references/patterns.md](references/patterns.md), or
+`asqr skill patterns`, suggests what a session can hold for eight kinds
+of task: comparing visual variants, deciding before implementing,
+reviewing findings, picking candidates in a pipeline, walking through a
+debug, triaging a backlog, restructuring a document and collecting
+ratings. They are a starting point, and they never make a task a reason
+to use asqr without the user's request.
 
 Habits that run through them: one question per item, your
 recommendation first, before and after spelled out, a change to existing
@@ -636,3 +441,5 @@ Read every note, on info items too. For what came up, ask a follow-up
 round with `follows`. When the person answers the questions another way,
 such as in the chat, withdraw the session. Ask one you rebuilt under a
 new id with `--replaces`, which withdraws the old one.
+
+End of the asqr skill.

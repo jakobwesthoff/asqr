@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry still opens nothing and says so. In the focused pane and the
   full-screen view, the key bar names `o  open` wherever `o` opens the
   entry.
+- `asqr skill <part>` prints one part of the agent skill: `context`,
+  `withdrawing` or `patterns`. An unknown part exits 2 and names the
+  parts.
 
 ### Changed
 
@@ -48,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   note included, and to look at `asqr result` or `asqr status` before
   answering in the chat about something the person may have answered in
   asqr.
+- The agent skill is a core, `SKILL.md`, and three parts under
+  `references/`, which the core names at the step that needs them. The
+  core starts by naming its last line, so an agent can tell whether it
+  read all of it. `asqr skill --install <dir>` writes the parts to
+  `<dir>/asqr/references/` too and replaces that directory whole, so
+  parts an older asqr wrote disappear.
 
 ### Fixed
 

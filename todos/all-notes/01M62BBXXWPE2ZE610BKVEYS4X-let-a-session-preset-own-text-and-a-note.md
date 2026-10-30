@@ -18,7 +18,7 @@ back.
 The format has no field that fills a question's own-answer field, a
 `text` question's field, or a question's note before the person types.
 `default` exists only on options (`schema/session.v2.json`). The skill
-(`skills/asqr/SKILL.md`, the part on withdrawing a session) therefore
+(`skills/asqr/references/withdrawing.md`) therefore
 tells an agent to quote typed text and notes in the replacement
 question's text, so the person can paste or retype them. Typed text is
 the part of a draft that costs the most to redo.

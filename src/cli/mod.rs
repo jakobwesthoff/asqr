@@ -173,9 +173,18 @@ enum Command {
         results: bool,
     },
 
-    /// Print the agent skill, or install it under a skills directory.
+    /// Print the agent skill of this asqr or one of its parts, or install
+    /// the skill under a skills directory.
     Skill {
-        /// Write it to asqr/SKILL.md under this directory, for example .claude/skills.
+        /// Print this part of the skill instead of its core, such as
+        /// context; the skill names its parts.
+        #[arg(value_name = "PART", conflicts_with = "install")]
+        part: Option<String>,
+
+        /// Write the skill to asqr/ under this directory, for example
+        /// .claude/skills: asqr/SKILL.md and asqr/references/, which asqr
+        /// replaces whole. Mostly not needed: `asqr skill` prints the
+        /// skill of this asqr.
         #[arg(long, value_name = "DIR")]
         install: Option<PathBuf>,
     },
@@ -342,7 +351,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
             older_than,
             results,
         } => prune::run(&location, older_than, results),
-        Command::Skill { install } => skill::run(install.as_deref()),
+        Command::Skill { part, install } => skill::run(part.as_deref(), install.as_deref()),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),
     }

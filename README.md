@@ -101,11 +101,19 @@ projects apart, and `asqr paths` shows where everything is.
 
 ## For agents
 
+asqr comes with a skill that teaches an agent the format, the waiting
+pattern and the exit codes. An agent you tell to use asqr can read it
+from the installed binary with `asqr skill`, and that copy always
+matches the binary, so in most cases nothing needs installing. The skill
+has a core and three parts, which `asqr skill <part>` prints and the
+core names where they are needed.
+
     asqr skill --install .claude/skills
 
-installs the skill (as `asqr/SKILL.md` under the skills directory you
-name), which teaches an agent the format, the waiting pattern and the
-exit codes. `asqr skill` prints it.
+installs the skill as `asqr/SKILL.md`, with its parts in
+`asqr/references/`, under the skills directory you name. An installed
+copy stays as it is when asqr is updated; running the install again
+replaces it, parts included.
 
 ## Inside tmux
 

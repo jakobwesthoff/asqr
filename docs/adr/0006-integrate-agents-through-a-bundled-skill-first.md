@@ -6,6 +6,8 @@ Date: 2026-09-28
 
 Accepted
 
+Amended by [82. Ship the agent skill as a core and reference parts](0082-ship-the-agent-skill-as-a-core-and-reference-parts.md)
+
 ## Context
 
 AI coding agents are the main askers. They could use asqr through a skill

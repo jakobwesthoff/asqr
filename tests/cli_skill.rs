@@ -10,6 +10,23 @@ use common::{Sandbox, stdout};
 
 const SKILL: &str = include_str!("../skills/asqr/SKILL.md");
 
+/// The parts of the skill, in the order `asqr skill --install` writes
+/// them. Each is `references/<name>.md` beside `SKILL.md`.
+const PART_NAMES: [&str; 3] = ["context", "withdrawing", "patterns"];
+
+/// The skill's directory in the repository.
+fn skill_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/asqr")
+}
+
+/// A part as the repository holds it, read at run time so the tests
+/// compare the binary's output with the file in the repository.
+fn part(name: &str) -> String {
+    let file = skill_dir().join(format!("references/{name}.md"));
+    std::fs::read_to_string(&file)
+        .unwrap_or_else(|error| panic!("{} is part of the skill: {error}", file.display()))
+}
+
 #[test]
 fn prints_the_skill_of_this_version() {
     let output = Sandbox::new().asqr().arg("skill").output().expect("runs");
@@ -27,7 +44,83 @@ fn the_skill_has_agent_skills_frontmatter() {
 }
 
 #[test]
-fn installs_the_skill_under_a_skills_root() {
+fn prints_each_part_of_the_skill() {
+    for name in PART_NAMES {
+        let output = Sandbox::new()
+            .asqr()
+            .args(["skill", name])
+            .output()
+            .expect("runs");
+
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{name}: {}",
+            common::stderr(&output)
+        );
+        assert_eq!(stdout(&output), part(name), "{name}");
+    }
+}
+
+#[test]
+fn the_skill_ships_exactly_its_named_parts() {
+    // A file the system puts there, such as a `.DS_Store`, is not part of
+    // the skill.
+    let mut shipped: Vec<String> = std::fs::read_dir(skill_dir().join("references"))
+        .expect("the skill has a references directory")
+        .map(|entry| {
+            entry
+                .expect("readable")
+                .file_name()
+                .into_string()
+                .expect("UTF-8")
+        })
+        .filter(|name| !name.starts_with('.'))
+        .collect();
+    shipped.sort();
+    let mut named: Vec<String> = PART_NAMES.iter().map(|name| format!("{name}.md")).collect();
+    named.sort();
+
+    assert_eq!(shipped, named);
+}
+
+#[test]
+fn an_unknown_part_is_a_usage_error_that_names_the_parts() {
+    let output = Sandbox::new()
+        .asqr()
+        .args(["skill", "nonsense"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+    let stderr = common::stderr(&output);
+    for name in PART_NAMES {
+        assert!(stderr.contains(name), "{stderr}");
+    }
+    assert!(stderr.contains("`asqr skill`"), "{stderr}");
+}
+
+#[test]
+fn a_part_and_install_together_are_a_usage_error() {
+    let sandbox = Sandbox::new();
+    let root = sandbox.home().join("skills");
+
+    let output = sandbox
+        .asqr()
+        .args(["skill", "context", "--install"])
+        .arg(&root)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = common::stderr(&output);
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+    assert!(!root.exists(), "nothing is installed");
+}
+
+#[test]
+fn installs_the_skill_and_its_parts_under_a_skills_root() {
     let sandbox = Sandbox::new();
     let root = sandbox.home().join("project/.claude/skills");
 
@@ -39,15 +132,108 @@ fn installs_the_skill_under_a_skills_root() {
         .expect("runs");
 
     assert_eq!(output.status.code(), Some(0));
-    let installed = root.join("asqr/SKILL.md");
+    let core = root.join("asqr/SKILL.md");
+    assert_eq!(std::fs::read_to_string(&core).expect("installed"), SKILL);
+    let mut lines = format!("installed {}\n", core.display());
+    for name in PART_NAMES {
+        let file = root.join(format!("asqr/references/{name}.md"));
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("installed"),
+            part(name),
+            "{name}"
+        );
+        lines += &format!("installed {}\n", file.display());
+    }
+    assert_eq!(stdout(&output), lines);
+}
+
+#[test]
+fn installing_again_replaces_every_part_and_leaves_other_files() {
+    let sandbox = Sandbox::new();
+    let root = sandbox.home().join("skills");
+    sandbox.file(
+        "skills/asqr/references/old.md",
+        "a part an older asqr wrote",
+    );
+    sandbox.file("skills/asqr/references/context.md", "an older version");
+    let notes = sandbox.file("skills/asqr/notes.md", "the person's own file");
+
+    sandbox
+        .asqr()
+        .args(["skill", "--install"])
+        .arg(&root)
+        .assert()
+        .success();
+
+    assert!(!root.join("asqr/references/old.md").exists());
     assert_eq!(
-        std::fs::read_to_string(&installed).expect("installed"),
-        SKILL
+        std::fs::read_to_string(root.join("asqr/references/context.md")).expect("installed"),
+        part("context")
     );
     assert_eq!(
-        stdout(&output),
-        format!("installed {}\n", installed.display())
+        std::fs::read_to_string(notes).expect("kept"),
+        "the person's own file"
     );
+}
+
+#[test]
+fn fails_when_the_parts_cannot_be_written() {
+    let sandbox = Sandbox::new();
+    let root = sandbox.home().join("skills");
+    sandbox.file("skills/asqr/references", "a file where the parts should go");
+
+    let output = sandbox
+        .asqr()
+        .args(["skill", "--install"])
+        .arg(&root)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = common::stderr(&output);
+    assert!(stderr.contains("cannot install the skill"), "{stderr}");
+}
+
+#[test]
+fn the_skill_starts_by_naming_its_last_line() {
+    let body = SKILL
+        .split_once("\n---\n\n")
+        .expect("the frontmatter ends")
+        .1;
+    let first_paragraph = body.split("\n\n").next().expect("a first paragraph");
+
+    assert!(
+        flat(first_paragraph).contains("`End of the asqr skill.`"),
+        "{first_paragraph}"
+    );
+    assert_eq!(SKILL.lines().last(), Some("End of the asqr skill."));
+}
+
+#[test]
+fn each_part_names_the_core_first_and_ends_with_its_own_line() {
+    for name in PART_NAMES {
+        let text = part(name);
+
+        assert!(
+            text.starts_with("Part of the asqr skill. Read SKILL.md first"),
+            "{name}"
+        );
+        assert_eq!(
+            text.lines().last(),
+            Some(format!("End of references/{name}.md.").as_str()),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn each_part_stays_under_30000_bytes() {
+    // Claude Code's Bash tool shows up to roughly 30,000 characters of
+    // output inline, so `asqr skill <part>` arrives whole.
+    for name in PART_NAMES {
+        let size = part(name).len();
+        assert!(size < 30_000, "{name} is {size} bytes");
+    }
 }
 
 #[test]
@@ -173,6 +359,29 @@ fn asking_says_every_session_comes_back_as_a_result() {
 #[test]
 fn an_info_only_session_still_comes_back_with_the_notes() {
     assert!(flat(SKILL).contains("Its result still comes back with the person's notes"));
+}
+
+#[test]
+fn the_core_keeps_the_key_rules() {
+    // Rules an agent needs on every session and that no check of asqr
+    // catches, so they stay in `SKILL.md`, not in a part.
+    for anchor in [
+        "Every session you ask comes back as a result",
+        "Its result still comes back with the person's notes",
+        "may have answered in asqr",
+        "Read every note",
+        "Most sessions need no info item",
+        "Length is no reason for an info item",
+        "short items in reading order",
+        "made-up question",
+        "has not seen your work",
+        "holds no decisions",
+    ] {
+        assert!(
+            flat(SKILL).contains(anchor),
+            "the skill's core lost {anchor:?}"
+        );
+    }
 }
 
 #[test]
