@@ -38,7 +38,7 @@ use ratatui::widgets::{Paragraph, Widget};
 /// The size of a viewer's content in cells: the number of lines and the
 /// width of the widest line.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ContentSize {
+pub(super) struct ContentSize {
     pub lines: usize,
     pub columns: usize,
 }
@@ -57,7 +57,7 @@ pub struct ContentSize {
 /// with an area of the size last passed to `lay_out`. Building and laying
 /// out run on a thread of their own, drawing on the drawing thread, so a
 /// viewer moves between them.
-pub trait Viewer: Send {
+pub(super) trait Viewer: Send {
     /// Lays the content out for a body of `width`×`height` cells and returns
     /// its size: the number of lines and the width of the widest line. The
     /// pane scrolls vertically when `lines` exceeds `height` and sideways
@@ -117,7 +117,7 @@ pub trait Viewer: Send {
 /// How a diff shows: the layout its viewer last used, and whether the body
 /// it was laid out for has room for two columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DiffShape {
+pub(super) struct DiffShape {
     pub layout: DiffLayout,
     pub fits_side_by_side: bool,
 }
@@ -211,7 +211,7 @@ const TEST_WAIT: Duration = Duration::from_secs(60);
 /// built when its entry is first shown or loaded ahead, kept while the
 /// entry stays the same and inside the window, and laid out again only
 /// when the body's size changes, as its content does not.
-pub struct Viewers {
+pub(super) struct Viewers {
     tools: Tools,
     finished: Receiver<Finished>,
     viewers: HashMap<ViewerKey, Kept>,
@@ -257,7 +257,7 @@ pub struct Viewers {
 
 impl Viewers {
     /// Viewers whose images `images` makes.
-    pub fn new(images: Images) -> Self {
+    pub(super) fn new(images: Images) -> Self {
         let (results, finished) = mpsc::channel();
         Viewers {
             tools: Tools {
@@ -308,17 +308,17 @@ impl Viewers {
     }
 
     /// Takes the home folder, for the viewers built from now on.
-    pub fn set_home(&mut self, home: Option<PathBuf>) {
+    pub(super) fn set_home(&mut self, home: Option<PathBuf>) {
         self.tools.home = home;
     }
 
     /// Takes whether input waits to be handled after the next draw.
-    pub fn set_input_pending(&mut self, pending: bool) {
+    pub(super) fn set_input_pending(&mut self, pending: bool) {
         self.input_pending = pending;
     }
 
     /// Takes what wakes the run loop once a load finished.
-    pub fn wake_with(&mut self, wake: Wake) {
+    pub(super) fn wake_with(&mut self, wake: Wake) {
         self.tools.wake = wake;
     }
 
@@ -517,7 +517,7 @@ impl Viewers {
     ///
     /// A viewer loaded for another size is left as it is: it is laid out
     /// again when it is shown.
-    pub fn load_window(
+    pub(super) fn load_window(
         &mut self,
         session: &str,
         window: &[(EntryKey, &ContextEntry)],
@@ -704,7 +704,7 @@ impl Viewers {
     }
 
     /// The graphics the images are made for.
-    pub fn graphics(&self) -> Graphics {
+    pub(super) fn graphics(&self) -> Graphics {
         self.tools.images.graphics()
     }
 
@@ -718,7 +718,7 @@ impl Viewers {
     /// the encoding sent before. An image loaded ahead and never shown, or
     /// a job that builds one, has sent nothing. Other viewers keep what
     /// they derived, as nothing of theirs went to the terminal.
-    pub fn forget_images(&mut self) {
+    pub(super) fn forget_images(&mut self) {
         let image = |entry: &ContextEntry| matches!(entry, ContextEntry::Image(_));
         self.viewers
             .retain(|_, kept| !(kept.shown && image(&kept.entry)));
@@ -730,7 +730,7 @@ impl Viewers {
 
     /// Drops the viewers of every session `waiting` says no longer waits,
     /// and forgets the jobs in flight or queued for them.
-    pub fn retain_sessions(&mut self, waiting: impl Fn(&str) -> bool) {
+    pub(super) fn retain_sessions(&mut self, waiting: impl Fn(&str) -> bool) {
         self.viewers.retain(|key, _| waiting(&key.session));
         self.loading.retain(|key, _| waiting(&key.session));
         self.ahead.retain(|job| waiting(&job.key.session));
@@ -754,7 +754,7 @@ impl Viewers {
     }
 
     /// The book of the Kitty ids the images of the viewers take.
-    pub fn kitty_book(&self) -> &KittyBook {
+    pub(super) fn kitty_book(&self) -> &KittyBook {
         self.tools.images.kitty_book()
     }
 
