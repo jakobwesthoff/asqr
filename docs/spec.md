@@ -2440,6 +2440,11 @@ replaces `<dir>/asqr/references/` whole and leaves any other file in
 `<dir>/asqr/` alone, so `asqr skill --install .claude/skills` works and
 running it again replaces an older copy, parts included.
 
+`asqr --help`, `asqr -h` and `asqr ask --help` show, below the line for
+the person, a line for agents: "Agents: run `asqr skill` and read its
+output to the last line before you ask; it describes this version of
+asqr". `asqr ask -h` shows only its first line.
+
 The core's `metadata` holds `asqr-version`, the version of the asqr the
 skill belongs to, equal to the crate version; a test fails until a
 release sets it.

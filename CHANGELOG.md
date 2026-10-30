@@ -28,8 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ways past it, the refusal of `withdraw` and `ask --replaces` for a
   session being answered tells the agent to check with the person
   first, and an unknown id names the queue that was searched and
-  how to find the session. A command in advice names the queue with `--queue` or
-  `--dir` when a flag or a variable chose it.
+  how to find the session. A command in advice names the queue with
+  `--queue` or `--dir` when a flag or a variable chose it. `asqr --help`
+  and `asqr ask --help` tell agents to read `asqr skill` to its last
+  line.
 - The empty queue and the terminal title name the queue asqr watches,
   unless it is the default queue: "Nothing to answer in queue
   asqr-todos." and `asqr · asqr-todos · 2 waiting`.

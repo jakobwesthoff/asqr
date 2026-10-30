@@ -435,3 +435,62 @@ fn the_core_keeps_the_key_rules() {
 fn the_skill_says_to_look_in_asqr_before_answering_in_the_chat() {
     assert!(flat(section("Asking and waiting")).contains("may have answered in asqr"));
 }
+
+// =========================================================
+// The help points agents to the skill
+// =========================================================
+
+/// The line `asqr --help` shows agents. "To the last line" matches the
+/// core, which names its last line.
+const AGENT_LINE: &str = "Agents: run `asqr skill` and read its output to the last line before you ask; it describes this version of asqr";
+
+/// What `asqr` prints for `args`.
+fn help(args: &[&str]) -> String {
+    let output = Sandbox::new().asqr().args(args).output().expect("runs");
+    assert_eq!(output.status.code(), Some(0));
+    stdout(&output)
+}
+
+#[test]
+fn help_tells_agents_to_read_the_skill() {
+    let expected = format!(
+        "{}\n\n{AGENT_LINE}\n\nUsage:",
+        env!("CARGO_PKG_DESCRIPTION")
+    );
+
+    let text = help(&["-h"]);
+
+    assert!(text.starts_with(&expected), "{text}");
+}
+
+#[test]
+fn long_help_tells_agents_to_read_the_skill() {
+    let expected = format!(
+        "{}\n\n{AGENT_LINE}\n\nUsage:",
+        env!("CARGO_PKG_DESCRIPTION")
+    );
+
+    let text = help(&["--help"]);
+
+    assert!(text.starts_with(&expected), "{text}");
+}
+
+#[test]
+fn ask_help_tells_agents_to_read_the_skill() {
+    let expected =
+        format!("Drop a session file into the queue and print its id\n\n{AGENT_LINE}\n\nUsage:");
+
+    let text = help(&["ask", "--help"]);
+
+    assert!(text.starts_with(&expected), "{text}");
+}
+
+#[test]
+fn ask_short_help_keeps_its_one_line() {
+    let text = help(&["ask", "-h"]);
+
+    assert!(
+        text.starts_with("Drop a session file into the queue and print its id\n\nUsage:"),
+        "{text}"
+    );
+}

@@ -31,10 +31,23 @@ pub use watch::Watch;
 use crate::queue::{QueueLocation, Selection, platform_data_dir};
 use crate::tui::render::PaneLayout;
 
+/// The line `asqr --help` and `asqr ask --help` show agents, below the
+/// line for the person (spec section 9). The core of the skill names its
+/// last line, so "to the last line" is something an agent can check.
+macro_rules! agent_line {
+    () => {
+        "Agents: run `asqr skill` and read its output to the last line before you ask; it describes this version of asqr"
+    };
+}
+
 /// Answer questions an AI agent or a script prepared for you, right in your
 /// terminal.
 #[derive(Debug, Parser)]
-#[command(name = "asqr", version, about)]
+#[command(
+    name = "asqr",
+    version,
+    about = concat!(env!("CARGO_PKG_DESCRIPTION"), "\n\n", agent_line!())
+)]
 pub struct Cli {
     /// Work on the named queue under the platform data directory.
     #[arg(long, global = true, value_name = "NAME")]
@@ -95,6 +108,13 @@ enum Command {
     },
 
     /// Drop a session file into the queue and print its id.
+    // A second doc paragraph would keep this line's period in the long
+    // help only, so the long help is spelled out.
+    #[command(long_about = concat!(
+        "Drop a session file into the queue and print its id",
+        "\n\n",
+        agent_line!()
+    ))]
     Ask {
         /// The session file.
         file: PathBuf,
