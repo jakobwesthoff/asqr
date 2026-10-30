@@ -2,7 +2,6 @@
 title: "Tell the person when the installed agent skill is older than asqr"
 kind: feature
 component: cli
-status: needs-discussion
 origin: review
 ---
 # Tell the person when the installed agent skill is older than asqr
@@ -82,10 +81,24 @@ CLI `.gemini/skills` and `.agents/skills`, also in home; Copilot
 were read through a summarising fetch; re-read them before pinning
 paths in code.
 
-Still open: which set of directories (asked in asqr session
-01M66M0CNZPVC10PC088D65K1K: the shared one plus those the big agents
-document, all of the installer's runners, or only `.agents/skills` and
-`.claude/skills`), and the hint's exact text.
+## Decided (2026-10-30, asqr session 01M66M0CNZPVC10PC088D65K1K)
+
+- The directories: the shared one plus those the big agents document.
+  Project: `.agents/skills`, `.claude/skills`, `.gemini/skills`,
+  `.github/skills`, `.cursor/skills`, `.codex/skills`, from the current
+  directory up to the git root. Global: `~/.agents/skills`,
+  `~/.claude/skills`, `~/.gemini/skills`, `~/.copilot/skills`,
+  `~/.cursor/skills`. Each entry is checked against that agent's own
+  docs and names its source. Not all of the installer's runners: that
+  would be about 70 directories per level plus keeping a foreign table
+  in step.
+- The hint tells the agent to read the current skill now and to ask
+  the person about updating the copy:
+
+      hint: the asqr skill in .claude/skills/asqr is from asqr 0.14.0, this asqr is 0.15.0; read the current one with `asqr skill`, and ask the person whether to update the copy with `asqr skill --install .claude/skills`
+
+  Several old copies go into one hint; a copy without a stamp is "from
+  an older asqr".
 
 Jakob's note (2026-10-30, asqr session 01M664CT1H5WE3J1MT97JNYGDT): the
 docs should say that installing the skill is possible but in most cases
