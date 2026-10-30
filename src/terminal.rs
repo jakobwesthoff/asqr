@@ -26,14 +26,14 @@ use asqr::graphics::{
 };
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
-use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure};
-use asqr::queue::{QueueLocation, WaitingQueue, platform_data_dir, waiting_elsewhere};
+use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure, TmuxPane};
+use asqr::queue::{QueueLocation, QueueLock, WaitingQueue, platform_data_dir, waiting_elsewhere};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
-    Alerts, Clock, Event, EventSource, Host, KeepAlive, KeyReader, OpenedFiles, ProgressTerminal,
-    SleepClock, alert, opener_failure, progress_sequence, progress_terminal, run, spawn_reaped,
-    start, watch_inbox,
+    Alerts, Clock, Event, EventSource, Held, Host, InboxWatcher, KeepAlive, KeyReader, OpenedFiles,
+    ProgressTerminal, QueueChoice, Refusal, SleepClock, alert, opener_failure, prepare_switch,
+    progress_sequence, progress_terminal, queue_choice, run, spawn_reaped, start, watch_inbox,
 };
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -48,12 +48,12 @@ use ratatui_image::picker::{Capability, Picker, ProtocolType};
 const QUEUES_TICK: Duration = Duration::from_secs(5);
 
 /// Runs the TUI on the queue `watch` holds, in this process's terminal.
-pub fn run_terminal_ui(watch: Watch) -> Exit {
+pub fn run_terminal_ui(mut watch: Watch) -> Exit {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         eprintln!("error: asqr needs a terminal; run it in a terminal of its own");
         return Exit::Failure;
     }
-    match run_in_terminal(&watch) {
+    match run_in_terminal(&mut watch) {
         Ok(()) => Exit::Success,
         Err(error) => {
             eprintln!("error: {error:#}");
@@ -62,14 +62,16 @@ pub fn run_terminal_ui(watch: Watch) -> Exit {
     }
 }
 
-fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
+fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
+    let lock = watch.take_lock();
     let location = watch.location();
     let (sender, events) = mpsc::channel();
 
     // The watcher comes first and the first scan second, so no file can
     // arrive unseen in between (spec section 5.4).
     let inbox_sender = sender.clone();
-    let _watcher = watch_inbox(location, move || {
+    let inbox_events = sender.clone();
+    let watcher = watch_inbox(location, move || {
         let _ = inbox_sender.send(Event::InboxChanged);
     })
     .context("watching the inbox")?;
@@ -196,6 +198,14 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         openers,
         root: platform_data_dir(),
         watched: location.clone(),
+        // A queue given by `--dir` stays in the switcher for the run.
+        dir_queue: location.name().is_none().then(|| location.clone()),
+        lock,
+        watcher,
+        inbox_events,
+        lock_pane: watch.lock_pane().cloned(),
+        pin_pane: watch.pin_pane().cloned(),
+        home: watch.home().map(Path::to_path_buf),
     };
     // The other queues are looked at again every few seconds (ADR 86).
     tick_queues(SleepClock, QUEUES_TICK, queues_ticks);
@@ -816,9 +826,54 @@ struct TerminalHost {
     /// and the queue this asqr watches.
     root: Option<PathBuf>,
     watched: QueueLocation,
+    /// The queue this run was given by `--dir`, which the switcher lists
+    /// first for the whole run.
+    dir_queue: Option<QueueLocation>,
+    /// The lock and the inbox watcher of the queue watched, which a switch
+    /// replaces.
+    lock: Option<QueueLock>,
+    watcher: InboxWatcher,
+    /// Where the watcher of a queue switched to reports changes: the run
+    /// loop.
+    inbox_events: mpsc::Sender<Event>,
+    /// The tmux pane a lock names, and the one a switch pins in (ADR 85).
+    lock_pane: Option<TmuxPane>,
+    pin_pane: Option<TmuxPane>,
+    /// The home folder, `~` in the switcher's paths.
+    home: Option<PathBuf>,
 }
 
 impl Host for TerminalHost {
+    fn queues(&mut self) -> QueueChoice {
+        queue_choice(
+            self.root.as_deref(),
+            &self.watched,
+            self.dir_queue.as_ref(),
+            self.pin_pane.as_ref(),
+            &SystemTmux::default(),
+            self.home.as_deref(),
+        )
+    }
+
+    fn prepare(&mut self, target: &QueueLocation) -> Result<Held, Refusal> {
+        let changes = self.inbox_events.clone();
+        prepare_switch(target, self.lock_pane.as_ref(), move || {
+            // The run loop is gone only as asqr quits.
+            let _ = changes.send(Event::InboxChanged);
+        })
+    }
+
+    fn switch(&mut self, held: Held) -> Result<(), TmuxFailure> {
+        // The old lock and watcher go as the new ones take their place.
+        self.lock = Some(held.lock);
+        self.watcher = held.watcher;
+        self.watched = held.location;
+        match (&self.pin_pane, self.watched.name()) {
+            (Some(pane), Some(name)) => pairing::pin(&SystemTmux::default(), pane, name),
+            _ => Ok(()),
+        }
+    }
+
     fn elsewhere(&mut self) -> Vec<WaitingQueue> {
         self.root
             .as_deref()

@@ -25,6 +25,7 @@ pub struct QueueSummary {
 }
 
 impl QueueSummary {
+    /// The queue's name; only a summary of a named queue has one.
     pub fn name(&self) -> &str {
         self.location
             .name()
@@ -79,7 +80,8 @@ pub fn waiting_elsewhere(root: &Path, watched: &QueueLocation) -> Vec<WaitingQue
         .collect()
 }
 
-fn summarize(location: QueueLocation) -> QueueSummary {
+/// What the queue at `location` holds, also one given by `--dir`.
+pub(crate) fn summarize(location: QueueLocation) -> QueueSummary {
     let sessions = |dir: &Path| {
         entries_if_present(dir)
             .unwrap_or_default()

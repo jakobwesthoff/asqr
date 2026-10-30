@@ -1044,6 +1044,71 @@ mod tests {
         assert_eq!(started, Some(None));
     }
 
+    /// What `look` finds in the watch of the TUI started by `args` inside
+    /// tmux pane `%3`, with `tmux` answering.
+    fn in_watch<T>(args: &[&str], tmux: &StandIn, look: impl FnOnce(&mut Watch) -> T) -> T {
+        let root = tempfile::tempdir().expect("temp dir");
+        let mut argv = vec!["asqr"];
+        argv.extend(args);
+        let cli = Cli::try_parse_from(argv).expect("parses");
+        let mut found = None;
+        dispatch(
+            cli,
+            in_tmux_pane(),
+            tmux,
+            Some(root.path().to_path_buf()),
+            |mut watch| {
+                found = Some(look(&mut watch));
+                Exit::Success
+            },
+        );
+        found.expect("the TUI started")
+    }
+
+    /// A start on a queue directory pins nothing, but a switch to a named
+    /// queue later pins it in the same pane (ADR 86).
+    #[test]
+    fn a_queue_directory_inside_tmux_leaves_the_pane_for_later_pins() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let dir = scratch.path().to_str().expect("UTF-8 temp path");
+        let tmux = StandIn::answering("my work\n");
+
+        let panes = in_watch(&["--dir", dir], &tmux, |watch| {
+            (
+                watch.pin_pane().cloned(),
+                watch.lock_pane().map(|pane| pane.socket.clone()),
+            )
+        });
+
+        assert_eq!(
+            panes,
+            (
+                pin("x").map(|pin| pin.pane),
+                Some("/tmp/tmux-501/default".into())
+            )
+        );
+    }
+
+    #[test]
+    fn after_tmux_did_not_answer_no_switch_pins() {
+        let tmux = StandIn::failing("tmux is not installed");
+
+        let pane = in_watch(&[], &tmux, |watch| watch.pin_pane().cloned());
+
+        assert_eq!(pane, None);
+    }
+
+    #[test]
+    fn the_watch_hands_its_lock_over_once() {
+        let tmux = StandIn::answering("my work\n");
+
+        let taken = in_watch(&[], &tmux, |watch| {
+            (watch.take_lock().is_some(), watch.take_lock().is_some())
+        });
+
+        assert_eq!(taken, (true, false));
+    }
+
     #[test]
     fn starting_never_pins_before_the_terminal_ui() {
         let tmux = StandIn::answering("my work\n");

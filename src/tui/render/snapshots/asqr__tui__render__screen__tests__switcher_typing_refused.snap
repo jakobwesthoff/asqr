@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr  Release 0.2.0                                     asqr-todos · 1 waiting "
+"       from release script                                                      "
+"       Three decisions before the release. Skip what you cannot decide yet.     "
+"                                                                                "
+"   ☐ Go?  ☒ Channels  ☐ Highlights  ✔ Review                                    "
+"──━━━━━━━───────────────────────────────────────────────────────────────────────"
+" All checks passed. Publish 0.2.0 now?                                          "
+" pick one                                                                       "
+"                ╭ Queues ───────────────────────────────────────╮               "
+" ❯ ( ) 1. Publis│   asqr-todo                                   │               "
+"   ( ) 2. Later │   asqr-todos   2 waiting          ◀ this asqr │.              "
+"   ( ) 3. Do not│   default      1 waiting                      │               "
+"                │ ❯ ✎ New queue: weekly-review                  │               "
+" Notes: —       │                                               │               "
+"                │   ntropy       watched in tmux ntropy         │               "
+"                ╰─ agents in tmux session asqr follow this asqr ╯               "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"! a queue name has letters, digits, -, _ and . and does not start with .        "
+" enter  create   esc  stop typing                                               "

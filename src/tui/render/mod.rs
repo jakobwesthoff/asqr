@@ -31,6 +31,7 @@ mod problem;
 mod screen;
 mod source_file;
 mod source_line;
+mod switcher;
 mod tabs;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -43,6 +44,7 @@ pub(crate) use diff::unified_text;
 pub use loading::loader_panicked;
 pub use mascot::Glyphs;
 pub use panes::PaneLayout;
+pub(crate) use problem::shown_path;
 pub(crate) use screen::shorten_from_left;
 pub use screen::{Drawn, MIN_HEIGHT, MIN_WIDTH, View, draw};
 pub(crate) use source_line::{TAB_STOP, columns, picture};

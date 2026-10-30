@@ -3,8 +3,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! The state across all waiting sessions (spec section 7.9): which one is
-//! being answered, the session list behind `L`, the intro overlay behind
-//! `i`, and notices about the queue. Sessions are kept in the order they are added, which the running
+//! being answered, the session list behind `L`, the queue switcher behind
+//! `w`, the intro overlay behind `i`, and notices about the queue. Sessions are kept in the order they are added, which the running
 //! app keeps in queue order.
 
 use std::collections::VecDeque;
@@ -14,10 +14,11 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::scroll::scroll;
 use super::{
-    EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, RowCut, SessionState,
+    EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, QueueChoice, REFUSED_NAME,
+    RowCut, SessionState, Switcher, SwitcherKey, TOO_LONG_NAME,
 };
 use crate::format::{Answer, ContextEntry, SessionResult, same_session_id};
-use crate::queue::WaitingQueue;
+use crate::queue::{QueueLocation, WaitingQueue};
 
 /// How a finished session ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +52,12 @@ pub enum AppEffect {
     Open(ContextEntry),
     /// Open a field in the person's editor (ADR 74).
     Edit(EditRequest),
+    /// Open the queue switcher over the queues looked at now (ADR 86).
+    OpenQueues,
+    /// The queue switcher closed without a switch.
+    QueuesClosed,
+    /// Watch this queue from now on (ADR 86).
+    Switch(QueueLocation),
 }
 
 /// What shows over the screen, at most one at a time.
@@ -62,6 +69,8 @@ pub enum Overlay {
     SessionList(usize),
     /// The active session's whole intro, from this line on.
     Intro(usize),
+    /// The queue switcher (see [`App::switcher`]).
+    Queues,
 }
 
 /// What kind of news a notice or a session's message is, which decides
@@ -144,6 +153,8 @@ pub struct App {
     dialog_seen: bool,
     /// The queues no asqr watches in which sessions wait (ADR 86).
     elsewhere: Vec<WaitingQueue>,
+    /// The open queue switcher.
+    switcher: Option<Switcher>,
 }
 
 impl App {
@@ -248,6 +259,16 @@ impl App {
         &self.elsewhere
     }
 
+    /// Opens the queue switcher over `choice`.
+    pub fn open_queues(&mut self, choice: QueueChoice) {
+        self.switcher = Some(Switcher::new(choice));
+    }
+
+    /// The open queue switcher.
+    pub fn switcher(&self) -> Option<&Switcher> {
+        self.switcher.as_ref()
+    }
+
     /// Takes whether the last frame showed the dialog of an invalid
     /// session, which decides whether the next key closes it.
     pub fn set_dialog_shown(&mut self, shown: bool) {
@@ -282,12 +303,16 @@ impl App {
         self.intro
     }
 
-    /// The overlay the screen shows, `None` with an empty queue. Keys open
+    /// The overlay the screen shows. Over the empty queue only the queue
+    /// switcher shows. Keys open
     /// one at a time, since each takes the key that would open another; were
     /// several open, the one shown is the one [`App::handle`] gives the keys
     /// to first. The intro shows only for a session that has one, also an
     /// empty one; [`App::add`] closes it when a replaced file drops it.
     pub fn overlay(&self) -> Option<Overlay> {
+        if self.switcher.is_some() {
+            return Some(Overlay::Queues);
+        }
         let state = self.active()?;
         if let Some(scroll) = self.intro
             && state.session().intro.is_some()
@@ -367,6 +392,28 @@ impl App {
         if self.close_seen_dialog() {
             return AppEffect::None;
         }
+        if let Some(switcher) = &mut self.switcher {
+            return match switcher.handle(key) {
+                SwitcherKey::Stay => AppEffect::None,
+                SwitcherKey::Refused => {
+                    self.notice(Tone::Warning, REFUSED_NAME);
+                    AppEffect::None
+                }
+                SwitcherKey::TooLong => {
+                    self.notice(Tone::Warning, TOO_LONG_NAME);
+                    AppEffect::None
+                }
+                SwitcherKey::Quit => AppEffect::Quit,
+                SwitcherKey::Close => {
+                    self.switcher = None;
+                    AppEffect::QueuesClosed
+                }
+                SwitcherKey::Switch(target) => {
+                    self.switcher = None;
+                    AppEffect::Switch(target)
+                }
+            };
+        }
         if let Some(scroll) = self.intro {
             return self.intro_key(key, scroll);
         }
@@ -402,10 +449,10 @@ impl App {
         }
 
         let Some(state) = self.sessions.get_mut(self.active) else {
-            return if quit {
-                AppEffect::Quit
-            } else {
-                AppEffect::None
+            return match key.code {
+                _ if quit => AppEffect::Quit,
+                KeyCode::Char('w') => AppEffect::OpenQueues,
+                _ => AppEffect::None,
             };
         };
         let effect = state.handle(key);
@@ -420,6 +467,16 @@ impl App {
         // As over the help, a paste closes the dialog the person saw and
         // goes nowhere.
         if self.close_seen_dialog() {
+            return AppEffect::None;
+        }
+        // Under the switcher a paste goes into the name of a new queue at
+        // most, never into the session behind it.
+        if let Some(switcher) = &mut self.switcher {
+            match switcher.paste(text) {
+                SwitcherKey::Refused => self.notice(Tone::Warning, REFUSED_NAME),
+                SwitcherKey::TooLong => self.notice(Tone::Warning, TOO_LONG_NAME),
+                _ => {}
+            }
             return AppEffect::None;
         }
         if self.intro.is_some() || self.list.is_some() {
@@ -468,6 +525,7 @@ impl App {
             Effect::Quit => AppEffect::Quit,
             Effect::Open(entry) => AppEffect::Open(entry),
             Effect::Edit(request) => AppEffect::Edit(request),
+            Effect::OpenQueues => AppEffect::OpenQueues,
             Effect::OpenSessionList => {
                 self.list = Some(self.active);
                 AppEffect::None
@@ -1180,6 +1238,148 @@ mod tests {
         assert!(view.must_clear(&app), "the help over the image is gone");
         let screen = drawn(&app, &mut view);
         assert!(!screen.iter().any(|row| row.contains(" Intro ")));
+    }
+
+    // -----------------------------------------------------------------
+    // The queue switcher
+    // -----------------------------------------------------------------
+
+    /// `asqr-todos` watched, `default` free, nothing taken, outside tmux.
+    fn choice() -> QueueChoice {
+        let root = std::path::Path::new("/data/asqr");
+        let row = |name: &str, watched| crate::tui::QueueRow {
+            location: QueueLocation::named(root, name),
+            label: name.to_owned(),
+            waiting: 0,
+            watched,
+        };
+        QueueChoice {
+            rows: vec![row("asqr-todos", true), row("default", false)],
+            taken: Vec::new(),
+            root: Some(root.to_path_buf()),
+            place: crate::tui::Place::Outside,
+        }
+    }
+
+    #[test]
+    fn w_asks_for_the_queues_over_a_session_and_over_the_empty_queue() {
+        assert_eq!(app(&["one"]).handle(key('w')), AppEffect::OpenQueues);
+        assert_eq!(App::default().handle(key('w')), AppEffect::OpenQueues);
+    }
+
+    #[test]
+    fn the_switcher_shows_also_without_a_session() {
+        let mut app = App::default();
+
+        app.open_queues(choice());
+
+        assert_eq!(app.overlay(), Some(Overlay::Queues));
+        assert_eq!(app.switcher().map(Switcher::cursor), Some(0));
+    }
+
+    #[test]
+    fn the_switcher_takes_the_keys_and_closing_it_says_so() {
+        let mut app = app(&["one"]);
+        app.open_queues(choice());
+
+        assert_eq!(app.handle(key('1')), AppEffect::None, "no option picked");
+        assert_eq!(app.handle(code(KeyCode::Esc)), AppEffect::QueuesClosed);
+        assert_eq!(app.overlay(), None);
+        assert_eq!(
+            app.active().expect("active").answers()[0].selected,
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn enter_in_the_switcher_closes_it_and_asks_for_the_switch() {
+        let mut app = App::default();
+        app.open_queues(choice());
+        app.handle(key('j'));
+
+        assert_eq!(
+            app.handle(code(KeyCode::Enter)),
+            AppEffect::Switch(QueueLocation::named(
+                std::path::Path::new("/data/asqr"),
+                "default"
+            ))
+        );
+        assert_eq!(app.switcher(), None);
+    }
+
+    #[test]
+    fn ctrl_c_quits_from_the_switcher() {
+        let mut app = App::default();
+        app.open_queues(choice());
+
+        assert_eq!(app.handle(ctrl('c')), AppEffect::Quit);
+    }
+
+    #[test]
+    fn a_key_the_name_row_refuses_is_a_notice() {
+        let mut app = App::default();
+        app.open_queues(choice());
+        app.handle(key('j'));
+        app.handle(key('j'));
+
+        assert_eq!(app.handle(key(' ')), AppEffect::None);
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(Tone::Warning, crate::tui::REFUSED_NAME))
+        );
+        assert!(app.switcher().is_some(), "the switcher stays open");
+    }
+
+    #[test]
+    fn a_name_past_the_longest_queue_name_is_a_notice() {
+        let mut app = App::default();
+        app.open_queues(choice());
+        app.handle(key('j'));
+        app.handle(key('j'));
+        app.paste(&"a".repeat(crate::format::MAX_SESSION_ID_BYTES - 1));
+        assert_eq!(app.paste("bb"), AppEffect::None);
+        assert_eq!(
+            app.current_notice().map(|notice| notice.text.as_str()),
+            Some(crate::tui::TOO_LONG_NAME),
+            "a paste"
+        );
+        app.paste("b");
+
+        assert_eq!(app.handle(key('b')), AppEffect::None);
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(
+                Tone::Warning,
+                "a queue name has at most 200 characters"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_paste_under_the_switcher_never_reaches_the_session() {
+        let text: Session = serde_json::from_str(
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+        )
+        .expect("parses");
+        let mut app = App::default();
+        app.add(SessionState::new("text", text, None));
+        app.open_queues(choice());
+
+        assert_eq!(app.paste("pasted"), AppEffect::None);
+        assert_eq!(app.active().expect("active").answers()[0].custom, None);
+
+        app.handle(key('j'));
+        app.handle(key('j'));
+        assert_eq!(app.paste("my work"), AppEffect::None);
+        assert_eq!(
+            app.current_notice().map(|notice| notice.text.as_str()),
+            Some(crate::tui::REFUSED_NAME)
+        );
+        app.paste("work");
+        assert_eq!(app.switcher().map(Switcher::name), Some("work"));
+        assert_eq!(app.active().expect("active").answers()[0].custom, None);
     }
 
     // -----------------------------------------------------------------

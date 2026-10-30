@@ -100,7 +100,7 @@ impl Problem {
 /// `path` with the home folder as `~`. Only a path inside the home folder
 /// counts, not one that merely starts with the same letters. A home of `/`
 /// would turn every path into one starting with `~`, so it counts as none.
-fn shown_path(path: &str, home: Option<&Path>) -> String {
+pub(crate) fn shown_path(path: &str, home: Option<&Path>) -> String {
     // Entry paths are UTF-8 text, so a home that is not can never be the
     // start of one.
     let home = home

@@ -50,6 +50,12 @@ pub enum Applied {
     Open(ContextEntry),
     /// Open a field in the person's editor (ADR 74).
     Edit(EditRequest),
+    /// Open the queue switcher (ADR 86).
+    OpenQueues,
+    /// The queue switcher closed without a switch.
+    QueuesClosed,
+    /// Watch this queue from now on (ADR 86).
+    Switch(QueueLocation),
 }
 
 #[derive(Debug)]
@@ -75,6 +81,39 @@ impl Inbox {
             lock_attempts: DRAFTS_LOCK_ATTEMPTS,
             kept_texts: Vec::new(),
         }
+    }
+
+    /// The queue whose inbox this is.
+    pub fn location(&self) -> &QueueLocation {
+        &self.location
+    }
+
+    /// Saves the draft of every session of `app` that holds an answer,
+    /// before a switch lets go of `app`: a save that failed earlier left
+    /// the answers only there. Stops at the first session whose draft
+    /// cannot be saved, and names it.
+    pub fn save_drafts(&self, app: &App) -> Result<(), (String, io::Error)> {
+        for state in app.sessions() {
+            let draft = state.to_draft();
+            if !draft_has_answer(&draft) {
+                continue;
+            }
+            // A session that left the inbox gets no draft, as on a key.
+            let Some(index) = self.known(&draft.id) else {
+                continue;
+            };
+            let session = &self.known[index].path;
+            save_draft_while_waiting_with(&self.location, session, &draft, self.gate())
+                .map_err(|error| (draft.id.clone(), error))?;
+        }
+        Ok(())
+    }
+
+    /// Lets the drafts lock be tried `attempts` times, for tests that hold
+    /// it and need no waiting.
+    #[cfg(test)]
+    pub(crate) fn set_lock_attempts(&mut self, attempts: u32) {
+        self.lock_attempts = attempts;
     }
 
     /// The gate for an operation under the drafts lock.
@@ -411,6 +450,9 @@ impl Inbox {
             AppEffect::Quit => return Applied::Quit,
             AppEffect::Open(entry) => return Applied::Open(entry),
             AppEffect::Edit(request) => return Applied::Edit(request),
+            AppEffect::OpenQueues => return Applied::OpenQueues,
+            AppEffect::QueuesClosed => return Applied::QueuesClosed,
+            AppEffect::Switch(target) => return Applied::Switch(target),
         }
         Applied::Continue
     }
@@ -1509,6 +1551,66 @@ mod tests {
         });
         assert_eq!(names(&location.drafts()), Vec::<String>::new());
         assert_eq!(app.active().expect("active").answers()[0].selected, ["b"]);
+    }
+
+    /// A save that failed earlier left the answers only in the app; before
+    /// a switch lets go of the app, each session with answers is saved.
+    #[test]
+    fn before_a_switch_the_drafts_of_sessions_with_answers_are_saved() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        put(&location, "other.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        inbox.lock_attempts = 1;
+        let held = crate::queue::lock_drafts(&location, 1).expect("locks");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+        drop(held);
+
+        assert_eq!(inbox.save_drafts(&app).map_err(|(id, _)| id), Ok(()));
+
+        assert_eq!(names(&location.drafts()), ["batch.json"]);
+        assert_eq!(inbox.location(), &location);
+    }
+
+    #[test]
+    fn before_a_switch_a_session_that_left_gets_no_draft() {
+        let (_scratch, location) = queue();
+        let path = put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        fs::remove_file(path).expect("removed");
+        inbox.sync(&mut app).expect("synced");
+        // An app that still shows it, with an answer.
+        let mut stale = App::default();
+        stale.add(crate::tui::SessionState::new(
+            "batch",
+            serde_json::from_str(SESSION).expect("parses"),
+            None,
+        ));
+        stale.handle(key('2'));
+
+        assert_eq!(inbox.save_drafts(&stale).map_err(|(id, _)| id), Ok(()));
+
+        assert_eq!(names(&location.drafts()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_draft_that_cannot_be_saved_before_a_switch_names_its_session() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        inbox.lock_attempts = 1;
+        let _held = crate::queue::lock_drafts(&location, 1).expect("locks");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        assert_eq!(
+            inbox.save_drafts(&app).map_err(|(id, _)| id),
+            Err("batch".to_owned())
+        );
     }
 
     #[test]

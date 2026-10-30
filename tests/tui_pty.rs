@@ -839,6 +839,84 @@ fn the_tui_pins_its_queue_in_the_session_of_its_pane() {
     assert_eq!(pins, ["set-environment -t %7 ASQR_SESSION_QUEUE work"]);
 }
 
+/// Asks session `id`, `SESSION` under that id, into queue `queue`.
+fn ask_into(sandbox: &Sandbox, queue: &str, id: &str) {
+    let file = sandbox.file(
+        &format!("{queue}-{id}.json"),
+        &SESSION.replace("pty-test", id),
+    );
+    sandbox
+        .asqr()
+        .args(["--queue", queue, "ask"])
+        .arg(&file)
+        .assert()
+        .success();
+}
+
+/// Starts asqr on queue `work` with `environment`, and switches with `w`,
+/// `k` and `enter` to queue `other`, which holds a session.
+fn switched_to_other(sandbox: &Sandbox, environment: &[(&str, &str)]) -> Tui {
+    ask_into(sandbox, "other", "first");
+    let mut tui = Tui::start_with(
+        sandbox,
+        &["--queue", "work", "--no-notify"],
+        PASSTHROUGH_ON,
+        environment,
+    );
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("Nothing to answer");
+    tui.press("w");
+    tui.wait_for("◀ this asqr");
+    // The rows: default, other, work; the cursor opens on work.
+    tui.press("k");
+    tui.send("\r");
+    tui.wait_for("Pick a fruit");
+    tui.wait_for("watching other");
+    tui
+}
+
+/// `w` opens the queue switcher, `enter` on another queue switches to it
+/// and pins it in the session of the pane (ADR 86), and the new queue's
+/// sessions arrive from then on.
+#[test]
+fn w_switches_to_another_queue_and_pins_it() {
+    let sandbox = Sandbox::new();
+    let mut tui = switched_to_other(&sandbox, &[("TMUX_PANE", "%7")]);
+
+    ask_into(&sandbox, "other", "second");
+    tui.wait_for("other · 2 waiting");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let commands =
+        std::fs::read_to_string(sandbox.home().join(TMUX_COMMANDS)).expect("tmux was run");
+    let pins: Vec<&str> = commands
+        .lines()
+        .filter(|command| command.starts_with("set-environment"))
+        .collect();
+    assert_eq!(
+        pins,
+        [
+            "set-environment -t %7 ASQR_SESSION_QUEUE work",
+            "set-environment -t %7 ASQR_SESSION_QUEUE other"
+        ]
+    );
+}
+
+/// Without the pane, tmux would answer for another session: a switch
+/// pins nothing.
+#[test]
+fn without_a_tmux_pane_a_switch_pins_nothing() {
+    let sandbox = Sandbox::new();
+    let mut tui = switched_to_other(&sandbox, &[]);
+
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let commands = std::fs::read_to_string(sandbox.home().join(TMUX_COMMANDS)).unwrap_or_default();
+    assert!(!commands.contains("set-environment"), "{commands}");
+}
+
 #[test]
 fn over_ssh_from_a_tmux_pane_the_terminal_is_queried_through_the_passthrough() {
     let sandbox = Sandbox::new();

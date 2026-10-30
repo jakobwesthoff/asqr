@@ -24,10 +24,11 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::render::{Drawn, View, draw, picture, shorten_from_left};
 use super::{
-    App, Applied, EditRequest, Inbox, Notice, OpenedFiles, Tone, edited_text, editor_file,
-    session_progress,
+    App, Applied, EditRequest, Held, Inbox, Notice, OpenedFiles, QueueChoice, Refusal, Tone,
+    edited_text, editor_file, session_progress, switch_queue,
 };
 use crate::graphics::KittyDeletes;
+use crate::pairing::TmuxFailure;
 use crate::queue::{QueueLocation, WaitingQueue};
 
 /// What wakes the loop.
@@ -107,6 +108,15 @@ pub trait Host {
     fn edit(&mut self, path: &Path) -> io::Result<()>;
     /// The queues no asqr watches in which sessions wait, looked at now.
     fn elsewhere(&mut self) -> Vec<WaitingQueue>;
+    /// The queues for the switcher, looked at now (ADR 86).
+    fn queues(&mut self) -> QueueChoice;
+    /// Takes the lock of `target`, makes its directories and watches its
+    /// inbox, for a switch to it (see [`prepare_switch`](super::prepare_switch)).
+    fn prepare(&mut self, target: &QueueLocation) -> Result<Held, Refusal>;
+    /// Watches the queue of `held` from now on and lets go of the one
+    /// watched so far, then pins it where asqr pins its queue. Says what
+    /// tmux said to the pin.
+    fn switch(&mut self, held: Held) -> Result<(), TmuxFailure>;
 }
 
 /// Opens the field of `request` in the person's editor through `host` and
@@ -554,6 +564,13 @@ where
                 }
                 Err(refusal) => app.notice(Tone::Error, refusal),
             },
+            Applied::OpenQueues => app.open_queues(host.queues()),
+            // The other queues are looked at again as the switcher closes
+            // (ADR 86); a switch looks at them for the new queue.
+            Applied::QueuesClosed => {
+                app.set_elsewhere(host.elsewhere());
+            }
+            Applied::Switch(target) => switch_queue(&target, app, inbox, view, host),
         }
     }
 }
@@ -609,12 +626,41 @@ mod tests {
         elsewhere: VecDeque<Vec<WaitingQueue>>,
         /// How often the loop looked at the other queues.
         looked_elsewhere: usize,
+        /// What the switcher lists; none lists nothing.
+        choice: Option<QueueChoice>,
+        /// The queues switched to, whose locks and watchers it keeps.
+        switched: Vec<Held>,
+        /// tmux refuses the pin after a switch, when set.
+        refuse_pin: bool,
     }
 
     /// A stand-in for the person's editor.
     type Editor = Box<dyn FnMut(&Path) -> io::Result<()>>;
 
     impl Host for Recorder {
+        fn queues(&mut self) -> QueueChoice {
+            self.choice.clone().unwrap_or(QueueChoice {
+                rows: Vec::new(),
+                taken: Vec::new(),
+                root: None,
+                place: crate::tui::Place::Outside,
+            })
+        }
+
+        /// The switch the terminal makes, in the test's directories.
+        fn prepare(&mut self, target: &QueueLocation) -> Result<Held, Refusal> {
+            crate::tui::prepare_switch(target, None, || {})
+        }
+
+        fn switch(&mut self, held: Held) -> Result<(), TmuxFailure> {
+            self.switched.push(held);
+            if self.refuse_pin {
+                Err(TmuxFailure("no server running".into()))
+            } else {
+                Ok(())
+            }
+        }
+
         fn elsewhere(&mut self) -> Vec<WaitingQueue> {
             self.looked_elsewhere += 1;
             if self.elsewhere.len() > 1 {
@@ -1506,6 +1552,254 @@ mod tests {
     #[test]
     fn a_queues_tick_is_no_input() {
         assert!(!Event::QueuesTick.is_input());
+    }
+
+    // -----------------------------------------------------------------
+    // Switching queues
+    // -----------------------------------------------------------------
+
+    /// A harness on the named queue `asqr-todos`, with session `a`
+    /// waiting, and the queue `work` beside it with session `b`, both
+    /// listed in the switcher.
+    fn two_queues() -> Harness {
+        let mut harness = Harness::new();
+        let root = harness.scratch.path().join("data");
+        harness.location = QueueLocation::named(&root, "asqr-todos");
+        harness.location.create_layout().expect("layout");
+        harness.put("a");
+        let work = QueueLocation::named(&root, "work");
+        work.create_layout().expect("layout");
+        fs::write(work.inbox().join("b.json"), SESSION).expect("written");
+        let row = |location: &QueueLocation, watched| crate::tui::QueueRow {
+            label: location.name().expect("named").to_owned(),
+            location: location.clone(),
+            waiting: 1,
+            watched,
+        };
+        harness.host.choice = Some(QueueChoice {
+            rows: vec![row(&harness.location, true), row(&work, false)],
+            taken: Vec::new(),
+            root: Some(root),
+            place: crate::tui::Place::Outside,
+        });
+        harness
+    }
+
+    fn work(harness: &Harness) -> QueueLocation {
+        QueueLocation::named(&harness.scratch.path().join("data"), "work")
+    }
+
+    /// `w`, `j` and `enter`: the switch to `work`.
+    fn switch_to_work() -> Vec<Event> {
+        vec![
+            key(KeyCode::Char('w')),
+            key(KeyCode::Char('j')),
+            key(KeyCode::Enter),
+        ]
+    }
+
+    #[test]
+    fn w_opens_the_switcher_and_esc_looks_at_the_other_queues_again() {
+        let mut harness = two_queues();
+
+        harness.run(vec![key(KeyCode::Char('w'))]).expect("runs");
+        assert!(
+            harness.screen().contains("╭ Queues "),
+            "{}",
+            harness.screen()
+        );
+
+        harness.host.looked_elsewhere = 0;
+        harness
+            .run(vec![key(KeyCode::Char('w')), key(KeyCode::Esc)])
+            .expect("runs");
+        assert_eq!(
+            harness.host.looked_elsewhere, 2,
+            "at the start and as the switcher closed"
+        );
+    }
+
+    #[test]
+    fn w_opens_on_the_empty_queue() {
+        let mut harness = two_queues();
+        fs::remove_file(harness.location.inbox().join("a.json")).expect("removed");
+
+        harness.run(vec![key(KeyCode::Char('w'))]).expect("runs");
+
+        assert!(
+            harness.screen().contains("╭ Queues "),
+            "{}",
+            harness.screen()
+        );
+    }
+
+    #[test]
+    fn w_types_in_a_field() {
+        let mut harness = two_queues();
+        fs::write(
+            harness.location.inbox().join("a.json"),
+            r#"{"asqr": 2, "questions": [{"id": "t", "text": "?", "kind": "text"}]}"#,
+        )
+        .expect("written");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+
+        harness
+            .run_started(&mut app, &mut inbox, vec![key(KeyCode::Char('w'))])
+            .expect("runs");
+
+        assert!(
+            !harness.screen().contains("╭ Queues "),
+            "{}",
+            harness.screen()
+        );
+        assert_eq!(
+            app.active().expect("active").answers()[0].custom.as_deref(),
+            Some("w")
+        );
+    }
+
+    #[test]
+    fn enter_switches_the_watched_queue() {
+        let mut harness = two_queues();
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        harness.host.elsewhere = VecDeque::from([Vec::new(), waiting_in("asqr-todos", 1)]);
+
+        harness
+            .run_started(&mut app, &mut inbox, switch_to_work())
+            .expect("runs");
+
+        assert_eq!(
+            app.sessions()
+                .iter()
+                .map(|state| state.id())
+                .collect::<Vec<_>>(),
+            ["b"]
+        );
+        assert_eq!(inbox.location(), &work(&harness));
+        assert_eq!(
+            status_line(&harness),
+            "watching work · 1 session waits in asqr-todos"
+        );
+        assert_eq!(
+            harness.host.titles.last().map(String::as_str),
+            Some("asqr · work · 1 waiting")
+        );
+        assert_eq!(app.elsewhere(), waiting_in("asqr-todos", 1));
+        let held: Vec<_> = harness
+            .host
+            .switched
+            .iter()
+            .map(|held| &held.location)
+            .collect();
+        assert_eq!(held, [&work(&harness)]);
+        assert!(
+            crate::queue::lock_holder(&work(&harness))
+                .expect("readable")
+                .is_some(),
+            "the new queue is watched"
+        );
+    }
+
+    #[test]
+    fn a_queue_taken_meanwhile_is_a_notice() {
+        let mut harness = two_queues();
+        let _theirs = crate::queue::lock_queue(&work(&harness), None).expect("locked");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+
+        harness
+            .run_started(&mut app, &mut inbox, switch_to_work())
+            .expect("runs");
+
+        assert_eq!(
+            status_line(&harness),
+            "✗ another asqr is watching queue work"
+        );
+        assert_eq!(inbox.location(), &harness.location);
+        assert_eq!(app.active().map(crate::tui::SessionState::id), Some("a"));
+    }
+
+    #[test]
+    fn a_switch_that_cannot_watch_the_new_inbox_keeps_the_old_queue() {
+        let mut harness = two_queues();
+        let work = work(&harness);
+        fs::remove_dir_all(work.inbox()).expect("removed");
+        fs::write(work.inbox(), "").expect("a file where the inbox belongs");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+
+        harness
+            .run_started(&mut app, &mut inbox, switch_to_work())
+            .expect("runs");
+
+        assert!(
+            status_line(&harness).starts_with("✗ cannot watch queue work: "),
+            "{}",
+            harness.screen()
+        );
+        assert_eq!(inbox.location(), &harness.location);
+        assert_eq!(crate::queue::lock_holder(&work).expect("readable"), None);
+    }
+
+    #[test]
+    fn a_switch_that_cannot_read_the_new_inbox_keeps_the_old_queue() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut harness = two_queues();
+        let work = work(&harness);
+        fs::set_permissions(work.inbox(), fs::Permissions::from_mode(0o000))
+            .expect("permissions change");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+
+        let ran = harness.run_started(&mut app, &mut inbox, switch_to_work());
+        fs::set_permissions(work.inbox(), fs::Permissions::from_mode(0o755))
+            .expect("permissions back");
+
+        ran.expect("runs");
+        assert!(
+            status_line(&harness).starts_with("✗ cannot watch queue work: "),
+            "{}",
+            harness.screen()
+        );
+        assert_eq!(inbox.location(), &harness.location);
+        assert_eq!(crate::queue::lock_holder(&work).expect("readable"), None);
+    }
+
+    #[test]
+    fn a_switch_whose_draft_cannot_be_saved_keeps_the_old_queue() {
+        let mut harness = two_queues();
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        inbox.set_lock_attempts(1);
+        let _held = crate::queue::lock_drafts(&harness.location, 1).expect("locks");
+        let mut events = vec![key(KeyCode::Char('1'))];
+        events.extend(switch_to_work());
+
+        harness
+            .run_started(&mut app, &mut inbox, events)
+            .expect("runs");
+
+        assert_eq!(
+            status_line(&harness),
+            "✗ cannot save the draft of a; still watching asqr-todos"
+        );
+        assert_eq!(inbox.location(), &harness.location);
+        assert_eq!(app.active().expect("active").answers()[0].selected, ["a"]);
+        assert_eq!(
+            crate::queue::lock_holder(&work(&harness)).expect("readable"),
+            None,
+            "the new queue's lock went with the switch"
+        );
+    }
+
+    #[test]
+    fn a_failed_pin_is_a_warning() {
+        let mut harness = two_queues();
+        harness.host.refuse_pin = true;
+
+        harness.run(switch_to_work()).expect("runs");
+
+        assert_eq!(
+            status_line(&harness),
+            "! watching work · tmux kept the old pin, agents stay on asqr-todos"
+        );
     }
 
     #[test]

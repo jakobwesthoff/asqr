@@ -1,0 +1,28 @@
+---
+source: src/tui/render/screen.rs
+expression: backend
+---
+" asqr · queue: asqr-todos · 0 sessions waiting                                  "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                ╭ Queues ───────────────────────────────────────╮               "
+"                │   asqr-todo                                   │               "
+"                │ ❯ asqr-todos   2 waiting          ◀ this asqr │               "
+"                │   default      1 waiting                      │               "
+"      Nothing to│   ✎ New queue: —                              │y arrive.      "
+"                │                                               │               "
+"                │   ntropy       watched in tmux ntropy         │               "
+"                ╰─ agents in tmux session asqr follow this asqr ╯               "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" ↑/↓  move   enter  switch   esc/q  close                            asqr 0.0.0 "

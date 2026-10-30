@@ -33,7 +33,10 @@ const HELP: &[(&str, &str)] = &[
     ("tab", "move into the context pane and back"),
     ("pgup/pgdn, ctrl-u/ctrl-d", "scroll by page; by half a page"),
     ("o, z, s", "open an entry; full screen; diff side by side"),
-    ("L, backspace", "the session list; clear the pick"),
+    (
+        "L, w, backspace",
+        "the sessions; the queues; clear the pick",
+    ),
     ("q, ctrl-c", "quit, keeping the draft"),
     ("?, i", "this help; the whole intro"),
 ];
@@ -229,7 +232,24 @@ pub(super) fn dialog_hints() -> Vec<Hint> {
 
 /// The keys over an empty queue.
 pub(super) fn empty_queue_hints() -> Vec<Hint> {
-    vec![QUIT_HINT]
+    vec![hint("w", "queues", Rank::Cursor), QUIT_HINT]
+}
+
+/// The keys of the queue switcher, whose new-queue row is a field while
+/// it is `typing`.
+pub(super) fn switcher_hints(typing: bool) -> Vec<Hint> {
+    if typing {
+        vec![
+            hint("enter", "create", Rank::Cursor),
+            hint("esc", "stop typing", Rank::Leave),
+        ]
+    } else {
+        vec![
+            hint("↑/↓", "move", Rank::Cursor),
+            hint("enter", "switch", Rank::Cursor),
+            hint("esc/q", "close", Rank::Leave),
+        ]
+    }
 }
 
 /// The keys of the focused pane and the full-screen view, where `z` is
@@ -1145,12 +1165,12 @@ mod tests {
     }
 
     #[test]
-    fn the_general_help_names_backspace_on_the_line_of_l() {
+    fn the_general_help_names_w_and_backspace_on_the_line_of_l() {
         let lines = smallest_help_lines(&general_help_state());
 
         assert_eq!(
             lines.iter().find(|line| line.starts_with("L")),
-            Some(&"L, backspace the session list; clear the pick".to_owned())
+            Some(&"L, w, backspace the sessions; the queues; clear the pick".to_owned())
         );
     }
 

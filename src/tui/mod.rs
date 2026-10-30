@@ -18,6 +18,8 @@ pub mod render;
 mod run;
 mod scroll;
 mod session;
+mod switch;
+mod switcher;
 mod text_field;
 mod watch;
 
@@ -32,5 +34,7 @@ pub use progress::*;
 pub use run::*;
 pub use scroll::{Extent, Offset, Page};
 pub use session::*;
+pub use switch::*;
+pub use switcher::*;
 pub use text_field::{FieldKey, FieldShape, Leave, TextField};
 pub use watch::*;

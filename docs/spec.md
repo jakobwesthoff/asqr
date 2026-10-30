@@ -1404,18 +1404,22 @@ has context (section 7.4, ADRs 30 and 31):
   (section 7.9).
 - While the status line has no notice and no message, it says how many
   sessions wait in named queues no asqr watches, this asqr's queue left
-  out (ADR 86): `2 sessions wait in asqr-todos`, `1 session waits in
-  asqr-todos`, or for several queues `5 sessions wait in 3 other
-  queues`. The number is bold and the words dim; it never takes a
-  warning colour, rings or notifies, since several queues can be fine.
-  Nothing shows while no session waits elsewhere. A session counts,
-  however old, until it is answered or withdrawn; outside tmux that
-  includes the sessions of agents never told a queue, in `default`,
-  while this asqr watches another queue. asqr looks at the queues when
-  it starts and every 5 seconds; a queue that cannot be read counts as
-  empty. Where the line does not fit, a single queue's name is cut from
-  its start down to 12 columns, then the queues read `other queues`,
-  then the line reads `N wait elsewhere`.
+  out (ADR 86): `2 sessions wait in asqr-todos   w  queues`, `1 session
+  waits in asqr-todos   w  queues`, or for several queues `5 sessions
+  wait in 3 other queues   w  queues`. The number is bold, the words dim
+  and `w` in the key style; it never takes a warning colour, rings or
+  notifies, since several queues can be fine. Where `w` does not open
+  the queue switcher (section 7.6), in a field, in the focused pane, in
+  the full-screen view, under an overlay and over the empty queue, whose
+  key bar names `w`, the line shows without `w  queues`. Nothing shows
+  while no session waits elsewhere. A session counts, however old, until
+  it is answered or withdrawn; outside tmux that includes the sessions
+  of agents never told a queue, in `default`, while this asqr watches
+  another queue. asqr looks at the queues when it starts, when the queue
+  switcher closes and every 5 seconds; a queue that cannot be read
+  counts as empty. Where the line does not fit, a single queue's name is
+  cut from its start down to 12 columns, then the queues read `other
+  queues`, then the line reads `N wait elsewhere`; `w  queues` stays.
 - The key bar shows the keys that work where the cursor is; they change
   inside a field. Each key is bold in the primary colour and its
   description dim, without a fill. Hints that do not fit its width are
@@ -1436,7 +1440,8 @@ has context (section 7.4, ADRs 30 and 31):
   red and green for notices and messages by their kind, dim for
   secondary text.
 - The row under the cursor, a field's head under it while the field
-  does not have the keys, the current entry of the session list and the
+  does not have the keys, the current entry of the session list, the
+  queue under the switcher's cursor and the
   focused context pane's name show the focus fill: yellow reversed, in
   one colour. On the question and the review it ends where a row's text
   ends: the blanks after the text, and those before a label's lines
@@ -1449,8 +1454,8 @@ has context (section 7.4, ADRs 30 and 31):
   context pane's rules and edge turn yellow (section 8.1). The submit
   button (section 7.8) and the changed lines of a diff (section 8.5) are
   the only other fills.
-- The help, the whole intro and the session list show in a frame with
-  rounded corners in the primary colour, a bold title, a dim footer and
+- The help, the whole intro, the session list and the queue switcher
+  show in a frame with rounded corners in the primary colour, a bold title, a dim footer and
   a blank column inside each side; the help's keys are bold in the
   primary colour.
 - Behind an overlay and behind the dialog of an invalid session, every
@@ -1606,6 +1611,8 @@ has context (section 7.4, ADRs 30 and 31):
   blocks. Inside tmux, the terminal of the client tmux draws for
   decides; inside GNU screen or Zellij, Talqi is drawn in quadrant
   blocks. There is no setting for it.
+- The key bar names `w  queues`, which opens the queue switcher (section
+  7.6), and `q  quit`.
 - The key bar's right end shows asqr's version, such as `asqr 0.13.1`,
   dim and one blank from the edge, also while the dialog of an invalid
   session shows. It takes only the room the hints leave and does not
@@ -1625,6 +1632,7 @@ On an option row (vim style plus arrows):
 | `backspace` | `single`, on the picked option's row: clear the pick, a default included; the cursor stays, and typed own text stays in its field, unpicked |
 | `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
+| `w` | the queue switcher (ADR 86) |
 | `i` | the whole intro |
 | `o`, `z`, `s` | open the entry shown in the app for its file type; show the context shown full screen; show a diff side by side or unified (section 8.5) |
 | `tab`, `shift-tab` | move into the context pane; `tab`, `shift-tab`, `esc` or `q` move back |
@@ -1773,6 +1781,60 @@ Overlays and dialogs:
   (section 5.4) and switches between them: `↑`/`↓` or `k`/`j` move,
   `enter` switches to the session, `esc` or `L` close the list, and `q`
   quits asqr.
+- The queue switcher (`w`, ADR 86) opens where `L` opens the session
+  list and over the empty queue; in a field `w` types, and the focused
+  pane and the full-screen view take it. The general help names it on
+  the line of `L`: `L, w, backspace  the sessions; the queues; clear the
+  pick`. Its frame, titled `Queues`, lists the queues asqr can switch
+  to, sorted by name with `default` among them: each with `N waiting`
+  where sessions wait, the watched one with `◀ this asqr` at its row's
+  end, bold in the primary colour. A queue this run was given by `--dir`
+  stands first, by its path with `~` for the home folder, for the whole
+  run. The last row the cursor reaches is `✎ New queue: —`. The queues
+  another asqr watches follow below a blank row, dim, with `watched in
+  tmux <session>`, or `watched by another asqr` where tmux names no
+  session; the cursor never reaches them. The cursor opens on the
+  watched queue.
+  - `↑`/`↓` and `k`/`j` move, `enter` switches to the queue under the
+    cursor and closes, on the watched queue it only closes. `esc`, `q`
+    and `w` close, `ctrl-c` quits. The key bar reads `↑/↓  move   enter
+    switch   esc/q  close`.
+  - The new-queue row is a field as soon as the cursor stands on it:
+    letters, digits, `-`, `_` and `.` type there, `q` and `w` too,
+    `backspace` removes the last character, `↑` leaves the row and
+    `esc` stops typing, after which the keys act as on the other rows
+    and `↓` there types again. Any other character is refused with the
+    warning `a queue name has letters, digits, -, _ and . and does not
+    start with .`, as is a `.` first; a character past the 200th with
+    `a queue name has at most 200 characters`. `enter` with a name
+    switches to a new queue of that name, or to the existing queue whose
+    directory the name names, which on a filesystem that ignores case
+    includes one that differs in case; `enter` with no name does
+    nothing. While the row has the keys the key bar reads `enter  create
+    esc  stop typing`.
+  - A paste goes into the name whole where the name can hold all of
+    it, and gives the row the keys, and is refused whole with the same
+    warnings otherwise. On the other rows a paste goes nowhere, never
+    into the session behind the switcher.
+  - The footer on the frame's bottom edge says what `enter` on the row
+    under the cursor does to the agents. Inside tmux, where tmux names
+    asqr's session: `agents in tmux session <s> follow this asqr`, and
+    on a `--dir` row `agents in tmux session <s> follow only a named
+    queue`. Outside tmux, or where tmux does not answer: `tell your
+    agents: --queue <name>`, no footer on `default` and on the new-queue
+    row while no name is typed, and on a `--dir` row `tell your agents:
+    --dir <path>`. A path or a name too long for the footer is never
+    shortened there: the footer reads `tell your agents --dir with this
+    path` or `tell your agents --queue with this name`, and the row
+    shows as much of it as fits. The frame keeps one width while it is
+    open, as wide as its rows and every row's footer; a long new name
+    widens it up to the screen.
+  - The switch takes the new queue's lock, makes its directories,
+    watches its inbox and reads it, saves the draft of every session of
+    the old queue that holds an answer, and only then lets go of the old
+    queue. Inside tmux it pins a named queue in the session of asqr's
+    pane last (ADR 85). The status line says what came of it (section
+    7.9).
 - A key pressed while the dialog of an invalid session shows (section
   7.9) closes it and does nothing else. While it shows, the key bar says
   `any key  close`.
@@ -2038,6 +2100,25 @@ keeps the session and shows its own notice instead.
     The sequence goes out in tmux's passthrough wrapper (section 8.9).
   - When asqr quits, also after a panic, it removes a progress it
     shows, before it leaves the alternate screen.
+- After a switch of the queue switcher (section 7.6) the screen shows
+  the new queue's sessions, and the title bar, the terminal title and
+  the empty queue name it as they name a queue given at the start (ADR
+  81). The status line says what came of the
+  switch, naming a queue by its name or its `--dir` directory:
+
+      watching default · 2 sessions wait in asqr-todos
+      watching default
+      ! watching default · tmux kept the old pin, agents stay on asqr-todos
+      ✗ another asqr is watching queue default
+      ✗ cannot watch queue default: <reason>
+      ✗ cannot save the draft of <id>; still watching asqr-todos
+
+  The first two are information, the second where no session of the
+  old queue is left behind. The third, a warning, shows where tmux
+  refused the pin. The last three are errors, and asqr stays on the
+  queue it watched: another asqr took the queue first; its directories,
+  its inbox watcher or its first read failed; or the draft of a session
+  of the old queue could not be saved, whose answers stay on screen.
 - A replaced session file keeps the answers that still fit (section
   5.4), while a question the person has not touched takes the new
   file's defaults, and keeps where the person was: the question shown,

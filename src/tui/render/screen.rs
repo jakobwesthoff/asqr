@@ -24,7 +24,7 @@ use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
 use super::keys::{
     dialog_hints, draw_help, empty_queue_hints, intro_hints, key_hints, key_line,
-    key_line_with_version, with_diff_hint,
+    key_line_with_version, switcher_hints, with_diff_hint,
 };
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
@@ -32,12 +32,15 @@ use super::panes::{MIN_BELOW_HEIGHT, PaneLayout};
 use super::patine_adapter::quote_style;
 use super::problem::{self, Problem, draw_dialog};
 use super::source_line::columns;
+use super::switcher::draw_switcher;
 use super::tabs::tab_bar;
 use super::theme;
 use crate::format::ContextEntry;
 use crate::graphics::{Images, KittyBook, PlacedImage, disarm_placeholders};
 use crate::tui::text_field::FieldShape;
-use crate::tui::{App, Extent, Invalid, Notice, Overlay, PanePage, RowCut, SessionState, Tone};
+use crate::tui::{
+    App, Extent, Focus, Invalid, Notice, Overlay, PanePage, RowCut, SessionState, Tone,
+};
 
 /// Below this size the layout does not fit; a message says so instead.
 pub const MIN_WIDTH: u16 = 60;
@@ -118,7 +121,7 @@ pub struct Drawn {
 /// draw to the next.
 pub struct View<'a> {
     /// The queue name, or its directory for a queue given by `--dir`.
-    queue: &'a str,
+    queue: String,
     /// Whether the queue was chosen, any queue but the default one: the
     /// empty queue and the terminal title name it then.
     chosen: bool,
@@ -140,7 +143,7 @@ pub struct View<'a> {
 impl<'a> View<'a> {
     /// The view of `queue`, with the images of context entries made by
     /// `images`.
-    pub fn new(queue: &'a str, layout: PaneLayout, images: Images) -> Self {
+    pub fn new(queue: &str, layout: PaneLayout, images: Images) -> Self {
         View::with_tab(
             queue,
             TabState::new(layout, images),
@@ -148,9 +151,9 @@ impl<'a> View<'a> {
         )
     }
 
-    fn with_tab(queue: &'a str, tab: TabState, version: &'a str) -> Self {
+    fn with_tab(queue: &str, tab: TabState, version: &'a str) -> Self {
         View {
-            queue,
+            queue: queue.to_owned(),
             chosen: false,
             glyphs: Glyphs::Quadrant,
             tab,
@@ -165,7 +168,7 @@ impl<'a> View<'a> {
     /// with the version `asqr 0.0.0`, so no release changes what a test
     /// draws.
     #[cfg(test)]
-    pub(crate) fn for_tests(queue: &'a str, layout: PaneLayout, images: Images) -> Self {
+    pub(crate) fn for_tests(queue: &str, layout: PaneLayout, images: Images) -> Self {
         View::with_tab(queue, TabState::for_tests(layout, images), "asqr 0.0.0")
     }
 
@@ -179,7 +182,17 @@ impl<'a> View<'a> {
     /// The queue the screen names: the name or directory of a chosen
     /// queue, nothing for the default queue.
     pub fn named_queue(&self) -> Option<&str> {
-        self.chosen.then_some(self.queue)
+        self.chosen.then_some(self.queue.as_str())
+    }
+
+    /// This view of another queue, `queue`, as after a switch (ADR 86).
+    /// The viewers of the sessions shown so far go, so a session the new
+    /// queue holds under an id the old one held too starts afresh; the
+    /// Kitty images they sent are deleted after the next frame.
+    pub fn set_queue(&mut self, queue: &str, chosen: bool) {
+        self.queue = queue.to_owned();
+        self.chosen = chosen;
+        self.tab.retain(&[]);
     }
 
     /// This view, drawn without colours when `no_color` is set.
@@ -363,9 +376,9 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
 
     let waiting = app.sessions().len();
     match app.active() {
-        Some(state) => title_bar(state, view.queue, waiting, usize::from(title.width))
+        Some(state) => title_bar(state, &view.queue, waiting, usize::from(title.width))
             .render(title, frame.buffer_mut()),
-        None => draw_title(title, frame.buffer_mut(), view.queue, waiting),
+        None => draw_title(title, frame.buffer_mut(), &view.queue, waiting),
     }
     frame.render_widget(status_line(app, app.active(), status.width), status);
     // What an overlay dims (ADR 84): every row above the status line. The
@@ -434,7 +447,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 Some(Overlay::SessionList(_)) => {
                     key_hints(state, true, pane_page.map(|shown| shown.page))
                 }
-                Some(Overlay::Help) | None => with_diff_hint(
+                Some(Overlay::Help | Overlay::Queues) | None => with_diff_hint(
                     key_hints(state, false, pane_page.map(|shown| shown.page)),
                     state,
                     pane_page.and_then(|shown| shown.diff),
@@ -474,12 +487,14 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         _ => hints,
     };
 
-    // Any key closes the dialog of an invalid session, and only that, so
-    // the keys of what stands behind it would not do what they say.
-    let hints = if app.invalid_shown().is_some() {
-        dialog_hints()
-    } else {
-        hints
+    // The switcher takes every key, over a session and over the empty
+    // queue. Any key closes the dialog of an invalid session, and only
+    // that, so the keys of what stands behind it would not do what they
+    // say.
+    let hints = match (app.invalid_shown(), app.switcher()) {
+        (Some(_), _) => dialog_hints(),
+        (None, Some(switcher)) => switcher_hints(switcher.typing()),
+        (None, None) => hints,
     };
     let key_bar = match app.active() {
         None => key_line_with_version(&hints, keys.width, view.version),
@@ -488,13 +503,17 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     frame.render_widget(key_bar, keys);
 
     // These overlays use the whole screen, key bar included, so they fit
-    // the smallest one. Like every overlay, they open only over a session.
+    // the smallest one. They open only over a session; the switcher also
+    // over the empty queue.
     match overlay.zip(app.active()) {
         Some((Overlay::Help, state)) => draw_help(area, frame.buffer_mut(), state, view.version),
         Some((Overlay::SessionList(cursor), _)) => {
             draw_session_list(area, frame.buffer_mut(), app, cursor);
         }
-        Some((Overlay::Intro(_), _)) | None => {}
+        Some((Overlay::Intro(_) | Overlay::Queues, _)) | None => {}
+    }
+    if let Some(switcher) = app.switcher() {
+        draw_switcher(area, frame.buffer_mut(), switcher);
     }
     view.overlay_shown = overlay.is_some();
 
@@ -584,8 +603,14 @@ fn status_line(app: &App, state: Option<&SessionState>, width: u16) -> Line<'sta
     match notice {
         Some(notice) => problem::status_line(notice, width),
         // At rest the line says how many sessions wait where no asqr
-        // watches (ADR 86).
-        None => other_queues_line(app.elsewhere(), false, width).unwrap_or_default(),
+        // watches (ADR 86), and names `w` where it opens the switcher: over
+        // a question that has the keys, and nothing over it. The empty
+        // queue's key bar names it there.
+        None => {
+            let key = app.overlay().is_none()
+                && state.is_some_and(|state| state.focus() == Focus::None && !state.pane_focused());
+            other_queues_line(app.elsewhere(), key, width).unwrap_or_default()
+        }
     }
 }
 
@@ -2214,8 +2239,10 @@ mod tests {
         }]
     }
 
+    /// Over a session whose question has the keys, `w` opens the queue
+    /// switcher, and the line names it.
     #[test]
-    fn the_status_line_names_sessions_waiting_elsewhere() {
+    fn the_status_line_names_sessions_waiting_elsewhere_and_w() {
         let mut app = app(&[("release", RELEASE)]);
         app.set_elsewhere(waiting_in_work(2));
 
@@ -2223,7 +2250,37 @@ mod tests {
 
         assert_eq!(
             row(backend.buffer(), 22).trim_end(),
-            "2 sessions wait in work"
+            "2 sessions wait in work   w  queues"
+        );
+        assert_eq!(
+            look_at(backend.buffer(), "w  queues"),
+            (Color::Cyan, Modifier::BOLD)
+        );
+    }
+
+    /// In a field `w` types, and the help takes every key: the line names
+    /// no key there.
+    #[test]
+    fn the_line_shows_no_w_where_w_does_not_open_the_switcher() {
+        let text = r#"{"asqr": 2, "questions": [{"id": "t", "text": "?", "kind": "text"}]}"#;
+        let mut typing = app(&[("text", text)]);
+        typing.set_elsewhere(waiting_in_work(2));
+        assert_eq!(typing.active().map(SessionState::focus), Some(Focus::Field));
+        let backend = screen(&typing, 80, 24);
+        assert_eq!(
+            row(backend.buffer(), 22).trim_end(),
+            "2 sessions wait in work",
+            "a field"
+        );
+
+        let mut helped = app(&[("release", RELEASE)]);
+        helped.set_elsewhere(waiting_in_work(2));
+        keys(&mut helped, "?");
+        let backend = screen(&helped, 120, 40);
+        assert_eq!(
+            row(backend.buffer(), 38).trim_end(),
+            "2 sessions wait in work",
+            "the help"
         );
     }
 
@@ -2237,6 +2294,104 @@ mod tests {
         assert_eq!(
             row(backend.buffer(), 22).trim_end(),
             "1 session waits in work"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // The queue switcher
+    // -----------------------------------------------------------------
+
+    /// The queues of the mockups: `asqr-todo`, `asqr-todos` watched with
+    /// two sessions, `default` with one, `ntropy` taken in tmux `ntropy`.
+    fn queues(place: crate::tui::Place) -> crate::tui::QueueChoice {
+        let root = std::path::Path::new("/data/asqr");
+        let row = |name: &str, waiting, watched| crate::tui::QueueRow {
+            location: crate::queue::QueueLocation::named(root, name),
+            label: name.to_owned(),
+            waiting,
+            watched,
+        };
+        crate::tui::QueueChoice {
+            rows: vec![
+                row("asqr-todo", 0, false),
+                row("asqr-todos", 2, true),
+                row("default", 1, false),
+            ],
+            taken: vec![crate::tui::TakenQueue {
+                label: "ntropy".into(),
+                session: Some("ntropy".into()),
+            }],
+            root: Some(root.to_path_buf()),
+            place,
+        }
+    }
+
+    fn in_tmux_asqr() -> crate::tui::Place {
+        crate::tui::Place::Tmux("asqr".into())
+    }
+
+    #[test]
+    fn the_switcher_opens_over_a_session_with_its_keys_below() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.open_queues(queues(in_tmux_asqr()));
+
+        let backend = screen_of_queue(&app, "asqr-todos", 80, 24);
+        let buf = backend.buffer();
+
+        insta::assert_snapshot!("switcher_over_a_session", backend);
+        assert_eq!(
+            row(buf, 23).trim_end(),
+            " ↑/↓  move   enter  switch   esc/q  close"
+        );
+        assert!(
+            buf[find(buf, "Release")].modifier.contains(Modifier::DIM),
+            "the screen behind is dim"
+        );
+    }
+
+    #[test]
+    fn the_switcher_opens_over_the_empty_queue() {
+        let mut app = App::default();
+        app.open_queues(queues(in_tmux_asqr()));
+
+        let backend = screen_of_queue(&app, "asqr-todos", 80, 24);
+        let buf = backend.buffer();
+
+        insta::assert_snapshot!("switcher_over_the_empty_queue", backend);
+        assert!(row(buf, 23).starts_with(" ↑/↓  move   enter  switch   esc/q  close"));
+        assert!(row(buf, 23).ends_with("asqr 0.0.0"), "{backend}");
+    }
+
+    #[test]
+    fn a_key_the_new_queue_row_refuses_shows_in_the_status_line() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.open_queues(queues(in_tmux_asqr()));
+        keys(&mut app, "jjweekly-review ");
+
+        let backend = screen_of_queue(&app, "asqr-todos", 80, 24);
+        let buf = backend.buffer();
+
+        insta::assert_snapshot!("switcher_typing_refused", backend);
+        assert_eq!(
+            row(buf, 22).trim_end(),
+            "! a queue name has letters, digits, -, _ and . and does not start with ."
+        );
+        assert_eq!(row(buf, 23).trim_end(), " enter  create   esc  stop typing");
+    }
+
+    #[test]
+    fn outside_tmux_the_switcher_tells_the_agents_the_queue_under_the_cursor() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.open_queues(queues(crate::tui::Place::Outside));
+        insta::assert_snapshot!(
+            "switcher_outside_tmux",
+            screen_of_queue(&app, "asqr-todos", 80, 24)
+        );
+
+        keys(&mut app, "j");
+        insta::assert_snapshot!(
+            "switcher_outside_tmux_on_default",
+            screen_of_queue(&app, "asqr-todos", 80, 24)
         );
     }
 
@@ -2266,7 +2421,7 @@ mod tests {
     }
 
     #[test]
-    fn the_empty_queue_has_a_yellow_notice_and_only_quit_in_the_key_bar() {
+    fn the_empty_queue_has_a_yellow_notice_and_the_queues_and_quit_in_the_key_bar() {
         let mut app = App::default();
         let backend = screen(&app, 80, 20);
         assert_eq!(row(backend.buffer(), 18), "", "{backend}");
@@ -2285,9 +2440,10 @@ mod tests {
         assert_eq!(style_at(buf, "broken").fg, Some(Color::Yellow));
         assert_eq!(
             row(buf, 19),
-            format!(" q  quit{}asqr 0.0.0", " ".repeat(61)),
+            format!(" w  queues   q  quit{}asqr 0.0.0", " ".repeat(49)),
             "{backend}"
         );
+        assert_eq!(look_at(buf, "w  queues"), (Color::Cyan, Modifier::BOLD));
         assert_eq!(look_at(buf, "q  quit"), (Color::Cyan, Modifier::BOLD));
     }
 
@@ -2315,7 +2471,10 @@ mod tests {
         let backend = screen(&App::default(), 60, 15);
         let buf = backend.buffer();
 
-        assert!(row(buf, 14).starts_with(" q  quit"), "{backend}");
+        assert!(
+            row(buf, 14).starts_with(" w  queues   q  quit"),
+            "{backend}"
+        );
         // One blank stands between the version and the right edge.
         assert_eq!(find(buf, "asqr 0.0.0"), (49, 14), "{backend}");
         assert_eq!(look_at(buf, "asqr 0.0.0"), (Color::Reset, Modifier::DIM));
@@ -3041,6 +3200,31 @@ mod tests {
         );
         image_cells(&full);
         insta::assert_snapshot!("captioned_image_full_screen_120x30", full);
+    }
+
+    /// After a switch, a session of the new queue may have the id of one of
+    /// the old queue: what the old one showed is not kept for it.
+    #[test]
+    fn a_view_set_to_another_queue_reads_its_entries_afresh() {
+        let file = png();
+        let app = with_captioned_image(file.path().to_str().expect("UTF-8 path"), "Draft 3");
+        let mut view = View::for_tests("q", PaneLayout::Auto, Images::half_blocks());
+        screen_in(&app, &mut view, 120, 30);
+        image::RgbImage::from_pixel(160, 160, image::Rgb([0, 255, 0]))
+            .save(file.path())
+            .expect("png is written");
+
+        view.set_queue("work", true);
+        let switched = screen_in(&app, &mut view, 120, 30);
+
+        assert!(shows_green(&switched), "read again:\n{switched}");
+        assert_eq!(view.named_queue(), Some("work"));
+        assert!(
+            title_line(&switched).ends_with("work · 1 waiting"),
+            "{switched}"
+        );
+        view.set_queue("default", false);
+        assert_eq!(view.named_queue(), None);
     }
 
     #[test]

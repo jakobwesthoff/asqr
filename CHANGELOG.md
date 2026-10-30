@@ -25,7 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   another asqr watches.
 - While the status line has nothing else to say, it counts the sessions
   waiting in queues no asqr watches, such as `2 sessions wait in
-  asqr-todos`; asqr looks again every 5 seconds.
+  asqr-todos   w  queues`; asqr looks again every 5 seconds and when the
+  queue switcher closes.
+- `w` opens the queue switcher, over a session and over the empty
+  queue: the queues this asqr can switch to, the one it watches marked
+  `◀ this asqr`, the ones other asqr instances watch apart and dim, and
+  a row to name a new queue. Its footer says what a switch does to the
+  agents: inside tmux they follow a named queue, outside tmux it names
+  the `--queue` or `--dir` to tell them. A switch takes the new queue's
+  lock, reads it and saves the drafts of the old queue before it lets go
+  of the old one, and pins the new queue inside tmux; a step that fails
+  leaves asqr where it was, with a notice. The empty queue's key bar
+  names `w  queues`.
 - `asqr queues [--json]` lists every named queue with the sessions
   waiting in it, its results and the asqr watching it, with the tmux
   session that asqr runs in.

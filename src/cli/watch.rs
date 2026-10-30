@@ -35,7 +35,12 @@ pub struct Watch {
     home: Option<PathBuf>,
     /// The pin to set once the TUI runs, inside tmux on a named queue.
     pin: Option<Pin>,
-    _lock: QueueLock,
+    /// The tmux pane asqr runs in, which a lock names.
+    tmux: Option<TmuxPane>,
+    /// Whether tmux answered at the start, so a switch may pin.
+    tmux_answered: bool,
+    /// Held until the TUI's host takes it over.
+    lock: Option<QueueLock>,
 }
 
 impl Watch {
@@ -68,6 +73,25 @@ impl Watch {
     /// as it was, so its agents do not move to a queue nobody watches.
     pub fn pin(&self) -> Option<&Pin> {
         self.pin.as_ref()
+    }
+
+    /// The tmux pane a lock taken for a switch names (ADR 85).
+    pub fn lock_pane(&self) -> Option<&TmuxPane> {
+        self.tmux.as_ref()
+    }
+
+    /// The tmux pane whose session a switch to a named queue pins it in:
+    /// none outside tmux, and none once tmux did not answer at the start.
+    pub fn pin_pane(&self) -> Option<&TmuxPane> {
+        self.tmux
+            .as_ref()
+            .filter(|pane| self.tmux_answered && pane.pane.is_some())
+    }
+
+    /// The queue's lock, which the TUI's host takes over for the run, so a
+    /// switch can let go of it.
+    pub fn take_lock(&mut self) -> Option<QueueLock> {
+        self.lock.take()
     }
 }
 
@@ -136,7 +160,9 @@ pub(super) fn run(
         no_color,
         home,
         pin,
-        _lock: lock,
+        tmux: pane.cloned(),
+        tmux_answered: pairing.origin != Origin::Unreachable,
+        lock: Some(lock),
     })
 }
 

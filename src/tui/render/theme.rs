@@ -56,7 +56,8 @@ pub(crate) fn chosen() -> Style {
 }
 
 /// The `◀ default` marker at the end of an option with `default: true`,
-/// the asker's recommendation (ADR 76).
+/// the asker's recommendation (ADR 76), and the `◀ this asqr` marker of
+/// the queue the switcher's asqr watches (ADR 86).
 pub(crate) fn default_marker() -> Style {
     primary().bold()
 }

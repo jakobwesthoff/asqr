@@ -56,6 +56,8 @@ pub enum Effect {
     /// file type (spec section 7.6).
     Open(ContextEntry),
     OpenSessionList,
+    /// Open the queue switcher (ADR 86).
+    OpenQueues,
     /// Show the session's whole intro, which the header may cut.
     ShowIntro,
     /// Open the focused field in the person's editor (ADR 74).
@@ -1259,8 +1261,8 @@ impl SessionState {
         // Only the keys that move the cursor move the view through the
         // row's range. The keys that act on the row under the cursor bring
         // it back into view first, so the person sees what they did to it;
-        // switching questions does so in `go_to_tab`. `?`, `L`, `i`, `o`,
-        // `z`, `s` and `q` act on no row, and the keys bound to nothing do
+        // switching questions does so in `go_to_tab`. `?`, `L`, `w`, `i`,
+        // `o`, `z`, `s` and `q` act on no row, and the keys bound to nothing do
         // nothing, so they leave the view where the person scrolled it.
         if matches!(
             key.code,
@@ -1300,6 +1302,7 @@ impl SessionState {
                 Effect::None
             }
             KeyCode::Char('L') => Effect::OpenSessionList,
+            KeyCode::Char('w') => Effect::OpenQueues,
             KeyCode::Char('i') if self.session.intro.is_some() => Effect::ShowIntro,
             KeyCode::Char('o') => self.open(),
             KeyCode::Char('z') => self.show_full_screen(),
@@ -3676,6 +3679,33 @@ mod tests {
         state.pane_offset().top
     }
 
+    /// `w` opens the queue switcher where `L` opens the session list: not
+    /// in a field, where it types, and not while the pane or the
+    /// full-screen view has the keys.
+    #[test]
+    fn w_asks_for_the_queues_where_l_asks_for_the_session_list() {
+        let mut state = with_pane();
+        assert_eq!(press(&mut state, "w"), Effect::OpenQueues);
+
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(press(&mut state, "w"), Effect::None, "the focused pane");
+        state.handle(code(KeyCode::Tab));
+        press(&mut state, "z");
+        assert!(state.full_screen());
+        assert_eq!(press(&mut state, "w"), Effect::None, "the full-screen view");
+
+        let mut text = SessionState::new(
+            "text",
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "t", "text": "?", "kind": "text"}]}"#,
+            )
+            .expect("parses"),
+            None,
+        );
+        assert_eq!(press(&mut text, "w"), Effect::DraftChanged, "a field");
+        assert_eq!(answer(&text, "t").custom.as_deref(), Some("w"));
+    }
+
     #[test]
     fn tab_gives_the_pane_the_focus_and_tab_or_esc_give_it_back() {
         let mut state = with_pane();
@@ -4634,7 +4664,7 @@ mod tests {
     fn keys_without_a_meaning_change_nothing() {
         let mut state = state();
 
-        assert_eq!(press(&mut state, "w"), Effect::None);
+        assert_eq!(press(&mut state, "x"), Effect::None);
         assert_eq!(state.handle(code(KeyCode::F(5))), Effect::None);
         assert_eq!(state.handle(ctrl('j')), Effect::None);
         assert_eq!((state.tab(), state.row()), (0, 0));
