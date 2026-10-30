@@ -17,19 +17,32 @@ pub fn has_text(answer: &Answer) -> bool {
         .is_some_and(|text| !text.trim().is_empty())
 }
 
+/// Whether `question` has a field for typed text: the own-answer row of a
+/// `single` or `multi` while `custom` is on, or the answer of a `text`
+/// question. Text a draft kept for a question without one is no answer.
+pub fn takes_own_text(question: &Question) -> bool {
+    match question.kind {
+        Kind::Text => true,
+        Kind::Single | Kind::Multi => question
+            .custom
+            .as_ref()
+            .is_some_and(|custom| custom.is_enabled()),
+        Kind::Info => false,
+    }
+}
+
 /// Whether `answer` answers `question`. A note never does.
 pub fn is_answered(question: &Question, answer: &Answer) -> bool {
+    let own_text = takes_own_text(question) && has_text(answer);
     match question.kind {
         // Own text answers a single only while it is the pick.
-        Kind::Single => {
-            !answer.selected.is_empty() || (has_text(answer) && !answer.custom_unpicked)
-        }
+        Kind::Single => !answer.selected.is_empty() || (own_text && !answer.custom_unpicked),
         Kind::Multi => {
             // Custom text answers the question on its own. `min` and `max`
             // bound the selected options, so they only apply once one is
             // selected, and only decide when there is no text.
             let count = answer.selected.len() as u32;
-            has_text(answer)
+            own_text
                 || (count > 0
                     && question.min.is_none_or(|min| count >= min)
                     && question.max.is_none_or(|max| count <= max))
@@ -91,7 +104,7 @@ pub fn rejected_answers(session: &Session, answers: &[Answer]) -> Vec<Answer> {
 /// An answered question's answer with only the fields its kind allows; an
 /// info item's is its note alone.
 fn shaped(question: &Question, answer: &Answer) -> Answer {
-    let custom = if has_text(answer) {
+    let custom = if takes_own_text(question) && has_text(answer) {
         answer.custom.clone()
     } else {
         None
@@ -235,6 +248,55 @@ mod tests {
         assert_eq!(
             result_answers(&session(SINGLE), &[unpicked(&["a"])]),
             [selected("s", &["a"])]
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Own text on a question that takes none
+    // -----------------------------------------------------------------
+    //
+    // A draft written while a question still took an own answer can carry
+    // its text into a session file that turned `custom` off.
+
+    const SINGLE_WITHOUT_OWN: &str = r#"{"id": "s", "text": "?", "kind": "single", "custom": false,
+        "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}"#;
+    const MULTI_WITHOUT_OWN: &str = r#"{"id": "m", "text": "?", "kind": "multi",
+        "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}"#;
+
+    #[test]
+    fn own_text_does_not_answer_a_single_without_an_own_answer() {
+        assert!(!is_answered(
+            &question(SINGLE_WITHOUT_OWN),
+            &custom("s", "own")
+        ));
+    }
+
+    #[test]
+    fn own_text_does_not_answer_a_multi_without_an_own_answer() {
+        assert!(!is_answered(
+            &question(MULTI_WITHOUT_OWN),
+            &custom("m", "own")
+        ));
+    }
+
+    #[test]
+    fn the_result_leaves_out_own_text_on_a_single_without_an_own_answer() {
+        assert_eq!(
+            result_answers(&session(SINGLE_WITHOUT_OWN), &[custom("s", "own")]),
+            [Answer::skipped("s")]
+        );
+    }
+
+    #[test]
+    fn the_result_leaves_out_own_text_on_a_multi_without_an_own_answer() {
+        let both = Answer {
+            custom: Some("own".into()),
+            ..selected("m", &["a", "b"])
+        };
+
+        assert_eq!(
+            result_answers(&session(MULTI_WITHOUT_OWN), &[both]),
+            [selected("m", &["a", "b"])]
         );
     }
 

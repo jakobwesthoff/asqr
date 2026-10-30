@@ -429,10 +429,12 @@ rules are validation's alone.
 
 A question is **answered** when:
 
-- `single`: an option is selected, or the custom text is not empty after
-  trimming and is the pick (see the answer shape below)
-- `multi`: the custom text is not empty after trimming, or the number of
-  selected options lies within `min` and `max`
+- `single`: an option is selected, or, on a question that takes an own
+  answer (`custom`), the custom text is not empty after trimming and is
+  the pick (see the answer shape below)
+- `multi`: on a question that takes an own answer (`custom`), the custom
+  text is not empty after trimming, or the number of selected options
+  lies within `min` and `max`
 - `text`: the typed text is not empty after trimming
 
 Otherwise it is **skipped**. An info item takes no answer and is
@@ -448,8 +450,9 @@ neither: nothing answers it, and it never counts as skipped.
 - A note never answers a question. A skipped question keeps its note.
 - `min` and `max` only apply once something is selected, so a `multi`
   with `min: 2` can be skipped. They count the picked options only; the
-  own answer of a `multi` comes on top of them, so custom text answers
-  the question whatever is selected (ADR 28).
+  own answer of a `multi` comes on top of them, so on a question that
+  takes an own answer (`custom`), custom text answers the question
+  whatever is selected (ADR 28).
 - Nothing blocks a submit: every question is optional.
 - Typed text and notes go into the result as typed; only the check
   whether they are empty trims them. Every typed field takes line
@@ -469,6 +472,8 @@ Answer shape per kind:
   does on a fresh question. The result keeps only what counts.
 - `multi`: `selected` with the chosen option ids, and `custom` as one
   more entry next to them when present.
+- `custom` appears only on a question that takes an own answer; a
+  result leaves out own text on one that does not.
 - `text`: `custom` holds the answer, and there is no `selected`.
 - `info`: only `note`, as typed, and only when it is not blank.
 - Every kind may carry `note`. A skipped question has `skipped: true` and
@@ -490,8 +495,10 @@ It is written on every change while the session waits in the inbox; a
 change to a session whose file has left the inbox writes no draft. The
 look at the inbox and the write run under the drafts lock (section 5.6).
 On restore, answers are matched by
-question id and option id, and anything that no longer fits (a question
-or option that is gone) is dropped. An untouched default (`"defaulted":
+question id and option id, and anything that no longer fits is dropped:
+a question or option that is gone, and typed text on a question that
+has no field for it any more, such as a `single` or `multi` whose
+`custom` is off now. An untouched default (`"defaulted":
 true`) restores as the defaults the question sets in the file as it is
 now, so a default the asker moved, added or removed since shows as the
 file sets it. A draft that cannot be read is logged and ignored, and the

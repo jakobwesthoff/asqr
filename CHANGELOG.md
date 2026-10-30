@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asqr validate` and `asqr ask` report a context file that turns into a
   FIFO while they check it as "not a file". Before, they waited until
   something wrote to the FIFO.
+- A draft restored for a session file whose question no longer offers
+  an own answer drops the own text it held for that question. Before,
+  the text stayed in the answer without a row to edit or clear it, the
+  review showed it and a submit sent it.
 
 ## [0.14.0] - 2026-10-29
 

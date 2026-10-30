@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn the_question_list_shows_what_was_answered() {
         let multi = question(
-            r#"{"id": "m", "text": "?", "kind": "multi",
+            r#"{"id": "m", "text": "?", "kind": "multi", "custom": true,
                 "options": [{"id": "x", "label": "Extra"}, {"id": "y", "label": "Yes"}]}"#,
         );
         let chosen = Answer {
@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn a_typed_answer_next_to_options_shows_both() {
         let multi = question(
-            r#"{"id": "m", "text": "?", "kind": "multi", "options": [{"id": "x", "label": "X"}]}"#,
+            r#"{"id": "m", "text": "?", "kind": "multi", "custom": true, "options": [{"id": "x", "label": "X"}]}"#,
         );
         let both = Answer {
             selected: vec!["x".into()],

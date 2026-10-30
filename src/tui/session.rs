@@ -27,7 +27,7 @@ use super::{
 pub use crate::format::Length;
 use crate::format::{
     Answer, ContextEntry, Kind, Question, Session, SessionResult, has_note, is_answered,
-    rejected_answers, result_answers,
+    rejected_answers, result_answers, takes_own_text,
 };
 
 /// What the running app has to do after a key.
@@ -1795,12 +1795,13 @@ fn restored(question: &Question, answer: &Answer) -> Working {
     if question.kind == Kind::Single {
         selected.truncate(1);
     }
-    // An info item has no field, so typed text the draft kept for a question
-    // of the same id would count as an answer nobody can see or clear.
-    let custom = match question.kind {
-        Kind::Info => None,
-        Kind::Single | Kind::Multi | Kind::Text => answer.custom.as_deref(),
-    };
+    // An info item, or a `single` or `multi` whose file turned `custom`
+    // off, has no field, so typed text the draft kept for it would count as
+    // an answer nobody can see or clear.
+    let custom = answer
+        .custom
+        .as_deref()
+        .filter(|_| takes_own_text(question));
     // Text in a draft reaches a field without being typed, like a paste,
     // and is cleaned the same way, so the field draws what it counts.
     let custom = cleaned(custom.unwrap_or_default());
@@ -4577,6 +4578,70 @@ mod tests {
 
         assert_eq!(restored.answers(), state.answers());
         assert_eq!(restored.tab(), 1);
+    }
+
+    /// The test session with the own answer of `single` switched off and
+    /// that of `multi` left out.
+    fn without_own_answers() -> Session {
+        let switched_off = SESSION
+            .replacen(
+                r#""kind": "single", "custom": true"#,
+                r#""kind": "single", "custom": false"#,
+                1,
+            )
+            .replacen(r#""max": 2, "custom": true"#, r#""max": 2"#, 1);
+        serde_json::from_str(&switched_off).expect("parses")
+    }
+
+    #[test]
+    fn a_restored_draft_drops_own_text_on_a_single_without_an_own_answer() {
+        // The question has no own-answer row any more, so the text could
+        // neither be seen nor cleared, and a submit would send it.
+        let draft = SessionResult::draft(
+            "batch",
+            "single",
+            vec![Answer {
+                custom: Some("typed before".into()),
+                custom_unpicked: true,
+                ..Answer::new("single")
+            }],
+        );
+
+        let restored = SessionState::new("batch", without_own_answers(), Some(&draft));
+
+        let single = answer(&restored, "single");
+        assert_eq!(single.custom, None);
+        assert!(!single.custom_unpicked);
+    }
+
+    #[test]
+    fn a_restored_draft_drops_own_text_on_a_multi_without_an_own_answer() {
+        let draft = SessionResult::draft(
+            "batch",
+            "multi",
+            vec![Answer {
+                selected: vec!["x".into()],
+                custom: Some("typed before".into()),
+                ..Answer::new("multi")
+            }],
+        );
+
+        let restored = SessionState::new("batch", without_own_answers(), Some(&draft));
+
+        let multi = answer(&restored, "multi");
+        assert_eq!(multi.custom, None);
+        assert_eq!(multi.selected, ["x"], "the options stay");
+    }
+
+    #[test]
+    fn a_reload_drops_own_text_when_the_own_answer_is_turned_off() {
+        let mut state = state();
+        press(&mut state, "jjtyped");
+        assert_eq!(answer(&state, "single").custom.as_deref(), Some("typed"));
+
+        state.replace_session(without_own_answers());
+
+        assert_eq!(answer(&state, "single").custom, None);
     }
 
     #[test]
