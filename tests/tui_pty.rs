@@ -134,6 +134,11 @@ impl Tui {
         let mut command = CommandBuilder::new(assert_cmd::cargo::cargo_bin("asqr"));
         command.args(queue);
         command.env("HOME", sandbox.home());
+        // The files `o` writes, and the start's removal of old ones, stay
+        // in the sandbox.
+        let tmp = sandbox.home().join("tmp");
+        std::fs::create_dir_all(&tmp).expect("tmp dir");
+        command.env("TMPDIR", &tmp);
         command.env("XDG_DATA_HOME", sandbox.home().join(".local/share"));
         command.env("XDG_CACHE_HOME", sandbox.home().join(".cache"));
         command.env_remove("ASQR_QUEUE");
@@ -547,10 +552,10 @@ fn a_viewer_that_exits_with_an_error_is_named_in_the_status_line() {
     tui.answer_the_query(NO_GRAPHICS);
     tui.wait_for("queue: pty");
     let file = sandbox.file(
-        "pictured.json",
+        "coded.json",
         &SESSION.replace(
             r#""kind": "single","#,
-            r#""kind": "single", "context": [{"type": "image", "path": "/pictures/fruit.png"}],"#,
+            r#""kind": "single", "context": [{"type": "code", "content": "fn main() {}\n", "language": "rust"}],"#,
         ),
     );
     sandbox
@@ -563,9 +568,73 @@ fn a_viewer_that_exits_with_an_error_is_named_in_the_status_line() {
 
     tui.press("o");
 
-    tui.wait_for("cannot open /pictures/fruit.png: the opener exited with 3");
+    tui.wait_for("cannot open code.rs: the opener exited with 3");
     tui.press("q");
     assert_eq!(tui.wait_for_exit(), 0);
+}
+
+#[test]
+fn inline_code_reaches_the_viewer_as_a_file_in_the_temp_directory() {
+    let sandbox = Sandbox::new();
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--queue", "pty", "--no-notify", "--no-title"],
+        PASSTHROUGH_ON,
+    );
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("queue: pty");
+    let file = sandbox.file(
+        "coded.json",
+        &SESSION.replace(
+            r#""kind": "single","#,
+            r#""kind": "single", "context": [{"type": "code", "content": "fn main() {}\n", "language": "rust"}],"#,
+        ),
+    );
+    sandbox
+        .asqr()
+        .args(["--queue", "pty", "ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("Pick a fruit");
+
+    tui.press("o");
+    let recorded = viewed_path(&sandbox);
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let written = std::path::Path::new(recorded.trim());
+    assert!(
+        written.starts_with(sandbox.home().join("tmp")),
+        "{}",
+        written.display()
+    );
+    assert_eq!(
+        written.file_name().and_then(|name| name.to_str()),
+        Some("code.rs")
+    );
+    assert_eq!(
+        std::fs::read_to_string(written).expect("kept after quitting"),
+        "fn main() {}\n"
+    );
+}
+
+/// The path the stand-in viewer recorded, once it has. It creates its file
+/// before it writes the line, so only a whole line says that it is done.
+fn viewed_path(sandbox: &Sandbox) -> String {
+    let viewed = sandbox.home().join("viewed");
+    let start = Instant::now();
+    loop {
+        let recorded = std::fs::read_to_string(&viewed).unwrap_or_default();
+        if recorded.ends_with('\n') && !recorded.trim().is_empty() {
+            return recorded;
+        }
+        assert!(
+            start.elapsed() < PATIENCE,
+            "the viewer never recorded a path"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]
@@ -585,11 +654,17 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
     tui.wait_for("asqr needs at least 60×15");
     tui.resize(24, 80);
     tui.wait_for("Nothing to answer");
+    // `o` opens only a file that is there; the image does not decode,
+    // which does not keep it from being opened.
+    let image = sandbox.file("fruit.png", "not decoded here");
     let file = sandbox.file(
         "pictured.json",
         &SESSION.replace(
             r#""kind": "single","#,
-            r#""kind": "single", "context": [{"type": "image", "path": "/pictures/fruit.png"}],"#,
+            &format!(
+                r#""kind": "single", "context": [{{"type": "image", "path": "{}"}}],"#,
+                image.display()
+            ),
         ),
     );
     sandbox
@@ -601,25 +676,11 @@ fn keys_still_arrive_after_the_terminal_answered_the_query() {
     tui.wait_for("Pick a fruit");
 
     tui.press("o");
-    // The stand-in viewer creates the file before it writes the line, so
-    // only a whole line in it says that the viewer is done.
-    let viewed = sandbox.home().join("viewed");
-    let start = Instant::now();
-    let recorded = loop {
-        let recorded = std::fs::read_to_string(&viewed).unwrap_or_default();
-        if recorded.ends_with('\n') && !recorded.trim().is_empty() {
-            break recorded;
-        }
-        assert!(
-            start.elapsed() < PATIENCE,
-            "the viewer never recorded a path"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let recorded = viewed_path(&sandbox);
     tui.press("q");
 
     assert_eq!(tui.wait_for_exit(), 0);
-    assert_eq!(recorded.trim(), "/pictures/fruit.png");
+    assert_eq!(recorded.trim(), image.display().to_string());
     assert!(
         !tui.output().contains("]9;"),
         "--no-notify sends no notification"

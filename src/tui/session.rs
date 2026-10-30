@@ -11,7 +11,8 @@
 //! Rows that take text are live fields, typed into in place as soon as the
 //! cursor lands on them. [`SessionState::handle`] returns an [`Effect`] for
 //! everything the state cannot do itself: saving the draft, finishing the
-//! session, quitting, opening an image, showing an overlay over all of it.
+//! session, quitting, opening the entry shown, showing an overlay over all
+//! of it.
 
 use std::collections::HashMap;
 
@@ -51,7 +52,9 @@ pub enum Effect {
         answers: Vec<Answer>,
     },
     Quit,
-    OpenImage(String),
+    /// Open this entry, the one shown, in the app the system has for its
+    /// file type (spec section 7.6).
+    Open(ContextEntry),
     OpenSessionList,
     /// Show the session's whole intro, which the header may cut.
     ShowIntro,
@@ -797,7 +800,7 @@ impl SessionState {
         self.shown_entry().map(|(_, entry)| entry)
     }
 
-    /// The image shown on the current tab; `o` opens it.
+    /// The image shown on the current tab.
     pub fn shown_image(&self) -> Option<&str> {
         self.shown_context().and_then(ContextEntry::image_path)
     }
@@ -1140,22 +1143,20 @@ impl SessionState {
         }
     }
 
-    /// `o`: opens the image shown, or says why it cannot. Outside the
+    /// `o`: opens the entry shown, or says why it cannot. Outside the
     /// full-screen view it points to `z`, which shows any entry whole.
     fn open(&mut self) -> Effect {
         match self.shown_context() {
-            Some(entry) => match entry.image_path() {
-                Some(image) => Effect::OpenImage(image.to_owned()),
-                None => {
-                    let message = if self.full_screen.is_some() {
-                        "o opens images only"
-                    } else {
-                        "o opens images only; z shows this entry full screen"
-                    };
-                    self.message = Some(Notice::new(Tone::Warning, message));
-                    Effect::None
-                }
-            },
+            Some(entry) if entry.opens() => Effect::Open(entry.clone()),
+            Some(_) => {
+                let message = if self.full_screen.is_some() {
+                    "o does not open ANSI text"
+                } else {
+                    "o does not open ANSI text; z shows this entry full screen"
+                };
+                self.message = Some(Notice::new(Tone::Warning, message));
+                Effect::None
+            }
             None => {
                 self.message = Some(Notice::new(Tone::Warning, "nothing to open here"));
                 Effect::None
@@ -1865,6 +1866,17 @@ mod tests {
     /// The message of a key or a paste the session refused.
     fn refused(text: &str) -> Notice {
         Notice::new(Tone::Warning, text)
+    }
+
+    /// An image entry of the file at `path`, as a session without its
+    /// optional fields gives it.
+    fn image_entry(path: &str) -> ContextEntry {
+        ContextEntry::Image(crate::format::ImageEntry {
+            title: None,
+            path: path.to_owned(),
+            enlarge: true,
+            caption: None,
+        })
     }
 
     #[test]
@@ -3314,7 +3326,7 @@ mod tests {
         go_to_tab(&mut state, 3);
         assert_eq!(
             press(&mut state, "o"),
-            Effect::OpenImage("/pictures/p.png".into())
+            Effect::Open(image_entry("/pictures/p.png"))
         );
         press(&mut state, "z");
         assert!(state.full_screen());
@@ -3327,29 +3339,10 @@ mod tests {
     }
 
     #[test]
-    fn o_says_why_it_does_nothing() {
+    fn o_says_why_it_does_nothing_where_no_entry_shows() {
         let mut state = state();
         assert_eq!(press(&mut state, "o"), Effect::None);
         assert_eq!(state.message(), Some(&refused("nothing to open here")));
-
-        let mut state = with_pane();
-        let code_entry = "o opens images only; z shows this entry full screen";
-        assert_eq!(press(&mut state, "o"), Effect::None);
-        assert_eq!(state.message(), Some(&refused(code_entry)));
-        state.handle(code(KeyCode::Tab));
-        assert_eq!(press(&mut state, "o"), Effect::None);
-        assert_eq!(
-            state.message(),
-            Some(&refused(code_entry)),
-            "from the focused pane"
-        );
-        press(&mut state, "z");
-        assert_eq!(press(&mut state, "o"), Effect::None);
-        assert_eq!(
-            state.message(),
-            Some(&refused("o opens images only")),
-            "the full-screen view already shows the entry whole"
-        );
     }
 
     #[test]
@@ -3370,7 +3363,7 @@ mod tests {
         assert_eq!(state.shown_image(), Some("/pictures/a.png"));
         assert_eq!(
             press(&mut state, "o"),
-            Effect::OpenImage("/pictures/a.png".into())
+            Effect::Open(image_entry("/pictures/a.png"))
         );
         press(&mut state, "j");
         assert_eq!(
@@ -3525,17 +3518,29 @@ mod tests {
         assert_eq!(window(&state), [key(0, Some(1)), key(0, Some(2))]);
     }
 
-    #[test]
-    fn only_an_image_entry_opens_but_any_entry_fills_the_screen() {
-        let session = r#"{"asqr": 2, "questions": [
-            {"id": "q", "text": "?", "kind": "single",
-             "context": [{"type": "code", "title": "Log", "content": "ok"}],
-             "options": [{"id": "a", "label": "A"}]}]}"#;
-        let mut state = SessionState::new(
-            "batch",
-            serde_json::from_str(session).expect("test session parses"),
-            None,
+    /// One question whose context is `entry`, an entry as JSON.
+    fn showing(entry: &str) -> SessionState {
+        let session = format!(
+            r#"{{"asqr": 2, "questions": [
+                {{"id": "q", "text": "?", "kind": "single", "context": [{entry}],
+                 "options": [{{"id": "a", "label": "A"}}]}}]}}"#
         );
+        SessionState::new(
+            "batch",
+            serde_json::from_str(&session).expect("test session parses"),
+            None,
+        )
+    }
+
+    /// What `o` does on the entry shown in `state`, which `o` opens.
+    fn opened(mut state: SessionState) -> (Effect, Effect) {
+        let shown = state.shown_context().cloned().expect("an entry shows");
+        (press(&mut state, "o"), Effect::Open(shown))
+    }
+
+    #[test]
+    fn any_entry_fills_the_screen() {
+        let mut state = showing(r#"{"type": "code", "title": "Log", "content": "ok"}"#);
 
         assert_eq!(
             state.shown_context().and_then(ContextEntry::title),
@@ -3543,12 +3548,63 @@ mod tests {
         );
         assert!(state.has_context_area());
         assert_eq!(state.shown_image(), None);
-        assert_eq!(press(&mut state, "o"), Effect::None);
-        assert!(state.message().is_some(), "o says why");
         press(&mut state, "z");
         assert!(state.full_screen());
         press(&mut state, "z");
         assert!(!state.full_screen(), "z toggles back");
+    }
+
+    #[test]
+    fn o_opens_a_code_entry() {
+        let (effect, open) = opened(showing(
+            r#"{"type": "code", "title": "Log", "content": "ok"}"#,
+        ));
+        assert_eq!(effect, open);
+    }
+
+    #[test]
+    fn o_opens_a_markdown_entry() {
+        let (effect, open) = opened(showing(r#"{"type": "markdown", "path": "/notes/plan.md"}"#));
+        assert_eq!(effect, open);
+    }
+
+    #[test]
+    fn o_opens_a_diff_entry() {
+        let (effect, open) = opened(showing(
+            r#"{"type": "diff", "old": {"content": "a\n"}, "new": {"content": "b\n"}}"#,
+        ));
+        assert_eq!(effect, open);
+    }
+
+    /// An ANSI entry, which `o` does not open, beside a pane drawn as
+    /// `PANE`.
+    fn with_ansi_pane() -> SessionState {
+        let mut state = showing(r#"{"type": "ansi", "content": "\u001b[31mred\u001b[0m"}"#);
+        state.set_pane_page(Some(PanePage::shown(PANE)));
+        state
+    }
+
+    #[test]
+    fn o_on_an_ansi_entry_says_it_does_not_open_it() {
+        let mut state = with_ansi_pane();
+        let refusal = "o does not open ANSI text; z shows this entry full screen";
+
+        assert_eq!(press(&mut state, "o"), Effect::None);
+        assert_eq!(state.message(), Some(&refused(refusal)));
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(press(&mut state, "o"), Effect::None);
+        assert_eq!(
+            state.message(),
+            Some(&refused(refusal)),
+            "from the focused pane"
+        );
+        press(&mut state, "z");
+        assert_eq!(press(&mut state, "o"), Effect::None);
+        assert_eq!(
+            state.message(),
+            Some(&refused("o does not open ANSI text")),
+            "the full-screen view already shows the entry whole"
+        );
     }
 
     #[test]
@@ -4282,7 +4338,7 @@ mod tests {
 
         assert_eq!(
             press(&mut state, "o"),
-            Effect::OpenImage("/pictures/p.png".into())
+            Effect::Open(image_entry("/pictures/p.png"))
         );
     }
 

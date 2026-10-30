@@ -55,6 +55,10 @@ the focused pane, the full-screen view and the question's rows take `s`
 Amended by [72. Keep two lines of overlap when pgup and pgdn scroll a page](0072-keep-two-lines-of-overlap-when-pgup-and-pgdn-scroll-a-page.md):
 `pgup` and `pgdn` move by a page less 2 lines
 
+Amended by [78. Open code, Markdown and diff entries with the system opener](0078-open-code-markdown-and-diff-entries-with-the-system-opener.md):
+`o` opens code, Markdown and diff entries, and refuses only an ANSI
+entry
+
 ## Context
 
 The context area beside or below the question (ADR 30) shows entries of

@@ -41,6 +41,11 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
+# The syntaxes patine highlights with, which give the files `o` writes for
+# inline code their extension. The version and features are patine's, so
+# no other crate comes in: the default features would bring in Oniguruma,
+# a C library.
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-default-fancy"] }
 ulid = "3.0.0"
 unicode-segmentation = "1.13.3"
 
@@ -51,7 +56,8 @@ portable-pty = "0.9.0"
 vt100 = "0.18.1"
 
 [target."cfg(unix)".dependencies]
-# `process` lets the tests of the system's opener ask for a process's group
-# and whether a finished one is still in the process table.
+# `process` gives the user's id, which names the directory `o` writes into,
+# and lets the tests of the system's opener ask for a process's group and
+# whether a finished one is still in the process table.
 rustix = { version = "1.1.5", features = ["event", "fs", "process", "termios"] }
 signal-hook = "0.4.5"

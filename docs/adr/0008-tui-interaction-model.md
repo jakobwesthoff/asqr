@@ -18,6 +18,10 @@ Amended by [62. Show text and context without asking through an info item](0062-
 
 Amended by [71. Let backspace clear the pick of a single question](0071-let-backspace-clear-the-pick-of-a-single-question.md)
 
+Amended by [78. Open code, Markdown and diff entries with the system opener](0078-open-code-markdown-and-diff-entries-with-the-system-opener.md):
+`o` opens the entry shown in the app for its file type, not only an
+image
+
 ## Context
 
 The person answering has to get through many questions fast, often with

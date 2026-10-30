@@ -16,7 +16,7 @@ expression: drawn(&mut app)
 "     │ g/G           to the top and the bottom, also home/end             │     "
 " ── T│ z             show the context full screen and back                │──── "
 "     │ s             a diff side by side or unified                       │     "
-"     │ o             open an image in the system viewer                   │     "
+"     │ o             open in the app for its file type                    │     "
 "     │ tab/esc/q     back to the question                                 │     "
 "     │ ctrl-c        quit, keeping the draft                              │     "
 "    1│ ?             this help                                            │     "

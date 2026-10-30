@@ -23,7 +23,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::render::{Drawn, View, draw, picture, shorten_from_left};
 use super::{
-    App, Applied, EditRequest, Inbox, Notice, Tone, edited_text, editor_file, session_progress,
+    App, Applied, EditRequest, Inbox, Notice, OpenedFiles, Tone, edited_text, editor_file,
+    session_progress,
 };
 use crate::graphics::KittyDeletes;
 use crate::queue::QueueLocation;
@@ -81,8 +82,9 @@ impl Event {
 pub trait Host {
     /// Sessions arrived while asqr was running.
     fn alert(&mut self, arrived: &[String]);
-    /// Open the image at `path` in the system viewer.
-    fn open_image(&mut self, path: &str) -> io::Result<()>;
+    /// Open the file at `path` with the system's opener, in the app the
+    /// system has for its type; the status line names it `name`.
+    fn open(&mut self, path: &Path, name: &str) -> io::Result<()>;
     /// Show `title` as the terminal's title, unless the person switched
     /// titles off.
     fn title(&mut self, title: &str);
@@ -325,7 +327,8 @@ where
         .context("clearing the screen")
 }
 
-/// Runs the app until the person quits or the events end.
+/// Runs the app until the person quits or the events end. `o` writes the
+/// files it opens into `opened`.
 pub fn run<B: Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
@@ -333,6 +336,7 @@ pub fn run<B: Backend>(
     view: &mut View,
     events: &Receiver<Event>,
     host: &mut impl Host,
+    opened: &mut OpenedFiles,
 ) -> anyhow::Result<()>
 where
     B::Error: Send + Sync + 'static,
@@ -505,11 +509,14 @@ where
                     sent_progress = SentProgress::Unknown;
                 }
             }
-            Applied::OpenImage(path) => {
-                if let Err(error) = host.open_image(&path) {
-                    app.notice(Tone::Error, format!("cannot open {path}: {error}"));
+            Applied::Open(entry) => match opened.file_for(&entry) {
+                Ok((path, name)) => {
+                    if let Err(error) = host.open(&path, &name) {
+                        app.notice(Tone::Error, format!("cannot open {name}: {error}"));
+                    }
                 }
-            }
+                Err(refusal) => app.notice(Tone::Error, refusal),
+            },
         }
     }
 }
@@ -540,9 +547,12 @@ mod tests {
     #[derive(Default)]
     struct Recorder {
         alerts: Vec<Vec<String>>,
+        /// The paths the opener got, in order.
         opened: Vec<String>,
+        /// What each of them held as the opener got it.
+        contents: Vec<Vec<u8>>,
         titles: Vec<String>,
-        /// Opening an image fails with this, when set.
+        /// Opening a file fails with this, when set.
         viewer_missing: bool,
         /// Writing deletes fails, as writing to a terminal that went away
         /// does, when set.
@@ -593,20 +603,24 @@ mod tests {
             self.alerts.push(arrived.to_vec());
         }
 
-        fn open_image(&mut self, path: &str) -> io::Result<()> {
+        fn open(&mut self, path: &Path, _name: &str) -> io::Result<()> {
             if self.viewer_missing {
                 return Err(io::Error::new(io::ErrorKind::NotFound, "no viewer"));
             }
-            self.opened.push(path.to_owned());
+            self.opened.push(path.display().to_string());
+            self.contents.push(fs::read(path).unwrap_or_default());
             Ok(())
         }
     }
 
     struct Harness {
-        _scratch: tempfile::TempDir,
+        scratch: tempfile::TempDir,
         location: QueueLocation,
         terminal: Terminal<TestBackend>,
         host: Recorder,
+        /// Where `o` writes, inside the scratch directory, so no test
+        /// writes into the system's temp directory.
+        opened: OpenedFiles,
     }
 
     impl Harness {
@@ -614,16 +628,33 @@ mod tests {
             let scratch = tempfile::tempdir().expect("temp dir");
             let location = QueueLocation::at(scratch.path().join("queue"));
             location.create_layout().expect("layout");
+            let opened = OpenedFiles::under(scratch.path().join("opened"));
             Harness {
-                _scratch: scratch,
+                scratch,
                 location,
                 terminal: Terminal::new(TestBackend::new(80, 24)).expect("test terminal"),
                 host: Recorder::default(),
+                opened,
             }
         }
 
         fn put(&self, id: &str) {
             fs::write(self.location.inbox().join(format!("{id}.json")), SESSION).expect("written");
+        }
+
+        /// Puts a session whose question shows `entry`, an entry as JSON.
+        fn put_showing(&self, id: &str, entry: &str) {
+            let session =
+                SESSION.replace(r#"{"type": "image", "path": "/nowhere/cat.png"}"#, entry);
+            fs::write(self.location.inbox().join(format!("{id}.json")), session).expect("written");
+        }
+
+        /// Writes `bytes` to the file `name` in the scratch directory and
+        /// returns its path.
+        fn scratch_file(&self, name: &str, bytes: &[u8]) -> String {
+            let path = self.scratch.path().join(name);
+            fs::write(&path, bytes).expect("written");
+            path.to_str().expect("UTF-8").to_owned()
         }
 
         /// Starts the app, then runs it over `events`; the loop ends when
@@ -664,6 +695,7 @@ mod tests {
                 view,
                 &receiver,
                 &mut self.host,
+                &mut self.opened,
             )
         }
 
@@ -1147,6 +1179,7 @@ mod tests {
             &mut view,
             &receiver,
             &mut harness.host,
+            &mut harness.opened,
         )
         .expect("runs");
 
@@ -1702,6 +1735,7 @@ mod tests {
             &mut view,
             &receiver,
             &mut Recorder::default(),
+            &mut OpenedFiles::under(harness.scratch.path().join("opened")),
         )
         .expect("runs without asking for the cursor");
 
@@ -1893,11 +1927,58 @@ mod tests {
     #[test]
     fn o_asks_the_host_to_open_the_image() {
         let mut harness = Harness::new();
-        harness.put("batch-01");
+        let image = harness.scratch_file("cat.png", b"not decoded here");
+        harness.put_showing(
+            "batch-01",
+            &format!(r#"{{"type": "image", "path": "{image}"}}"#),
+        );
 
         harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
 
-        assert_eq!(harness.host.opened, ["/nowhere/cat.png"]);
+        assert_eq!(harness.host.opened, [image]);
+    }
+
+    #[test]
+    fn o_writes_inline_code_to_a_file_and_opens_it() {
+        let mut harness = Harness::new();
+        harness.put_showing(
+            "coded",
+            r#"{"type": "code", "content": "fn main() {}\n", "language": "rust"}"#,
+        );
+
+        harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
+
+        let [opened] = &harness.host.opened[..] else {
+            panic!("one file opened: {:?}", harness.host.opened);
+        };
+        assert!(opened.ends_with("/code.rs"), "{opened}");
+        assert_eq!(harness.host.contents, [b"fn main() {}\n".to_vec()]);
+        assert!(Path::new(opened).exists(), "the file stays after the run");
+    }
+
+    #[test]
+    fn a_written_file_that_cannot_be_opened_is_named() {
+        let mut harness = Harness::new();
+        harness.host.viewer_missing = true;
+        harness.put_showing("coded", r#"{"type": "code", "content": "x"}"#);
+
+        harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
+
+        assert_eq!(status_line(&harness), "✗ cannot open code.txt: no viewer");
+    }
+
+    #[test]
+    fn o_on_an_image_at_a_relative_path_opens_nothing_and_says_why() {
+        let mut harness = Harness::new();
+        harness.put_showing("pictured", r#"{"type": "image", "path": "pics/cat.png"}"#);
+
+        harness.run(vec![key(KeyCode::Char('o'))]).expect("runs");
+
+        assert_eq!(harness.host.opened, Vec::<String>::new());
+        assert_eq!(
+            status_line(&harness),
+            "✗ cannot open pics/cat.png: relative path"
+        );
     }
 
     #[test]
@@ -2073,19 +2154,21 @@ mod tests {
     fn an_image_that_cannot_be_opened_is_a_notice() {
         let mut harness = Harness::new();
         harness.host.viewer_missing = true;
-        harness.put("batch-01");
+        let image = harness.scratch_file("cat.png", b"not decoded here");
+        harness.put_showing(
+            "batch-01",
+            &format!(r#"{{"type": "image", "path": "{image}"}}"#),
+        );
         let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
 
         harness
             .run_started(&mut app, &mut inbox, vec![key(KeyCode::Char('o'))])
             .expect("runs");
 
-        assert!(
-            harness
-                .screen()
-                .contains("cannot open /nowhere/cat.png: no viewer"),
-            "{}",
-            harness.screen()
+        // The scratch directory's path is longer than the status line.
+        assert_eq!(
+            app.current_notice().map(|notice| notice.text.as_str()),
+            Some(format!("cannot open {image}: no viewer").as_str())
         );
         assert_eq!(
             app.current_notice().map(|notice| notice.tone),
@@ -2395,6 +2478,7 @@ mod tests {
             &mut view,
             &receiver,
             &mut Recorder::default(),
+            &mut OpenedFiles::under(harness.scratch.path().join("opened")),
         )?;
         let steps = log.borrow();
         Ok(steps
@@ -2579,6 +2663,7 @@ mod tests {
                 view,
                 &receiver,
                 &mut self.harness.host,
+                &mut self.harness.opened,
             )
         }
 

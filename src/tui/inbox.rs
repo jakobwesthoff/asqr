@@ -16,8 +16,8 @@ use std::path::PathBuf;
 
 use super::{App, AppEffect, EditRequest, Invalid, Notice, Outcome, SessionState, Tone};
 use crate::format::{
-    ParseError, SessionResult, Status, is_valid_session_id, now_rfc3339, parse_session,
-    same_session_id, validate,
+    ContextEntry, ParseError, SessionResult, Status, is_valid_session_id, now_rfc3339,
+    parse_session, same_session_id, validate,
 };
 use crate::queue::{
     DRAFTS_LOCK_ATTEMPTS, Finished, Gate, QueueLocation, Recovery, Rejected, Waiting,
@@ -46,7 +46,8 @@ pub struct Synced {
 pub enum Applied {
     Continue,
     Quit,
-    OpenImage(String),
+    /// Open this entry in the app the system has for its file type.
+    Open(ContextEntry),
     /// Open a field in the person's editor (ADR 74).
     Edit(EditRequest),
 }
@@ -408,7 +409,7 @@ impl Inbox {
             }
             AppEffect::Finish { id, outcome } => self.finish(app, &id, outcome),
             AppEffect::Quit => return Applied::Quit,
-            AppEffect::OpenImage(path) => return Applied::OpenImage(path),
+            AppEffect::Open(entry) => return Applied::Open(entry),
             AppEffect::Edit(request) => return Applied::Edit(request),
         }
         Applied::Continue
@@ -1981,15 +1982,17 @@ mod tests {
     }
 
     #[test]
-    fn quitting_and_opening_an_image_go_back_to_the_running_app() {
+    fn quitting_and_opening_an_entry_go_back_to_the_running_app() {
         let (_scratch, location) = queue();
         let (mut inbox, mut app) = (Inbox::new(location), App::default());
 
         assert_eq!(inbox.apply(&mut app, AppEffect::None), Applied::Continue);
         assert_eq!(inbox.apply(&mut app, AppEffect::Quit), Applied::Quit);
+        let image: ContextEntry =
+            serde_json::from_str(r#"{"type": "image", "path": "/i.png"}"#).expect("parses");
         assert_eq!(
-            inbox.apply(&mut app, AppEffect::OpenImage("/i.png".into())),
-            Applied::OpenImage("/i.png".into())
+            inbox.apply(&mut app, AppEffect::Open(image.clone())),
+            Applied::Open(image)
         );
         let unknown = AppEffect::Finish {
             id: "unknown".into(),

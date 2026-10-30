@@ -1320,7 +1320,7 @@ On an option row (vim style plus arrows):
 | `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
 | `i` | the whole intro |
-| `o`, `z`, `s` | open the image shown in the system viewer; show the context shown full screen; show a diff side by side or unified (section 8.5) |
+| `o`, `z`, `s` | open the entry shown in the app for its file type; show the context shown full screen; show a diff side by side or unified (section 8.5) |
 | `tab`, `shift-tab` | move into the context pane; `tab`, `shift-tab`, `esc` or `q` move back |
 | `pgup`/`pgdn` | scroll the context pane by a page less 2 lines, also while typing in a field |
 | `ctrl-u`/`ctrl-d` | scroll the context pane by half a page, also while typing in a field |
@@ -1338,17 +1338,63 @@ On an option row (vim style plus arrows):
   the others work again after `esc` (section 7.7). `ctrl-c` quits
   everywhere, except over the help and over the dialog of an invalid
   session, which it closes like any other key.
-- `o` opens the image shown (section 8.8) with the system's opener
-  (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
-  started, a notice says why. asqr waits for the opener on a thread, so
+- `o` opens the entry shown with the system's opener (`open` on macOS,
+  `xdg-open` elsewhere), so the app the system has for its file type
+  shows it, and asqr stays on screen (ADR 78). An image, and a code or
+  Markdown entry with a `path`, opens that file. A path that is
+  relative, names no file or is no regular file opens nothing, and the
+  notice "cannot open <path>: <reason>" gives the reason the pane's card
+  gives (section 8.3).
+- A code or Markdown entry with `content`, and every diff, is written to
+  a file first, which the opener gets:
+  - Code is named after its `title`. A title whose extension, or whole
+    name such as `Makefile`, the highlighting knows stays as written,
+    where it fits the entry's `language`. Otherwise the file gets the
+    extension of the `language` as the highlighting knows it, such as
+    `rust` as `.rs`, or `.txt` where the highlighting knows neither, so
+    `notes.webloc` becomes `notes.webloc.txt`. Without a title the file
+    is `code` with that extension.
+  - Markdown is named after its `title`, with `.md` added unless it ends
+    in `.md` or `.markdown`, or `markdown.md` without one.
+  - A diff is written as a unified diff with 3 lines of context to a file
+    named after the last part of its `name`, or else its `title`, with
+    `.diff` added, or `diff.diff`. Its sides are read and compared as the
+    pane reads and compares them (section 8.5). The header names the file
+    as `a/<name>` and `b/<name>`, a side the entry leaves out as
+    `/dev/null`. Each note the pane shows about a side cut by a limit or
+    about line endings comes first, as a line of its own above the
+    header. A side that cannot be read writes nothing, and the notice
+    "cannot open <file>: old side: <reason>" names the side.
+  - A title or name keeps only its last part after a `/`, without leading
+    dots, at most 60 characters, with control characters and `\` turned
+    into `_`.
+  - Each file goes into a directory of its own, inside a directory for
+    the run of asqr, inside one directory per user in the system's temp
+    directory: `asqr-<uid>`, which only that user may enter. An `asqr-<uid>`
+    there that is a link, belongs to another user or lets others in is
+    not written into, and the notice says "cannot write <file> to open
+    it: <directory> is not asqr's own directory". `o` on the same entry
+    again in the same run opens the file written for it before, while it
+    is there.
+  - The files stay after asqr quits, so the app that shows one keeps its
+    file. Each run holds a lock on its directory while it goes on. When
+    asqr starts its TUI, it removes the directory of a run whose lock is
+    free and whose last file, or its end, is more than a day ago.
+  - A file that cannot be written opens nothing, and the notice says
+    "cannot write <file> to open it: <reason>".
+- When the opener cannot be started, the notice "cannot open <name>:
+  <reason>" says why, `<name>` being the path of an entry's own file or
+  the name of a written one. asqr waits for the opener on a thread, so
   no finished opener stays behind as a process, and starts it in a
   process group of its own, so a program it starts in the terminal does
   not take asqr's keys. An opener that exits with an error shows the
-  notice "cannot open <path>: the opener exited with <code>", one ended
-  by a signal "cannot open <path>: the opener was ended by a signal". On a code, Markdown, ANSI or diff entry it
-  opens nothing and says "o opens images only; z shows this entry full
-  screen", in the full-screen view only "o opens images only", and
-  where no entry shows it says "nothing to open here".
+  notice "cannot open <name>: the opener exited with <code>", one ended
+  by a signal "cannot open <name>: the opener was ended by a signal".
+- On an ANSI entry `o` opens nothing and says "o does not open ANSI text;
+  z shows this entry full screen", in the full-screen view only "o does
+  not open ANSI text". Where no entry shows it says "nothing to open
+  here". While the pane or the full-screen view has the focus, the key
+  bar names `o  open` where `o` opens the entry shown.
 
 The context pane:
 

@@ -240,6 +240,19 @@ impl ContextEntry {
         }
     }
 
+    /// Whether `o` opens the entry in the app the system has for its file
+    /// type. An ANSI entry's escape sequences would show as they are in
+    /// such an app, so it does not open.
+    pub fn opens(&self) -> bool {
+        match self {
+            ContextEntry::Image(_)
+            | ContextEntry::Code(_)
+            | ContextEntry::Markdown(_)
+            | ContextEntry::Diff(_) => true,
+            ContextEntry::Ansi(_) => false,
+        }
+    }
+
     /// The caption of an image entry that shows one; other entries take
     /// none.
     pub fn shown_caption(&self) -> Option<&str> {

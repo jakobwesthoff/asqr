@@ -15,7 +15,7 @@ use super::overlay::{overlay_block, popup};
 use super::screen::MIN_WIDTH;
 use super::source_line::columns;
 use super::theme;
-use crate::format::Kind;
+use crate::format::{ContextEntry, Kind};
 use crate::tui::{DiffLayout, DrawnDiff, Extent, Focus, Page, Row, SessionState};
 
 /// Every key, in the 13 lines the help has on the smallest screen.
@@ -32,7 +32,7 @@ const HELP: &[(&str, &str)] = &[
     ("esc, ctrl-g", "stop typing; edit the field in your editor"),
     ("tab", "move into the context pane and back"),
     ("pgup/pgdn, ctrl-u/ctrl-d", "scroll by page; by half a page"),
-    ("o, z, s", "open an image; full screen; diff side by side"),
+    ("o, z, s", "open an entry; full screen; diff side by side"),
     ("L, backspace", "the session list; clear the pick"),
     ("q, ctrl-c", "quit, keeping the draft"),
     ("?, i", "this help; the whole intro"),
@@ -47,7 +47,7 @@ const PANE_HELP: &[(&str, &str)] = &[
     ("g/G", "to the top and the bottom, also home/end"),
     ("z", "show the context full screen and back"),
     ("s", "a diff side by side or unified"),
-    ("o", "open an image in the system viewer"),
+    ("o", "open in the app for its file type"),
     ("tab/esc/q", "back to the question"),
     ("ctrl-c", "quit, keeping the draft"),
     ("?", "this help"),
@@ -61,7 +61,7 @@ const FULL_SCREEN_HELP: &[(&str, &str)] = &[
     ("pgup/pgdn", "scroll by page"),
     ("ctrl-u/ctrl-d", "scroll by half a page"),
     ("g/G", "to the top and the bottom, also home/end"),
-    ("o", "open an image in the system viewer"),
+    ("o", "open in the app for its file type"),
     ("s", "a diff side by side or unified"),
     ("z/tab/esc/q", "leave the full screen"),
     ("ctrl-c", "quit, keeping the draft"),
@@ -77,7 +77,7 @@ const CAPTION_FULL_SCREEN_HELP: &[(&str, &str)] = &[
     ("pgup/pgdn", "scroll by page"),
     ("ctrl-u/ctrl-d", "scroll by half a page"),
     ("g/G", "to the top and the bottom, also home/end"),
-    ("o", "open an image in the system viewer"),
+    ("o", "open in the app for its file type"),
     ("z", "the image alone"),
     ("tab/esc/q", "leave the full screen"),
     ("ctrl-c", "quit, keeping the draft"),
@@ -245,7 +245,7 @@ fn pane_key_hints(state: &SessionState, page: Page) -> Vec<Hint> {
     if !state.full_screen() {
         hints.push(hint("z", "full screen", Rank::Cursor));
     }
-    if state.shown_image().is_some() {
+    if state.shown_context().is_some_and(ContextEntry::opens) {
         hints.push(hint("o", "open", Rank::Cursor));
     }
     hints.push(HELP_HINT);
@@ -526,16 +526,34 @@ mod tests {
             "the full-screen view"
         );
 
-        let text = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
-            "context": [{"type": "code", "content": "x"}], "options": [{"id": "a", "label": "A"}]}]}"#;
-        let mut state =
-            SessionState::new("text", serde_json::from_str(text).expect("parses"), None);
-        state.set_pane_page(Some(crate::tui::PanePage::shown(page(20))));
-        state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let focused_on = |entry: &str| {
+            let text = format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "single",
+                    "context": [{entry}], "options": [{{"id": "a", "label": "A"}}]}}]}}"#
+            );
+            let mut state =
+                SessionState::new("text", serde_json::from_str(&text).expect("parses"), None);
+            state.set_pane_page(Some(crate::tui::PanePage::shown(page(20))));
+            state.handle(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+            keys_of(key_hints(&state, false, Some(page(20))))
+        };
         assert_eq!(
-            keys_of(key_hints(&state, false, Some(page(20)))),
+            focused_on(r#"{"type": "code", "content": "x"}"#),
+            [
+                "↑/↓",
+                "pgup/pgdn",
+                "ctrl-u/ctrl-d",
+                "z",
+                "o",
+                "?",
+                "tab/esc/q"
+            ],
+            "o opens code"
+        );
+        assert_eq!(
+            focused_on(r#"{"type": "ansi", "content": "x"}"#),
             ["↑/↓", "pgup/pgdn", "ctrl-u/ctrl-d", "z", "?", "tab/esc/q"],
-            "o opens images only"
+            "o does not open ANSI text"
         );
     }
 
@@ -647,6 +665,7 @@ mod tests {
                 ("pgup/pgdn", "page"),
                 ("ctrl-u/ctrl-d", "half page"),
                 ("z", "full screen"),
+                ("o", "open"),
                 ("s", "side by side"),
                 ("?", "help"),
                 ("tab/esc/q", "back")
@@ -722,7 +741,7 @@ mod tests {
 
         assert_eq!(
             lines.iter().find(|line| line.starts_with("o, z")),
-            Some(&"o, z, s    open an image; full screen; diff side by side".to_owned())
+            Some(&"o, z, s    open an entry; full screen; diff side by side".to_owned())
         );
     }
 
@@ -738,6 +757,7 @@ mod tests {
                 ("pgup/pgdn", "page"),
                 ("ctrl-u/ctrl-d", "half page"),
                 ("z", "full screen"),
+                ("o", "open"),
                 ("?", "help"),
                 ("tab/esc/q", "back")
             ]
@@ -756,6 +776,7 @@ mod tests {
                 ("↑/↓", "scroll"),
                 ("pgup/pgdn", "page"),
                 ("ctrl-u/ctrl-d", "half page"),
+                ("o", "open"),
                 ("?", "help"),
                 ("z/esc/q", "back")
             ]
@@ -880,7 +901,7 @@ mod tests {
 
         assert_eq!(
             bar_of(&state, page, 100),
-            " ↑/↓  scroll   pgup/pgdn  page   z  full screen   ?  help   tab/esc/q  back"
+            " ↑/↓  scroll   pgup/pgdn  page   z  full screen   o  open   ?  help   tab/esc/q  back"
         );
     }
 

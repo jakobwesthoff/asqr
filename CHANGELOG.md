@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The empty queue and the terminal title name the queue asqr watches,
   unless it is the default queue: "Nothing to answer in queue
   asqr-todos." and `asqr · asqr-todos · 2 waiting`.
+- `o` opens a code, Markdown or diff entry in the app the system has
+  for its file type, through `open` on macOS and `xdg-open` elsewhere,
+  as it opens an image. An entry with a `path` opens that file. Inline
+  code goes into a file with the extension of its language, inline
+  Markdown into a `.md` file, and a diff into a `.diff` file as a
+  unified diff. These files go into a directory of asqr's own in the
+  system's temp directory and stay after asqr quits; a start of asqr
+  removes those whose run ended more than a day ago. `o` on an ANSI
+  entry still opens nothing and says so. In the focused pane and the
+  full-screen view, the key bar names `o  open` wherever `o` opens the
+  entry.
 
 ### Changed
 
@@ -25,7 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   description beside the labels, leaves room for `◀ default`. The lines
   below wrap at the full width instead of leaving an empty column under
   the marker.
-- When the program that opens an image for `o` exits with an error, a
+- `o` on an entry whose `path` is relative, names no file or is no
+  regular file, an image included, says why in a notice instead of
+  handing the path to the program that opens it.
+- When the program that opens an entry for `o` exits with an error, a
   notice says so and names its exit code, or that a signal ended it.
   That program now runs in a process group of its own, so a program it
   starts in the terminal does not take asqr's keys.

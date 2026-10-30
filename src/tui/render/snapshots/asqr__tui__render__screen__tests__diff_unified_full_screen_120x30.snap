@@ -31,4 +31,4 @@ expression: unified
 " │ 22    - o21                                                                                                          "
 " ╰──────────────────────────────────────────────────────────────────────────────────────────────────────── 1–22 of 61 ─ "
 "                                                                                                                        "
-" ↑/↓  scroll   pgup/pgdn  page   ctrl-u/ctrl-d  half page   s  side by side   ?  help   z/esc/q  back                   "
+" ↑/↓  scroll   pgup/pgdn  page   ctrl-u/ctrl-d  half page   o  open   s  side by side   ?  help   z/esc/q  back         "

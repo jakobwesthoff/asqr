@@ -16,7 +16,7 @@ use super::scroll::scroll;
 use super::{
     EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, RowCut, SessionState,
 };
-use crate::format::{Answer, SessionResult, same_session_id};
+use crate::format::{Answer, ContextEntry, SessionResult, same_session_id};
 
 /// How a finished session ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,7 +46,8 @@ pub enum AppEffect {
         outcome: Outcome,
     },
     Quit,
-    OpenImage(String),
+    /// Open this entry in the app the system has for its file type.
+    Open(ContextEntry),
     /// Open a field in the person's editor (ADR 74).
     Edit(EditRequest),
 }
@@ -449,7 +450,7 @@ impl App {
                 },
             },
             Effect::Quit => AppEffect::Quit,
-            Effect::OpenImage(path) => AppEffect::OpenImage(path),
+            Effect::Open(entry) => AppEffect::Open(entry),
             Effect::Edit(request) => AppEffect::Edit(request),
             Effect::OpenSessionList => {
                 self.list = Some(self.active);
@@ -602,16 +603,22 @@ mod tests {
     }
 
     #[test]
-    fn opening_an_image_passes_through() {
-        let mut app = App::default();
-        let with_image: Session = serde_json::from_str(
-            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single", "context": [{"type": "image", "path": "/i.png"}],
-                "options": [{"id": "a", "label": "A"}]}]}"#,
-        )
-        .expect("parses");
-        app.add(SessionState::new("img", with_image, None));
+    fn opening_the_entry_shown_passes_through() {
+        for entry in [
+            r#"{"type": "image", "path": "/i.png"}"#,
+            r#"{"type": "code", "content": "fn main() {}"}"#,
+        ] {
+            let mut app = App::default();
+            let session: Session = serde_json::from_str(&format!(
+                r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "single", "context": [{entry}],
+                    "options": [{{"id": "a", "label": "A"}}]}}]}}"#
+            ))
+            .expect("parses");
+            let shown = session.questions[0].context[0].clone();
+            app.add(SessionState::new("shown", session, None));
 
-        assert_eq!(app.handle(key('o')), AppEffect::OpenImage("/i.png".into()));
+            assert_eq!(app.handle(key('o')), AppEffect::Open(shown), "{entry}");
+        }
     }
 
     #[test]

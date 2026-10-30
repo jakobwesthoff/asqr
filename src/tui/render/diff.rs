@@ -78,6 +78,65 @@ fn language(entry: &DiffEntry) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------
+// The diff as a file
+// ---------------------------------------------------------------------
+
+/// `entry` as the text of a unified diff, for the app `o` opens it in, with
+/// `label` as the file's name in its header. The sides are read and
+/// compared as the viewer does, so the hunks are the ones the pane shows,
+/// and the notes the pane shows about cut sides and line ends come first,
+/// as lines `patch` and `git apply` pass over before the header. The
+/// error says which side cannot be read and why.
+pub(crate) fn unified_text(entry: &DiffEntry, label: &str) -> Result<String, String> {
+    let (old, new) = read("old", entry.old.as_ref())
+        .and_then(|old| Ok((old, read("new", entry.new.as_ref())?)))
+        .map_err(|(side, unreadable)| format!("{side} side: {}", unreadable.reason))?;
+    let cuts = [&old, &new]
+        .into_iter()
+        .flatten()
+        .filter_map(|side| side.cut);
+    let mut text: String = between_cut_notes(cuts, [], |note| note)
+        .map(|note| format!("{}\n", note.text()))
+        .collect();
+    let (old, new) = (text_of(old.as_ref()), text_of(new.as_ref()));
+    if let (Some(old), Some(new)) = (old, new) {
+        let (old, new) = (LineEnds::of(old), LineEnds::of(new));
+        if old != new && old != LineEnds::NONE && new != LineEnds::NONE {
+            text.push_str(endings_note(old, new).text());
+            text.push('\n');
+        }
+    }
+    let side = |given: bool, prefix: &str| {
+        if given {
+            format!("{prefix}/{label}")
+        } else {
+            "/dev/null".to_owned()
+        }
+    };
+    text.push_str(&format!(
+        "--- {}\n+++ {}\n",
+        side(old.is_some(), "a"),
+        side(new.is_some(), "b")
+    ));
+    let (old, new) = (
+        unix_line_ends(old.unwrap_or_default()),
+        unix_line_ends(new.unwrap_or_default()),
+    );
+    let diff = TextDiff::configure()
+        .algorithm(Algorithm::Histogram)
+        .deadline(Instant::now() + DIFF_TIME)
+        .diff_lines(old.as_ref(), new.as_ref());
+    let mut unified = diff.unified_diff();
+    unified
+        .context_radius(CONTEXT_LINES)
+        .missing_newline_hint(true);
+    for hunk in unified.iter_hunks() {
+        text.push_str(&hunk.to_string());
+    }
+    Ok(text)
+}
+
+// ---------------------------------------------------------------------
 // Reading the sides
 // ---------------------------------------------------------------------
 
@@ -830,7 +889,7 @@ mod tests {
     use ratatui::style::{Color, Modifier};
 
     use super::super::code::HIGHLIGHT_LIMIT;
-    use super::super::source_file::MAX_BYTES;
+    use super::super::source_file::{MAX_BYTES, MAX_LINES};
     use super::super::test_support::{drawn, row, rows, shown};
     use super::*;
 
@@ -1053,6 +1112,111 @@ impl Fetcher {
         assert_eq!(buf[(6, 1)].symbol(), "‹");
         assert_eq!(buf[(39, 1)].symbol(), "›");
         assert_filled(&buf, 1, Color::Green);
+    }
+
+    // -----------------------------------------------------------------
+    // The diff as a file
+    // -----------------------------------------------------------------
+
+    /// The `.diff` text of the entry `json` describes, its `name` or
+    /// `title` the header's label.
+    fn diff_text(json: serde_json::Value) -> Result<String, String> {
+        let entry: DiffEntry = serde_json::from_value(json).expect("test entry parses");
+        let label = entry
+            .name
+            .clone()
+            .or(entry.title.clone())
+            .unwrap_or_default();
+        unified_text(&entry, &label)
+    }
+
+    #[test]
+    fn the_diff_file_names_the_file_and_holds_the_hunk_with_three_lines_of_context() {
+        let old = "1\n2\n3\n4\n5\n6\n7\n8\n";
+        let new = "1\n2\n3\n4\nfive\n6\n7\n8\n";
+
+        let text = diff_text(serde_json::json!({
+            "name": "fetch.rs", "old": {"content": old}, "new": {"content": new}
+        }));
+
+        assert_eq!(
+            text.as_deref(),
+            Ok(
+                "--- a/fetch.rs\n+++ b/fetch.rs\n@@ -2,7 +2,7 @@\n 2\n 3\n 4\n-5\n+five\n 6\n 7\n 8\n"
+            )
+        );
+    }
+
+    #[test]
+    fn the_diff_file_of_a_new_file_comes_from_dev_null() {
+        let text = diff_text(serde_json::json!({"name": "a.rs", "new": {"content": "x\n"}}));
+
+        assert_eq!(
+            text.as_deref(),
+            Ok("--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1 @@\n+x\n")
+        );
+    }
+
+    #[test]
+    fn the_diff_file_of_a_deleted_file_goes_to_dev_null() {
+        let text = diff_text(serde_json::json!({"name": "a.rs", "old": {"content": "x\n"}}));
+
+        assert_eq!(
+            text.as_deref(),
+            Ok("--- a/a.rs\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n")
+        );
+    }
+
+    #[test]
+    fn the_diff_file_marks_a_missing_newline() {
+        let text = diff_text(serde_json::json!({
+            "title": "a.rs", "old": {"content": "x\n"}, "new": {"content": "x"}
+        }))
+        .expect("readable");
+
+        assert!(
+            text.ends_with("+x\n\\ No newline at end of file\n"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn the_diff_file_of_sides_apart_only_in_line_ends_says_so_above_its_header() {
+        let text = diff_text(serde_json::json!({
+            "name": "a.rs", "old": {"content": "x\r\ny\r\n"}, "new": {"content": "x\ny\n"}
+        }));
+
+        assert_eq!(
+            text.as_deref(),
+            Ok("line endings differ: old CRLF, new LF\n--- a/a.rs\n+++ b/a.rs\n")
+        );
+    }
+
+    #[test]
+    fn a_side_that_cannot_be_read_names_the_side() {
+        let text = diff_text(serde_json::json!({
+            "old": {"path": "/nowhere/old.rs"}, "new": {"content": "x\n"}
+        }));
+
+        let error = text.expect_err("the old side is missing");
+        assert!(error.starts_with("old side: "), "{error}");
+    }
+
+    #[test]
+    fn a_side_cut_after_its_lines_says_so_above_the_header() {
+        let new = "x\n".repeat(MAX_LINES + 1);
+
+        let text = diff_text(serde_json::json!({"name": "a.rs", "new": {"content": new}}))
+            .expect("readable");
+
+        assert!(
+            text.starts_with(
+                "first 500,000 lines shown\n… the rest is cut after 500,000 lines\n\
+                 --- /dev/null\n+++ b/a.rs\n"
+            ),
+            "{}",
+            &text[..120]
+        );
     }
 
     // -----------------------------------------------------------------

@@ -29,8 +29,9 @@ use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
-    Alerts, Event, EventSource, Host, KeepAlive, KeyReader, ProgressTerminal, SleepClock, alert,
-    opener_failure, progress_sequence, progress_terminal, run, spawn_reaped, start, watch_inbox,
+    Alerts, Event, EventSource, Host, KeepAlive, KeyReader, OpenedFiles, ProgressTerminal,
+    SleepClock, alert, opener_failure, progress_sequence, progress_terminal, run, spawn_reaped,
+    start, watch_inbox,
 };
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -202,6 +203,9 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
     if let Some(path) = std::env::var_os("ASQR_TEST_PANIC_ON_LOAD") {
         view = view.panicking_on_load(path);
     }
+    // The files `o` wrote in earlier runs that may go are removed here,
+    // under the queue's lock.
+    let mut opened = OpenedFiles::in_temp_dir();
     run(
         &mut terminal,
         &mut app,
@@ -209,6 +213,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         &mut view,
         &events,
         &mut host,
+        &mut opened,
     )
 }
 
@@ -827,7 +832,7 @@ impl Host for TerminalHost {
         stdout.flush()
     }
 
-    fn open_image(&mut self, path: &str) -> io::Result<()> {
+    fn open(&mut self, path: &Path, name: &str) -> io::Result<()> {
         // A debug build panics here when the PTY tests ask it to, so they
         // see what asqr gives back on a panic in its run loop.
         #[cfg(debug_assertions)]
@@ -840,7 +845,7 @@ impl Host for TerminalHost {
             "xdg-open"
         };
         let failures = self.openers.clone();
-        let name = path.to_owned();
+        let name = name.to_owned();
         // The viewer must not write into the TUI's screen.
         let mut command = Command::new(viewer);
         command
