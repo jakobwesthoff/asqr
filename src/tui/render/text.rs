@@ -7,12 +7,13 @@
 //! for the width the text gets,
 //! with every newline a line break and raw HTML as written, laid out by
 //! the adapter's one rule for Markdown, so a line patine leaves wider
-//! wraps behind a dim `↪`.
+//! wraps behind a dim `↪`. The first line of a text may get fewer columns
+//! than the rest, for the marker of a default option.
 
 use patine::{Html, QuoteStyle, RenderOptions, SoftBreaks};
 use ratatui::text::{Line, Span};
 
-use super::patine_adapter::{markdown_rows, source_line};
+use super::patine_adapter::{markdown_rows_from, source_line};
 use super::source_line::SourceLine;
 
 /// How the text fields differ from Markdown documents (ADR 35): a single
@@ -29,8 +30,23 @@ const fn field_options(quote: QuoteStyle) -> RenderOptions {
 /// with quotes in `quote`. Text without any content renders to no lines at
 /// all.
 pub fn field_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<Line<'static>> {
-    markdown_rows(
-        &patine::render_lines_with(source, width, &field_options(quote)),
+    field_lines_from(source, width, width, quote)
+}
+
+/// `source` rendered as [`field_lines`] renders it, with its first line at
+/// most `first` columns wide and every later line `width`, for a text
+/// whose first line shares its row with the marker of a default option
+/// (ADR 79).
+pub fn field_lines_from(
+    source: &str,
+    first: usize,
+    width: usize,
+    quote: QuoteStyle,
+) -> Vec<Line<'static>> {
+    let options = field_options(quote).with_first_line_width(first);
+    markdown_rows_from(
+        &patine::render_lines_with(source, width, &options),
+        first,
         width,
     )
     .iter()
@@ -87,6 +103,16 @@ mod tests {
             .iter()
             .map(|span| (span.content.to_string(), span.style))
             .collect()
+    }
+
+    #[test]
+    fn a_text_takes_its_first_width_on_its_first_line_only() {
+        let words = "a01 a02 a03 a04 a05 a06 a07 a08 a09 a10 a11 a12";
+
+        assert_eq!(
+            texts(&field_lines_from(words, 20, 31, quote_style(false))),
+            ["a01 a02 a03 a04 a05", "a06 a07 a08 a09 a10 a11 a12"]
+        );
     }
 
     #[test]

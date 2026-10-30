@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The agent skill tells agents to write every question for a person who
   has not seen their work, saying what a thing is instead of referring
   to it by a name only they know.
+- Only the first line of a default option's label, or of its
+  description beside the labels, leaves room for `◀ default`. The lines
+  below wrap at the full width instead of leaving an empty column under
+  the marker.
 
 ### Fixed
 

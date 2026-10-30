@@ -12,6 +12,9 @@ the marker of a default option is bold in the primary colour
 Amends [55. Wrap option labels and render them as Markdown](0055-wrap-option-labels-and-render-them-as-markdown.md):
 the first line of a default option leaves room for its marker
 
+Amended by [79. Let a default option's text flow around its marker](0079-let-a-default-option-s-text-flow-around-its-marker.md):
+only the first line of the text leaves room for the marker
+
 ## Context
 
 - An option with `default: true` is preselected and drawn like an option

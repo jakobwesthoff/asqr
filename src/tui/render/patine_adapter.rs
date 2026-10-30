@@ -101,12 +101,24 @@ pub fn source_line(line: &StyledLine) -> SourceLine {
 /// the line breaks without one. So every row fits `width` from 2 columns
 /// on.
 pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
+    markdown_rows_from(lines, width, width)
+}
+
+/// The rows that show Markdown rendered by patine with its first line at
+/// most `first` columns wide and every later line `width` (ADR 79), laid
+/// out as [`markdown_rows`] lays them out. The first row fits `first`,
+/// every later one `width`, both from 2 columns on: a first line patine
+/// leaves wider than `first`, such as a line of a code block or an
+/// overlong first word, breaks there, and its further rows take the full
+/// width behind the `↪`.
+pub fn markdown_rows_from(lines: &[StyledLine], first: usize, width: usize) -> Vec<SourceLine> {
     let marker = theme::secondary();
     let marker_width = 2;
     let mut rows = Vec::new();
-    for line in lines {
+    for (index, line) in lines.iter().enumerate() {
         let line = source_line(line);
-        if line.width() <= width {
+        let first = if index == 0 { first } else { width };
+        if line.width() <= first {
             rows.push(line);
             continue;
         }
@@ -119,10 +131,10 @@ pub fn markdown_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
         } else if marker_width + WIDEST_GRAPHEME <= width {
             (Vec::new(), marker_width)
         } else {
-            rows.extend(line.wrap(width, width));
+            rows.extend(line.wrap(first, width));
             continue;
         };
-        let mut parts = line.wrap(width, width - prefix_width).into_iter();
+        let mut parts = line.wrap(first, width - prefix_width).into_iter();
         rows.extend(parts.next());
         for part in parts {
             let prefix = indent
@@ -482,6 +494,39 @@ mod tests {
             rows_of(&["1.", &word], 40)[1],
             format!("↪ {}", "a".repeat(12)),
             "a number without its blank is no marker either"
+        );
+    }
+
+    /// One patine line of plain `text`.
+    fn plain(text: &str) -> StyledLine {
+        line(&[(text, TextStyle::default())])
+    }
+
+    #[test]
+    fn a_first_line_wider_than_its_first_width_wraps_there_then_at_the_width() {
+        let rows = markdown_rows_from(&[plain("  abcdefghijklmnopqrstuvwxyz")], 10, 16);
+
+        assert_eq!(
+            texts(&rows),
+            ["  abcdefgh", "  ↪ ijklmnopqrst", "  ↪ uvwxyz"]
+        );
+    }
+
+    #[test]
+    fn a_first_line_within_the_width_but_not_its_first_width_wraps() {
+        let rows = markdown_rows_from(&[plain("abcdefghijklmn")], 10, 16);
+
+        assert_eq!(texts(&rows), ["abcdefghij", "↪ klmn"]);
+    }
+
+    /// Guard: the lines after the first keep the full width.
+    #[test]
+    fn only_the_first_line_gets_the_first_width() {
+        let lines = [plain("abcdefghijklmn"), plain("opqrstuvwxyzab")];
+
+        assert_eq!(
+            texts(&markdown_rows_from(&lines, 10, 16)).last(),
+            Some(&"opqrstuvwxyzab".to_owned())
         );
     }
 

@@ -1093,8 +1093,10 @@ has context (section 7.4, ADRs 30 and 31):
 - An option with `default: true` shows `◀ default` bold in the primary
   colour at the right end of its first line, at least 2 columns after the
   text before it, whatever is picked (ADR 76). A label, or a description
-  beside it, whose first line would come closer renders 11 columns
-  narrower on all its lines. Where that leaves such a label less than 20
+  beside it, whose first line would come closer wraps that line 11
+  columns earlier, and the lines below take the full width; a table that
+  starts such a text is 11 columns narrower on all its rows (ADR 79).
+  Where that leaves such a label less than 20
   columns beside its number, the whole label goes on the lines below and
   the marker stands alone on the option's row; a pane narrower than 19
   columns, or 20 from option 10 on, shows no marker. Descriptions stand

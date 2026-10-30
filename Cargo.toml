@@ -24,7 +24,7 @@ gethostname = "1.1.0"
 image = "0.25.10"
 jiff = "0.2.37"
 notify-debouncer-full = "0.7.0"
-patine = { version = "1.8.0", default-features = false }
+patine = { version = "1.9.0", default-features = false }
 ratatui = "0.30.2"
 # Pinned exactly, as cargo picks a pre-release only when it is named. The
 # default features stay off: they include `chafa-dyn`, which needs

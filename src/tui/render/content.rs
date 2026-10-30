@@ -24,7 +24,7 @@ use super::panes::{self, Arrangement, PaneLayout, READING_WIDTH};
 use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
 use super::patine_adapter::WIDEST_GRAPHEME;
 use super::source_line::{columns, fitting};
-use super::text::field_lines;
+use super::text::{field_lines, field_lines_from};
 use super::theme;
 use super::viewer::Viewers;
 use super::wrap::{cut_spans, indented, trim_end, wrap};
@@ -591,9 +591,9 @@ fn question_content(
     // with the marker, and keeps that room beside the marker too.
     //
     // The marker never moves descriptions below that would stand beside
-    // without it: a default label narrows only when it ends within the
-    // marker's room of the edge, and a column after such a label leaves
-    // the descriptions too little room anyway.
+    // without it: a default label's first line narrows only when it ends
+    // within the marker's room of the edge, and a column after such a label
+    // leaves the descriptions too little room anyway.
     let described_default = question.options.iter().flatten().any(|option| {
         option.default
             && option
@@ -774,8 +774,9 @@ impl LabelRows {
 ///
 /// The label of a default option leaves `room` columns at the end of its
 /// first line for the marker, as [`leaving_room`] does. Where the narrower
-/// lines would leave it less than `MIN_LABEL_WIDTH` columns, it goes on the
-/// lines below instead, and the marker stands alone on the option's row.
+/// first line would leave it less than `MIN_LABEL_WIDTH` columns, it goes
+/// on the lines below instead, and the marker stands alone on the option's
+/// row.
 fn label_rows(
     label: &str,
     prefix: usize,
@@ -794,7 +795,8 @@ fn label_rows(
         if !reaches_room(&lines, beside_room, room) {
             (true, prefix, lines)
         } else if beside_room - room >= MIN_LABEL_WIDTH {
-            (true, prefix, field_lines(label, beside_room - room, quote))
+            let lines = field_lines_from(label, beside_room - room, beside_room, quote);
+            (true, prefix, lines)
         } else {
             (false, below, field_lines(label, width - below, quote))
         }
@@ -822,14 +824,13 @@ fn label_rows(
 /// the last `room` columns of its first line free for the marker of a
 /// default option.
 ///
-/// patine renders every line of a text for one width, so a text whose
-/// first line would reach into that room renders `room` columns narrower
-/// on all its lines. A text whose first line stays clear of it keeps the
-/// full width on every line (ADR 76).
+/// A text whose first line stays clear of that room keeps the full width
+/// on every line (ADR 76). Otherwise only its first line renders `room`
+/// columns narrower, and the lines below take the full width (ADR 79).
 fn leaving_room(source: &str, width: usize, room: usize, quote: QuoteStyle) -> Vec<Line<'static>> {
     let lines = field_lines(source, width, quote);
     if reaches_room(&lines, width, room) {
-        field_lines(source, width.saturating_sub(room), quote)
+        field_lines_from(source, width.saturating_sub(room), width, quote)
     } else {
         lines
     }
@@ -2120,6 +2121,58 @@ mod tests {
     }
 
     #[test]
+    fn a_default_label_keeps_the_room_on_its_first_line_only() {
+        // Beside the number the label gets 31 columns at 40, its first line
+        // the 20 the marker and its gap leave.
+        let state = labelled(&format!(
+            r#"[{{"id": "a", "label": "{}", "default": true}}]"#,
+            three_letter_words(12)
+        ));
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 40)),
+            [
+                marked_row("  (•) 1. a01 a02 a03 a04 a05", 40),
+                "         a06 a07 a08 a09 a10 a11 a12".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_default_label_starting_with_a_list_item_continues_under_its_text() {
+        let state = labelled(&format!(
+            r#"[{{"id": "a", "label": "- {}", "default": true}}]"#,
+            three_letter_words(12)
+        ));
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 40)),
+            [
+                marked_row("  (•) 1. • a01 a02 a03 a04", 40),
+                "           a05 a06 a07 a08 a09 a10 a11".to_owned(),
+                "           a12".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_default_label_starting_with_a_quote_keeps_its_bar() {
+        let state = labelled(&format!(
+            r#"[{{"id": "a", "label": "> {}", "default": true}}]"#,
+            three_letter_words(12)
+        ));
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 40)),
+            [
+                marked_row("  (•) 1. │ a01 a02 a03 a04", 40),
+                "         │ a05 a06 a07 a08 a09 a10 a11".to_owned(),
+                "         │ a12".to_owned()
+            ]
+        );
+    }
+
+    #[test]
     fn a_default_label_without_twenty_columns_beside_the_marker_goes_below() {
         // At 35 the number leaves 26 columns, the marker and its gap 15.
         let long = labelled(
@@ -2189,6 +2242,30 @@ mod tests {
                 "  ( ) 2. Beta   Second.".to_owned()
             ],
             "a short default label keeps the descriptions beside"
+        );
+    }
+
+    #[test]
+    fn a_default_s_description_beside_keeps_the_room_on_its_first_line_only() {
+        // From column 16 of 80 the description gets 64 columns, its first
+        // line the 53 beside the marker.
+        let state = labelled(&format!(
+            r#"[{{"id": "a", "label": "Alpha", "default": true, "description": "{}"}},
+                {{"id": "b", "label": "Beta", "description": "Second."}}]"#,
+            three_letter_words(30)
+        ));
+        let words = three_letter_words(30);
+        let (first, rest) = words.split_at(51);
+        let (second, third) = rest.split_at(64);
+
+        assert_eq!(
+            test_support::line_texts(&option_rows(&state, 80)),
+            [
+                marked_row(&format!("  (•) 1. Alpha  {first}"), 80),
+                format!("               {second}"),
+                format!("               {third}"),
+                "  ( ) 2. Beta   Second.".to_owned()
+            ]
         );
     }
 
