@@ -8,6 +8,7 @@
 //! call, [`hint_if_older`]; everything else is here.
 
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::fmt;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -46,28 +47,86 @@ const PROJECT_DIRS: &[&str] = &[
 /// core is longer than this, so a file is never read whole.
 const PREFIX: usize = 16 * 1024;
 
-/// Skills directories relative to the home directory.
-const GLOBAL_DIRS: &[&str] = &[
-    // The shared directory: Codex (https://learn.chatgpt.com/docs/build-skills),
-    // Gemini CLI (https://geminicli.com/docs/cli/skills/), GitHub Copilot
-    // and Cursor (see above).
-    ".agents/skills",
-    // Claude Code: https://code.claude.com/docs/en/skills
-    ".claude/skills",
-    // Gemini CLI: https://geminicli.com/docs/cli/skills/
-    ".gemini/skills",
-    // GitHub Copilot:
-    // https://docs.github.com/en/copilot/concepts/customizations/agent-skills
-    ".copilot/skills",
-    // Cursor: https://cursor.com/docs/skills
-    ".cursor/skills",
+/// A global skills directory.
+struct GlobalDir {
+    /// Relative to the home directory.
+    home_relative: &'static str,
+    /// A variable that moves the agent's directory elsewhere.
+    moved_by: Option<Override>,
+}
+
+/// An environment variable that names a directory an agent uses in place
+/// of its default one. The skills are then in `$variable/<subpath>`, and
+/// that directory is searched right after the default one.
+struct Override {
+    variable: &'static str,
+    subpath: &'static str,
+}
+
+/// Global skills directories, in the order a copy found in several is
+/// named by the first.
+const GLOBAL_DIRS: &[GlobalDir] = &[
+    GlobalDir {
+        // The shared directory: Codex
+        // (https://learn.chatgpt.com/docs/build-skills), Gemini CLI
+        // (https://geminicli.com/docs/cli/skills/), GitHub Copilot and
+        // Cursor (see above).
+        home_relative: ".agents/skills",
+        moved_by: None,
+    },
+    GlobalDir {
+        // Claude Code: https://code.claude.com/docs/en/skills
+        home_relative: ".claude/skills",
+        // It keeps its configuration in `CLAUDE_CONFIG_DIR` in place of
+        // `~/.claude`: https://code.claude.com/docs/en/env-vars and
+        // https://code.claude.com/docs/en/claude-directory
+        moved_by: Some(Override {
+            variable: "CLAUDE_CONFIG_DIR",
+            subpath: "skills",
+        }),
+    },
+    GlobalDir {
+        // Gemini CLI: https://geminicli.com/docs/cli/skills/
+        home_relative: ".gemini/skills",
+        moved_by: None,
+    },
+    GlobalDir {
+        // GitHub Copilot:
+        // https://docs.github.com/en/copilot/concepts/customizations/agent-skills
+        home_relative: ".copilot/skills",
+        moved_by: None,
+    },
+    GlobalDir {
+        // Cursor: https://cursor.com/docs/skills
+        home_relative: ".cursor/skills",
+        moved_by: None,
+    },
+    GlobalDir {
+        // Cursor loads the Codex directory too:
+        // https://cursor.com/docs/skills
+        home_relative: ".codex/skills",
+        moved_by: None,
+    },
 ];
+
+/// The variables of the table of global directories that move one. A test that
+/// must not find the skills of whoever runs it removes them all.
+pub fn override_variables() -> impl Iterator<Item = &'static str> {
+    GLOBAL_DIRS
+        .iter()
+        .filter_map(|dir| dir.moved_by.as_ref())
+        .map(|moved| moved.variable)
+}
 
 /// What a search needs to know, so tests can give it directories of their
 /// own.
 struct Search<'a> {
     cwd: &'a Path,
     home: Option<&'a Path>,
+    /// The global directories, [`GLOBAL_DIRS`].
+    global: &'a [GlobalDir],
+    /// The value of an environment variable by its name.
+    variable: &'a dyn Fn(&str) -> Option<OsString>,
     /// The directory the walk up from `cwd` ends in, the git root. None
     /// searches `cwd` alone.
     stop: Option<&'a Path>,
@@ -96,9 +155,20 @@ fn hint_of_process() -> Option<String> {
     check(&Search {
         cwd: &cwd,
         home: home.as_deref(),
+        global: GLOBAL_DIRS,
+        variable: &|name| std::env::var_os(name),
         stop: stop.as_deref(),
         running: env!("CARGO_PKG_VERSION"),
     })
+}
+
+/// The directory a variable names, none when it names none.
+///
+/// A relative value has no stable meaning for asqr, which runs from
+/// another directory than the agent may have, and neither has an empty
+/// one or one that starts with a `~` that no shell expanded.
+fn override_dir(value: Option<OsString>) -> Option<PathBuf> {
+    value.map(PathBuf::from).filter(|dir| dir.is_absolute())
 }
 
 /// The nearest directory from `cwd` up that holds a `.git`, a directory in
@@ -137,6 +207,19 @@ fn check(search: &Search<'_>) -> Option<String> {
         }
     };
     let canonical_home = search.home.and_then(|home| home.canonicalize().ok());
+    // A directory below the home directory is named from it, as given
+    // and as the system resolves it (the current directory is the
+    // resolved one), and any other by its full path.
+    let shown_below_home = |dir: PathBuf| {
+        let under_home = [search.home, canonical_home.as_deref()]
+            .into_iter()
+            .flatten()
+            .find_map(|home| dir.strip_prefix(home).ok().map(Path::to_owned));
+        match under_home {
+            Some(rest) => Shown::Home(rest),
+            None => Shown::Absolute(dir),
+        }
+    };
     for (level, root) in project_roots(search.cwd, search.stop)
         .into_iter()
         .enumerate()
@@ -149,22 +232,25 @@ fn check(search: &Search<'_>) -> Option<String> {
             let shown = if level == 0 {
                 Shown::Relative(entry.into())
             } else {
-                let above = root.join(entry);
-                let under_home = [search.home, canonical_home.as_deref()]
-                    .into_iter()
-                    .flatten()
-                    .find_map(|home| above.strip_prefix(home).ok());
-                match under_home {
-                    Some(rest) => Shown::Home(rest.to_owned()),
-                    None => Shown::Absolute(above),
-                }
+                shown_below_home(root.join(entry))
             };
             consider(shown, root.join(entry).join("asqr"));
         }
     }
-    if let Some(home) = search.home {
-        for entry in GLOBAL_DIRS {
-            consider(Shown::Home(entry.into()), home.join(entry).join("asqr"));
+    for dir in search.global {
+        if let Some(home) = search.home {
+            consider(
+                Shown::Home(dir.home_relative.into()),
+                home.join(dir.home_relative).join("asqr"),
+            );
+        }
+        // The default directory stays searched: it is not documented
+        // whether the agent still reads it once the variable is set.
+        if let Some(moved) = &dir.moved_by
+            && let Some(base) = override_dir((search.variable)(moved.variable))
+        {
+            let skills = base.join(moved.subpath);
+            consider(shown_below_home(skills.clone()), skills.join("asqr"));
         }
     }
     (!old.is_empty()).then(|| hint_text(&old, search.running))
@@ -417,9 +503,41 @@ mod tests {
     }
 
     fn run(cwd: &Path, home: Option<&Path>, stop: Option<&Path>) -> Option<String> {
+        run_with_config(cwd, home, None, stop)
+    }
+
+    fn run_with_config(
+        cwd: &Path,
+        home: Option<&Path>,
+        claude_config: Option<&Path>,
+        stop: Option<&Path>,
+    ) -> Option<String> {
+        let variables: Vec<(&str, &Path)> = claude_config
+            .map(|dir| ("CLAUDE_CONFIG_DIR", dir))
+            .into_iter()
+            .collect();
+        run_with_variables(GLOBAL_DIRS, cwd, home, &variables, stop)
+    }
+
+    /// A search over the global directories `global`, where the
+    /// environment holds exactly `variables`.
+    fn run_with_variables(
+        global: &[GlobalDir],
+        cwd: &Path,
+        home: Option<&Path>,
+        variables: &[(&str, &Path)],
+        stop: Option<&Path>,
+    ) -> Option<String> {
         check(&Search {
             cwd,
             home,
+            global,
+            variable: &|name| {
+                variables
+                    .iter()
+                    .find(|(known, _)| *known == name)
+                    .map(|(_, value)| OsString::from(value))
+            },
             stop,
             running: RUNNING,
         })
@@ -523,7 +641,8 @@ mod tests {
                 "project {entry}: {hint:?}"
             );
         }
-        for entry in GLOBAL_DIRS {
+        for dir in GLOBAL_DIRS {
+            let entry = dir.home_relative;
             let home = temp();
             let project = temp();
             put(home.path(), entry, Some("0.14.0"));
@@ -536,6 +655,22 @@ mod tests {
                 "global {entry}: {hint:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_codex_directory_copy_in_the_home_directory_is_named_under_it() {
+        let home = temp();
+        let project = temp();
+        put(home.path(), ".codex/skills", Some("0.14.0"));
+
+        let hint = run(project.path(), Some(home.path()), Some(project.path()));
+
+        assert_eq!(
+            hint.as_deref(),
+            Some(
+                "the asqr skill in ~/.codex/skills/asqr is from asqr 0.14.0, this asqr is 0.15.0; read the current one with `asqr skill`, and ask the person whether to update the copy with `asqr skill --install ~/.codex/skills`"
+            )
+        );
     }
 
     #[test]
@@ -697,6 +832,296 @@ mod tests {
         assert_eq!(
             stamp_of(super::super::skill::SKILL),
             Some(Stamp::Version(running))
+        );
+    }
+
+    // =====================================================================
+    // The directory CLAUDE_CONFIG_DIR names
+    // =====================================================================
+
+    fn config_dir(value: &str) -> Option<PathBuf> {
+        override_dir(Some(OsString::from(value)))
+    }
+
+    #[test]
+    fn an_unset_claude_config_dir_names_no_directory() {
+        assert_eq!(override_dir(None), None);
+    }
+
+    #[test]
+    fn an_empty_claude_config_dir_names_no_directory() {
+        assert_eq!(config_dir(""), None);
+    }
+
+    #[test]
+    fn a_relative_claude_config_dir_names_no_directory() {
+        assert_eq!(config_dir("rel"), None);
+    }
+
+    #[test]
+    fn a_claude_config_dir_with_a_literal_tilde_names_no_directory() {
+        // Nothing expands the `~` in the environment, so the path is
+        // relative.
+        assert_eq!(config_dir("~/.claude-work"), None);
+    }
+
+    #[test]
+    fn an_absolute_claude_config_dir_is_the_directory() {
+        assert_eq!(
+            config_dir("/home/me/.claude-work"),
+            Some(PathBuf::from("/home/me/.claude-work"))
+        );
+    }
+
+    #[test]
+    fn a_copy_in_the_claude_config_dir_below_home_is_named_under_home() {
+        let home = temp();
+        let project = temp();
+        let config = home.path().join(".claude-work");
+        put(&config, "skills", Some("0.14.0"));
+
+        let hint = run_with_config(
+            project.path(),
+            Some(home.path()),
+            Some(&config),
+            Some(project.path()),
+        );
+
+        assert_eq!(
+            hint.as_deref(),
+            Some(
+                "the asqr skill in ~/.claude-work/skills/asqr is from asqr 0.14.0, this asqr is 0.15.0; read the current one with `asqr skill`, and ask the person whether to update the copy with `asqr skill --install ~/.claude-work/skills`"
+            )
+        );
+    }
+
+    #[test]
+    fn a_copy_in_the_claude_config_dir_outside_home_is_named_absolute() {
+        let home = temp();
+        let project = temp();
+        let config = temp();
+        put(config.path(), "skills", Some("0.14.0"));
+
+        let hint = run_with_config(
+            project.path(),
+            Some(home.path()),
+            Some(config.path()),
+            Some(project.path()),
+        )
+        .expect("a hint");
+
+        let skills = config.path().join("skills");
+        assert!(
+            hint.starts_with(&format!(
+                "the asqr skill in {}/asqr is from asqr 0.14.0",
+                skills.display()
+            )),
+            "{hint}"
+        );
+        assert!(
+            hint.ends_with(&format!("`asqr skill --install {}`", skills.display())),
+            "{hint}"
+        );
+    }
+
+    #[test]
+    fn the_claude_config_dir_is_searched_without_a_home() {
+        let project = temp();
+        let config = temp();
+        put(config.path(), "skills", Some("0.14.0"));
+
+        let hint = run_with_config(project.path(), None, Some(config.path()), None);
+
+        assert!(hint.is_some_and(|hint| hint.contains("is from asqr 0.14.0")));
+    }
+
+    #[test]
+    fn the_claude_config_dir_that_is_the_default_directory_is_named_once() {
+        let home = temp();
+        let project = temp();
+        let config = home.path().join(".claude");
+        put(home.path(), ".claude/skills", Some("0.14.0"));
+
+        let hint = run_with_config(
+            project.path(),
+            Some(home.path()),
+            Some(&config),
+            Some(project.path()),
+        )
+        .expect("a hint");
+
+        assert!(
+            hint.starts_with("the asqr skill in ~/.claude/skills/asqr is from"),
+            "{hint}"
+        );
+        assert!(!hint.contains("copies"), "{hint}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_claude_config_dir_whose_skills_link_to_the_default_is_named_once() {
+        let home = temp();
+        let project = temp();
+        put(home.path(), ".claude/skills", Some("0.14.0"));
+        let config = home.path().join(".claude-x");
+        std::fs::create_dir_all(&config).expect("a creatable directory");
+        std::os::unix::fs::symlink("../.claude/skills", config.join("skills")).expect("a symlink");
+
+        let hint = run_with_config(
+            project.path(),
+            Some(home.path()),
+            Some(&config),
+            Some(project.path()),
+        )
+        .expect("a hint");
+
+        assert!(
+            hint.starts_with("the asqr skill in ~/.claude/skills/asqr is from"),
+            "{hint}"
+        );
+        assert!(!hint.contains("claude-x"), "{hint}");
+    }
+
+    #[test]
+    fn the_claude_config_dir_comes_right_after_the_default_claude_directory() {
+        let home = temp();
+        let project = temp();
+        let config = home.path().join(".cfg");
+        put(home.path(), ".gemini/skills", Some("0.12.0"));
+        put(&config, "skills", Some("0.13.0"));
+        put(home.path(), ".claude/skills", Some("0.14.0"));
+
+        let hint = run_with_config(
+            project.path(),
+            Some(home.path()),
+            Some(&config),
+            Some(project.path()),
+        )
+        .expect("a hint");
+
+        let at = |name: &str| {
+            hint.find(name)
+                .unwrap_or_else(|| panic!("{name} in {hint}"))
+        };
+        assert!(
+            at("~/.claude/skills/asqr") < at("~/.cfg/skills/asqr")
+                && at("~/.cfg/skills/asqr") < at("~/.gemini/skills/asqr"),
+            "{hint}"
+        );
+    }
+
+    /// A table of two agents, only the second of which can be moved, by
+    /// a variable that no real agent uses.
+    const MADE_UP: &[GlobalDir] = &[
+        GlobalDir {
+            home_relative: ".first/skills",
+            moved_by: None,
+        },
+        GlobalDir {
+            home_relative: ".second/skills",
+            moved_by: Some(Override {
+                variable: "SECOND_HOME",
+                subpath: "agent/skills",
+            }),
+        },
+    ];
+
+    #[test]
+    fn any_table_entry_can_name_a_variable_and_a_subpath() {
+        let home = temp();
+        let project = temp();
+        let moved = temp();
+        put(moved.path(), "agent/skills", Some("0.14.0"));
+
+        let hint = run_with_variables(
+            MADE_UP,
+            project.path(),
+            Some(home.path()),
+            &[("SECOND_HOME", moved.path())],
+            Some(project.path()),
+        )
+        .expect("a hint");
+
+        let skills = moved.path().join("agent/skills");
+        assert!(
+            hint.starts_with(&format!(
+                "the asqr skill in {}/asqr is from",
+                skills.display()
+            )),
+            "{hint}"
+        );
+    }
+
+    #[test]
+    fn a_variable_of_another_entry_moves_nothing() {
+        let home = temp();
+        let project = temp();
+        let moved = temp();
+        put(moved.path(), "agent/skills", Some("0.14.0"));
+
+        let hint = run_with_variables(
+            MADE_UP,
+            project.path(),
+            Some(home.path()),
+            &[("FIRST_HOME", moved.path())],
+            Some(project.path()),
+        );
+
+        assert_eq!(hint, None);
+    }
+
+    #[test]
+    fn the_default_directory_of_a_moved_entry_stays_searched() {
+        let home = temp();
+        let project = temp();
+        let moved = temp();
+        put(home.path(), ".second/skills", Some("0.13.0"));
+        put(moved.path(), "agent/skills", Some("0.14.0"));
+
+        let hint = run_with_variables(
+            MADE_UP,
+            project.path(),
+            Some(home.path()),
+            &[("SECOND_HOME", moved.path())],
+            Some(project.path()),
+        )
+        .expect("a hint");
+
+        assert!(
+            hint.contains("~/.second/skills/asqr (from asqr 0.13.0)"),
+            "{hint}"
+        );
+        assert!(
+            hint.contains("agent/skills/asqr (from asqr 0.14.0)"),
+            "{hint}"
+        );
+    }
+
+    #[test]
+    fn the_override_variables_are_those_of_the_table() {
+        let names: Vec<&str> = override_variables().collect();
+
+        assert_eq!(names, ["CLAUDE_CONFIG_DIR"]);
+    }
+
+    #[test]
+    fn a_claude_config_dir_with_a_space_is_quoted_after_the_tilde() {
+        let home = temp();
+        let project = temp();
+        let config = home.path().join("my cfg");
+        put(&config, "skills", Some("0.14.0"));
+
+        let hint = run_with_config(
+            project.path(),
+            Some(home.path()),
+            Some(&config),
+            Some(project.path()),
+        )
+        .expect("a hint");
+
+        assert!(
+            hint.ends_with("`asqr skill --install ~/'my cfg/skills'`"),
+            "{hint}"
         );
     }
 

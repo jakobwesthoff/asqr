@@ -222,3 +222,102 @@ fn a_missing_home_leaves_the_project_copies() {
         format!("{}\n", hint(".claude/skills/asqr", ".claude/skills"))
     );
 }
+
+// =========================================================================
+// The environment the sandbox gives
+// =========================================================================
+
+/// The variables that move a skills directory, which a test of the hint
+/// must not inherit: the skills of the person running the tests would be
+/// found. The list is that of the table, and holds Claude Code's.
+fn override_variables() -> Vec<&'static str> {
+    let names: Vec<&str> = asqr::cli::skill_override_variables().collect();
+    assert!(names.contains(&"CLAUDE_CONFIG_DIR"), "{names:?}");
+    names
+}
+
+/// The variables `command` is told to remove.
+fn removed<'a>(
+    envs: impl Iterator<Item = (&'a std::ffi::OsStr, Option<&'a std::ffi::OsStr>)>,
+) -> Vec<String> {
+    envs.filter(|(_, value)| value.is_none())
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect()
+}
+
+#[test]
+fn the_sandbox_removes_every_override_variable_for_asqr() {
+    let sandbox = Sandbox::new();
+
+    let removed = removed(sandbox.asqr().get_envs());
+
+    for name in override_variables() {
+        assert!(removed.iter().any(|known| known == name), "{name}");
+    }
+}
+
+#[test]
+fn the_sandbox_removes_every_override_variable_for_a_spawned_asqr() {
+    let sandbox = Sandbox::new();
+
+    let removed = removed(sandbox.spawnable_asqr().get_envs());
+
+    for name in override_variables() {
+        assert!(removed.iter().any(|known| known == name), "{name}");
+    }
+}
+
+// =========================================================================
+// The directory CLAUDE_CONFIG_DIR names
+// =========================================================================
+
+/// The output of `asqr validate` on a valid session file, with
+/// `CLAUDE_CONFIG_DIR` set to `value`.
+fn validated_with_config_dir(sandbox: &Sandbox, value: &std::path::Path) -> std::process::Output {
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr()
+        .env("CLAUDE_CONFIG_DIR", value)
+        .arg("validate")
+        .arg(&file)
+        .output()
+        .expect("runs")
+}
+
+#[test]
+fn a_copy_in_the_claude_config_dir_is_named_under_the_home_directory() {
+    let sandbox = Sandbox::new();
+    let config = sandbox.home().join(".claude-jakob");
+    sandbox.file(".claude-jakob/skills/asqr/SKILL.md", &skill_of("0.1.0"));
+
+    let output = validated_with_config_dir(&sandbox, &config);
+
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "{}\n",
+            hint("~/.claude-jakob/skills/asqr", "~/.claude-jakob/skills")
+        )
+    );
+}
+
+#[test]
+fn a_relative_claude_config_dir_is_ignored() {
+    let sandbox = Sandbox::new();
+    sandbox.file("rel/skills/asqr/SKILL.md", &skill_of("0.1.0"));
+
+    let output = validated_with_config_dir(&sandbox, std::path::Path::new("rel"));
+
+    assert_eq!(stderr(&output), "");
+}
+
+#[test]
+fn an_empty_claude_config_dir_is_ignored() {
+    let sandbox = Sandbox::new();
+    // An empty value joined with `skills` would be this directory.
+    sandbox.file("skills/asqr/SKILL.md", &skill_of("0.1.0"));
+
+    let output = validated_with_config_dir(&sandbox, std::path::Path::new(""));
+
+    assert_eq!(stderr(&output), "");
+}

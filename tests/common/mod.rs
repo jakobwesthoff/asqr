@@ -54,6 +54,11 @@ impl Sandbox {
         // directory up, so a test must not run in the checkout, whose own
         // skill directories could add a line to stderr.
         command.current_dir(self.home.path());
+        // `ask` and `validate` also search the skills directories these
+        // variables name, which hold the skills of whoever runs the tests.
+        for name in asqr::cli::skill_override_variables() {
+            command.env_remove(name);
+        }
         command
     }
 
@@ -71,6 +76,9 @@ impl Sandbox {
             .env_remove("TMUX")
             .env_remove("TMUX_PANE");
         command.current_dir(self.home.path());
+        for name in asqr::cli::skill_override_variables() {
+            command.env_remove(name);
+        }
         command
     }
 

@@ -28,6 +28,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 pub use exit::Exit;
+pub use skill_age::override_variables as skill_override_variables;
 pub use watch::{Pin, Watch};
 
 use crate::pairing::{self, Multiplexer, SystemTmux, Tmux, TmuxFailure};

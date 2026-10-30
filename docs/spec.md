@@ -2746,10 +2746,17 @@ directory. The project skills directories are `.agents/skills`,
 above it up to the git root, the nearest directory with a `.git` (a
 directory, or a file in a linked worktree). Without one, only the current
 directory is searched. The global ones are `~/.agents/skills`,
-`~/.claude/skills`, `~/.gemini/skills`, `~/.copilot/skills` and
-`~/.cursor/skills`, searched when `HOME` is set and not empty. Each is a
-location that the documentation of Claude Code, Codex, Gemini CLI, GitHub
-Copilot or Cursor names (ADR 87).
+`~/.claude/skills`, `~/.gemini/skills`, `~/.copilot/skills`,
+`~/.cursor/skills` and `~/.codex/skills`, searched when `HOME` is set and
+not empty. Each is a location that the documentation of Claude Code,
+Codex, Gemini CLI, GitHub Copilot or Cursor names (ADR 87).
+
+An environment variable can move a global directory: when it holds an
+absolute path, that path plus a subpath is searched too, right after the
+directory it moves, which stays searched. A variable that is unset, empty
+or relative moves nothing, and the moved directory is searched whether or
+not `HOME` is set. `CLAUDE_CONFIG_DIR` moves `~/.claude/skills`, with the
+subpath `skills`.
 
 - A copy is older when the frontmatter of its `SKILL.md` has an
   `asqr-version` (asqr writes it under `metadata`) below the version of
@@ -2764,12 +2771,13 @@ Copilot or Cursor names (ADR 87).
   that several directories reach through symlinks is named once, under
   the first directory in this order: the current directory before those
   above it, project directories before global ones, each group in the
-  order listed above. One hint names every older copy.
+  order listed above, a moved directory right after the one it moves. One
+  hint names every older copy.
 - A copy in the current directory is named by its skills directory
-  (`.claude/skills/asqr`). A copy in a directory above it under the home
-  directory, and every global copy, are named by `~/` and the path below
-  the home directory. Any other copy is named by its absolute path.
-  `asqr skill --install` is given the skills directory as it is named.
+  (`.claude/skills/asqr`). Any other copy is named by `~/` and the path
+  below the home directory when it lies below it, otherwise by its
+  absolute path. `asqr skill --install` is given the skills directory as
+  it is named.
 - The hint prints on every `ask` and `validate` until the copy is
   updated.
 
