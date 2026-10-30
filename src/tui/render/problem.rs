@@ -296,8 +296,9 @@ impl Viewer for Card {
 /// session is cut in the name, which ends in `…` then, to the room the
 /// mark and the rest leave, so they show whole (ADR 38). One that names a
 /// queue keeps the name and cuts the text after it at its end, and only a
-/// name that does not fit alone is cut, without that text (ADR 86). Any
-/// other is cut at the edge.
+/// name that does not fit alone is cut, without that text (ADR 86); a
+/// second name before it, such as the queue switched to, is cut before
+/// either, down to `…`. Any other is cut at the edge.
 pub(super) fn status_line(notice: &Notice, width: u16) -> Line<'static> {
     let mark = Severity::of(notice.tone)
         .map(|severity| Span::styled(format!("{} ", severity.mark()), Style::new().bold()));
@@ -305,9 +306,20 @@ pub(super) fn status_line(notice: &Notice, width: u16) -> Line<'static> {
         None => notice.text.clone(),
         Some(name) => {
             let (before, after) = (&notice.text[..name.start], &notice.text[name.end..]);
-            let room = usize::from(width)
-                .saturating_sub(mark.as_ref().map_or(0, Span::width) + columns(before));
+            let width = usize::from(width).saturating_sub(mark.as_ref().map_or(0, Span::width));
             let name = &notice.text[name];
+            let before = match notice.other.clone() {
+                Some(other) if columns(before) + columns(name) + columns(after) > width => {
+                    let (start, between) = (&before[..other.start], &before[other.end..]);
+                    let fixed = columns(start) + columns(between) + columns(name) + columns(after);
+                    // A name before the queue's gives way first, and keeps
+                    // at least its `…` so the words around it still read.
+                    let other = cut(&before[other], width.saturating_sub(fixed).max(1));
+                    format!("{start}{other}{between}")
+                }
+                _ => before.to_owned(),
+            };
+            let room = width.saturating_sub(columns(&before));
             match notice.gives_way {
                 GivesWay::Name => {
                     let name = cut(name, room.saturating_sub(columns(after)));
@@ -448,6 +460,65 @@ mod tests {
         let notice = Notice::naming_queue(Tone::Error, "cannot watch queue ", "work", ": gone");
 
         assert_eq!(shown(&notice, 60), "✗ cannot watch queue work: gone");
+    }
+
+    #[test]
+    fn a_long_name_before_the_queue_name_gives_way_first() {
+        let notice = Notice::naming_queue_after(
+            Tone::Info,
+            "watching ",
+            &"a".repeat(200),
+            " · 2 sessions wait in ",
+            "asqr-todos",
+            "",
+        );
+
+        let line = shown(&notice, 80);
+
+        assert!(
+            line.starts_with("watching aaa") && line.contains("a… · "),
+            "{line}"
+        );
+        assert!(line.ends_with(" · 2 sessions wait in asqr-todos"), "{line}");
+        assert_eq!(columns(&line), 80, "{line}");
+    }
+
+    #[test]
+    fn a_long_session_id_before_the_queue_name_gives_way_first() {
+        let notice = Notice::naming_queue_after(
+            Tone::Error,
+            "cannot save the draft of ",
+            &"batch-".repeat(30),
+            "; still watching ",
+            "asqr-todos",
+            "",
+        );
+
+        assert_eq!(
+            shown(&notice, 60),
+            "✗ cannot save the draft of batch…; still watching asqr-todos"
+        );
+    }
+
+    #[test]
+    fn with_both_names_long_the_first_is_an_ellipsis_and_the_last_is_cut() {
+        let notice = Notice::naming_queue_after(
+            Tone::Warning,
+            "watching ",
+            &"a".repeat(200),
+            " · tmux kept the old pin, agents stay on ",
+            &"b".repeat(200),
+            "",
+        );
+
+        let line = shown(&notice, 60);
+
+        assert!(
+            line.starts_with("! watching … · tmux kept the old pin, agents stay on bb"),
+            "{line}"
+        );
+        assert!(line.ends_with("b…"), "{line}");
+        assert_eq!(columns(&line), 60, "{line}");
     }
 
     #[test]

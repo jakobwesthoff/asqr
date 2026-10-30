@@ -199,9 +199,11 @@ pub fn switch_queue(
     };
     if let Err((id, error)) = inbox.save_drafts(app) {
         tracing::warn!(%id, %error, "could not save a draft before a switch");
-        app.show(Notice::naming_queue(
+        app.show(Notice::naming_queue_after(
             Tone::Error,
-            &format!("cannot save the draft of {id}; still watching "),
+            "cannot save the draft of ",
+            &id,
+            "; still watching ",
             &old,
             "",
         ));
@@ -230,30 +232,18 @@ fn cannot_watch(new: &str, reason: &str) -> Notice {
 /// The notice after a switch to `new` from `old`, in which `left` sessions
 /// still wait.
 fn switched_notice(new: &str, old: &str, left: usize, pinned: Result<(), TmuxFailure>) -> Notice {
-    let watching = format!("watching {new} · ");
+    // The queue switched to and the one left both have names of up to 200
+    // bytes; where the line is too narrow, the first gives way.
+    let watching =
+        |tone, before: &str| Notice::naming_queue_after(tone, "watching ", new, before, old, "");
     if let Err(TmuxFailure(reason)) = pinned {
         tracing::info!(reason, "tmux did not take the pin after a switch");
-        return Notice::naming_queue(
-            Tone::Warning,
-            &format!("{watching}tmux kept the old pin, agents stay on "),
-            old,
-            "",
-        );
+        return watching(Tone::Warning, " · tmux kept the old pin, agents stay on ");
     }
     match left {
-        0 => Notice::new(Tone::Info, format!("watching {new}")),
-        1 => Notice::naming_queue(
-            Tone::Info,
-            &format!("{watching}1 session waits in "),
-            old,
-            "",
-        ),
-        _ => Notice::naming_queue(
-            Tone::Info,
-            &format!("{watching}{left} sessions wait in "),
-            old,
-            "",
-        ),
+        0 => Notice::naming_queue(Tone::Info, "watching ", new, ""),
+        1 => watching(Tone::Info, " · 1 session waits in "),
+        _ => watching(Tone::Info, &format!(" · {left} sessions wait in ")),
     }
 }
 
@@ -459,18 +449,38 @@ mod tests {
 
         assert_eq!(
             notice(2),
-            Notice::naming_queue(
+            Notice::naming_queue_after(
                 Tone::Info,
-                "watching default · 2 sessions wait in ",
+                "watching ",
+                "default",
+                " · 2 sessions wait in ",
                 "asqr-todos",
                 ""
             )
         );
         assert_eq!(
-            notice(1).text,
-            "watching default · 1 session waits in asqr-todos"
+            notice(1),
+            Notice::naming_queue_after(
+                Tone::Info,
+                "watching ",
+                "default",
+                " · 1 session waits in ",
+                "asqr-todos",
+                ""
+            )
         );
-        assert_eq!(notice(0), Notice::new(Tone::Info, "watching default"));
+    }
+
+    /// With nobody left behind, the queue switched to is the one name, and
+    /// a long one ends in `…` as in the other notices of a switch.
+    #[test]
+    fn a_switch_that_leaves_nobody_behind_names_the_new_queue() {
+        let notice = switched_notice("default", "asqr-todos", 0, Ok(()));
+
+        assert_eq!(
+            notice,
+            Notice::naming_queue(Tone::Info, "watching ", "default", "")
+        );
     }
 
     #[test]
@@ -484,9 +494,11 @@ mod tests {
 
         assert_eq!(
             notice,
-            Notice::naming_queue(
+            Notice::naming_queue_after(
                 Tone::Warning,
-                "watching default · tmux kept the old pin, agents stay on ",
+                "watching ",
+                "default",
+                " · tmux kept the old pin, agents stay on ",
                 "asqr-todos",
                 ""
             )

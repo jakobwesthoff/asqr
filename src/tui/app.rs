@@ -97,6 +97,10 @@ pub struct Notice {
     /// Where `text` holds a session's or a queue's name, which has no
     /// bound on its length.
     pub name: Option<Range<usize>>,
+    /// Another name inside the text before `name`, such as the queue
+    /// switched to or a session's id, which the status line cuts first
+    /// where the notice does not fit (ADR 86).
+    pub other: Option<Range<usize>>,
     /// What the status line cuts first where the notice does not fit.
     pub gives_way: GivesWay,
 }
@@ -120,6 +124,7 @@ impl Notice {
             tone,
             text: text.into(),
             name: None,
+            other: None,
             gives_way: GivesWay::Name,
         }
     }
@@ -132,6 +137,7 @@ impl Notice {
             tone,
             text: format!("{before}{name}{after}"),
             name: Some(start..start + name.len()),
+            other: None,
             gives_way: GivesWay::Name,
         }
     }
@@ -143,6 +149,26 @@ impl Notice {
         Notice {
             gives_way: GivesWay::After,
             ..Notice::naming(tone, before, name, after)
+        }
+    }
+
+    /// A notice that names a queue as [`Notice::naming_queue`] does, and
+    /// another name before it: it reads `start`, `other`, `before`, `name`
+    /// and `after` in a row. Where it does not fit, `other` gives way
+    /// first, then the text after the queue's name; the words around the
+    /// names stay (ADR 86).
+    pub fn naming_queue_after(
+        tone: Tone,
+        start: &str,
+        other: &str,
+        before: &str,
+        name: &str,
+        after: &str,
+    ) -> Self {
+        let other_start = start.len();
+        Notice {
+            other: Some(other_start..other_start + other.len()),
+            ..Notice::naming_queue(tone, &format!("{start}{other}{before}"), name, after)
         }
     }
 }
@@ -1098,6 +1124,7 @@ mod tests {
                 tone: Tone::Warning,
                 text: text.to_owned(),
                 name: None,
+                other: None,
                 gives_way: GivesWay::Name,
             })
         );

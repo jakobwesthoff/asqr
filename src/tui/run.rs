@@ -1788,6 +1788,27 @@ mod tests {
         assert!(line.ends_with('…'), "{line}");
     }
 
+    /// A queue switched to under the longest name leaves the old queue's
+    /// name in the status line (ADR 86).
+    #[test]
+    fn a_long_new_queue_name_keeps_the_old_queue_name() {
+        let mut harness = two_queues();
+        let long = QueueLocation::named(&harness.scratch.path().join("data"), &"w".repeat(200));
+        long.create_layout().expect("layout");
+        if let Some(choice) = &mut harness.host.choice {
+            choice.rows[1].location = long;
+        }
+
+        harness.run(switch_to_work()).expect("runs");
+
+        let line = status_line(&harness);
+        assert!(line.starts_with("watching www"), "{line}");
+        assert!(
+            line.ends_with("… · 1 session waits in asqr-todos"),
+            "{line}"
+        );
+    }
+
     #[test]
     fn a_switch_whose_draft_cannot_be_saved_keeps_the_old_queue() {
         let mut harness = two_queues();
