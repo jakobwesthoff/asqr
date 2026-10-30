@@ -84,12 +84,14 @@ Once asked, asqr fits best when:
   answer).
 - An `info` item shows its `text` and `context` like a question and asks
   nothing: it takes no `options`, `custom` or `length`, and the person
-  may add a note to it as to any question. Use it for what the person
-  should read and no question carries, such as results so far or a
-  problem you ran into, instead of a made-up question with options like
-  "OK". When a question's own `text` and `context` say what the person
-  needs to decide it, ask the question directly, without an info item
-  before it.
+  may add a note to it as to any question.
+- A session needs no info item at all. Before you add one, check
+  whether what it would say fits into the `text` or `context` of the
+  question it leads to: there the person reads it where they decide,
+  and the question is asked directly. Use an info item only for what
+  belongs to no single question, such as results so far or a problem
+  you ran into, and never a made-up question with options like "OK"
+  instead.
 - Keep an info item's text to a few lines: on a small terminal a longer
   text shows a few lines at a time while the person scrolls through it
   with `↑`. Split more material into several short info items, one
@@ -531,10 +533,12 @@ without that request.
   each icon. Each variant is an option with a short label such as
   `Draft 3`, its image as `context` and a one-line `caption` on what
   sets it apart. Ask for a `single` pick, or a `multi` pick of keepers.
-- **Decide before implementing.** Start with an `info` item on what you
-  settled, then ask one question per open point: the recommended option
-  first and as the `default`, a short trade-off in each `description`,
-  and the current state or each option's own `diff` as `context`.
+- **Decide before implementing.** One question per open point, with
+  what you settled that bears on it in its `text`. An `info` item comes
+  first only for settled points that bear on no single question. The
+  recommended option comes first and as the `default`, a short trade-off
+  goes in each `description`, and the current state or each option's
+  own `diff` in `context`.
 - **Review findings.** One question per finding. Its `text` gives before
   and after in two sentences and the risk, its `context` the fix as a
   `diff` with a `name`, which highlights the unchanged lines. Options
@@ -564,11 +568,13 @@ without that request.
 Habits that run through them: one question per item, your
 recommendation first, before and after spelled out, a change to existing
 text shown as a `diff`, and each option's own `context` where the person
-compares. Results so far go into short `info` items, one topic each,
-placed before the questions they bear on, not into a question with an
-option like "OK" and not into one long text. Where a question says
-enough on its own, it needs no info item. A `single` with a `default` comes back answered with
-the default unless the person picks another option or an own answer, or
+compares. What the person needs for a question goes into that
+question's `text` or `context`, not into an info item before it. Only
+what belongs to no single question, such as results so far, goes into
+short `info` items, one topic each and placed before the questions they
+lead to, never into a question with an option like "OK" or one long
+text. A `single` with a `default` comes back answered with the default
+unless the person picks another option or an own answer, or
 clears the pick, which skips the question. Where "not yet" is a likely
 answer, an option for it is easier for the person to find than clearing
 the pick, and it says why without a note.
