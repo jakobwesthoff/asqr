@@ -366,7 +366,6 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             .render(title, frame.buffer_mut()),
         None => draw_title(title, frame.buffer_mut(), view.queue, waiting),
     }
-    // The intro overlay covers the status line, so the line comes first.
     frame.render_widget(status_line(app, app.active(), status.width), status);
     // What an overlay dims (ADR 84): every row above the status line. The
     // status line and the key bar say what the overlay's keys do.
@@ -427,38 +426,21 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             view.image_shown = pane_page.is_some()
                 && matches!(state.shown_entry(), Some((_, ContextEntry::Image(_))));
 
-            // The intro overlay leaves the key bar free, which says how to
-            // scroll and close it, so it is drawn before the key bar: what
-            // of it fits decides the hints.
-            let (intro_page, hints) = match overlay {
-                Some(Overlay::Intro(scroll)) => {
-                    let [above_keys, _] =
-                        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
-                    let intro = state.session().intro.as_deref();
-                    let intro = intro.expect("the intro overlay is open only on an intro");
-                    dim_behind(
-                        frame.buffer_mut(),
-                        behind,
-                        image.as_ref().map(PlacedImage::area),
-                    );
-                    let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll, quote);
-                    (page, intro_hints(page))
+            // The intro's hints depend on what of it fits, so they come
+            // with its draw below.
+            let hints = match overlay {
+                Some(Overlay::Intro(_)) => Vec::new(),
+                Some(Overlay::SessionList(_)) => {
+                    key_hints(state, true, pane_page.map(|shown| shown.page))
                 }
-                Some(Overlay::SessionList(_)) => (
-                    Extent::default(),
-                    key_hints(state, true, pane_page.map(|shown| shown.page)),
-                ),
-                Some(Overlay::Help) | None => (
-                    Extent::default(),
-                    with_diff_hint(
-                        key_hints(state, false, pane_page.map(|shown| shown.page)),
-                        state,
-                        pane_page.and_then(|shown| shown.diff),
-                    ),
+                Some(Overlay::Help) | None => with_diff_hint(
+                    key_hints(state, false, pane_page.map(|shown| shown.page)),
+                    state,
+                    pane_page.and_then(|shown| shown.diff),
                 ),
             };
             let drawn = Drawn {
-                intro_page: Some(intro_page),
+                intro_page: Some(Extent::default()),
                 pane_page: Some(pane_page),
                 field_shape,
                 row_cut,
@@ -469,6 +451,28 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
             (drawn, hints, image)
         }
     };
+    // Whatever stands over the screen dims it first, once (ADR 84).
+    let image_area = image.as_ref().map(PlacedImage::area);
+    if overlay.is_some() || app.invalid_shown().is_some() {
+        dim_behind(frame.buffer_mut(), behind, image_area);
+    }
+
+    // The intro overlay leaves the key bar free, which says how to scroll
+    // and close it, so it is drawn before the key bar: what of it fits
+    // decides the hints. It covers the status line.
+    let hints = match overlay.zip(app.active()) {
+        Some((Overlay::Intro(scroll), state)) => {
+            let [above_keys, _] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+            let intro = state.session().intro.as_deref();
+            let intro = intro.expect("the intro overlay is open only on an intro");
+            let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll, quote);
+            drawn.intro_page = Some(page);
+            intro_hints(page)
+        }
+        _ => hints,
+    };
+
     // Any key closes the dialog of an invalid session, and only that, so
     // the keys of what stands behind it would not do what they say.
     let hints = if app.invalid_shown().is_some() {
@@ -481,15 +485,6 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         Some(_) => key_line(&hints, keys.width),
     };
     frame.render_widget(key_bar, keys);
-
-    // The intro dimmed the screen before it was drawn; the other overlays
-    // and the dialog of an invalid session dim it here.
-    let image_area = image.as_ref().map(PlacedImage::area);
-    if matches!(overlay, Some(Overlay::Help | Overlay::SessionList(_)))
-        || app.invalid_shown().is_some()
-    {
-        dim_behind(frame.buffer_mut(), behind, image_area);
-    }
 
     // These overlays use the whole screen, key bar included, so they fit
     // the smallest one. Like every overlay, they open only over a session.

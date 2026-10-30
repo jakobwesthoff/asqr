@@ -15,8 +15,8 @@
 //! decides how they look. Code and Markdown keep the colours patine gives
 //! them (ADR 34) and take no role.
 
-use ratatui::buffer::Buffer;
-use ratatui::style::{Color, Style};
+use ratatui::buffer::{Buffer, Cell};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::tui::Tone;
@@ -99,6 +99,14 @@ pub(crate) fn focus_pointer() -> Style {
 /// colours are off. It lifts dim, so text under it is one colour.
 pub(crate) fn focus_fill() -> Style {
     focus().reversed().not_dim()
+}
+
+/// Whether `cell` shows the focus fill: reversed text in the focus
+/// colour. No other role draws so, which the test over every role keeps
+/// true, so the screen behind an overlay can drop the fill by its look
+/// (ADR 84).
+pub(crate) fn has_focus_fill(cell: &Cell) -> bool {
+    cell.modifier.contains(Modifier::REVERSED) && focus_fill().fg == Some(cell.fg)
 }
 
 /// The submit button: always filled in the primary colour, the one fill
@@ -215,6 +223,53 @@ mod tests {
     use ratatui::widgets::Widget;
 
     use super::*;
+
+    /// Every role but the focus fill, by name.
+    fn other_roles() -> Vec<(String, Style)> {
+        let mut roles = vec![
+            ("primary".to_owned(), primary()),
+            ("app_name".to_owned(), app_name()),
+            ("queue_name".to_owned(), queue_name()),
+            ("key".to_owned(), key()),
+            ("current_tab".to_owned(), current_tab()),
+            ("chosen".to_owned(), chosen()),
+            ("default_marker".to_owned(), default_marker()),
+            ("title".to_owned(), title()),
+            ("strong".to_owned(), strong()),
+            ("focus".to_owned(), focus()),
+            ("focus_rule".to_owned(), focus_rule()),
+            ("focus_pointer".to_owned(), focus_pointer()),
+            ("button".to_owned(), button()),
+            ("cursor".to_owned(), cursor()),
+            ("warning".to_owned(), warning()),
+            ("success".to_owned(), success()),
+            ("error".to_owned(), error()),
+            ("secondary".to_owned(), secondary()),
+        ];
+        for level in [Level::Fine, Level::Warn, Level::Over] {
+            roles.push((format!("for_level({level:?})"), for_level(level)));
+        }
+        for tone in [Tone::Info, Tone::Warning, Tone::Error, Tone::Success] {
+            roles.push((format!("for_tone({tone:?})"), for_tone(tone)));
+        }
+        roles
+    }
+
+    /// The screen behind an overlay drops the focus fill by its look, so a
+    /// role that looked the same would lose its own fill there.
+    #[test]
+    fn no_other_role_looks_like_the_focus_fill() {
+        let filled = |style: Style| {
+            let mut cell = Cell::default();
+            cell.set_style(style);
+            has_focus_fill(&cell)
+        };
+
+        assert!(filled(focus_fill()));
+        for (name, style) in other_roles() {
+            assert!(!filled(style), "{name} looks like the focus fill");
+        }
+    }
 
     #[test]
     fn primary_is_cyan_and_the_focus_yellow() {

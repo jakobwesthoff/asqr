@@ -16,18 +16,15 @@ use super::theme;
 /// keep their style: a placeholder's colour names its image, and a
 /// terminal may draw a dim colour as another one.
 pub(super) fn dim_behind(buf: &mut Buffer, area: Rect, image: Option<Rect>) {
-    let fill = theme::focus_fill();
-    let focus_colour = fill.fg.unwrap_or(Color::Reset);
     for y in area.top()..area.bottom() {
         for x in area.left()..area.right() {
             if image.is_some_and(|image| image.contains(Position { x, y })) {
                 continue;
             }
             let cell = &mut buf[(x, y)];
-            // The focus fill is reversed text in the focus colour. The
-            // submit button and a diff's changed lines are fills of their
-            // own and stay, dim like the rest.
-            if cell.modifier.contains(Modifier::REVERSED) && cell.fg == focus_colour {
+            // The submit button and a diff's changed lines are fills of
+            // their own and stay, dim like the rest.
+            if theme::has_focus_fill(cell) {
                 cell.modifier.remove(Modifier::REVERSED);
                 cell.fg = Color::Reset;
             }
