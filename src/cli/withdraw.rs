@@ -9,7 +9,7 @@
 use std::io::Write;
 
 use super::Exit;
-use super::hint::{self, Invocation};
+use super::hint::{self, Invocation, Refusing};
 use crate::format::SessionResult;
 use crate::queue::{QueueLocation, WithdrawError, Withdrawn, withdraw_session};
 
@@ -35,6 +35,10 @@ pub(super) fn run(
         Err(error @ WithdrawError::ResultGone(_)) => {
             eprintln!("error: {error}");
             Exit::UnknownId
+        }
+        Err(WithdrawError::BeingAnswered(id)) => {
+            hint::being_answered(invocation, &id, Refusing::Withdraw).print();
+            Exit::Failure
         }
         Err(WithdrawError::Io(error)) => {
             eprintln!("error: cannot withdraw {id}: {error}");

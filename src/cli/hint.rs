@@ -259,6 +259,28 @@ pub(super) fn unread_result(invocation: &Invocation, id: &str, replaces: Option<
     })
 }
 
+/// The command a refusal of a session being answered comes from.
+pub(super) enum Refusing {
+    Withdraw,
+    AskReplaces,
+}
+
+/// Session `id` is being answered, so `withdraw` or `ask --replaces`
+/// refused to take it away (D1). The text does not say that asqr tells
+/// the person: their asqr shows a withdrawal only while it runs (spec
+/// section 7.9).
+pub(super) fn being_answered(invocation: &Invocation, id: &str, refusing: Refusing) -> Line {
+    Line::error(match refusing {
+        Refusing::Withdraw => format!(
+            "session {id:?} is being answered; check with the person first, then `{} withdraw --force {id}` withdraws it, and the result's `draft` holds what they entered so far",
+            invocation.command
+        ),
+        Refusing::AskReplaces => format!(
+            "session {id:?} is being answered; check with the person first, then run this command again with --force, which withdraws it, and the `draft` of its result holds what they entered so far"
+        ),
+    })
+}
+
 // =========================================================================
 // The hints of `wait` and `result`
 // =========================================================================

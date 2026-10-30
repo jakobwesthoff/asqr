@@ -25,7 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   result's `draft`, and `ask --replaces` at the `draft` of the session
   it withdrew.
   The refusal of `ask` for an unread result of the same id names the
-  ways past it, and an unknown id names the queue that was searched and
+  ways past it, the refusal of `withdraw` and `ask --replaces` for a
+  session being answered tells the agent to check with the person
+  first, and an unknown id names the queue that was searched and
   how to find the session. A command in advice names the queue with `--queue` or
   `--dir` when a flag or a variable chose it.
 - The empty queue and the terminal title name the queue asqr watches,
@@ -94,6 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The agent skill no longer says that asqr always tells the person about
+  a forced withdrawal: only an asqr running at that moment does.
 - `asqr validate` and `asqr ask` report a context file that turns into a
   FIFO while they check it as "not a file". Before, they waited until
   something wrote to the FIFO.

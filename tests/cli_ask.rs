@@ -967,7 +967,7 @@ fn ask_replaces_refuses_while_the_old_session_is_being_answered() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output),
-        "error: session \"round-1\" is being answered; withdraw it anyway with --force\n"
+        "error: session \"round-1\" is being answered; check with the person first, then run this command again with --force, which withdraws it, and the `draft` of its result holds what they entered so far\n"
     );
     assert_eq!(waiting(&sandbox), ["round-1.json"]);
 }

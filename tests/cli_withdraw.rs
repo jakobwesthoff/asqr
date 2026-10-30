@@ -93,7 +93,10 @@ fn withdraw_refuses_a_session_being_answered_with_1() {
     assert_eq!(stdout(&refused), "");
     assert_eq!(
         stderr(&refused),
-        "error: session \"batch\" is being answered; withdraw it anyway with --force\n"
+        format!(
+            "error: session \"batch\" is being answered; check with the person first, then `asqr --dir {} withdraw --force batch` withdraws it, and the result's `draft` holds what they entered so far\n",
+            sandbox.queue_dir().display()
+        )
     );
     assert!(sandbox.queue_dir().join("inbox/batch.json").is_file());
 }

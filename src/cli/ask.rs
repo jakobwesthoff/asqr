@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use super::Exit;
 use super::format::{print_errors, print_warnings, read_session_file, session_dir};
-use super::hint::{self, Caller, Invocation};
+use super::hint::{self, Caller, Invocation, Refusing};
 use super::wait::wait_for_result;
 use crate::format::{WarningKind, same_session_id, validate, warnings};
 use crate::queue::{
@@ -161,6 +161,10 @@ fn replace(
                 ReplaceError::Withdraw(error @ WithdrawError::ResultGone(_)) => {
                     eprintln!("error: {error}");
                     Exit::UnknownId
+                }
+                ReplaceError::Withdraw(WithdrawError::BeingAnswered(old)) => {
+                    hint::being_answered(invocation, &old, Refusing::AskReplaces).print();
+                    Exit::Failure
                 }
                 ReplaceError::Withdraw(WithdrawError::Io(error)) => {
                     eprintln!("error: cannot withdraw {old}: {error}");

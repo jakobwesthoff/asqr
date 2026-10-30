@@ -677,8 +677,11 @@ rebuilt under another id (ADR 64). It holds the drafts lock once for
 both: first the refusals of the new session above, then those of the
 withdrawal, and only then the withdrawal and the drop, so a refusal of
 either leaves the queue as it was. Without `--force`, the old session is
-withdrawn only while nobody has started answering it; `--force` withdraws
-it also while the person is answering it, and moves an unread result of
+withdrawn only while nobody has started answering it, and the refusal
+reads "session "<old-id>" is being answered; check with the person
+first, then run this command again with --force, which withdraws it,
+and the `draft` of its result holds what they entered so far";
+`--force` withdraws it also while the person is answering it, and moves an unread result of
 the new id aside as above. Its refusal for an unread result of the new
 id names `--force` only as a warning, since there it also withdraws the
 old session: "an unread result for "<id>" is in the outbox; read it
@@ -843,7 +846,9 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 `asqr result` returns the same result later (section 6.4).
 
 - A session whose draft has an answer (section 4.3) is refused: "session
-  "<id>" is being answered; withdraw it anyway with --force". With
+  "<id>" is being answered; check with the person first, then `<asqr>
+  withdraw --force <id>` withdraws it, and the result's `draft` holds
+  what they entered so far" (`<asqr>` as in section 6.7). With
   `--force` it is withdrawn anyway, and the result's `draft` carries
   what the person had entered. A draft that cannot be read counts as
   one with an answer and gives no `draft`. Nor does a draft whose only

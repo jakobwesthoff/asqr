@@ -21,8 +21,9 @@ asqr withdraw "$id"
 - When the person has started answering, `withdraw` refuses with exit
   code 1. A default you set that they left as it is does not count as
   starting; one they cleared does. Ask them before you take the session
-  away; `--force` withdraws it anyway, and asqr tells them that you
-  withdrew it.
+  away; `--force` withdraws it anyway. An asqr running at that moment
+  tells them that you withdrew it; when none runs, the session leaves
+  their queue without a word.
 - The result of such a withdrawal carries what they had entered in
   `draft`: their `note` and the `answers` they had given so far. A
   question they only cleared, such as a default or a pick they removed,
