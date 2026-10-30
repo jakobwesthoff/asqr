@@ -947,6 +947,7 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr result <id>` | prints the result if it is there, like `wait --timeout 0` |
 | `asqr withdraw <id> [--force]` | takes a waiting session back and prints its result, status `withdrawn` (section 5.10) |
 | `asqr status [--json] [--limit <count> \| --all] [--since <age>]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
+| `asqr queues [--json]` | every named queue, the sessions waiting in it and its results, and the asqr watching it (section 6.5) |
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
 | `asqr prune --older-than <duration> [--results]` | section 5.9 |
@@ -1023,7 +1024,7 @@ withdrawn before it prints that result and exits with 0 too. Its
 refusals exit with 1, and an id that only the archive or nothing in the
 queue knows with 13, with the messages of section 5.10.
 
-### 6.5 `status`
+### 6.5 `status` and `queues`
 
 `status --json` prints an object with `queue`, `watched_by` (the lock
 holder, or `null`), `waiting` (a list of `{id, draft_has_answers}`),
@@ -1047,6 +1048,25 @@ only part of them:
   cuts the list. The text form writes "answered (10 of 57):" when the
   list is cut and "answered (3):" when it is not.
 - `waiting` always lists every waiting session.
+
+`asqr queues` lists every named queue under the root (section 5.2),
+sorted by name, the default queue also before its first use: the
+sessions waiting in its inbox, the results in its outbox and the asqr
+watching it, with the tmux session of that asqr where its lock names a
+pane (section 5.6) and tmux still knows it. A queue whose files cannot
+be read counts as empty and unwatched; a root whose queues cannot be
+listed is a failure. `--queue` and `--dir` change nothing here. The
+text form:
+
+```
+QUEUE       WAITING  ANSWERED  WATCHED BY
+asqr-todos        1        14  pid 48926 on imperius.local, tmux session asqr
+default           0       516  nobody
+```
+
+`--json` prints an array of objects with `queue`, `waiting_total`,
+`answered_total`, `watched_by` (the first line of the lock, or `null`)
+and `tmux_session` (or `null`).
 
 ### 6.6 Exit codes
 

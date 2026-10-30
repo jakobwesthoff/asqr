@@ -13,6 +13,7 @@ mod hint;
 pub(crate) mod log;
 mod paths;
 mod prune;
+mod queues;
 mod skill;
 mod status;
 mod wait;
@@ -184,6 +185,13 @@ enum Command {
         since: Option<Duration>,
     },
 
+    /// List every queue, what waits in it and which asqr watches it.
+    Queues {
+        /// Print the queues as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Remove archived sessions, and with --results old results too.
     Prune {
         /// Remove what is older than this age, such as 30d, 12h or 2w.
@@ -312,6 +320,7 @@ fn dispatch(
                 | Command::Validate { .. }
                 | Command::Schema { .. }
                 | Command::Skill { .. }
+                | Command::Queues { .. }
         )
     );
     let paired = match &environment.multiplexer {
@@ -323,7 +332,7 @@ fn dispatch(
         _ => Paired::NotAsked,
     };
     let (location, origin) =
-        match QueueLocation::resolve_paired(flags, environment.selection, paired, root) {
+        match QueueLocation::resolve_paired(flags, environment.selection, paired, root.clone()) {
             Ok(resolved) => resolved,
             Err(error) => {
                 eprintln!("error: {error}");
@@ -423,6 +432,7 @@ fn dispatch(
                 since,
             },
         ),
+        Command::Queues { json } => queues::run(root.as_deref(), tmux, json),
         Command::Prune {
             older_than,
             results,
@@ -1018,6 +1028,19 @@ mod tests {
             "{:?}",
             tmux.calls()
         );
+    }
+
+    #[test]
+    fn queues_without_a_data_directory_is_a_failure() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let dir = scratch.path().to_str().expect("UTF-8 temp path");
+        let cli = Cli::try_parse_from(["asqr", "--dir", dir, "queues"]).expect("parses");
+
+        let exit = dispatch(cli, Environment::default(), &Unasked, None, |_| {
+            unreachable!("no TUI for queues")
+        });
+
+        assert_eq!(exit, Exit::Failure);
     }
 
     #[test]

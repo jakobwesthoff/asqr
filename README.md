@@ -105,6 +105,8 @@ Inside tmux, asqr and the agents in the same tmux session use one queue
 without any setup: the one asqr pinned in the session, at first the one
 named after the session, so several tmux sessions keep their questions
 apart. `asqr --queue <name>` in a session pins another queue there.
+`asqr queues` lists every queue with its waiting and answered sessions
+and the asqr watching it, with that asqr's tmux session.
 
 ## For agents
 

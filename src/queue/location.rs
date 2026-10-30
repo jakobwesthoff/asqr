@@ -157,6 +157,17 @@ impl QueueLocation {
         Ok((location, origin))
     }
 
+    /// The queue named `name` under `root`, as `--queue` would name it.
+    /// `name` is a valid queue name: one read back from the root's
+    /// listing or checked by [`QueueLocation::resolve`].
+    pub fn named(root: &Path, name: &str) -> Self {
+        QueueLocation {
+            dir: root.join("queues").join(name),
+            root: Some(root.to_path_buf()),
+            name: Some(name.to_owned()),
+        }
+    }
+
     /// A queue in `dir`, as `--dir` would name it.
     pub fn at(dir: impl Into<PathBuf>) -> Self {
         QueueLocation {

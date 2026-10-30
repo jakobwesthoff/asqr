@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asqr's tmux session. The agent skill tells agents to pass no
   `--queue` unless told, and never to switch on their own to a queue
   another asqr watches.
+- `asqr queues [--json]` lists every named queue with the sessions
+  waiting in it, its results and the asqr watching it, with the tmux
+  session that asqr runs in.
 - asqr gives agents advice on stderr where they tend to go wrong, in
   lines of their own that start with `hint:` and inside its errors,
   warnings and notices. stdout stays as it was; a caller that merges
