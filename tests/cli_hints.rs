@@ -138,3 +138,17 @@ fn quotes_a_queue_directory_with_a_space() {
     let expected = wait_command(&format!("asqr --dir '{}'", dir.display()));
     assert!(err.contains(&expected), "{err}");
 }
+
+#[test]
+fn the_no_watcher_warning_names_a_named_queue_and_its_flag() {
+    let sandbox = Sandbox::new();
+
+    let err = ask(&sandbox, &["--queue", "work"], &[]);
+
+    assert!(
+        err.contains(
+            "warning: no asqr is watching queue work; tell the person to start `asqr --queue work` in a terminal of their own; the session waits in the queue until then\n"
+        ),
+        "{err}"
+    );
+}

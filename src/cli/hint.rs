@@ -35,6 +35,13 @@ impl Line {
         }
     }
 
+    fn warning(text: String) -> Self {
+        Line {
+            prefix: "warning",
+            text,
+        }
+    }
+
     /// Prints the line on stderr. A stderr that cannot be written, such as
     /// a pipe closed by the reader, is ignored: the line is advice, and the
     /// command it follows has already done its work, such as dropping a
@@ -63,6 +70,8 @@ pub(super) struct Invocation {
     /// The command that reaches the queue: `asqr`, `asqr --queue <name>`
     /// or `asqr --dir <path>`.
     command: String,
+    /// The queue as messages name it: its name, or its absolute directory.
+    queue: String,
 }
 
 impl Invocation {
@@ -85,7 +94,10 @@ impl Invocation {
             (true, Some(name)) => format!("asqr --queue {name}"),
             (true, None) => format!("asqr --dir {}", shell_word(&dir, "<dir>")),
         };
-        Invocation { command }
+        let queue = location
+            .name()
+            .map_or_else(|| dir.display().to_string(), str::to_owned);
+        Invocation { command, queue }
     }
 }
 
@@ -125,6 +137,15 @@ pub(super) fn wait_for_it(invocation: &Invocation, id: &str) -> Line {
     Line::hint(format!(
         "the person can answer any item with a note; wait for the result and read all of it: `{} wait {id} --timeout {WAIT_TIMEOUT}`, or a lower timeout if your command limit is shorter",
         invocation.command
+    ))
+}
+
+/// After `ask` dropped a session into a queue no asqr watches (A6). The
+/// session waits there either way, but only the person can start asqr.
+pub(super) fn nobody_watching(invocation: &Invocation) -> Line {
+    Line::warning(format!(
+        "no asqr is watching queue {}; tell the person to start `{}` in a terminal of their own; the session waits in the queue until then",
+        invocation.queue, invocation.command
     ))
 }
 
@@ -247,6 +268,20 @@ mod tests {
         assert_eq!(
             command(&relative, true),
             format!("asqr --dir {}", shell_word(&expected, "<dir>"))
+        );
+    }
+
+    #[test]
+    fn messages_name_a_queue_by_its_name_or_its_absolute_directory() {
+        let relative = QueueLocation::at("queues/work");
+        let expected = std::env::current_dir()
+            .expect("a current directory")
+            .join("queues/work");
+
+        assert_eq!(Invocation::new(&named("work"), false).queue, "work");
+        assert_eq!(
+            Invocation::new(&relative, true).queue,
+            expected.display().to_string()
         );
     }
 

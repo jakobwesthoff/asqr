@@ -75,10 +75,6 @@ If you can run commands in the background, `asqr ask questions.json
 on stdout, for `jq`, and takes `--timeout <secs>` too. `asqr result
 <id>` looks once without waiting, with the same exit codes.
 
-If `ask` warns "no asqr is watching queue ...", nobody sees your
-questions yet. Tell the person to start `asqr` in a terminal of its own;
-the session waits in the queue until they do.
-
 When you no longer need the answers to a session, such as when the
 person answered its questions in the chat, withdraw it with `asqr
 withdraw <id>`, so they do not answer it for nothing. Ask a session you

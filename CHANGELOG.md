@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lines of their own that start with `hint:`. stdout stays as it was; a
   caller that merges stderr into stdout (`2>&1`) receives the hints
   too. `asqr ask` reminds the agent to wait for every session's result
-  and read all of it. A command in advice names the queue with
+  and read all of it, and when nobody watches the queue, its warning
+  tells the agent to have the person start asqr, with the command that
+  reaches the queue. A command in advice names the queue with
   `--queue` or `--dir` when a flag or a variable chose it.
 
 - The empty queue and the terminal title name the queue asqr watches,

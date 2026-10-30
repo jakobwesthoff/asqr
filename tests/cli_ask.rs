@@ -62,11 +62,37 @@ fn warns_when_no_asqr_watches_the_queue() {
         .output()
         .expect("runs");
 
-    let expected = format!(
-        "warning: no asqr is watching queue {}; start `asqr` in another terminal",
-        sandbox.queue_dir().display()
+    assert!(
+        stderr(&output).contains(&nobody_watching(&sandbox)),
+        "{}",
+        stderr(&output)
     );
-    assert!(stderr(&output).contains(&expected), "{}", stderr(&output));
+}
+
+/// The warning `ask` prints when no asqr watches the sandbox queue.
+fn nobody_watching(sandbox: &Sandbox) -> String {
+    let queue = sandbox.queue_dir();
+    format!(
+        "warning: no asqr is watching queue {0}; tell the person to start `asqr --dir {0}` in a terminal of their own; the session waits in the queue until then\n",
+        queue.display()
+    )
+}
+
+#[test]
+fn ask_prints_the_warning_before_the_wait_reminder() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", SESSION);
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(
+        stderr(&output),
+        nobody_watching(&sandbox) + &wait_reminder(&sandbox, "batch-01")
+    );
 }
 
 /// The reminder `ask` prints after it dropped session `id` into the

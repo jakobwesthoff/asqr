@@ -687,9 +687,11 @@ validation gets its error result like any invalid file (section 5.8),
 and the session it replaced leaves the TUI.
 
 When no asqr holds the queue lock, `ask` still drops the file and warns
-on stderr: "no asqr is watching queue <name>; start `asqr` in another
-terminal". For a queue given by directory, the warning names the
-directory.
+on stderr: "no asqr is watching queue <queue>; tell the person to start
+`<asqr>` in a terminal of their own; the session waits in the queue
+until then". `<queue>` is the queue's name, or its absolute directory
+for a queue given by directory, and `<asqr>` the command that reaches
+the queue (section 6.7).
 
 ### 5.6 The instance lock and the drafts lock
 
@@ -2380,11 +2382,11 @@ The skill teaches, in the core unless a part is named:
   that `asqr result` or `asqr status --json --since <age>` comes before
   an answer in the chat about something the person may have answered in
   asqr
-- the exit codes, the "no asqr is watching" warning and an error naming
-  a context type or a question kind the skill describes as not
-  supported, both of which the agent should pass on to the person, and
-  `asqr status --json` to find
-  sessions it lost track of
+- the exit codes, an error naming a context type or a question kind the
+  skill describes as not supported, which the agent should pass on to
+  the person, and `asqr status --json` to find sessions it lost track
+  of; the warning that nobody watches the queue says itself what the
+  agent tells the person (section 5.5)
 - the context entry types, how asqr shows them and their limits
   (`context.md`)
 - `asqr withdraw` for a session whose answers it no longer needs, and

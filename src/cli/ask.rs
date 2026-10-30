@@ -81,7 +81,7 @@ pub(super) fn run(
         Ok(dropped) => tracing::info!(id, ?dropped, "dropped session"),
         Err(exit) => return exit,
     }
-    warn_if_nobody_watches(location);
+    warn_if_nobody_watches(location, invocation);
 
     if options.wait {
         eprintln!("{id}");
@@ -205,11 +205,8 @@ fn make_path_absolute(object: &mut Value, base: &Path) {
 
 /// The session queues either way, but the asker should tell the person to
 /// start asqr (spec section 5.5).
-fn warn_if_nobody_watches(location: &QueueLocation) {
+fn warn_if_nobody_watches(location: &QueueLocation, invocation: &Invocation) {
     if matches!(lock_holder(location), Ok(None)) {
-        let queue = location
-            .name()
-            .map_or_else(|| location.dir().display().to_string(), str::to_owned);
-        eprintln!("warning: no asqr is watching queue {queue}; start `asqr` in another terminal");
+        hint::nobody_watching(invocation).print();
     }
 }
