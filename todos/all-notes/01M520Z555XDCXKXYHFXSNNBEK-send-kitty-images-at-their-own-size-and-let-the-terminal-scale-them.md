@@ -19,18 +19,28 @@ Measured with a release build of `f5f26a3` (scripts and numbers in
 `~/playground/2026_10_15_asqr-maskottchen/vorbereitung/loading/`):
 
 - In Jakob's terminal (249×68 cells, cells of 15×39 px) the context pane
-  is 148 columns wide, and every square image goes out at 2220×2223 px.
-  A 768 px image is enlarged 2.9 times per side. One transmission is
-  26.5 MB raw or 7.3 to 8.9 MB with zlib.
-- Through a tmux server with a client attached, one 8.5 MB frame takes
-  12.4 s, raw 39.4 s, the same image at its own size (1.2 MB) 0.78 s.
-  Without tmux the frame takes 0.02 s.
+  is 148 columns wide, and every square image goes out at 2220×2223 px,
+  19.7 MB of RGBA. A 768 px image is enlarged 2.9 times per side. One
+  transmission is 26.5 MB raw as measured, or 7.3 to 8.9 MB with zlib.
+- asqr never compresses: `query_graphics` (`src/terminal.rs`) keeps
+  `QueryStdioOptions::default()`, whose `kitty_compression` is `false`
+  in ratatui-image 12.0.0-rc.3 (`picker/cap_parser.rs` l.138), so the
+  `o=z` probe is never sent and `Graphics::kitty_compression` is always
+  `false`. Every frame asqr sent was raw.
+- Through a tmux server with a client attached, the raw 26.5 MB frame
+  takes 39.4 s. The other measured frames are zlib, which asqr does not
+  send: 8.5 MB in 12.4 s through tmux and 0.02 s without it, and the
+  768 px image at its own size, 1.2 MB, in 0.78 s through tmux.
+- Raw at its own size, the 768 px image is 2.36 MB of RGBA, about
+  3.1 MB transmitted (base64). The measured rates disagree (26.5 MB in
+  39.4 s and 8.5 MB in 12.4 s against 1.2 MB in 0.78 s), so through tmux
+  it would take between about 2 s and 4.7 s; not measured.
 - The transfer runs inside `terminal.draw`, so loading on a worker does
   not hide it.
 
 Why a 6000×6000 PNG felt quick to Jakob while ten 768 px option images
-felt slow is not explained: transfer and CPU cost the same or more for
-the large one.
+felt slow is not explained: both went out raw at 2220×2223 px, so
+transfer and CPU cost the same or more for the large one.
 
 ## Proposal
 
