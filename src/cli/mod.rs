@@ -10,7 +10,7 @@ mod ask;
 mod exit;
 mod format;
 mod hint;
-mod log;
+pub(crate) mod log;
 mod paths;
 mod prune;
 mod skill;
@@ -226,6 +226,8 @@ pub struct Environment {
     /// `ASQR_LAYOUT` as it is set. It is checked only when asqr watches,
     /// so a bad value never stands in the way of the other commands.
     pub layout: Option<String>,
+    /// `ASQR_LOG`: which events reach the log (ADR 83).
+    pub log: Option<String>,
     /// `NO_COLOR` (<https://no-color.org>): the TUI draws without colours.
     pub no_color: bool,
     /// `HOME`, which the TUI shows as `~` in the paths of context entries
@@ -254,6 +256,7 @@ fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
             dir: variable("ASQR_DIR").map(PathBuf::from),
         },
         layout: variable("ASQR_LAYOUT"),
+        log: variable("ASQR_LOG"),
         // no-color.org asks only that the variable is present and not
         // empty, so any value counts, also one that is not UTF-8.
         no_color: lookup("NO_COLOR").is_some_and(|value| !value.is_empty()),
@@ -269,7 +272,7 @@ fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
 /// decided in one place. `terminal_ui` runs the TUI; only the binary has a
 /// terminal to hand it.
 pub fn run(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
-    log::init();
+    log::init(environment.log.as_deref());
     dispatch(cli, environment, terminal_ui)
 }
 
@@ -640,6 +643,24 @@ mod tests {
         assert_eq!(environment.selection.queue.as_deref(), Some("work"));
         assert_eq!(environment.selection.dir, None);
         assert_eq!(environment.layout.as_deref(), Some("below"));
+    }
+
+    #[test]
+    fn the_environment_reads_asqr_log_and_skips_an_empty_one() {
+        let log = |value: &str| environment_of(&[("ASQR_LOG", OsStr::new(value))]).log;
+
+        assert_eq!(log("info,asqr=debug").as_deref(), Some("info,asqr=debug"));
+        assert_eq!(log(""), None, "empty counts as unset");
+        assert_eq!(environment_of(&[]).log, None, "unset");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_asqr_log_that_is_no_utf_8_counts_as_unset() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let latin1 = OsStr::from_bytes(b"deb\xe4");
+        assert_eq!(environment_of(&[("ASQR_LOG", latin1)]).log, None);
     }
 
     #[test]

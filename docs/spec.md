@@ -589,6 +589,21 @@ Commands log the sessions they drop, finish, archive or prune into
 `asqr.log` in the platform's cache directory (ADR 15). Draft saves are
 not logged. A log that cannot be written never stops a command.
 
+`ASQR_LOG` sets which events reach the log (ADR 83). A level, such as
+`ASQR_LOG=debug`, applies to every event, those of the libraries asqr
+uses included. Comma-separated `target=level` directives set the level
+per target, and `asqr` is the target of asqr's own events:
+`info,asqr=debug` adds asqr's debug events and keeps the rest at
+`info`. A value with any directive drops the `info` default, so
+`ASQR_LOG=asqr=debug` lets nothing else through. A bare word that is no
+level is a target too, so a misspelled level such as `degub` leaves
+nothing of asqr in the log. Spaces around a directive do not count.
+Without `ASQR_LOG`, the log takes `info` and above; an empty value, or
+one that is not UTF-8, counts as unset. A value that does not parse
+never stops a command and prints nothing. The log then takes `info`
+and above and warns about the value with the parse error. asqr does not
+read `RUST_LOG`.
+
 Queues on network or synced filesystems (NFS, Dropbox, iCloud Drive)
 are not supported: the lock is per host (section 5.6).
 
@@ -927,8 +942,9 @@ it shows of context entries it cannot show (section 8.3), a value that
 is not UTF-8 included. An empty `HOME`, or `/`, counts as unset, and
 paths then show whole.
 
-Other variables asqr reads: `ASQR_QUEUE` and `ASQR_DIR` (section 5.2),
-`TERM` (sections 7.9 and 8.9), `TERM_PROGRAM` and `TMUX` (section 8.9).
+Other variables asqr reads: `ASQR_QUEUE`, `ASQR_DIR` and `ASQR_LOG`
+(section 5.2), `TERM` (sections 7.9 and 8.9), `TERM_PROGRAM` and `TMUX`
+(section 8.9).
 
 ### 6.3 `ask`
 

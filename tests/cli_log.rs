@@ -6,7 +6,32 @@
 
 mod common;
 
-use common::Sandbox;
+use common::{Sandbox, stderr, stdout};
+
+/// A filter in `ASQR_LOG` that does not parse leaves the command and its
+/// output alone (ADR 83). The warning goes into the log instead.
+#[test]
+fn an_asqr_log_that_does_not_parse_warns_in_the_log_only() {
+    let sandbox = Sandbox::new();
+    let plain = sandbox.asqr_in_queue(&["paths"]).output().expect("runs");
+
+    let filtered = sandbox
+        .asqr_in_queue(&["paths"])
+        .env("ASQR_LOG", "asqr=loud")
+        .output()
+        .expect("runs");
+
+    assert!(filtered.status.success());
+    assert_eq!(stdout(&filtered), stdout(&plain));
+    assert_eq!(stderr(&filtered), stderr(&plain));
+    let log = std::fs::read_to_string(sandbox.log_path()).expect("the log file exists");
+    let warning = log
+        .lines()
+        .find(|line| line.contains("ASQR_LOG"))
+        .unwrap_or_else(|| panic!("no warning about ASQR_LOG in {log:?}"));
+    assert!(warning.contains("WARN"), "{warning}");
+    assert!(warning.contains(r#"value="asqr=loud""#), "{warning}");
+}
 
 #[test]
 fn commands_log_what_they_changed() {

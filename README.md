@@ -98,6 +98,8 @@ Sessions wait in a queue: a directory with an inbox, an outbox for the
 results, drafts and an archive. The default queue lives in the
 platform's data directory; `--queue <name>` or `ASQR_QUEUE` keeps
 projects apart, and `asqr paths` shows where everything is.
+Among them is asqr's log file, and `ASQR_LOG=debug` adds debug lines to
+it.
 
 ## For agents
 

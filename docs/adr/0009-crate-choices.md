@@ -10,6 +10,8 @@ Amended by [35. Render the text fields as full Markdown through patine](0035-ren
 
 Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-with-ansi-colours-as-a-context-entry.md)
 
+Amended by [83. Set which events reach the log through ASQR_LOG](0083-set-which-events-reach-the-log-through-asqr-log.md)
+
 ## Context
 
 The tool uses clap, anyhow and thiserror, and other crates where they

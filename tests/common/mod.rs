@@ -34,8 +34,8 @@ impl Sandbox {
         self.home.path().join("queue")
     }
 
-    /// `asqr` with the sandbox as home and no queue chosen by the
-    /// environment of the machine running the tests.
+    /// `asqr` with the sandbox as home, and no queue or log filter chosen
+    /// by the environment of the machine running the tests.
     pub fn asqr(&self) -> Command {
         let mut command = Command::cargo_bin("asqr").expect("the asqr binary is built");
         command
@@ -43,7 +43,8 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
             .env_remove("ASQR_QUEUE")
-            .env_remove("ASQR_DIR");
+            .env_remove("ASQR_DIR")
+            .env_remove("ASQR_LOG");
         command
     }
 
@@ -56,7 +57,8 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
             .env_remove("ASQR_QUEUE")
-            .env_remove("ASQR_DIR");
+            .env_remove("ASQR_DIR")
+            .env_remove("ASQR_LOG");
         command
     }
 

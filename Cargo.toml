@@ -40,7 +40,9 @@ similar = "3.2.0"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 tracing = "0.1.44"
-tracing-subscriber = "0.3.23"
+# `env-filter` reads the filter in `ASQR_LOG` (ADR 83); it brings in
+# `matchers`.
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # The syntaxes patine highlights with, which give the files `o` writes for
 # inline code their extension. The version and features are patine's, so
 # no other crate comes in: the default features would bring in Oniguruma,

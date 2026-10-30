@@ -11,13 +11,15 @@
 //! what the code under test logged, which the run loop's tests read too.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
+use tracing::Dispatch;
+use tracing::subscriber::NoSubscriber;
 
 use super::source_line::columns;
 use super::viewer::Viewer;
@@ -228,8 +230,25 @@ pub(super) fn refused_paths() -> (tempfile::TempDir, [String; 3]) {
 // Reading the log
 // ---------------------------------------------------------------------
 
-/// What `run` logged on this thread, as asqr's log file has it.
+/// What `run` logged on this thread, as asqr's log file has it without
+/// `ASQR_LOG`.
 pub(crate) fn logged(run: impl FnOnce()) -> String {
+    logged_with(None, run)
+}
+
+/// What `run` logged on this thread, as asqr's log file has it with
+/// `variable` as the value of `ASQR_LOG`.
+pub(crate) fn logged_with(variable: Option<&str>, run: impl FnOnce()) -> String {
+    // tracing caches whether a callsite is wanted. While at most one
+    // dispatcher is registered, it asks only the dispatcher of the thread
+    // that reaches the callsite first, so a test that runs code without a
+    // subscriber could switch a line off for a test here that logs it.
+    // With a second dispatcher alive, tracing asks every live one. That
+    // also keeps tracing's global level at `TRACE` in the test process,
+    // so no test can rely on `LevelFilter::current()`.
+    static ANOTHER: OnceLock<Dispatch> = OnceLock::new();
+    ANOTHER.get_or_init(|| Dispatch::new(NoSubscriber::default()));
+
     #[derive(Clone, Default)]
     struct Written(Arc<Mutex<Vec<u8>>>);
 
@@ -249,11 +268,8 @@ pub(crate) fn logged(run: impl FnOnce()) -> String {
 
     let written = Written::default();
     let log = written.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_ansi(false)
-        .with_writer(move || log.clone())
-        .finish();
-    tracing::subscriber::with_default(subscriber, run);
+    let dispatch = crate::cli::log::dispatch(move || log.clone(), variable);
+    tracing::dispatcher::with_default(&dispatch, run);
     let bytes = written
         .0
         .lock()

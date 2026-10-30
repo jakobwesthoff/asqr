@@ -143,6 +143,7 @@ impl Tui {
         command.env("XDG_CACHE_HOME", sandbox.home().join(".cache"));
         command.env_remove("ASQR_QUEUE");
         command.env_remove("ASQR_DIR");
+        command.env_remove("ASQR_LOG");
         command.env_remove("NO_COLOR");
         command.env("TERM", "xterm-256color");
         command.env("TMUX", "/tmp/tmux-test/default,1,0");
