@@ -138,6 +138,28 @@ Jakob's notes:
   between queues, showing which session tmux detected.
 - Other multiplexers: later, keep open.
 
+## Decisions (2026-10-30, asqr session 01M6678BXTKR8GK72MB2828M8F)
+
+- How a chosen queue reaches the agents, as explained to Jakob: the TUI
+  stores its queue in a variable of its tmux session; every asqr command
+  an agent runs in a pane of that session reads it from tmux. `asqr
+  --queue default` pins the default queue on purpose.
+- The TUI stores its queue in the session on every start inside tmux,
+  also a queue derived from the session name.
+- When tmux cannot be asked from inside tmux, asqr uses the default
+  queue and warns, naming `--queue`.
+- A queue switcher inside the TUI, opened with a key as a pop-up, comes
+  with this work. Its design needs thought first: immediately
+  understandable, not too complex, quick to use, and still showing which
+  information came from where and what runs where, without overloading
+  it. Jakob found the first mockup unclear. A multi-agent design
+  discussion comes first, then options for him to choose and iterate on.
+- The no-watcher warning's wording depends on whether tmux was detected.
+  Outside tmux it tells the agent to ask the person to start `asqr` on
+  that queue (`asqr --queue <name>`); inside tmux, to start `asqr` in a
+  window of that session. Starting `asqr --queue <name>` is always an
+  option and the warning may name it in both cases.
+
 ## Relations
 
 - Relates to: [Decide whether to build a terminal dashboard that agents write their status to](01M5VR1S0NSFH97XRWCKNBG7DR-decide-whether-to-build-a-terminal-dashboard-that-agents-write-their.md), the same question of which agents feed which view
