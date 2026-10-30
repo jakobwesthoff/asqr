@@ -2293,8 +2293,8 @@ scrolling.
 Agents are the main askers. asqr ships a skill for them (ADR 6).
 
 The skill lives in the repo in the directory `skills/asqr/` in the Agent
-Skills format: `SKILL.md`, the core, with `name` and `description`
-frontmatter and a plain Markdown body, and the parts `context.md`,
+Skills format: `SKILL.md`, the core, with `name`, `description` and
+`metadata` frontmatter and a plain Markdown body, and the parts `context.md`,
 `withdrawing.md` and `patterns.md` under `references/` (ADR 82). All
 four are compiled into the binary, so `asqr skill` prints the core that
 matches the asqr that runs it, and `asqr skill <part>` prints one part,
@@ -2307,9 +2307,13 @@ replaces `<dir>/asqr/references/` whole and leaves any other file in
 `<dir>/asqr/` alone, so `asqr skill --install .claude/skills` works and
 running it again replaces an older copy, parts included.
 
+The core's `metadata` holds `asqr-version`, the version of the asqr the
+skill belongs to, equal to the crate version; a test fails until a
+release sets it.
+
 The core holds every rule whose violation no asqr check catches and the
 ask, wait and read procedure, which comes before the session format. It
-states each rule once and stays at most 17,945 bytes (ADR 82). A part
+states each rule once and stays at most 17,980 bytes (ADR 82). A part
 holds details that `asqr validate` and `asqr ask` already guard, or that
 apply on one branch of the work, and stays under 30,000 bytes. The core's first paragraph tells the agent
 to read it to its last line and names that line, `End of the asqr

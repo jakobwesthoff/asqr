@@ -44,6 +44,24 @@ fn the_skill_has_agent_skills_frontmatter() {
 }
 
 #[test]
+fn the_skill_carries_the_version_of_this_asqr() {
+    // Every copy of the skill, installed, packaged or saved from
+    // `asqr skill`, names the asqr it belongs to. A release that bumps the
+    // crate version fails here until the skill names the new one.
+    let frontmatter = SKILL
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .expect("the skill has frontmatter")
+        .0;
+    let stamp = format!(
+        "\nmetadata:\n  asqr-version: \"{}\"",
+        env!("CARGO_PKG_VERSION")
+    );
+
+    assert!(frontmatter.contains(&stamp), "{frontmatter}");
+}
+
+#[test]
 fn prints_each_part_of_the_skill() {
     for name in PART_NAMES {
         let output = Sandbox::new()
@@ -237,7 +255,7 @@ fn each_part_stays_under_30000_bytes() {
 }
 
 #[test]
-fn the_core_fits_in_17945_bytes() {
+fn the_core_fits_in_17980_bytes() {
     // The core arrives whole where Claude Code's Bash tool shows up to
     // roughly 30,000 characters of output inline. The cap is the size of
     // the core with every rule stated once. The example session, the exit
@@ -245,7 +263,7 @@ fn the_core_fits_in_17945_bytes() {
     // not seen your work and on waiting for and reading every result keep
     // it above 16,000 bytes.
     let size = SKILL.len();
-    assert!(size <= 17_945, "the core is {size} bytes");
+    assert!(size <= 17_980, "the core is {size} bytes");
 }
 
 #[test]

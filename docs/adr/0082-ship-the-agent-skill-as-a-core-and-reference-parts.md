@@ -31,7 +31,7 @@ that installed it
 - `skills/asqr/SKILL.md`, the core, holds every rule whose violation no
   asqr check catches, and the ask, wait and read procedure, which comes
   before the session format. It states each rule once. A test caps it
-  at 17,945 bytes, so a tool that returns up to roughly 30,000
+  at 17,980 bytes, so a tool that returns up to roughly 30,000
   characters inline shows it whole. The cap is the size of the core with
   every rule stated once; the example session, the exit codes and the
   rules on info items, on writing for a person who has not seen the
@@ -59,6 +59,10 @@ that installed it
 - `asqr skill --install <dir>` writes `<dir>/asqr/SKILL.md`, replaces
   `<dir>/asqr/references/` whole and leaves any other file in
   `<dir>/asqr/` alone. asqr owns `references/`.
+- The core's frontmatter carries `metadata` with `asqr-version`, equal
+  to the crate version. It travels with every copy of the skill, a
+  plugin, a hand copy and `asqr skill > file` alike. A test fails until
+  the two agree, so each release edits it once.
 - Tests pin the structure and ten key rules of the core, each by a
   short phrase, so a later rewrite cannot drop one silently, and
   rewording around a phrase needs no test change.
@@ -72,3 +76,4 @@ that installed it
 - A copy of `SKILL.md` alone lacks the parts as files; `asqr skill
   <part>` still prints them.
 - What a part holds reaches an agent only when it opens the part.
+- Every release changes `SKILL.md` once, for its `asqr-version`.

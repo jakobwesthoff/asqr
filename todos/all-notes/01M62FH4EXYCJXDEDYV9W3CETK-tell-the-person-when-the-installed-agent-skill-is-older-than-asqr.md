@@ -39,22 +39,27 @@ remember to reinstall the skill by hand.
   installed file's frontmatter, compared with the binary's version, and
   which skill directories asqr knows to look in (`.claude/skills`, the
   user's home, others).
-- Whether `--install` should also offer to update an existing older copy
-  in place, and whether asqr should name the command to run.
+- Whether asqr should name the command to run. `--install` already
+  updates an existing older copy in place (below).
 
 ## Settled by the skill split (2026-10-30, asqr session 01M663RDEWA9W6SVK9KWFMC1ZV)
 
-- The installed skill becomes the directory `asqr/` with `SKILL.md` and
-  `references/`; a check treats the directory as the unit.
-- `--install` always rewrites `references/` and removes stale parts, so
-  reinstalling is a complete update in place.
-- `asqr skill <part>` with an unknown part names the known parts and the
-  command that prints the current skill: a first, passive signal of a
-  mismatch.
-- The version lives in the skill's frontmatter `metadata`, equal to the
-  crate version (Jakob chose this over a marker file written on install,
-  since only `--install` would write a marker and hand copies would have
-  none).
+Landed with ADR 82:
+
+- The installed skill is the directory `asqr/` with `SKILL.md` and
+  `references/` (`context.md`, `withdrawing.md`, `patterns.md`); a check
+  treats the directory as the unit.
+- `--install` writes `SKILL.md`, replaces `references/` whole, so parts
+  an older asqr wrote disappear, and leaves other files in `asqr/` alone.
+  Reinstalling is a complete update in place.
+- `asqr skill <part>` with an unknown part exits 2, names the known parts
+  and says that `asqr skill` prints the skill of this asqr: a first,
+  passive signal of a mismatch.
+- `SKILL.md`'s frontmatter carries `metadata:` with
+  `asqr-version: "<version>"`, equal to the crate version; a test in
+  `tests/cli_skill.rs` fails until a release sets it (Jakob chose this
+  over a marker file written on install, since only `--install` would
+  write a marker and hand copies would have none).
 
 Still open: where the check runs, and which directories asqr looks in.
 
@@ -62,9 +67,5 @@ Jakob's note (2026-10-30, asqr session 01M664CT1H5WE3J1MT97JNYGDT): the
 docs should say that installing the skill is possible but in most cases
 not needed, as an agent told to use asqr can read the current skill from
 the installed binary (`asqr skill`). A skill read that way never ages, so
-this check matters only for people who install a copy. The README and
-install docs change with the skill split.
-
-## Relations
-
-- Depends on: [Make the skill keep an agent from leaving the result of an info-only session unread](01M63AVXW95AQA517AV8K35XGV-make-the-skill-keep-an-agent-from-leaving-the-result-of-an-info-only.md)
+this check matters only for people who install a copy. The README, spec
+section 9 and `asqr skill --help` say so since the skill split.

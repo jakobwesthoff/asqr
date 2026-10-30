@@ -96,13 +96,10 @@ with warnings in `validate`, and a tip after `skill --install`.
 - Exact-stderr tests that change: `tests/cli_withdraw.rs`,
   `tests/cli_ask.rs` on the refusals; a clean `validate` must stay
   silent (`tests/cli_format.rs`, `tests/cli_skill.rs`).
-- The skill's rules each hint backs up may shrink to one line; the skill
-  split (todo "Make the skill keep an agent from leaving the result of
-  an info-only session unread") changes where those rules live, so this
-  work starts after it.
+- The skill's rules each hint backs up may shrink to one line. The skill
+  is a core, `skills/asqr/SKILL.md`, capped at 17,980 bytes by a test,
+  and parts under `skills/asqr/references/` (ADR 82); the withdraw and
+  `--replaces` rules live in `references/withdrawing.md`, the every-
+  session waiting rule in the core's "Asking and waiting".
 - Callers that merge stderr into stdout (`2>&1`) see hints in their
   data; they already see warnings there.
-
-## Relations
-
-- Depends on: [Make the skill keep an agent from leaving the result of an info-only session unread](01M63AVXW95AQA517AV8K35XGV-make-the-skill-keep-an-agent-from-leaving-the-result-of-an-info-only.md)

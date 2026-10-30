@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asqr skill <part>` prints one part of the agent skill: `context`,
   `withdrawing` or `patterns`. An unknown part exits 2 and names the
   parts.
+- The agent skill names the asqr version it belongs to in its
+  frontmatter, as `asqr-version` under `metadata`.
 
 ### Changed
 
@@ -59,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parts an older asqr wrote disappear.
 - The agent skill explains asking, waiting and reading the result
   before the session format.
-- The agent skill's core states each rule once and is at most 17,945
+- The agent skill's core states each rule once and is at most 17,980
   bytes, so a tool that cuts output at 30,000 characters shows it whole.
 
 ### Fixed
