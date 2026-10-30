@@ -1082,7 +1082,8 @@ has context (section 7.4, ADRs 30 and 31):
   the number leaves the label less than 20 columns, the whole label goes
   on the lines below the option's row, from column 6, or from column 0
   in a pane narrower than 8 columns. Under the cursor, the focus fill
-  covers the pointer, the mark, the number and every line of the label.
+  covers the pointer, the mark, the number and the label's text on every
+  line, not the blanks before the label's lines below the option's row.
   Option descriptions start after the widest label and wrap under
   themselves; where that leaves less than 30 columns, or a label takes
   more than one line, every description of the question goes below its
@@ -1136,8 +1137,14 @@ has context (section 7.4, ADRs 30 and 31):
 - The row under the cursor, a field's head under it while the field
   does not have the keys, the current entry of the session list and the
   focused context pane's name show the focus fill: yellow reversed, in
-  one colour over the whole row, or over the name and its blanks in the
-  pane's header rule. One focus fill shows at a time. The focused
+  one colour. On the question and the review it ends where a row's text
+  ends: the blanks after the text, and those before a label's lines
+  below the option's row, stay unfilled, except, where no description
+  stands beside, the blanks before a default option's `◀ default`
+  (section 7.2). An option's description takes no fill, and a field
+  shows the fill on its head alone, not on the text typed after it. The
+  session list fills its current entry across the list, and the pane's
+  header rule the name and its blanks. One focus fill shows at a time. The focused
   context pane's rules and edge turn yellow (section 8.1). The submit
   button (section 7.8) and the changed lines of a diff (section 8.5) are
   the only other fills.

@@ -114,10 +114,11 @@ pub(crate) fn focus_span(span: Span<'static>) -> Span<'static> {
     span.patch_style(focus_fill())
 }
 
-/// `line` under the focus fill, to the edge of the area it is drawn in:
-/// each span gets the fill, as in [`focus_span`], and so does the line's
-/// own style, which alone paints the blanks after its text where the line
-/// is drawn as a widget of its own.
+/// `line` under the focus fill: each span gets the fill, as in
+/// [`focus_span`], and so does the line's own style. The line's style
+/// paints the blanks after the text only where the line is drawn as a
+/// widget of its own; in a [`Paragraph`](ratatui::widgets::Paragraph), as
+/// on the review, the fill ends with the text.
 pub(crate) fn focus_row(line: Line<'static>) -> Line<'static> {
     let spans = line.spans.into_iter().map(focus_span).collect::<Vec<_>>();
     Line {
