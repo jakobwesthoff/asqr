@@ -1302,15 +1302,16 @@ start that fails before the TUI runs, as without a terminal, leaves the
 pin as it was. A pin tmux refuses leaves asqr as outside tmux, without
 a word. The pin stays when asqr quits, so a restarted asqr and the
 agents keep the queue; a restarted tmux server has no pins. Two asqr in
-one tmux session on different queues: the later start holds the pin. `q` quits with exit code 0 and gives
-the terminal back as it was, also after a panic. On Unix, SIGTERM,
-SIGINT and SIGHUP quit as `q` does. While the person's editor has the
-terminal (section 7.7), SIGINT, which ctrl-c sends there, does not quit
-asqr, and SIGTERM and SIGHUP quit once the editor has exited. SIGKILL
-ends asqr at once and leaves the terminal as asqr had set it up. When
-asqr can no longer read the terminal's input, it gives the terminal
-back, prints "error: reading the terminal's input: <reason>" and exits
-with 1.
+one tmux session on different queues: the later start holds the pin.
+
+`q` quits with exit code 0 and gives the terminal back as it was, also
+after a panic. On Unix, SIGTERM, SIGINT and SIGHUP quit as `q` does.
+While the person's editor has the terminal (section 7.7), SIGINT, which
+ctrl-c sends there, does not quit asqr, and SIGTERM and SIGHUP quit once
+the editor has exited. SIGKILL ends asqr at once and leaves the terminal
+as asqr had set it up. When asqr can no longer read the terminal's
+input, it gives the terminal back, prints "error: reading the terminal's
+input: <reason>" and exits with 1.
 
 asqr asks the terminal for bracketed paste (section 7.7) and for focus
 reports (section 8.8). It turns both off again when it quits or panics,
