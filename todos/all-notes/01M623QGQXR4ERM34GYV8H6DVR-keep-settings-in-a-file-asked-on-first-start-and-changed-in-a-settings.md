@@ -72,6 +72,20 @@ settings pane in the TUI.
   only caps the question. Forcing a side is the placement setting's
   job. Rejected: letting the width move it.
 
+- **Look: the design "Sibling"** from the design study of 2026-10-30
+  (conductor logbook `plans/settings-design/`, `index.md` and
+  `png/d1-*.png`): the settings pane and the first-start screen use the
+  queue switcher's frame; `enter` opens a setting's values in place as
+  option rows with the `◀ default` marker; the first start is the same
+  frame with its questions open and a "Save and start" button. The
+  texts, the explanations under each setting and the details of how
+  values are shown and picked in those pictures are drafts, to be
+  discussed with Jakob before the work starts. Rejected: "Dogfood" (the
+  settings as an asqr session), "Switchboard" (a full page),
+  "Drawer" (a band above the key bar). The study proposes `,` as the key
+  and a first start that asks only about keeping files and the update
+  check; both are part of that discussion.
+
 ## Technical notes (lead, 2026-10-30)
 
 - The `directories` crate, which asqr already uses for the data and
