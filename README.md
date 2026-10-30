@@ -131,7 +131,8 @@ replaces it, parts included. `asqr ask` and `asqr validate` print a hint
 when they find an installed copy that is older than asqr, in the skills
 directories of Claude Code, Codex, Gemini CLI, GitHub Copilot and Cursor,
 in the project up to the git root and in your home directory, and in
-the skills directory of `CLAUDE_CONFIG_DIR` when that is set. The hint
+the directories that `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`
+or `GEMINI_CLI_HOME` name when they are set. The hint
 tells the agent to read the current skill with `asqr skill` and to ask
 you whether to update the copy.
 

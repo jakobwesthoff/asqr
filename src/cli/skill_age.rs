@@ -72,7 +72,15 @@ const GLOBAL_DIRS: &[GlobalDir] = &[
         // (https://geminicli.com/docs/cli/skills/), GitHub Copilot and
         // Cursor (see above).
         home_relative: ".agents/skills",
-        moved_by: None,
+        // Gemini CLI keeps this directory and `.gemini` below the home
+        // that `GEMINI_CLI_HOME` names in place of the user's home:
+        // `docs/reference/configuration.md:2696` and
+        // `packages/core/src/config/storage.ts:54-68,142-148` in
+        // https://github.com/google-gemini/gemini-cli at b633c07.
+        moved_by: Some(Override {
+            variable: "GEMINI_CLI_HOME",
+            subpath: ".agents/skills",
+        }),
     },
     GlobalDir {
         // Claude Code: https://code.claude.com/docs/en/skills
@@ -88,13 +96,22 @@ const GLOBAL_DIRS: &[GlobalDir] = &[
     GlobalDir {
         // Gemini CLI: https://geminicli.com/docs/cli/skills/
         home_relative: ".gemini/skills",
-        moved_by: None,
+        // `GEMINI_CLI_HOME`, see the shared directory above.
+        moved_by: Some(Override {
+            variable: "GEMINI_CLI_HOME",
+            subpath: ".gemini/skills",
+        }),
     },
     GlobalDir {
         // GitHub Copilot:
         // https://docs.github.com/en/copilot/concepts/customizations/agent-skills
         home_relative: ".copilot/skills",
-        moved_by: None,
+        // `COPILOT_HOME` replaces `~/.copilot`:
+        // https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference
+        moved_by: Some(Override {
+            variable: "COPILOT_HOME",
+            subpath: "skills",
+        }),
     },
     GlobalDir {
         // Cursor: https://cursor.com/docs/skills
@@ -105,17 +122,28 @@ const GLOBAL_DIRS: &[GlobalDir] = &[
         // Cursor loads the Codex directory too:
         // https://cursor.com/docs/skills
         home_relative: ".codex/skills",
-        moved_by: None,
+        // Codex keeps its state in `CODEX_HOME` in place of `~/.codex`
+        // (https://developers.openai.com/codex/config-advanced), and its
+        // skills in `skills` below it: `codex-rs/exec-server/src/discoverV2/capability_locations.rs:73`
+        // in https://github.com/openai/codex at a4b4082.
+        moved_by: Some(Override {
+            variable: "CODEX_HOME",
+            subpath: "skills",
+        }),
     },
 ];
 
-/// The variables of the table of global directories that move one. A test that
-/// must not find the skills of whoever runs it removes them all.
+/// The variables of the table of global directories that move one, each
+/// once. A test that must not find the skills of whoever runs it removes
+/// them all.
 pub fn override_variables() -> impl Iterator<Item = &'static str> {
-    GLOBAL_DIRS
-        .iter()
-        .filter_map(|dir| dir.moved_by.as_ref())
-        .map(|moved| moved.variable)
+    let mut seen = Vec::new();
+    for moved in GLOBAL_DIRS.iter().filter_map(|dir| dir.moved_by.as_ref()) {
+        if !seen.contains(&moved.variable) {
+            seen.push(moved.variable);
+        }
+    }
+    seen.into_iter()
 }
 
 /// What a search needs to know, so tests can give it directories of their
@@ -1098,10 +1126,92 @@ mod tests {
     }
 
     #[test]
-    fn the_override_variables_are_those_of_the_table() {
+    fn the_override_variables_are_those_of_the_table_each_once() {
         let names: Vec<&str> = override_variables().collect();
 
-        assert_eq!(names, ["CLAUDE_CONFIG_DIR"]);
+        assert_eq!(
+            names,
+            [
+                "GEMINI_CLI_HOME",
+                "CLAUDE_CONFIG_DIR",
+                "COPILOT_HOME",
+                "CODEX_HOME"
+            ]
+        );
+    }
+
+    /// The variable `variable` holding a directory in which the copy sits
+    /// at `subpath/asqr` is honoured: the copy is named by that path.
+    fn honours(variable: &str, subpath: &str) {
+        let home = temp();
+        let project = temp();
+        let moved = temp();
+        put(moved.path(), subpath, Some("0.14.0"));
+
+        let hint = run_with_variables(
+            GLOBAL_DIRS,
+            project.path(),
+            Some(home.path()),
+            &[(variable, moved.path())],
+            Some(project.path()),
+        );
+
+        let skills = moved.path().join(subpath);
+        let named = format!(
+            "the asqr skill in {}/asqr is from asqr 0.14.0",
+            skills.display()
+        );
+        assert!(
+            hint.as_deref().is_some_and(|hint| hint.starts_with(&named)),
+            "{variable}: {hint:?}"
+        );
+    }
+
+    #[test]
+    fn claude_config_dir_moves_the_claude_directory() {
+        honours("CLAUDE_CONFIG_DIR", "skills");
+    }
+
+    #[test]
+    fn codex_home_moves_the_codex_directory() {
+        honours("CODEX_HOME", "skills");
+    }
+
+    #[test]
+    fn copilot_home_moves_the_copilot_directory() {
+        honours("COPILOT_HOME", "skills");
+    }
+
+    #[test]
+    fn gemini_cli_home_moves_the_gemini_directory() {
+        honours("GEMINI_CLI_HOME", ".gemini/skills");
+    }
+
+    #[test]
+    fn gemini_cli_home_moves_the_shared_directory() {
+        honours("GEMINI_CLI_HOME", ".agents/skills");
+    }
+
+    #[test]
+    fn the_cursor_directory_has_no_variable() {
+        let moved = temp();
+        let home = temp();
+        let project = temp();
+        put(moved.path(), "skills", Some("0.14.0"));
+        let variables: Vec<(&str, &Path)> = ["CURSOR_CONFIG_DIR", "XDG_CONFIG_HOME"]
+            .into_iter()
+            .map(|name| (name, moved.path()))
+            .collect();
+
+        let hint = run_with_variables(
+            GLOBAL_DIRS,
+            project.path(),
+            Some(home.path()),
+            &variables,
+            Some(project.path()),
+        );
+
+        assert_eq!(hint, None);
     }
 
     #[test]

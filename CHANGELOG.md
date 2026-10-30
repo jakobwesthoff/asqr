@@ -94,9 +94,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the skills directories of Claude Code, Codex, Gemini CLI, GitHub
   Copilot and Cursor, among them `~/.codex/skills`, and in the shared
   `.agents/skills`, in the project from the current directory up to the
-  git root and in the home directory. When `CLAUDE_CONFIG_DIR` holds an
-  absolute path, its `skills` directory is searched too. The hint
-  repeats until the copy is updated.
+  git root and in the home directory. When `CLAUDE_CONFIG_DIR`,
+  `CODEX_HOME`, `COPILOT_HOME` or `GEMINI_CLI_HOME` holds an absolute
+  path, the skills directory below it is searched too. The hint repeats
+  until the copy is updated.
 - `ASQR_LOG` sets which events reach the log: a level such as
   `ASQR_LOG=debug`, or levels per target such as `info,asqr=debug`.
   Unset, the log takes `info` and above. A value that does not parse

@@ -2755,8 +2755,17 @@ An environment variable can move a global directory: when it holds an
 absolute path, that path plus a subpath is searched too, right after the
 directory it moves, which stays searched. A variable that is unset, empty
 or relative moves nothing, and the moved directory is searched whether or
-not `HOME` is set. `CLAUDE_CONFIG_DIR` moves `~/.claude/skills`, with the
-subpath `skills`.
+not `HOME` is set. The variables are:
+
+| Variable | Moves | Searched |
+| :- | :- | :- |
+| `GEMINI_CLI_HOME` | `~/.agents/skills` | `$GEMINI_CLI_HOME/.agents/skills` |
+| `GEMINI_CLI_HOME` | `~/.gemini/skills` | `$GEMINI_CLI_HOME/.gemini/skills` |
+| `CLAUDE_CONFIG_DIR` | `~/.claude/skills` | `$CLAUDE_CONFIG_DIR/skills` |
+| `COPILOT_HOME` | `~/.copilot/skills` | `$COPILOT_HOME/skills` |
+| `CODEX_HOME` | `~/.codex/skills` | `$CODEX_HOME/skills` |
+
+`~/.cursor/skills` has no variable.
 
 - A copy is older when the frontmatter of its `SKILL.md` has an
   `asqr-version` (asqr writes it under `metadata`) below the version of

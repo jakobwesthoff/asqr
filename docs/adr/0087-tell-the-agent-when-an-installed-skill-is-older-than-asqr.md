@@ -34,12 +34,34 @@ copies of the skill with their own version and hint when a copy is older.
   `.codex/skills` in a project, and `~/.agents/skills`,
   `~/.cursor/skills`, `~/.claude/skills` and `~/.codex/skills` for a
   person (<https://cursor.com/docs/skills>).
-- `CLAUDE_CONFIG_DIR` overrides Claude Code's configuration directory,
-  `~/.claude` by default (<https://code.claude.com/docs/en/env-vars>).
-  When it is set, every `~/.claude` path in the reference of that
-  directory lives under it instead, and the reference lists
-  `skills/<name>/SKILL.md` as a project and a global location
-  (<https://code.claude.com/docs/en/claude-directory>).
+- Environment variables move some of these directories:
+  - `CLAUDE_CONFIG_DIR` overrides Claude Code's configuration directory,
+    `~/.claude` by default (<https://code.claude.com/docs/en/env-vars>).
+    When it is set, every `~/.claude` path in the reference of that
+    directory lives under it instead, and the reference lists
+    `skills/<name>/SKILL.md` as a project and a global location
+    (<https://code.claude.com/docs/en/claude-directory>). Documented.
+  - `COPILOT_HOME` replaces `~/.copilot`, and `skills/` below it holds
+    personal skills
+    (<https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference>).
+    Documented.
+  - `GEMINI_CLI_HOME` replaces the home directory in which Gemini CLI
+    creates `.gemini`
+    (`docs/reference/configuration.md:2696` in
+    <https://github.com/google-gemini/gemini-cli> at b633c07, documented).
+    In its source, `~/.gemini/skills` and `~/.agents/skills` both lie
+    below that home (`packages/core/src/config/storage.ts:54-68,142-148`
+    at b633c07).
+  - `CODEX_HOME` replaces `~/.codex`
+    (<https://developers.openai.com/codex/config-advanced>, documented).
+    The documentation does not say that skills lie below it. In the
+    source, `codex_home.join("skills")` is a skills location
+    (`codex-rs/exec-server/src/discoverV2/capability_locations.rs:73` in
+    <https://github.com/openai/codex> at a4b4082).
+  - Cursor has no variable for skills: `CURSOR_CONFIG_DIR` is documented
+    for `cli-config.json` only (<https://cursor.com/docs/cli/reference/configuration>).
+    No variable for the shared `~/.agents/skills` and none that uses
+    `XDG_CONFIG_HOME` for skills was found.
 
 ## Decision
 
@@ -61,10 +83,13 @@ copies of the skill with their own version and hint when a copy is older.
   variable holds an absolute path, `<path>/<subpath>` is searched right
   after the entry, which stays searched. A variable that is unset, empty
   or relative moves nothing, and the moved directory is searched also
-  without `HOME`. `CLAUDE_CONFIG_DIR` with the subpath `skills` is the
-  first such entry, for `~/.claude/skills`. The search reads the variables
-  through a lookup it is given, so tests never read the real
-  environment.
+  without `HOME`. The entries with a variable are `~/.claude/skills`
+  (`CLAUDE_CONFIG_DIR`, subpath `skills`), `~/.codex/skills`
+  (`CODEX_HOME`, `skills`), `~/.copilot/skills` (`COPILOT_HOME`,
+  `skills`), `~/.gemini/skills` (`GEMINI_CLI_HOME`, `.gemini/skills`) and
+  `~/.agents/skills` (`GEMINI_CLI_HOME`, `.agents/skills`); the Cursor
+  entry has none. The search reads the variables through a lookup it is
+  given, so tests never read the real environment.
 - The git root is the nearest directory with a `.git`, a directory or,
   in a linked worktree, a file. Without one only the current directory is
   searched. asqr does not start git to find it.
@@ -97,6 +122,9 @@ copies of the skill with their own version and hint when a copy is older.
   `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is `1`
   (<https://code.claude.com/docs/en/env-vars>), and asqr then searches
   `~/.claude/skills` for Claude Code only.
+- The default directory of an entry stays searched when its variable is
+  set, also where the documentation of the agent does not say that the
+  agent still reads it.
 - The stamp equals the crate version, so the check compares versions and
   not builds.
 - In a linked worktree the walk ends at the worktree root and does not
