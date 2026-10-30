@@ -48,12 +48,20 @@ pub(super) fn run(
 }
 
 /// Prints `result` with the bytes the outbox holds for it, so the output
-/// matches what `wait` and `result` print for the session.
+/// matches what `wait` and `result` print for the session, then the hints
+/// it gets. A result that did not reach stdout gets none, since they point
+/// into it.
 fn print(result: &SessionResult) -> Exit {
     let json = serde_json::to_vec_pretty(result).expect("a result always serializes");
-    let mut stdout = std::io::stdout().lock();
-    stdout
-        .write_all(&json)
-        .and_then(|()| stdout.flush())
-        .map_or(Exit::Failure, |()| Exit::Success)
+    let written = {
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(&json).and_then(|()| stdout.flush())
+    };
+    match written {
+        Ok(()) => {
+            hint::after_result(&json, result);
+            Exit::Success
+        }
+        Err(_) => Exit::Failure,
+    }
 }

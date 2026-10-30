@@ -989,6 +989,25 @@ fn ask_replaces_with_force_takes_a_session_being_answered() {
 }
 
 #[test]
+fn ask_replaces_force_points_at_the_old_sessions_draft() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    start_answering(&sandbox, "round-1");
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1", "--force"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let started_on = format!(
+        "hint: the person had started on round-1; what they entered is in the `draft` of its result: `asqr --dir {} result round-1`\n",
+        sandbox.queue_dir().display()
+    );
+    assert_eq!(
+        stderr(&output),
+        nobody_watching(&sandbox) + &started_on + &wait_reminder(&sandbox, "round-2")
+    );
+}
+
+#[test]
 fn ask_replaces_force_archives_an_unread_result_of_the_new_id() {
     let sandbox = Sandbox::new();
     let second = round_one_waiting(&sandbox);

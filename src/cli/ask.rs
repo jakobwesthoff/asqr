@@ -17,8 +17,8 @@ use super::hint::{self, Caller, Invocation};
 use super::wait::wait_for_result;
 use crate::format::{WarningKind, same_session_id, validate, warnings};
 use crate::queue::{
-    DropError, Dropped, Gate, QueueLocation, ReplaceError, WithdrawError, drop_replacing,
-    drop_session, lock_holder,
+    DropError, Dropped, Gate, QueueLocation, ReplaceError, WithdrawError, Withdrawn,
+    drop_replacing, drop_session, lock_holder,
 };
 
 pub(super) struct AskOptions {
@@ -71,26 +71,40 @@ pub(super) fn run(
     bytes.push(b'\n');
 
     let dropped = match options.replaces.as_deref() {
-        None => drop_session(location, &id, &bytes, options.force).map_err(|error| {
-            tracing::warn!(id, %error, "ask refused");
-            match error {
-                DropError::UnreadResult(id) => hint::unread_result(invocation, &id, None).print(),
-                error => eprintln!("error: {error}"),
-            }
-            Exit::Failure
-        }),
-        Some(old) => replace(location, invocation, old, &id, &bytes, options.force),
+        None => drop_session(location, &id, &bytes, options.force)
+            .map(|dropped| (None, dropped))
+            .map_err(|error| {
+                tracing::warn!(id, %error, "ask refused");
+                match error {
+                    DropError::UnreadResult(id) => {
+                        hint::unread_result(invocation, &id, None).print();
+                    }
+                    error => eprintln!("error: {error}"),
+                }
+                Exit::Failure
+            }),
+        Some(old) => replace(location, invocation, old, &id, &bytes, options.force)
+            .map(|(withdrawn, dropped)| (Some(withdrawn), dropped)),
     };
-    match dropped {
-        Ok(dropped) => {
+    let withdrawn = match dropped {
+        Ok((withdrawn, dropped)) => {
             tracing::info!(id, ?dropped, "dropped session");
             if let Dropped::Replaced(_) = dropped {
                 hint::replaced_waiting(&id).print();
             }
+            withdrawn
         }
         Err(exit) => return exit,
-    }
+    };
     warn_if_nobody_watches(location, invocation);
+    // Keyed on the `draft`, not on `--force`: an earlier forced withdrawal
+    // of the old session comes back as `Already` with its draft.
+    if let (Some(old), Some(Withdrawn::Now(result) | Withdrawn::Already(result))) =
+        (options.replaces.as_deref(), &withdrawn)
+        && result.draft.is_some()
+    {
+        hint::started_on(invocation, old).print();
+    }
 
     if options.wait {
         eprintln!("{id}");
@@ -123,7 +137,7 @@ fn replace(
     id: &str,
     bytes: &[u8],
     force: bool,
-) -> Result<Dropped, Exit> {
+) -> Result<(Withdrawn, Dropped), Exit> {
     // `ask` replaces a waiting session of the same id by itself; naming it
     // again would withdraw the session the new file is to replace.
     if same_session_id(old, id) {
@@ -135,7 +149,7 @@ fn replace(
     match drop_replacing(location, old, id, bytes, force, Gate::default()) {
         Ok((withdrawn, dropped)) => {
             tracing::info!(id, old, ?withdrawn, "replaced a session");
-            Ok(dropped)
+            Ok((withdrawn, dropped))
         }
         Err(error) => {
             tracing::warn!(id, old, %error, "ask --replaces refused");

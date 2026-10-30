@@ -1027,11 +1027,26 @@ stands as it is when it holds only ASCII letters and digits, `_`, `.`,
 path that is not UTF-8 or holds a control character shows as `<file>`
 or `<dir>`. A session file's path is the one given to `ask`, since the
 agent runs the command where it ran `ask`. An id that starts with `-`
-has to stand last, after `--`,
-with the options before it (`asqr wait --timeout 540 -- -v2`), or as
-`--replaces=<id>`; hints print ids as they are. A wait that advice
-names on its own uses `--timeout 540`, the timeout of the skill's
-example (section 9).
+has to stand last, after `--`, with the options before it (`asqr wait
+--timeout 540 -- -v2`), or as `--replaces=<id>`; hints print ids as
+they are. A wait that advice names on its own uses `--timeout 540`, the
+timeout of the skill's example (section 9).
+
+A result's JSON ends without a newline. When a hint follows a printed
+result, stderr gets an empty line first, so the hint starts a line of
+its own where the two streams are shown together.
+
+Order: after a drop, the line for a withdrawn `draft` comes first, then
+the one for warnings or the reminder to wait. Under `--wait`, the first
+comes before the id, and the one for warnings only when the wait ends
+with 12, before the timeout line of section 6.4. After a printed result,
+the line for a rejection, an error or a `draft` comes first, then the
+one for notes.
+
+- `ask --replaces <old>` whose withdrawn result of `<old>` holds a
+  `draft`:
+
+      hint: the person had started on <old>; what they entered is in the `draft` of its result: `<asqr> result <old>`
 
 - `ask` without `--wait`, after it dropped the session, as the last
   line, when the session file drew no warning (section 3.4; the warning
@@ -1056,12 +1071,9 @@ example (section 9).
       hint: <n> warnings above; the session still waits; if one matters to the person, fix the file and replace it: `<asqr> ask <file> --replaces <id>`
       hint: <n> warnings above; the session still waits; if one matters to the person, fix the file, keep its `id`, and ask again: `<asqr> ask <file>`, which replaces it
 
-A result's JSON ends without a newline. When a hint follows a printed
-result, stderr gets an empty line first, so the hint starts a line of
-its own where the two streams are shown together.
-
-- A printed result, from `wait`, `result` or `ask --wait`, after the
-  JSON. A rejected result (exit 10) with a `reason`, and one without:
+- A printed result, from `wait`, `result`, `ask --wait` or `withdraw`,
+  after the JSON. A rejected result (exit 10) with a `reason`, and one
+  without:
 
       hint: the person rejected the session; read `reason` for why, and treat the answers in it as never submitted, not as decisions
       hint: the person rejected the session without a reason; treat the answers in it as never submitted, not as decisions
@@ -1070,13 +1082,16 @@ its own where the two streams are shown together.
 
       hint: the asqr watching the queue refused the session file; `error` says why; fix the file and ask again, or, if `error` names a kind or type that `asqr skill` describes, that asqr is older than this one: tell the person, and ask again once they updated or restarted it
 
+  A withdrawn result with a `draft`:
+
+      hint: `draft` holds what the person entered and never sent; these are not decisions, so use them only as presets in a replacement session (`asqr skill withdrawing` says how) and ignore them otherwise
+
   After the line above, a submitted or rejected result with a note that
-  is not blank,
-  on the session or on any question. The question ids come in session
-  order, the first five and "and <n> more" past five; one note reads "a
-  note … read it", and a rejected result, whose answers were never
-  submitted, ends "before you go on" in place of "before you act on the
-  answers":
+  is not blank, on the session or on any question. The question ids
+  come in session order, the first five and "and <n> more" past five;
+  one note reads "a note … read it", and a rejected result, whose
+  answers were never submitted, ends "before you go on" in place of
+  "before you act on the answers":
 
       hint: the person wrote notes on the session and on `go`, `highlight`; read them before you act on the answers
 

@@ -17,6 +17,10 @@ use crate::queue::QueueLocation;
 /// example shows, so the hint and the skill teach the same command.
 pub(super) const WAIT_TIMEOUT: u64 = 540;
 
+/// The part of the skill that says how to use a withdrawn session's
+/// `draft`, as `asqr skill <part>` names it.
+const WITHDRAWING_PART: &str = "withdrawing";
+
 // =========================================================================
 // Lines and how they are printed
 // =========================================================================
@@ -164,6 +168,15 @@ pub(super) fn replaced_waiting(id: &str) -> Line {
     ))
 }
 
+/// `ask --replaces <old>` withdrew a session whose result holds a `draft`
+/// (D2r): the person had started on it, and the new session starts empty.
+pub(super) fn started_on(invocation: &Invocation, old: &str) -> Line {
+    Line::hint(format!(
+        "the person had started on {old}; what they entered is in the `draft` of its result: `{} result {old}`",
+        invocation.command
+    ))
+}
+
 /// After `ask` dropped a session into a queue no asqr watches (A6). The
 /// session waits there either way, but only the person can start asqr.
 pub(super) fn nobody_watching(invocation: &Invocation) -> Line {
@@ -284,8 +297,14 @@ fn result_hints(result: &SessionResult) -> Vec<Line> {
     outcome(result).into_iter().chain(notes(result)).collect()
 }
 
-/// What a result of a session that was not submitted means (W3).
+/// What a result of a session that was not submitted means: a rejection
+/// or a refusal (W3), or what a withdrawn session's `draft` is for (D2).
 fn outcome(result: &SessionResult) -> Option<Line> {
+    if result.status == Status::Withdrawn && result.draft.is_some() {
+        return Some(Line::hint(format!(
+            "`draft` holds what the person entered and never sent; these are not decisions, so use them only as presets in a replacement session (`asqr skill {WITHDRAWING_PART}` says how) and ignore them otherwise"
+        )));
+    }
     let text = match result.status {
         // `reason` is optional, and absent from the JSON when the person
         // gave none.
@@ -556,6 +575,24 @@ mod tests {
         assert_eq!(
             notes(&result).expect("a hint").to_string(),
             "hint: the person wrote notes on `q1`, `q2`, `q3`, `q4`, `q5` and 2 more; read them before you act on the answers"
+        );
+    }
+
+    #[test]
+    fn every_part_a_hint_names_is_a_part_of_the_skill() {
+        let withdrawn = SessionResult::withdrawn(
+            "w",
+            "9f2c",
+            "2026-10-30T12:00:00+01:00",
+            Some(crate::format::UnsentDraft::default()),
+        );
+        let hint = outcome(&withdrawn).expect("a hint").to_string();
+
+        assert!(hint.contains(&format!("`asqr skill {WITHDRAWING_PART}`")));
+        assert!(
+            super::super::skill::PARTS
+                .iter()
+                .any(|(name, _)| *name == WITHDRAWING_PART)
         );
     }
 

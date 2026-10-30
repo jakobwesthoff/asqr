@@ -114,10 +114,9 @@ withdrawing`) first.
 
 - `status` is `submitted`, `cancelled` (rejected, with an optional
   `reason`), `error` (with `error`) or `withdrawn` (you withdrew it). A
-  withdrawn result has no answers, and a `draft` only after a forced
-  withdrawal. A `draft` holds no decisions: read
-  `references/withdrawing.md` (`asqr skill withdrawing`) before you use
-  one.
+  withdrawn result has no answers. A `draft` in it holds no decisions:
+  read `references/withdrawing.md` (`asqr skill withdrawing`) before you
+  use one.
 - A submitted result lists every question once, in session order, and an
   info item only when the person wrote a note on it, as `{ "question":
   "checks", "note": "..." }`. asqr does not record whether the person

@@ -295,3 +295,73 @@ fn no_session(sandbox: &Sandbox, id: &str) -> String {
         queue.display()
     )
 }
+
+/// The hint after a withdrawn result that carries a `draft`, behind the
+/// empty line that ends the result's JSON.
+const DRAFT_HINT: &str = "\nhint: `draft` holds what the person entered and never sent; these are not decisions, so use them only as presets in a replacement session (`asqr skill withdrawing` says how) and ignore them otherwise\n";
+
+#[test]
+fn withdraw_force_points_at_the_draft() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "batch");
+    start_answering(&sandbox, "batch");
+
+    let withdrawn = withdraw(&sandbox, &["batch", "--force"]);
+
+    assert_eq!(withdrawn.status.code(), Some(0));
+    assert_eq!(stderr(&withdrawn), DRAFT_HINT);
+}
+
+#[test]
+fn withdrawing_again_names_the_draft_after_the_notice() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "batch");
+    start_answering(&sandbox, "batch");
+    withdraw(&sandbox, &["batch", "--force"]);
+
+    let again = withdraw(&sandbox, &["batch"]);
+
+    assert_eq!(again.status.code(), Some(0));
+    assert_eq!(
+        stderr(&again),
+        "asqr: batch was withdrawn already\n".to_owned() + DRAFT_HINT
+    );
+}
+
+#[test]
+fn wait_on_a_withdrawn_result_with_a_draft_points_at_it() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "batch");
+    start_answering(&sandbox, "batch");
+    withdraw(&sandbox, &["batch", "--force"]);
+
+    let output = sandbox
+        .asqr_in_queue(&["wait", "batch"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(14));
+    assert_eq!(stderr(&output), DRAFT_HINT);
+}
+
+#[test]
+fn a_withdrawal_whose_result_cannot_be_printed_fails_without_the_draft_hint() {
+    // The hint points into a result the agent never got.
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "batch");
+    start_answering(&sandbox, "batch");
+    let (reader, writer) = std::io::pipe().expect("a pipe");
+    drop(reader);
+
+    let output = sandbox
+        .spawnable_asqr()
+        .arg("--dir")
+        .arg(sandbox.queue_dir())
+        .args(["withdraw", "batch", "--force"])
+        .stdout(writer)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr(&output), "");
+}
