@@ -9,13 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The agent skill tells agents that a session needs no `info` item:
-  what the person needs for a question goes into that question's text
-  or context, and the question is asked directly. Only what belongs to
-  no single question goes into info items, split into short ones, one
-  topic each, placed before the questions they lead to, instead of one
-  long text. A long document to read in one piece comes only when the
-  person asks for one.
+- The agent skill tells agents to add an `info` item only where no
+  question can carry what it says, and to keep info items short, one
+  topic each, instead of one long text.
+- The agent skill tells agents to write every question for a person who
+  has not seen their work, saying what a thing is instead of referring
+  to it by a name only they know.
 
 ## [0.14.0] - 2026-10-29
 

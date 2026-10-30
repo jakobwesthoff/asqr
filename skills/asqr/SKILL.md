@@ -34,19 +34,19 @@ Once asked, asqr fits best when:
 {
   "asqr": 2,
   "title": "Release 0.3.0",
-  "intro": "The checks so far, then three decisions before the release. Skip what you **cannot** decide yet.",
+  "intro": "Three decisions before the release. Skip what you **cannot** decide yet.",
   "from": "your-agent, project name",
   "questions": [
     {
-      "id": "checks",
-      "header": "Checks",
-      "text": "All checks passed. Two flaky tests passed on a retry:\n\n- `fetch::retries_on_timeout`\n- `queue::drops_in_order`",
+      "id": "done",
+      "header": "Done",
+      "text": "Since the last round: version bumped to 0.3.0 and the changelog written.",
       "kind": "info"
     },
     {
       "id": "go",
       "header": "Go?",
-      "text": "Publish 0.3.0 now?",
+      "text": "All checks passed. Two flaky tests passed on a retry:\n\n- `fetch::retries_on_timeout`\n- `queue::drops_in_order`\n\nTag `v0.3.0` is created locally. Publish 0.3.0 now?",
       "kind": "single",
       "context": [
         { "type": "markdown", "title": "CHANGELOG.md", "content": "## 0.3.0\n\n- Faster startup\n- A `--quiet` flag\n" }
@@ -85,24 +85,49 @@ Once asked, asqr fits best when:
 - An `info` item shows its `text` and `context` like a question and asks
   nothing: it takes no `options`, `custom` or `length`, and the person
   may add a note to it as to any question.
-- A session needs no info item at all. Before you add one, check
-  whether what it would say fits into the `text` or `context` of the
-  question it leads to: there the person reads it where they decide,
-  and the question is asked directly. Use an info item only for what
-  belongs to no single question, such as results so far or a problem
-  you ran into, and never a made-up question with options like "OK"
-  instead.
-- Keep an info item's text to a few lines: on a small terminal a longer
-  text shows a few lines at a time while the person scrolls through it
-  with `↑`. Split more material into several short info items, one
-  topic each, and place each just before the questions it bears on, so
-  the person works through the session piece by piece instead of taking
-  in everything at once. A compact list or a small table per item reads
-  at a glance; a small table can also go into a `markdown` entry of the
-  item's `context`, which scrolls and shows full screen with `z`. Give a
-  long document to read in one piece only when the person asks for one.
-  A session may hold only info items, as a report the person can answer
-  with notes.
+- Most sessions need no info item. Before you add one, try to ask the
+  question it leads to with that content in the question's own `text`,
+  or in its `context` when its options have none of their own. An
+  option's `context` replaces the question's while the cursor is on
+  that option. The person then reads the content where they decide.
+  Length is no reason for an info item. Cut the content instead.
+- Use an info item only for what bears on several questions or on
+  none, such as what you finished since the last round, and for what a
+  question needs and cannot show itself, such as a log beside options
+  that each show their own diff. Even then, add it only when the person
+  needs it to answer or to know where things stand. A problem or a
+  result that leads to one question goes into that question. A short
+  fact that bears on a few questions takes a clause in each. Shared
+  material too long to repeat, such as a log or a table several
+  questions refer to, goes once into an info item just before them. Its
+  text stays a few lines, and the material itself goes into its
+  `context`. An item that only introduces a group of questions, or says how you
+  will split up or order your own work, is not needed. The questions'
+  `header`s and their order carry the grouping. Do not use a made-up
+  question with options like "OK" in place of an info item.
+- A session may hold only info items, as a report the person can answer
+  with notes. Such a report follows the same rules. It is short items
+  in reading order, not one text.
+- Keep an info item's text to a few lines the person takes in at a
+  glance. A text taller than the question's area opens cut off at the
+  top, showing its end, and the person presses `↑` to reach its start.
+  Split more content into several short info items, one topic each.
+  Give each a short `header`, which labels its tab. Place each just
+  before the block of questions it leads to, or at the start when it
+  bears on none, so the person works through the session piece by
+  piece instead of taking in everything at once.
+- A compact list or a small table reads at a glance in an info item's
+  text. Material the person must see as it is, such as a log, a trace
+  or a file, goes into the item's `context`, which scrolls and shows
+  full screen with `z`. The text then says in a line or two what it
+  shows and what to look for. What you write yourself, such as results
+  or findings, you split into short items instead of one long table or
+  text. Prose to read in one piece comes only when the person asks for
+  the document itself, such as a whole file or a full report in one
+  piece, and then as a `markdown` entry of the item's `context`. A
+  request for a report, a summary or information through asqr is not
+  such a request. Split it as above, also in a report of info items
+  only.
 - `custom: true`, or `{ "label": ..., "length": ... }`, adds an own
   answer to a `single` or `multi` question.
 - `length` gives a target range and a `warn` limit for typed text. It
@@ -132,13 +157,14 @@ Once asked, asqr fits best when:
   on a tall one, under a header line with the entry's `title` (or its
   file name). The pane scrolls on its own, and `z` shows the entry full
   screen; a terminal too small for the pane shows one line naming the
-  entry, and `z` opens it. So put long material, such as a file, a log,
-  a diff or a screenshot, into `context` and keep the question `text` to
-  what the person reads to decide. Give each entry a `title` that says
-  what it is. An option can have its own `context`, shown instead while
-  the cursor is on that option, so the person can flip through variants
-  in one question and pick one. Every entry has a `type` and an
-  optional `title`:
+  entry, and `z` opens it. So put long material the person consults,
+  such as a file, a log, a diff or a screenshot, into `context` and keep
+  the question `text` to what the person reads to decide. Your own
+  explanation stays in the `text`, in a few lines, on an info item too.
+  Give each entry a `title` that says what it is. An option can have its
+  own `context`, shown instead while the cursor is on that option, so
+  the person can flip through variants in one question and pick one.
+  Every entry has a `type` and an optional `title`:
   - `{ "type": "image", "path": "..." }`: an image file. asqr shows PNG,
     JPEG, GIF (first frame only), WebP, BMP, TIFF, ICO, TGA, PNM, QOI,
     DDS, OpenEXR, HDR and farbfeld. It cannot show SVG or AVIF, so
@@ -283,7 +309,14 @@ Once asked, asqr fits best when:
   pressing `i`. Keep it to a sentence or two that
   identifies the session, such as which round of which piece of work it
   is. Everything the person needs to answer a question goes into that
-  question's `text` or its `context`: the text wraps instead of being
+  question's `text` or its `context`. Write it for a person who has not
+  seen your work and knows neither your context nor your earlier
+  messages. Say what a thing is and what changes, and name it, such as
+  the file or the decision and its date, instead of referring to it by
+  your todo title, a code name, a size code or a step they did not see.
+  Leave out what the person does not need to decide, such as how you
+  will split the work, and what is only true inside your run, such as
+  what a later session will hold. The text wraps instead of being
   cut and takes the Markdown above, and a little context there makes
   the decision easier, while longer material goes into `context`. On a
   small terminal a long `text` scrolls, and the person reaches its start
@@ -534,11 +567,13 @@ without that request.
   `Draft 3`, its image as `context` and a one-line `caption` on what
   sets it apart. Ask for a `single` pick, or a `multi` pick of keepers.
 - **Decide before implementing.** One question per open point, with
-  what you settled that bears on it in its `text`. An `info` item comes
-  first only for settled points that bear on no single question. The
-  recommended option comes first and as the `default`, a short trade-off
-  goes in each `description`, and the current state or each option's
-  own `diff` in `context`.
+  what you settled that bears on it in its `text`. Settled points that
+  bear on several questions or on none, and that the person needs, go
+  into short `info` items, one topic each, just before the questions
+  they bear on, or first when they bear on none. The recommended option
+  comes first and as the `default`, a short trade-off goes in each
+  `description`, and the current state or each option's own `diff` in
+  `context`.
 - **Review findings.** One question per finding. Its `text` gives before
   and after in two sentences and the risk, its `context` the fix as a
   `diff` with a `name`, which highlights the unchanged lines. Options
@@ -547,15 +582,20 @@ without that request.
   step as a `multi` pick, each option with its own `context` where the
   person needs to see the candidate, and `max` when the next step takes
   at most so many.
-- **Debug walk-through.** Say what you found in a few lines: in the
-  text of the question on the fix, or in an `info` item before it when
-  it takes more, with the log or trace as `context`. Ask one question
-  with each candidate fix as an option whose `context` is its `diff`,
-  and one `multi` pick of the tests you would add.
+- **Debug walk-through.** Say what you found in a few lines, in the
+  text of the question on the fix. Each candidate fix is an option of it
+  whose `context` is its `diff`, so the log or trace goes into a short
+  `info` item just before it, as that item's `context`, with a line on
+  what to look for. Then one `multi` pick of the tests you would add.
+  What you found that bears on neither question, such as a second bug
+  you left alone, goes into a short info item before them.
 - **Triage a backlog** of bug reports, todos or updates. One question
-  per item, with its strongest evidence as `context`, such as a
-  screenshot or a log, your take and fix idea in the `text`, options
-  such as pursue, defer or close, and your recommendation as `default`.
+  per item. Its `text` says in a sentence or two what is wrong or
+  missing today and what would change, for a person who has not read
+  the item, then your take and fix idea. Its strongest evidence, such
+  as a screenshot or a log, goes into `context`, the options are such as
+  pursue, defer or close, and your recommendation is the `default`. A
+  title, a size or a priority code alone says nothing to the person.
 - **Restructure a document.** One question per section, with the
   section's own text as a `markdown` entry in its `context`, the places
   it could go as options with the reason in each `description`, and an
@@ -569,15 +609,17 @@ Habits that run through them: one question per item, your
 recommendation first, before and after spelled out, a change to existing
 text shown as a `diff`, and each option's own `context` where the person
 compares. What the person needs for a question goes into that
-question's `text` or `context`, not into an info item before it. Only
-what belongs to no single question, such as results so far, goes into
-short `info` items, one topic each and placed before the questions they
-lead to, never into a question with an option like "OK" or one long
-text. A `single` with a `default` comes back answered with the default
-unless the person picks another option or an own answer, or
-clears the pick, which skips the question. Where "not yet" is a likely
-answer, an option for it is easier for the person to find than clearing
-the pick, and it says why without a note.
+question's `text`, or into its `context` when its options have none of
+their own. Only what the question cannot show goes into an info item
+before it. Content that bears on several questions or on none goes into
+short `info` items only when the person needs it, one topic each,
+placed before the questions they lead to or at the start when they lead
+to none. Never put it into a question with an option like "OK", and
+never into one long text. A `single` with a `default` comes back
+answered with the default unless the person picks another option or an
+own answer, or clears the pick, which skips the question. Where "not
+yet" is a likely answer, an option for it is easier for the person to
+find than clearing the pick, and it says why without a note.
 Read every note, on info items too. For what came up, ask a follow-up
 round with `follows`. When the person answers the questions another way,
 such as in the chat, withdraw the session. Ask one you rebuilt under a
