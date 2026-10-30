@@ -85,14 +85,22 @@ Once asked, asqr fits best when:
 - An `info` item shows its `text` and `context` like a question and asks
   nothing: it takes no `options`, `custom` or `length`, and the person
   may add a note to it as to any question. Use it for what the person
-  should read before or between the questions, such as results so far
-  or a problem you ran into, instead of a made-up question with options
-  like "OK". Keep its text to a few lines: on a small terminal a longer
+  should read and no question carries, such as results so far or a
+  problem you ran into, instead of a made-up question with options like
+  "OK". When a question's own `text` and `context` say what the person
+  needs to decide it, ask the question directly, without an info item
+  before it.
+- Keep an info item's text to a few lines: on a small terminal a longer
   text shows a few lines at a time while the person scrolls through it
-  with `↑`. Put longer material, such as a table of results, into a
-  `markdown` entry of its `context`, which scrolls and shows full screen
-  with `z`. A session may hold only info items, as a report the person
-  can answer with notes.
+  with `↑`. Split more material into several short info items, one
+  topic each, and place each just before the questions it bears on, so
+  the person works through the session piece by piece instead of taking
+  in everything at once. A compact list or a small table per item reads
+  at a glance; a small table can also go into a `markdown` entry of the
+  item's `context`, which scrolls and shows full screen with `z`. Give a
+  long document to read in one piece only when the person asks for one.
+  A session may hold only info items, as a report the person can answer
+  with notes.
 - `custom: true`, or `{ "label": ..., "length": ... }`, adds an own
   answer to a `single` or `multi` question.
 - `length` gives a target range and a `warn` limit for typed text. It
@@ -535,10 +543,11 @@ without that request.
   step as a `multi` pick, each option with its own `context` where the
   person needs to see the candidate, and `max` when the next step takes
   at most so many.
-- **Debug walk-through.** Start with an `info` item on what you found,
-  with the log or trace as its `context`. Then ask one question with
-  each candidate fix as an option whose `context` is its `diff`, and one
-  `multi` pick of the tests you would add.
+- **Debug walk-through.** Say what you found in a few lines: in the
+  text of the question on the fix, or in an `info` item before it when
+  it takes more, with the log or trace as `context`. Ask one question
+  with each candidate fix as an option whose `context` is its `diff`,
+  and one `multi` pick of the tests you would add.
 - **Triage a backlog** of bug reports, todos or updates. One question
   per item, with its strongest evidence as `context`, such as a
   screenshot or a log, your take and fix idea in the `text`, options
@@ -555,8 +564,10 @@ without that request.
 Habits that run through them: one question per item, your
 recommendation first, before and after spelled out, a change to existing
 text shown as a `diff`, and each option's own `context` where the person
-compares. Results so far go into an `info` item, not a question with an
-option like "OK". A `single` with a `default` comes back answered with
+compares. Results so far go into short `info` items, one topic each,
+placed before the questions they bear on, not into a question with an
+option like "OK" and not into one long text. Where a question says
+enough on its own, it needs no info item. A `single` with a `default` comes back answered with
 the default unless the person picks another option or an own answer, or
 clears the pick, which skips the question. Where "not yet" is a likely
 answer, an option for it is easier for the person to find than clearing

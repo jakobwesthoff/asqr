@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The agent skill tells agents to ask a question directly when its own
+  text and context say enough, without an `info` item before it, and to
+  split longer material into short info items, one topic each, placed
+  before the questions they bear on, instead of one long text. A long
+  document to read in one piece comes only when the person asks for
+  one.
+
 ## [0.14.0] - 2026-10-29
 
 ### Added
