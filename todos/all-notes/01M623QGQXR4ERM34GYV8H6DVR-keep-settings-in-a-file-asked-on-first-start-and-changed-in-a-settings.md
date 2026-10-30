@@ -152,9 +152,16 @@ settings pane in the TUI.
       (and so on) / "Full width: lines use the whole width of the
       terminal." / "Beside or below: beside the question when the
       terminal is wide enough, otherwise below it." / "Always beside:
-      next to the question, even on a narrow terminal." / "Always
-      below: under the question, even on a wide terminal."
-    - the override texts above.
+      next to the question whenever it fits, even on a tall terminal."
+      / "Always below: under the question whenever it fits, even on a
+      wide terminal."
+    - the override texts above; for `beside` they say "beside the
+      question when it fits".
+    Jakob, 2026-10-31: the first wording of the two "Always" texts
+    ("even on a narrow terminal") was untrue, since beside needs 101
+    columns and below a minimum height whatever the setting; "always"
+    only overrules the terminal's shape. Rejected: naming the 101
+    columns in the text; changing only the beside text.
     Jakob found "Question width" unclear, since it is a maximum; the
     label is "Max question width". Rejected: "up to 100 columns" as the
     values.
