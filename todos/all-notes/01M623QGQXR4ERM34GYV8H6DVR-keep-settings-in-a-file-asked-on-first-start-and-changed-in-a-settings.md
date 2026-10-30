@@ -46,6 +46,13 @@ settings pane in the TUI.
   wins over the file for that run. A new ADR reverses ADR 15's "no
   config file". Rejected: environment variables and flags only, which
   cannot hold a first-start answer.
+- **The file follows each platform's convention,** through the
+  `directories` crate asqr already uses for its data and cache
+  (`ProjectDirs::config_dir`): `~/Library/Application Support/asqr/` on
+  macOS, beside the queue data, and `$XDG_CONFIG_HOME/asqr/` on Linux.
+  No new crate. Rejected: `~/.config/asqr` on macOS too (as Ghostty and
+  git do, for example through the `etcetera` crate's XDG strategy);
+  reading `~/.config/asqr` first and the Apple path after.
 - **TOML,** so the file takes comments and is easy to edit by hand;
   the `toml` crate (pure Rust). Rejected: JSON.
 - **A first-start screen.** The first time the TUI starts without a
