@@ -110,7 +110,7 @@ pub fn prepare_switch(
         .create_layout()
         .map_err(|error| Refusal::Failed(error.to_string()))?;
     let watcher =
-        watch_inbox(target, changed).map_err(|error| Refusal::Failed(error.to_string()))?;
+        watch_inbox(target, changed).map_err(|error| Refusal::Failed(watch_failure(error)))?;
     Ok(Held {
         location: target.clone(),
         lock,
@@ -147,6 +147,14 @@ fn refused(name: &str, refusal: Refusal) -> Notice {
         Refusal::Taken => Notice::naming(Tone::Error, "another asqr is watching queue ", name, ""),
         Refusal::Failed(reason) => cannot_watch(name, &reason),
     }
+}
+
+/// Why the inbox cannot be watched, as the status line says it: the cause
+/// alone, without the paths notify lists after it.
+fn watch_failure(error: notify_debouncer_full::notify::Error) -> String {
+    // notify writes the paths it has after the cause, and without any the
+    // cause alone, whatever its kind.
+    error.set_paths(Vec::new()).to_string()
 }
 
 /// How a queue is named in the status line and the title: by its name, or
@@ -553,6 +561,19 @@ mod tests {
             "{refused:?}"
         );
         assert_eq!(lock_holder(&target).expect("readable"), None);
+    }
+
+    #[test]
+    fn a_watch_failure_names_its_cause_without_the_paths() {
+        use notify_debouncer_full::notify;
+
+        let refused = notify::Error::io(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+            .add_path(std::path::PathBuf::from("/tmp/queue/inbox"));
+
+        assert_eq!(
+            watch_failure(refused),
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied).to_string()
+        );
     }
 
     #[test]
