@@ -1294,6 +1294,13 @@ has context (section 7.4, ADRs 30 and 31):
   rounded corners in the primary colour, a bold title, a dim footer and
   a blank column inside each side; the help's keys are bold in the
   primary colour.
+- Behind an overlay and behind the dialog of an invalid session, every
+  row above the status line is dim, and the focus fill there goes, so
+  the overlay's own fill is the one on the screen (ADR 84). The status
+  line and the key bar keep their styles; an overlay that reaches the
+  status line, as a long intro does, covers it. The cells of a Kitty
+  image keep theirs, since a placeholder's colour names its image. Other
+  fills, such as the submit button, stay, dim.
 - Code, Markdown and a diff's unchanged lines keep their highlighting
   colours, and an `ansi` entry
   the colours its text sets. Marks, pointers, text and the fills carry

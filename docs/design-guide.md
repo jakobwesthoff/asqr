@@ -159,7 +159,7 @@ included; under `NO_COLOR` it shows none.
 | Warning | yellow | a length counter near or past its limit, a key that was refused, the frame of the dialog of an invalid session |
 | Success | green | a length counter in range, a submitted session, the fill of an added diff line |
 | Error | red | a failure, such as an inbox that cannot be read; the frame, mark and reason of a context entry asqr cannot show, and the `✗` before its name in the pane's header; the fill of a removed diff line |
-| Secondary | dim | hints, unanswered tabs, the mark of an info item, the descriptions in the key bar, asqr's version on the empty queue's key bar and the help's bottom edge, the queue and the count in the title line, the `from` and `follows` line under a session's title, the context pane's rules and its position, the line between the two sides of a diff shown side by side |
+| Secondary | dim | hints, unanswered tabs, the mark of an info item, the descriptions in the key bar, asqr's version on the empty queue's key bar and the help's bottom edge, the queue and the count in the title line, the `from` and `follows` line under a session's title, the context pane's rules and its position, the line between the two sides of a diff shown side by side, the screen behind an overlay |
 
 - Only the focus, the submit button and the changed lines of a diff are
   filled areas. The button is always filled in the primary colour and
@@ -171,6 +171,9 @@ included; under `NO_COLOR` it shows none.
 - There is one focus fill on the screen at a time. While the context pane
   has the focus, the question's current row keeps its pointer and bold
   text but loses its fill.
+- Behind an overlay the screen is dim and drops its focus fill, so the
+  overlay's own fill is the one on the screen. The status line and the
+  key bar stay as they are, and so do the cells of a Kitty image.
 - Code and Markdown keep the colours their highlighting gives them,
   including yellow inline code, and an `ansi` entry the colours its text
   sets. A Markdown quote's bar is blue, apart

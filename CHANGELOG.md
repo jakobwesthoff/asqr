@@ -62,6 +62,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The screen behind the help, the intro, the session list and the
+  dialog of an invalid session is dim and shows no focus fill, so the
+  overlay's own fill is the one on the screen. The status line, the key
+  bar and the cells of a Kitty image keep their styles.
 - The agent skill tells agents to add an `info` item only where no
   question can carry what it says, and to keep info items short, one
   topic each, instead of one long text.

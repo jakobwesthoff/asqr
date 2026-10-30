@@ -210,8 +210,8 @@ impl PlacedImage {
             && cell.symbol().contains(PLACEHOLDER)
     }
 
-    #[cfg(test)]
-    pub(crate) fn area(&self) -> Rect {
+    /// The cells the image was drawn into.
+    pub fn area(&self) -> Rect {
         self.area
     }
 

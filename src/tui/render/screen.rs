@@ -18,6 +18,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::content::{TabState, draw_tab};
 use super::context::{DrawnPane, Ledge, draw_pane};
+use super::dim::dim_behind;
 use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
 use super::keys::{
@@ -367,6 +368,12 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     }
     // The intro overlay covers the status line, so the line comes first.
     frame.render_widget(status_line(app, app.active(), status.width), status);
+    // What an overlay dims (ADR 84): every row above the status line. The
+    // status line and the key bar say what the overlay's keys do.
+    let behind = Rect {
+        height: status.y.saturating_sub(area.y),
+        ..area
+    };
 
     let overlay = app.overlay();
     let (mut drawn, hints, image) = match app.active() {
@@ -429,6 +436,11 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
                     let intro = state.session().intro.as_deref();
                     let intro = intro.expect("the intro overlay is open only on an intro");
+                    dim_behind(
+                        frame.buffer_mut(),
+                        behind,
+                        image.as_ref().map(PlacedImage::area),
+                    );
                     let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll, quote);
                     (page, intro_hints(page))
                 }
@@ -469,6 +481,15 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         Some(_) => key_line(&hints, keys.width),
     };
     frame.render_widget(key_bar, keys);
+
+    // The intro dimmed the screen before it was drawn; the other overlays
+    // and the dialog of an invalid session dim it here.
+    let image_area = image.as_ref().map(PlacedImage::area);
+    if matches!(overlay, Some(Overlay::Help | Overlay::SessionList(_)))
+        || app.invalid_shown().is_some()
+    {
+        dim_behind(frame.buffer_mut(), behind, image_area);
+    }
 
     // These overlays use the whole screen, key bar included, so they fit
     // the smallest one. Like every overlay, they open only over a session.
@@ -2037,6 +2058,154 @@ mod tests {
         assert_eq!(find(buf, "❯ s15"), (4, 13), "{backend}");
     }
 
+    // -----------------------------------------------------------------
+    // The screen behind an overlay
+    // -----------------------------------------------------------------
+
+    /// The cell of `asqr` in the title line, which every screen has and no
+    /// overlay at 120×40 covers.
+    fn app_name_cell(backend: &TestBackend) -> &ratatui::buffer::Cell {
+        &backend.buffer()[(1, 0)]
+    }
+
+    #[test]
+    fn the_screen_behind_the_help_is_dim_and_loses_its_focus_fill() {
+        let mut app = app(&[("release", RELEASE)]);
+        let before = screen(&app, 120, 40);
+        let pointer = find(before.buffer(), "❯");
+        assert!(
+            before.buffer()[pointer]
+                .modifier
+                .contains(Modifier::REVERSED),
+            "the row under the cursor has the focus fill"
+        );
+
+        keys(&mut app, "?");
+        let backend = screen(&app, 120, 40);
+
+        let cell = &backend.buffer()[pointer];
+        assert_eq!(cell.symbol(), "❯", "the help leaves the row in view");
+        assert!(cell.modifier.contains(Modifier::DIM), "{cell:?}");
+        assert!(!cell.modifier.contains(Modifier::REVERSED), "{cell:?}");
+        assert_eq!(cell.fg, Color::Reset, "{cell:?}");
+    }
+
+    #[test]
+    fn the_screen_behind_the_session_list_is_dim() {
+        let mut app = app(&[("batch", EXAMPLE), ("release", RELEASE)]);
+        keys(&mut app, "L");
+
+        let backend = screen(&app, 120, 40);
+
+        assert!(app_name_cell(&backend).modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn the_screen_behind_the_intro_is_dim() {
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "i");
+
+        let backend = screen(&app, 120, 40);
+
+        assert!(app_name_cell(&backend).modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn the_screen_behind_the_invalid_dialog_is_dim() {
+        let mut app = App::default();
+        app.report_invalid(invalid("broken", &ERRORS));
+
+        let backend = screen(&app, 120, 40);
+
+        assert!(app_name_cell(&backend).modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn the_screen_behind_an_overlay_is_dim_under_no_color() {
+        let mut app = app(&[("release", RELEASE)]);
+        let mut view =
+            View::for_tests("default", PaneLayout::Auto, Images::half_blocks()).no_color(true);
+        let pointer = find(screen_in(&app, &mut view, 120, 40).buffer(), "❯");
+        keys(&mut app, "?");
+
+        let backend = screen_in(&app, &mut view, 120, 40);
+
+        let cell = &backend.buffer()[pointer];
+        assert!(cell.modifier.contains(Modifier::DIM), "{cell:?}");
+        assert!(!cell.modifier.contains(Modifier::REVERSED), "{cell:?}");
+    }
+
+    #[test]
+    fn the_status_line_and_the_key_bar_are_not_dimmed() {
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "?");
+        app.notice(Tone::Info, "news");
+
+        let backend = screen(&app, 120, 40);
+        let buf = backend.buffer();
+
+        let status = &buf[find(buf, "news")];
+        assert!(!status.modifier.contains(Modifier::DIM), "{status:?}");
+        // The key bar's first key, under the help `any key`.
+        let key = &buf[(1, 39)];
+        assert_eq!(key.symbol(), "a");
+        assert!(!key.modifier.contains(Modifier::DIM), "{key:?}");
+    }
+
+    #[test]
+    fn an_intro_reaching_the_status_line_shows_its_own_cells_there() {
+        let intro = (1..=40)
+            .map(|line| format!("Line {line}"))
+            .collect::<Vec<_>>()
+            .join("\\n\\n");
+        let session = RELEASE.replace(
+            "Three decisions before the release. Skip what you cannot decide `yet`.",
+            &intro,
+        );
+        let mut app = app(&[("release", &session)]);
+        keys(&mut app, "i");
+
+        let backend = screen(&app, 80, 24);
+        let buf = backend.buffer();
+
+        // The intro takes every row above the key bar, the status line's
+        // included, and its frame there is its own.
+        let corner = find(buf, "╰");
+        assert_eq!(corner.1, 22, "{backend}");
+        assert_eq!(buf[corner].fg, Color::Cyan);
+        assert!(!buf[corner].modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn dimming_keeps_the_colours_of_the_cells_behind() {
+        let mut app = app(&[("release", RELEASE)]);
+        let before = screen(&app, 120, 40);
+        keys(&mut app, "?");
+
+        let backend = screen(&app, 120, 40);
+
+        let cell = app_name_cell(&backend);
+        assert_eq!(cell.fg, app_name_cell(&before).fg);
+        assert!(cell.modifier.contains(Modifier::BOLD | Modifier::DIM));
+    }
+
+    #[test]
+    fn dimming_keeps_the_fills_that_are_not_the_focus() {
+        // On the review the cursor stands on the submit button, whose fill
+        // is its own and not the focus.
+        let one = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+            "options": [{"id": "a", "label": "A"}]}]}"#;
+        let mut app = app(&[("one", one)]);
+        keys(&mut app, "1?");
+
+        let backend = screen(&app, 120, 40);
+        let buf = backend.buffer();
+
+        let button = &buf[find(buf, "[ Submit ]")];
+        assert!(button.modifier.contains(Modifier::REVERSED), "{button:?}");
+        assert!(button.modifier.contains(Modifier::DIM), "{button:?}");
+    }
+
     #[test]
     fn messages_and_notices_show_in_the_status_line() {
         // With `max` 2 and the default ticked, the third pick is refused.
@@ -3217,6 +3386,35 @@ mod tests {
         draw_on(&mut terminal, &mut app, &mut view);
         let shown = assert_kitty_cells_placed(terminal.backend().buffer(), origin, "after");
         assert_eq!(shown, whole);
+    }
+
+    /// Behind the help the screen is dim, but a Kitty placeholder's colour
+    /// names its image, so the image's cells keep their style.
+    #[test]
+    fn the_cells_of_a_kitty_image_stay_as_drawn_behind_an_overlay() {
+        let image = wide_png(400, 200);
+        let mut app = with_image_and_intro(image.path().to_str().expect("UTF-8 path"));
+        let mut view = kitty_beside();
+        let mut terminal = kept_terminal(200, 30);
+        draw_on(&mut terminal, &mut app, &mut view);
+
+        keys(&mut app, "?");
+        draw_on(&mut terminal, &mut app, &mut view);
+        let buf = terminal.backend().buffer();
+
+        let cells = testing::placeholder_cells(buf);
+        assert!(!cells.is_empty(), "the image shows beside the help");
+        for (x, y) in cells {
+            let cell = &buf[(x, y)];
+            assert!(
+                !cell.modifier.contains(Modifier::DIM),
+                "({x}, {y}): {cell:?}"
+            );
+        }
+        assert!(
+            buf[(1, 0)].modifier.contains(Modifier::DIM),
+            "the rest is dim"
+        );
     }
 
     /// An image first drawn while the help covers its first cell, as after

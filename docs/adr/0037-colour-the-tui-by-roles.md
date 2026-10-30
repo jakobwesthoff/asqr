@@ -26,6 +26,9 @@ Amended by [81. Name the chosen queue](0081-name-the-chosen-queue.md):
 the name of a chosen queue on the empty queue is bold in the primary
 colour
 
+Amended by [84. Dim the screen behind an overlay](0084-dim-the-screen-behind-an-overlay.md):
+the screen behind an overlay is dim and shows no focus fill
+
 ## Context
 
 A TUI that marks nearly everything the same way, with reversed video,

@@ -15,6 +15,7 @@ mod code;
 mod content;
 mod context;
 mod diff;
+mod dim;
 mod empty;
 mod header;
 mod keys;
