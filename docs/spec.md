@@ -654,7 +654,12 @@ asker's own file is never changed. `session_sha256` in the result
   the person's queue.
 - A result with that id is still in the outbox: `ask` refuses, so an
   unread result is never lost. `ask --force` moves the old result into
-  the archive (section 5.7) and then drops the new session.
+  the archive (section 5.7) and then drops the new session. Reading the
+  result leaves it in the outbox, so the refusal names the ways past it:
+  "an unread result for "<id>" is in the outbox; read it first with
+  `<asqr> result <id>`, then ask again with --force, which archives that
+  result, or leave `id` out of the file to get a fresh id" (`<asqr>` as
+  in section 6.7).
 
 A refused `ask` exits with 1 and names the reason on stderr. A session
 being answered and an unread result are refused before anything moves,
@@ -674,7 +679,13 @@ withdrawal, and only then the withdrawal and the drop, so a refusal of
 either leaves the queue as it was. Without `--force`, the old session is
 withdrawn only while nobody has started answering it; `--force` withdraws
 it also while the person is answering it, and moves an unread result of
-the new id aside as above. The new session's own id is a usage error,
+the new id aside as above. Its refusal for an unread result of the new
+id names `--force` only as a warning, since there it also withdraws the
+old session: "an unread result for "<id>" is in the outbox; read it
+first with `<asqr> result <id>`, then leave `id` out of the file to get
+a fresh id; --force would archive that result and also withdraw
+<old-id> even if the person is answering it". The new session's own id
+is a usage error,
 since `ask` replaces a waiting session of the same id by itself. Exit
 codes are those of `ask` and `withdraw`: 13 for an old id the queue does
 not know or whose result is gone. A drop that fails after the

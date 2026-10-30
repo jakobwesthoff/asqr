@@ -17,8 +17,8 @@ use super::hint::{self, Caller, Invocation};
 use super::wait::wait_for_result;
 use crate::format::{WarningKind, same_session_id, validate, warnings};
 use crate::queue::{
-    Dropped, Gate, QueueLocation, ReplaceError, WithdrawError, drop_replacing, drop_session,
-    lock_holder,
+    DropError, Dropped, Gate, QueueLocation, ReplaceError, WithdrawError, drop_replacing,
+    drop_session, lock_holder,
 };
 
 pub(super) struct AskOptions {
@@ -73,10 +73,13 @@ pub(super) fn run(
     let dropped = match options.replaces.as_deref() {
         None => drop_session(location, &id, &bytes, options.force).map_err(|error| {
             tracing::warn!(id, %error, "ask refused");
-            eprintln!("error: {error}");
+            match error {
+                DropError::UnreadResult(id) => hint::unread_result(invocation, &id, None).print(),
+                error => eprintln!("error: {error}"),
+            }
             Exit::Failure
         }),
-        Some(old) => replace(location, old, &id, &bytes, options.force),
+        Some(old) => replace(location, invocation, old, &id, &bytes, options.force),
     };
     match dropped {
         Ok(dropped) => {
@@ -115,6 +118,7 @@ pub(super) fn run(
 /// `withdraw` do.
 fn replace(
     location: &QueueLocation,
+    invocation: &Invocation,
     old: &str,
     id: &str,
     bytes: &[u8],
@@ -144,6 +148,10 @@ fn replace(
                 }
                 ReplaceError::Withdraw(WithdrawError::Io(error)) => {
                     eprintln!("error: cannot withdraw {old}: {error}");
+                    Exit::Failure
+                }
+                ReplaceError::Drop(DropError::UnreadResult(id)) => {
+                    hint::unread_result(invocation, &id, Some(old)).print();
                     Exit::Failure
                 }
                 error => {

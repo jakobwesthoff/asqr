@@ -621,6 +621,37 @@ fn refuses_an_unread_result_unless_forced() {
     assert_eq!(inbox_file(&sandbox, "batch-01")["id"], "batch-01");
 }
 
+#[test]
+fn an_unread_result_refusal_names_the_ways_past_it() {
+    // Reading the result leaves it in the outbox, so `ask` would refuse
+    // again: the ways past it are `--force` and a fresh id.
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    answer(&sandbox, "batch-01", |sha| {
+        SessionResult::submitted("batch-01", sha, &now_rfc3339(), None, Vec::new())
+    });
+
+    let refused = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(refused.status.code(), Some(1));
+    assert_eq!(
+        stderr(&refused),
+        format!(
+            "error: an unread result for \"batch-01\" is in the outbox; read it first with `asqr --dir {} result batch-01`, then ask again with --force, which archives that result, or leave `id` out of the file to get a fresh id\n",
+            sandbox.queue_dir().display()
+        )
+    );
+}
+
 /// Starts `asqr ask --wait` in the background, answers the session once it
 /// arrives, and returns what the waiting asker printed and how it exited.
 fn ask_and_answer(result: impl Fn(&str) -> SessionResult) -> (Option<i32>, String, String) {
@@ -971,6 +1002,26 @@ fn ask_replaces_force_archives_an_unread_result_of_the_new_id() {
     assert_eq!(forced.status.code(), Some(0), "{}", stderr(&forced));
     assert_eq!(waiting(&sandbox), ["round-2.json"]);
     assert_eq!(result_status(&sandbox, "round-2"), None, "moved aside");
+}
+
+#[test]
+fn ask_replaces_an_unread_result_refusal_warns_about_force() {
+    // Here `--force` would also withdraw the old session while the person
+    // answers it, so it is named only as a warning.
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    std::fs::write(sandbox.queue_dir().join("outbox/round-2.json"), "{}").expect("written");
+
+    let refused = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(refused.status.code(), Some(1));
+    assert_eq!(
+        stderr(&refused),
+        format!(
+            "error: an unread result for \"round-2\" is in the outbox; read it first with `asqr --dir {} result round-2`, then leave `id` out of the file to get a fresh id; --force would archive that result and also withdraw round-1 even if the person is answering it\n",
+            sandbox.queue_dir().display()
+        )
+    );
 }
 
 #[test]

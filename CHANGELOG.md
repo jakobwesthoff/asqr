@@ -10,18 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - asqr gives agents advice on stderr where they tend to go wrong, in
-  lines of their own that start with `hint:`. stdout stays as it was; a
-  caller that merges stderr into stdout (`2>&1`) receives the hints
-  too. `asqr ask` reminds the agent to wait for every session's result
-  and read all of it, or after warnings about the session file names
-  the way to replace the session and the way to wait for it, says when
-  it replaced a waiting session of the same id, and when
-  nobody watches the queue, its warning
-  tells the agent to have the person start asqr, with the command that
-  reaches the queue. When `wait`, `result` or `ask --wait` find no
-  result yet, they name the `asqr wait` command to run next. A command in advice names the queue with
-  `--queue` or `--dir` when a flag or a variable chose it.
-
+  lines of their own that start with `hint:` and inside its errors,
+  warnings and notices. stdout stays as it was; a caller that merges
+  stderr into stdout (`2>&1`) receives the hints too. `asqr ask`
+  reminds the agent to wait for every session's result and read all of
+  it, or after warnings about the session file names the way to replace
+  the session and the way to wait for it. It says when it replaced a
+  waiting session of the same id, and when nobody watches the queue,
+  its warning tells the agent to have the person start asqr, with the
+  command that reaches the queue. When `wait`, `result` or `ask --wait`
+  find no result yet, they name the `asqr wait` command to run next.
+  The refusal of `ask` for an unread result of the same id names the
+  ways past it. A command in advice names the queue with `--queue` or
+  `--dir` when a flag or a variable chose it.
 - The empty queue and the terminal title name the queue asqr watches,
   unless it is the default queue: "Nothing to answer in queue
   asqr-todos." and `asqr · asqr-todos · 2 waiting`.

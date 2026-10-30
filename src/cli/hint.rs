@@ -42,6 +42,13 @@ impl Line {
         }
     }
 
+    fn error(text: String) -> Self {
+        Line {
+            prefix: "error",
+            text,
+        }
+    }
+
     fn warning(text: String) -> Self {
         Line {
             prefix: "warning",
@@ -216,6 +223,26 @@ pub(super) fn warnings_above(
     Line::hint(format!(
         "{warnings}; {waits}if {which} matters to the person, {fix}{otherwise}"
     ))
+}
+
+/// `ask` refused session `id` for an unread result under the same id
+/// (A5). Reading it leaves it in the outbox, so the same `ask` would
+/// refuse again: the ways past it are `--force` and a file without `id`.
+/// Under `--replaces <old>`, `--force` would also withdraw `old` while the
+/// person answers it, so it is named only as a warning.
+pub(super) fn unread_result(invocation: &Invocation, id: &str, replaces: Option<&str>) -> Line {
+    let read = format!(
+        "an unread result for {id:?} is in the outbox; read it first with `{} result {id}`",
+        invocation.command
+    );
+    Line::error(match replaces {
+        None => format!(
+            "{read}, then ask again with --force, which archives that result, or leave `id` out of the file to get a fresh id"
+        ),
+        Some(old) => format!(
+            "{read}, then leave `id` out of the file to get a fresh id; --force would archive that result and also withdraw {old} even if the person is answering it"
+        ),
+    })
 }
 
 // =========================================================================
