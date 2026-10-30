@@ -3,6 +3,7 @@ title: "Decide whether asqr checks for a newer version when it starts"
 kind: investigation
 component: tui
 status: needs-discussion
+horizon: someday
 origin: request
 tags: [ux]
 ---
@@ -53,10 +54,41 @@ The user's direction, not final:
 - Open as well: how asqr presents a newer version, how it offers the
   update, and what it suggests.
 
+## Decided so far (Jakob, 2026-10-30, in the chat)
+
+- **asqr asks on first start whether it may look for newer versions,
+  with "yes" preselected,** and keeps the answer as a setting (todo
+  01M623QGQXR4ERM34GYV8H6DVR: the settings file, the first-start screen
+  and the settings pane). Each check sends only `asqr/<version>` as its
+  `User-Agent`, never queue content or paths. The spec's "no network"
+  (`docs/spec.md:34-35`, and "Networking" under "Not in asqr yet")
+  changes with an ADR. Rejected: "no" preselected; a check only on
+  request; on by default without asking.
+- **The notice links to the GitHub release page.** asqr cannot tell how
+  it was installed (no code detects it), and a wrong update command costs
+  more than a link. Rejected: guessing the install method from the
+  binary's path; printing all three commands.
+- **GitHub releases answer "what is the newest version".** The release
+  archives come from there and the notice links to the same page; the
+  Homebrew tap may lag a release by its bump workflow. Rejected:
+  crates.io; a version file of the project's own.
+- **Where the notice shows needs a design round with rendered ideas:**
+  somewhere the person sees easily and cannot miss.
+- **Parked for now (Jakob):** only the decisions above are recorded;
+  the work waits for the settings and the design round.
+
 ## Open questions
 
-- Whether asqr should reach the network at all without being asked, and
-  how to turn the check off (a flag, an environment variable, a setting).
-- Privacy: what a request reveals and to whom.
-- How often to check, and whether to remember the last result to avoid
-  asking on every start.
+- Where and how the notice shows (the design round above).
+- How often to check, and whether to keep the last answer to avoid a
+  request on every start.
+- The HTTP client: asqr has none (`Cargo.toml`, `Cargo.lock`). TLS in
+  Rust usually brings C or assembly (`ring`, `aws-lc-rs`), which the
+  rule of no dependency that is not Rust where a Rust one serves
+  touches; spawning `curl` needs no dependency. Startup never waits for
+  the network: a background thread with short timeouts.
+
+## Revisit when
+
+The settings file and the first-start screen exist (todo
+01M623QGQXR4ERM34GYV8H6DVR), and the notice's design round has run.
