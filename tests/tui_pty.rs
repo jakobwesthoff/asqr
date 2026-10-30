@@ -147,6 +147,9 @@ impl Tui {
         command.env_remove("NO_COLOR");
         command.env("TERM", "xterm-256color");
         command.env("TMUX", "/tmp/tmux-test/default,1,0");
+        // The pane of the tmux the tests may run in would name a session
+        // of the person's own tmux server.
+        command.env_remove("TMUX_PANE");
         let path = std::env::var("PATH").unwrap_or_default();
         command.env("PATH", format!("{}:{path}", bin.display()));
         for (name, value) in environment {

@@ -35,7 +35,10 @@ impl Sandbox {
     }
 
     /// `asqr` with the sandbox as home, and no queue or log filter chosen
-    /// by the environment of the machine running the tests.
+    /// by the environment of the machine running the tests. The tests may
+    /// run in a tmux pane, whose session asqr could otherwise ask for a
+    /// queue and pin one in; a test that wants tmux sets `TMUX` and
+    /// `TMUX_PANE` itself, with a stand-in `tmux` on `PATH`.
     pub fn asqr(&self) -> Command {
         let mut command = Command::cargo_bin("asqr").expect("the asqr binary is built");
         command
@@ -44,7 +47,9 @@ impl Sandbox {
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
             .env_remove("ASQR_QUEUE")
             .env_remove("ASQR_DIR")
-            .env_remove("ASQR_LOG");
+            .env_remove("ASQR_LOG")
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE");
         command
     }
 
@@ -58,7 +63,9 @@ impl Sandbox {
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
             .env_remove("ASQR_QUEUE")
             .env_remove("ASQR_DIR")
-            .env_remove("ASQR_LOG");
+            .env_remove("ASQR_LOG")
+            .env_remove("TMUX")
+            .env_remove("TMUX_PANE");
         command
     }
 
