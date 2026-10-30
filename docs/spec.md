@@ -680,16 +680,16 @@ either leaves the queue as it was. Without `--force`, the old session is
 withdrawn only while nobody has started answering it, and the refusal
 reads "session "<old-id>" is being answered; check with the person
 first, then run this command again with --force, which withdraws it,
-and the `draft` of its result holds what they entered so far";
-`--force` withdraws it also while the person is answering it, and moves an unread result of
-the new id aside as above. Its refusal for an unread result of the new
-id names `--force` only as a warning, since there it also withdraws the
-old session: "an unread result for "<id>" is in the outbox; read it
-first with `<asqr> result <id>`, then leave `id` out of the file to get
-a fresh id; --force would archive that result and also withdraw
-<old-id> even if the person is answering it". The new session's own id
-is a usage error,
-since `ask` replaces a waiting session of the same id by itself. Exit
+and the `draft` of its result holds what they entered so far".
+`--force` withdraws it also while the person is answering it, and moves
+an unread result of the new id aside as above. Its refusal for an
+unread result of the new id names `--force` only as a warning, since
+there it also withdraws the old session: "an unread result for "<id>"
+is in the outbox; read it first with `<asqr> result <id>`, then leave
+`id` out of the file to get a fresh id; --force would archive that
+result and also withdraw <old-id> even if the person is answering it".
+The new session's own id is a usage error, since `ask` replaces a
+waiting session of the same id by itself. Exit
 codes are those of `ask` and `withdraw`: 13 for an old id the queue does
 not know or whose result is gone. A drop that fails after the
 withdrawal, which only a file dropped by hand under the new id at that
@@ -873,8 +873,8 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
   <queue>; check the id with `<asqr> status --since 1d`, and if you
   asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run
   this command again with that queue" (`<queue>` and `<asqr>` as in
-  section 5.5). A queue directory that does not exist holds no session, and
-  `withdraw` creates nothing for it.
+  section 5.5). A queue directory that does not exist holds no session,
+  and `withdraw` creates nothing for it.
 - The look at the files and every write run under the drafts lock
   (section 5.6). So a withdrawal without `--force` never takes a session
   whose draft holds an answer, also while the person is typing in it:
@@ -958,9 +958,9 @@ the person has not answered yet, so wait for it with `<asqr> wait <id>
 --timeout 540`, or a lower timeout if your command limit is shorter".
 Both end with 13 when nothing in the queue has the id ("no session
 "<id>" in queue <queue>; …", the message of section 5.10), which
-includes a session taken out of the inbox
-without a result, or when only its archive entry is left, since its
-result was removed and none will come ("the result of <id> is gone").
+includes a session taken out of the inbox without a result, or when
+only its archive entry is left, since its result was removed and none
+will come ("the result of <id> is gone").
 So while an asqr watches the queue, the asker never waits for a result
 that will not come. A withdrawn result ends both with 14.
 
