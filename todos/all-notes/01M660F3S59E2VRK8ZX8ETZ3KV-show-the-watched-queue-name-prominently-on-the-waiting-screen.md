@@ -2,7 +2,6 @@
 title: "Show the watched queue name prominently on the waiting screen"
 kind: improvement
 component: tui
-status: needs-discussion
 horizon: next
 origin: request
 tags: [ux]
@@ -52,6 +51,15 @@ Jakob asked for rendered design ideas to discuss before any code
   too long, to be discussed later.
 - The terminal tab title names the queue too, as
   `asqr · asqr-todos · 2 waiting`.
+
+## Decisions (Jakob, 2026-10-30, asqr session 01M66364YM83TKX2KD5MHGGF9Y)
+
+- The waiting screen names a specific queue by splitting today's
+  sentence in two lines: "Nothing to answer in queue **asqr-todos**." and
+  below it "New sessions show up here as soon as they arrive." No row is
+  added. Chosen from six rendered variants of a second round.
+- For the default queue the tab title stays `asqr · 2 waiting`; only a
+  specific queue is named there.
 
 ## Relations
 
