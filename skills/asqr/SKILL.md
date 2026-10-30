@@ -2,7 +2,7 @@
 name: asqr
 description: Ask the person you work with many questions at once through asqr, a terminal inbox for questions, and get their answers back as JSON. Only use it when the user explicitly asks you to use asqr for something; never switch to it on your own.
 metadata:
-  asqr-version: "0.14.0"
+  asqr-version: "0.15.0"
 ---
 
 Read this file to its last line before you use asqr. Its rules apply to
