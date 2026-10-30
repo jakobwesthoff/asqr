@@ -249,6 +249,16 @@ pub(super) fn unread_result(invocation: &Invocation, id: &str, replaces: Option<
 // The hints of `wait` and `result`
 // =========================================================================
 
+/// Nothing in the queue has session `id` (W4): the id is mistyped, or the
+/// session went to another queue. `status` lists one queue only, so the
+/// way to look elsewhere is the same command with the other queue.
+pub(super) fn unknown_session(invocation: &Invocation, id: &str) -> Line {
+    Line::error(format!(
+        "no session {id:?} in queue {}; check the id with `{} status --since 1d`, and if you asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run this command again with that queue",
+        invocation.queue, invocation.command
+    ))
+}
+
 /// The command whose wait ran out.
 pub(super) enum Caller {
     /// `wait` or `ask --wait`, with their `--timeout` in seconds.

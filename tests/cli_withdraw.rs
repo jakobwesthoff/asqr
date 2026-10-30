@@ -173,10 +173,7 @@ fn withdraw_of_an_unknown_id_exits_13() {
     let refused = withdraw(&sandbox, &["nothing"]);
 
     assert_eq!(refused.status.code(), Some(13));
-    assert_eq!(
-        stderr(&refused),
-        "error: no session \"nothing\" in this queue\n"
-    );
+    assert_eq!(stderr(&refused), no_session(&sandbox, "nothing"));
 }
 
 #[test]
@@ -288,4 +285,13 @@ fn status_lists_a_withdrawn_session_as_answered() {
         status["answered"],
         serde_json::json!([{"id": "batch", "status": "withdrawn"}])
     );
+}
+
+/// The refusal for session `id`, which the sandbox queue does not know.
+fn no_session(sandbox: &Sandbox, id: &str) -> String {
+    let queue = sandbox.queue_dir();
+    format!(
+        "error: no session \"{id}\" in queue {0}; check the id with `asqr --dir {0} status --since 1d`, and if you asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run this command again with that queue\n",
+        queue.display()
+    )
 }

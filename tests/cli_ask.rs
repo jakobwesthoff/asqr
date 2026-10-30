@@ -1051,9 +1051,29 @@ fn ask_replaces_an_unknown_id_exits_13_without_dropping() {
     let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
 
     assert_eq!(output.status.code(), Some(13));
+    assert_eq!(stderr(&output), no_session(&sandbox, "round-1"));
+    assert_eq!(waiting(&sandbox), Vec::<String>::new());
+}
+
+#[test]
+fn ask_replaces_an_old_session_whose_result_is_gone_exits_13() {
+    let sandbox = Sandbox::new();
+    let second = sandbox.file("round-2.json", &SESSION.replace("batch-01", "round-2"));
+    let archive = sandbox.queue_dir().join("archive");
+    std::fs::create_dir_all(&archive).expect("archive");
+    let name = asqr::queue::archive_name(
+        "round-1",
+        ulid::Ulid::from_parts(1_000, 0),
+        asqr::queue::Archived::Session,
+    );
+    std::fs::write(archive.join(name), "{}").expect("written");
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(13));
     assert_eq!(
         stderr(&output),
-        "error: no session \"round-1\" in this queue\n"
+        "error: the result of round-1 is gone; its session is archived\n"
     );
     assert_eq!(waiting(&sandbox), Vec::<String>::new());
 }
@@ -1154,4 +1174,13 @@ fn ask_replaces_with_wait_waits_for_the_new_one() {
         "{}",
         stderr(&output)
     );
+}
+
+/// The refusal for session `id`, which the sandbox queue does not know.
+fn no_session(sandbox: &Sandbox, id: &str) -> String {
+    let queue = sandbox.queue_dir();
+    format!(
+        "error: no session \"{id}\" in queue {0}; check the id with `asqr --dir {0} status --since 1d`, and if you asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run this command again with that queue\n",
+        queue.display()
+    )
 }

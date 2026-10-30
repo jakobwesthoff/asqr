@@ -94,7 +94,7 @@ pub(super) fn run(
 
     if options.wait {
         eprintln!("{id}");
-        let exit = wait_for_result(location, &id, options.timeout);
+        let exit = wait_for_result(location, invocation, &id, options.timeout);
         if let (Exit::Timeout, Some(timeout)) = (exit, options.timeout) {
             if !shown.is_empty() {
                 hint::warnings_above(invocation, shown.len(), file, &id, id_in_file, true).print();
@@ -140,9 +140,11 @@ fn replace(
         Err(error) => {
             tracing::warn!(id, old, %error, "ask --replaces refused");
             Err(match error {
-                ReplaceError::Withdraw(
-                    error @ (WithdrawError::ResultGone(_) | WithdrawError::Unknown(_)),
-                ) => {
+                ReplaceError::Withdraw(WithdrawError::Unknown(old)) => {
+                    hint::unknown_session(invocation, &old).print();
+                    Exit::UnknownId
+                }
+                ReplaceError::Withdraw(error @ WithdrawError::ResultGone(_)) => {
                     eprintln!("error: {error}");
                     Exit::UnknownId
                 }

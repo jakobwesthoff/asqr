@@ -864,8 +864,11 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
   after its result was written is completed: by the next `withdraw`, or
   by recovery.
 - An id that only the archive knows is "the result of <id> is gone; its
-  session is archived", and any other id "no session "<id>" in this
-  queue". A queue directory that does not exist holds no session, and
+  session is archived", and any other id "no session "<id>" in queue
+  <queue>; check the id with `<asqr> status --since 1d`, and if you
+  asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run
+  this command again with that queue" (`<queue>` and `<asqr>` as in
+  section 5.5). A queue directory that does not exist holds no session, and
   `withdraw` creates nothing for it.
 - The look at the files and every write run under the drafts lock
   (section 5.6). So a withdrawal without `--force` never takes a session
@@ -949,7 +952,8 @@ command limit is shorter". `ask --wait` prints the same, since a new
 the person has not answered yet, so wait for it with `<asqr> wait <id>
 --timeout 540`, or a lower timeout if your command limit is shorter".
 Both end with 13 when nothing in the queue has the id ("no session
-"<id>" in this queue"), which includes a session taken out of the inbox
+"<id>" in queue <queue>; …", the message of section 5.10), which
+includes a session taken out of the inbox
 without a result, or when only its archive entry is left, since its
 result was removed and none will come ("the result of <id> is gone").
 So while an asqr watches the queue, the asker never waits for a result

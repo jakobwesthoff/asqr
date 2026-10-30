@@ -206,6 +206,31 @@ fn wait_returns_at_once_for_an_unknown_id() {
 }
 
 #[test]
+fn wait_names_the_queue_for_an_unknown_id() {
+    let sandbox = Sandbox::new();
+
+    let output = sandbox
+        .asqr_in_queue(&["wait", "nobody-asked"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(13));
+    assert_eq!(stderr(&output), no_session(&sandbox, "nobody-asked"));
+}
+
+#[test]
+fn result_names_the_queue_for_an_unknown_id() {
+    let sandbox = Sandbox::new();
+
+    let output = sandbox
+        .asqr_in_queue(&["result", "nobody-asked"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(stderr(&output), no_session(&sandbox, "nobody-asked"));
+}
+
+#[test]
 fn wait_prints_a_result_that_is_already_there_with_its_exit_code() {
     let sandbox = Sandbox::new();
     ask(&sandbox, "broken");
@@ -742,4 +767,13 @@ fn result_fails_on_a_result_it_may_not_read() {
         "{}",
         stderr(&output)
     );
+}
+
+/// The refusal for session `id`, which the sandbox queue does not know.
+fn no_session(sandbox: &Sandbox, id: &str) -> String {
+    let queue = sandbox.queue_dir();
+    format!(
+        "error: no session \"{id}\" in queue {0}; check the id with `asqr --dir {0} status --since 1d`, and if you asked in another queue (--queue, --dir, ASQR_QUEUE or ASQR_DIR), run this command again with that queue\n",
+        queue.display()
+    )
 }

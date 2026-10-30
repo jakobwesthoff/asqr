@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command that reaches the queue. When `wait`, `result` or `ask --wait`
   find no result yet, they name the `asqr wait` command to run next.
   The refusal of `ask` for an unread result of the same id names the
-  ways past it. A command in advice names the queue with `--queue` or
+  ways past it, and an unknown id names the queue that was searched and
+  how to find the session. A command in advice names the queue with `--queue` or
   `--dir` when a flag or a variable chose it.
 - The empty queue and the terminal title name the queue asqr watches,
   unless it is the default queue: "Nothing to answer in queue

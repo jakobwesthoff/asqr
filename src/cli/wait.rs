@@ -67,12 +67,13 @@ fn standing(location: &QueueLocation, id: &str) -> std::io::Result<Standing> {
 /// the message to its caller, which knows how the agent waits again.
 pub(super) fn wait_for_result(
     location: &QueueLocation,
+    invocation: &Invocation,
     id: &str,
     timeout: Option<Duration>,
 ) -> Exit {
     let started = Instant::now();
     loop {
-        match look(location, id) {
+        match look(location, invocation, id) {
             Look::Done(exit) => return exit,
             Look::Waiting => {}
         }
@@ -90,7 +91,7 @@ enum Look {
 
 /// One look at the queue: the result printed, or the exit for a session
 /// that cannot get one, or word that it still waits.
-fn look(location: &QueueLocation, id: &str) -> Look {
+fn look(location: &QueueLocation, invocation: &Invocation, id: &str) -> Look {
     match standing(location, id) {
         Ok(Standing::Answered(path)) => {
             Look::Done(print_result(&path).map_or_else(|exit| exit, Exit::for_status))
@@ -101,7 +102,7 @@ fn look(location: &QueueLocation, id: &str) -> Look {
             Look::Done(Exit::UnknownId)
         }
         Ok(Standing::Unknown) => {
-            eprintln!("error: no session {id:?} in this queue");
+            hint::unknown_session(invocation, id).print();
             Look::Done(Exit::UnknownId)
         }
         Err(error) => {
@@ -118,7 +119,7 @@ pub(super) fn run_wait(
     id: &str,
     timeout: Option<Duration>,
 ) -> Exit {
-    let exit = wait_for_result(location, id, timeout);
+    let exit = wait_for_result(location, invocation, id, timeout);
     if let (Exit::Timeout, Some(timeout)) = (exit, timeout) {
         hint::no_result_yet(invocation, id, Caller::Wait(timeout.as_secs())).print();
     }
@@ -128,7 +129,7 @@ pub(super) fn run_wait(
 /// `asqr result <id>`: one look, the way `wait --timeout 0` would take
 /// it, so the exit codes mean the same (spec section 6.6).
 pub(super) fn run_result(location: &QueueLocation, invocation: &Invocation, id: &str) -> Exit {
-    let exit = wait_for_result(location, id, Some(Duration::ZERO));
+    let exit = wait_for_result(location, invocation, id, Some(Duration::ZERO));
     if exit == Exit::Timeout {
         hint::no_result_yet(invocation, id, Caller::Result).print();
     }

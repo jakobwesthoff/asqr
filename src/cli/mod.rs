@@ -345,7 +345,7 @@ fn dispatch(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) 
             timeout.map(Duration::from_secs),
         ),
         Command::Result { id } => wait::run_result(&location, &invocation, &id),
-        Command::Withdraw { id, force } => withdraw::run(&location, &id, force),
+        Command::Withdraw { id, force } => withdraw::run(&location, &invocation, &id, force),
         Command::Status {
             json,
             limit,

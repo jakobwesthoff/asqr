@@ -9,10 +9,16 @@
 use std::io::Write;
 
 use super::Exit;
+use super::hint::{self, Invocation};
 use crate::format::SessionResult;
 use crate::queue::{QueueLocation, WithdrawError, Withdrawn, withdraw_session};
 
-pub(super) fn run(location: &QueueLocation, id: &str, force: bool) -> Exit {
+pub(super) fn run(
+    location: &QueueLocation,
+    invocation: &Invocation,
+    id: &str,
+    force: bool,
+) -> Exit {
     match withdraw_session(location, id, force) {
         Ok(Withdrawn::Now(result)) => print(&result),
         Ok(Withdrawn::Already(result)) => {
@@ -22,7 +28,11 @@ pub(super) fn run(location: &QueueLocation, id: &str, force: bool) -> Exit {
         // A withdraw that did not happen must not look like one that did,
         // so every refusal fails; the ones that mean no session will ever
         // answer take the code `wait` gives them.
-        Err(error @ (WithdrawError::ResultGone(_) | WithdrawError::Unknown(_))) => {
+        Err(WithdrawError::Unknown(id)) => {
+            hint::unknown_session(invocation, &id).print();
+            Exit::UnknownId
+        }
+        Err(error @ WithdrawError::ResultGone(_)) => {
             eprintln!("error: {error}");
             Exit::UnknownId
         }
