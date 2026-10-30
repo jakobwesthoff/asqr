@@ -85,6 +85,22 @@ give the archive a read-only viewer so it can be looked at.
   no other session uses. Part of this todo. Rejected: a separate todo;
   whole months only.
 
+- **The replay is reached through the CLI first** (Jakob, 2026-10-30):
+  how a replayed session looks and how one gets to it are two
+  questions. In the first version there is no entry point in the TUI: a
+  command lists what the archives hold, and a command replays one entry,
+  opening the read-only view. The list covers the current queue,
+  resolved as every command resolves it, and `--all` covers every queue
+  under the data directory (with `--since` and `--limit` as `status`
+  has them). Each row shows a short reference unique to the entry,
+  taken from the ULID in its archive name, since session ids repeat
+  across queues and over time; the replay command finds that reference
+  in every queue under the data directory without a queue named (a
+  `--dir` queue outside it is named). Command names are open; a design
+  study runs (conductor logbook `plans/replay-design/`). Rejected for
+  now: a list or key in the TUI; a list over every queue by default;
+  replay by session id within the current queue.
+
 ## Technical notes (lead, 2026-10-30)
 
 - The archived session points at each copy: its `path` names the copy
