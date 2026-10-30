@@ -79,7 +79,12 @@ pub(super) fn run(
         Some(old) => replace(location, old, &id, &bytes, options.force),
     };
     match dropped {
-        Ok(dropped) => tracing::info!(id, ?dropped, "dropped session"),
+        Ok(dropped) => {
+            tracing::info!(id, ?dropped, "dropped session");
+            if let Dropped::Replaced(_) = dropped {
+                hint::replaced_waiting(&id).print();
+            }
+        }
         Err(exit) => return exit,
     }
     warn_if_nobody_watches(location, invocation);

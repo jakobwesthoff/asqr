@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller that merges stderr into stdout (`2>&1`) receives the hints
   too. `asqr ask` reminds the agent to wait for every session's result
   and read all of it, or after warnings about the session file names
-  the way to replace the session and the way to wait for it, and when
+  the way to replace the session and the way to wait for it, says when
+  it replaced a waiting session of the same id, and when
   nobody watches the queue, its warning
   tells the agent to have the person start asqr, with the command that
   reaches the queue. When `wait`, `result` or `ask --wait` find no

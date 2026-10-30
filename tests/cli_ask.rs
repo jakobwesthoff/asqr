@@ -517,6 +517,45 @@ fn replaces_a_waiting_session_nobody_answered() {
 }
 
 #[test]
+fn ask_says_when_it_replaced_a_waiting_session() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(
+        stderr(&output),
+        "asqr: replaced the waiting session batch-01, in which the person had entered no answer yet; they see the new file in its place\n".to_owned()
+            + &nobody_watching(&sandbox)
+            + &wait_reminder(&sandbox, "batch-01")
+    );
+}
+
+#[test]
+fn ask_of_a_new_id_says_nothing_about_replacing() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", SESSION);
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    let err = stderr(&output);
+    assert!(!err.contains("replaced the waiting session"), "{err}");
+}
+
+#[test]
 fn refuses_while_the_session_is_being_answered() {
     let sandbox = Sandbox::new();
     let file = sandbox.file("session.json", SESSION);

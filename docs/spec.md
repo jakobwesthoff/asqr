@@ -644,7 +644,9 @@ asker's own file is never changed. `session_sha256` in the result
   file of that name exists, so two parallel `ask` calls with the same id
   cannot both win. The loser exits with 1.
 - A session with that id is waiting and its draft has no answer: `ask`
-  replaces it.
+  replaces it and says so on stderr: "asqr: replaced the waiting session
+  <id>, in which the person had entered no answer yet; they see the new
+  file in its place".
 - A session with that id is waiting and its draft has an answer
   (section 4.3): `ask` refuses with "session "<id>" is being answered;
   wait for its result, or ask the person and withdraw it with `asqr

@@ -147,6 +147,15 @@ pub(super) fn wait_for_it(invocation: &Invocation, id: &str) -> Line {
     ))
 }
 
+/// After `ask` replaced the waiting session `id` with the new file (A3).
+/// "No answer" rather than "not started": the person may have the session
+/// open, and a reject reason counts as no answer.
+pub(super) fn replaced_waiting(id: &str) -> Line {
+    Line::notice(format!(
+        "replaced the waiting session {id}, in which the person had entered no answer yet; they see the new file in its place"
+    ))
+}
+
 /// After `ask` dropped a session into a queue no asqr watches (A6). The
 /// session waits there either way, but only the person can start asqr.
 pub(super) fn nobody_watching(invocation: &Invocation) -> Line {
