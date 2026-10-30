@@ -62,7 +62,8 @@ settings pane in the TUI.
 - **A settings pane in the TUI.** One key opens it; each setting offers
   a fixed set of values (Jakob, 2026-10-28: fixed choices rather than
   free values). Rejected: editing the file only.
-- **The first version covers four settings:**
+- **Four settings** (the detail round below makes version 1 the three
+  asqr has today; keeping files joins with its feature):
   - keep files: `compact`, `exact`, `off` (todo
     01M67A73S1SRPTR8YRZPPC4FSH, default `compact`; `ASQR_KEEP_FILES`
     overrides it);
@@ -82,16 +83,14 @@ settings pane in the TUI.
 - **Look: the design "Sibling"** from the design study of 2026-10-30
   (conductor logbook `plans/settings-design/`, `index.md` and
   `png/d1-*.png`): the settings pane and the first-start screen use the
-  queue switcher's frame; `enter` opens a setting's values in place as
-  option rows with the `◀ default` marker; the first start is the same
-  frame with its questions open and a "Save and start" button. The
-  texts, the explanations under each setting and the details of how
-  values are shown and picked in those pictures are drafts, to be
-  discussed with Jakob before the work starts. Rejected: "Dogfood" (the
+  queue switcher's frame; the first start is the same frame with its
+  questions open and a "Save and start" button. How values are shown,
+  changed and explained, and the texts, were settled in the detail
+  round below, which replaces the study's `enter` and option rows. Rejected: "Dogfood" (the
   settings as an asqr session), "Switchboard" (a full page),
   "Drawer" (a band above the key bar). The study proposes `,` as the key
   and a first start that asks only about keeping files and the update
-  check; both are part of that discussion.
+  check; the detail round settles both.
 
 - **Detail round (Jakob, 2026-10-30, in the chat):**
   - **Version 1 is the file and the settings pane** with the settings
@@ -132,8 +131,35 @@ settings pane in the TUI.
     override holds; the design study's "from ASQR_KEEP_FILES" with a
     notice on `enter`.
   - **All texts of the pane are written for someone who has never read
-    the docs;** the wording is gone through with Jakob before the work
-    starts, like the first-start texts.
+    the docs.** Agreed with Jakob on two renders (conductor logbook
+    `plans/settings-design/v2/png/v2-1-pane.png`, `v2-2-override.png`,
+    generator `v2/build_v2.py`), the pane's texts are:
+    - rows and values on screen: "Diffs open as": "one column"
+      (default), "side by side"; "Max question width": "80 columns",
+      "100 columns" (default), "120 columns", "full width"; "Context":
+      "beside or below" (default), "always beside", "always below". The
+      TOML file may keep short technical values (such as `unified`);
+      the pane shows these names.
+    - footer, what the setting does: "How a diff shows when you come to
+      it. The s key still switches the diff you look at." / "The widest
+      a question's text may get; on a narrower terminal it gets
+      narrower." / "Where the files, images and diffs that come with a
+      question show."
+    - footer, what the value means, "(default)" after the default:
+      "One column: removed and added lines one below the other." /
+      "Side by side: the old version on the left, the new one on the
+      right." / "100 columns: lines wrap after at most 100 characters."
+      (and so on) / "Full width: lines use the whole width of the
+      terminal." / "Beside or below: beside the question when the
+      terminal is wide enough, otherwise below it." / "Always beside:
+      next to the question, even on a narrow terminal." / "Always
+      below: under the question, even on a wide terminal."
+    - the override texts above.
+    Jakob found "Question width" unclear, since it is a maximum; the
+    label is "Max question width". Rejected: "up to 100 columns" as the
+    values.
+  - **The key bar shows only what works:** on a locked row it drops
+    `←/→ change` (lead).
   - **The first-start texts are rewritten with Jakob** when the
     first-start screen is built: the drafts in the design study
     (`d1-1`, `d1-2`) do not say clearly what each choice means.
