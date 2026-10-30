@@ -1008,16 +1008,36 @@ stands as it is when it holds only ASCII letters and digits, `_`, `.`,
 `/` and `-`, and otherwise in single quotes, each `'` written as
 `'\''`. A relative path that starts with `-` gets `./` in front, and a
 path that is not UTF-8 or holds a control character shows as `<file>`
-or `<dir>`. An id that starts with `-` has to stand last, after `--`,
+or `<dir>`. A session file's path is the one given to `ask`, since the
+agent runs the command where it ran `ask`. An id that starts with `-`
+has to stand last, after `--`,
 with the options before it (`asqr wait --timeout 540 -- -v2`), or as
 `--replaces=<id>`; hints print ids as they are. A wait that advice
 names on its own uses `--timeout 540`, the timeout of the skill's
 example (section 9).
 
 - `ask` without `--wait`, after it dropped the session, as the last
-  line:
+  line, when the session file drew no warning (section 3.4; the warning
+  that nobody watches does not count):
 
       hint: the person can answer any item with a note; wait for the result and read all of it: `<asqr> wait <id> --timeout 540`, or a lower timeout if your command limit is shorter
+
+- `ask` dropped the session after <n> warnings about the session file,
+  in place of the line above; "1 warning above; if it matters to the
+  person" for one. For a file without `id`:
+
+      hint: <n> warnings above; if one matters to the person, fix the file and replace this session: `<asqr> ask <file> --replaces <id>`; otherwise wait for its result: `<asqr> wait <id> --timeout 540`
+
+  For a file with `id`:
+
+      hint: <n> warnings above; if one matters to the person, fix the file, keep its `id`, and ask again: `<asqr> ask <file>`, which replaces this session while the person has not started on it; otherwise wait for its result: `<asqr> wait <id> --timeout 540`
+
+  Under `--wait`, only when the wait ends with 12, before the timeout
+  line of section 6.4, since a finished session can no longer be
+  replaced; without and with `id`:
+
+      hint: <n> warnings above; the session still waits; if one matters to the person, fix the file and replace it: `<asqr> ask <file> --replaces <id>`
+      hint: <n> warnings above; the session still waits; if one matters to the person, fix the file, keep its `id`, and ask again: `<asqr> ask <file>`, which replaces it
 
 ## 7. The TUI
 

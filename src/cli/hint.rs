@@ -156,6 +156,59 @@ pub(super) fn nobody_watching(invocation: &Invocation) -> Line {
     ))
 }
 
+/// After `ask` dropped session `id` from `file` and warned about the file
+/// `count` times (A2), in place of [`wait_for_it`]. Some warnings are
+/// harmless, so waiting is one of the two ways. `still_waiting` is the
+/// form for `ask --wait` whose wait ran out: the agent reads the line only
+/// then, and is already waiting.
+pub(super) fn warnings_above(
+    invocation: &Invocation,
+    count: usize,
+    file: &Path,
+    id: &str,
+    id_in_file: bool,
+    still_waiting: bool,
+) -> Line {
+    let command = &invocation.command;
+    let file = shell_word(file, "<file>");
+    let warnings = if count == 1 {
+        "1 warning above".to_owned()
+    } else {
+        format!("{count} warnings above")
+    };
+    let waits = if still_waiting {
+        "the session still waits; "
+    } else {
+        ""
+    };
+    let which = if count == 1 { "it" } else { "one" };
+    // A file with an `id` replaces its waiting session by being asked
+    // again; without one, `ask` assigned a fresh id, so only `--replaces`
+    // takes the place of this session.
+    let fix = match (id_in_file, still_waiting) {
+        (false, false) => {
+            format!("fix the file and replace this session: `{command} ask {file} --replaces {id}`")
+        }
+        (false, true) => {
+            format!("fix the file and replace it: `{command} ask {file} --replaces {id}`")
+        }
+        (true, false) => format!(
+            "fix the file, keep its `id`, and ask again: `{command} ask {file}`, which replaces this session while the person has not started on it"
+        ),
+        (true, true) => format!(
+            "fix the file, keep its `id`, and ask again: `{command} ask {file}`, which replaces it"
+        ),
+    };
+    let otherwise = if still_waiting {
+        String::new()
+    } else {
+        format!("; otherwise wait for its result: `{command} wait {id} --timeout {WAIT_TIMEOUT}`")
+    };
+    Line::hint(format!(
+        "{warnings}; {waits}if {which} matters to the person, {fix}{otherwise}"
+    ))
+}
+
 // =========================================================================
 // The hints of `wait` and `result`
 // =========================================================================
@@ -328,6 +381,24 @@ mod tests {
     #[test]
     fn a_queue_directory_that_cannot_be_made_absolute_is_named_as_given() {
         assert_eq!(command(&QueueLocation::at(""), true), "asqr --dir ''");
+    }
+
+    #[test]
+    fn the_warnings_hint_counts_one_warning_as_it_and_more_as_one() {
+        let invocation = Invocation::new(&named("work"), true);
+        let file = Path::new("session.json");
+
+        let one = warnings_above(&invocation, 1, file, "batch-01", true, true).to_string();
+        let two = warnings_above(&invocation, 2, file, "batch-01", false, false).to_string();
+
+        assert_eq!(
+            one,
+            "hint: 1 warning above; the session still waits; if it matters to the person, fix the file, keep its `id`, and ask again: `asqr --queue work ask session.json`, which replaces it"
+        );
+        assert_eq!(
+            two,
+            "hint: 2 warnings above; if one matters to the person, fix the file and replace this session: `asqr --queue work ask session.json --replaces batch-01`; otherwise wait for its result: `asqr --queue work wait batch-01 --timeout 540`"
+        );
     }
 
     #[test]

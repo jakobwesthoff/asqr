@@ -47,16 +47,17 @@ pub(super) fn run(
         &session_file.session,
         session_dir(file).as_deref(),
     );
-    print_warnings(
-        found
-            .iter()
-            .filter(|warning| warning.kind != WarningKind::RelativePath),
-    );
+    let shown: Vec<_> = found
+        .iter()
+        .filter(|warning| warning.kind != WarningKind::RelativePath)
+        .collect();
+    print_warnings(shown.iter().copied());
     if let Err(errors) = validate(&session_file.session, None) {
         print_errors(&errors);
         return Exit::ErrorResult;
     }
 
+    let id_in_file = session_file.session.id.is_some();
     let id = session_file
         .session
         .id
@@ -87,12 +88,19 @@ pub(super) fn run(
         eprintln!("{id}");
         let exit = wait_for_result(location, &id, options.timeout);
         if let (Exit::Timeout, Some(timeout)) = (exit, options.timeout) {
+            if !shown.is_empty() {
+                hint::warnings_above(invocation, shown.len(), file, &id, id_in_file, true).print();
+            }
             hint::no_result_yet(invocation, &id, Caller::Wait(timeout.as_secs())).print();
         }
         exit
     } else {
         println!("{id}");
-        hint::wait_for_it(invocation, &id).print();
+        if shown.is_empty() {
+            hint::wait_for_it(invocation, &id).print();
+        } else {
+            hint::warnings_above(invocation, shown.len(), file, &id, id_in_file, false).print();
+        }
         Exit::Success
     }
 }

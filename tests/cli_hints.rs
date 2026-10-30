@@ -152,3 +152,40 @@ fn the_no_watcher_warning_names_a_named_queue_and_its_flag() {
         "{err}"
     );
 }
+
+/// The example session with a field asqr does not know, so `ask` warns.
+fn with_a_warning() -> String {
+    SESSION.replacen('{', r#"{"later": 1, "#, 1)
+}
+
+#[test]
+fn a_hint_quotes_a_session_file_with_a_space() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("my session.json", &with_a_warning());
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    let expected = format!("ask '{}'`, which replaces", file.display());
+    let err = stderr(&output);
+    assert!(err.contains(&expected), "{err}");
+}
+
+#[test]
+fn a_hint_names_the_session_file_as_given() {
+    // The agent runs the command in its own working directory.
+    let sandbox = Sandbox::new();
+    sandbox.file("session.json", &with_a_warning());
+
+    let output = sandbox
+        .asqr_in_queue(&["ask", "session.json"])
+        .current_dir(sandbox.home())
+        .output()
+        .expect("runs");
+
+    let err = stderr(&output);
+    assert!(err.contains("ask session.json`, which replaces"), "{err}");
+}

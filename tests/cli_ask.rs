@@ -585,8 +585,17 @@ fn refuses_an_unread_result_unless_forced() {
 /// Starts `asqr ask --wait` in the background, answers the session once it
 /// arrives, and returns what the waiting asker printed and how it exited.
 fn ask_and_answer(result: impl Fn(&str) -> SessionResult) -> (Option<i32>, String, String) {
+    ask_and_answer_session(SESSION, result)
+}
+
+/// [`ask_and_answer`] for the session file `session`, whose id must be
+/// `batch-01`.
+fn ask_and_answer_session(
+    session: &str,
+    result: impl Fn(&str) -> SessionResult,
+) -> (Option<i32>, String, String) {
     let sandbox = Sandbox::new();
-    let file = sandbox.file("session.json", SESSION);
+    let file = sandbox.file("session.json", session);
     let mut command = sandbox.spawnable_asqr();
     command
         .arg("--dir")
@@ -659,6 +668,121 @@ fn ask_wait_says_to_wait_again_after_its_timeout() {
     );
     let err = stderr(&output);
     assert!(err.ends_with(&expected), "{err}");
+}
+
+/// The example session with `count` fields asqr does not know, with or
+/// without its `id`.
+fn with_unknown_fields(count: usize, keep_id: bool) -> String {
+    let fields: String = (0..count).map(|n| format!(r#""later{n}": 1, "#)).collect();
+    let session = SESSION.replacen('{', &format!("{{{fields}"), 1);
+    if keep_id {
+        session
+    } else {
+        session.replace(r#""id": "batch-01", "#, "")
+    }
+}
+
+/// The ULID among the lines of `text`, as `ask` prints the id it assigned.
+fn assigned_id(text: &str) -> String {
+    text.lines()
+        .find(|line| ulid::Ulid::from_string(line).is_ok())
+        .expect("an assigned id")
+        .to_owned()
+}
+
+#[test]
+fn ask_with_a_warning_offers_to_replace_or_wait() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", &with_unknown_fields(1, false));
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    let id = stdout(&output).trim().to_owned();
+    let expected = format!(
+        "hint: 1 warning above; if it matters to the person, fix the file and replace this session: `asqr --dir {0} ask {1} --replaces {id}`; otherwise wait for its result: `asqr --dir {0} wait {id} --timeout 540`\n",
+        sandbox.queue_dir().display(),
+        file.display()
+    );
+    let err = stderr(&output);
+    assert!(err.ends_with(&expected), "{err}");
+    assert!(!err.contains("hint: the person can answer"), "{err}");
+}
+
+#[test]
+fn ask_with_warnings_and_an_id_offers_to_ask_again() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", &with_unknown_fields(2, true));
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    let expected = format!(
+        "hint: 2 warnings above; if one matters to the person, fix the file, keep its `id`, and ask again: `asqr --dir {0} ask {1}`, which replaces this session while the person has not started on it; otherwise wait for its result: `asqr --dir {0} wait batch-01 --timeout 540`\n",
+        sandbox.queue_dir().display(),
+        file.display()
+    );
+    let err = stderr(&output);
+    assert!(err.ends_with(&expected), "{err}");
+}
+
+#[test]
+fn ask_wait_names_the_warnings_when_it_times_out() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", &with_unknown_fields(1, false));
+
+    let output = sandbox
+        .asqr_in_queue(&["ask", "--wait", "--timeout", "0"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    let err = stderr(&output);
+    let id = assigned_id(&err);
+    let expected = format!(
+        "hint: 1 warning above; the session still waits; if it matters to the person, fix the file and replace it: `asqr --dir {} ask {} --replaces {id}`\nasqr: no result for {id} yet (timeout);",
+        sandbox.queue_dir().display(),
+        file.display()
+    );
+    assert!(err.contains(&expected), "{err}");
+}
+
+#[test]
+fn ask_wait_with_an_id_names_the_warnings_when_it_times_out() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", &with_unknown_fields(2, true));
+
+    let output = sandbox
+        .asqr_in_queue(&["ask", "--wait", "--timeout", "0"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    let expected = format!(
+        "hint: 2 warnings above; the session still waits; if one matters to the person, fix the file, keep its `id`, and ask again: `asqr --dir {} ask {}`, which replaces it\nasqr: no result for batch-01 yet (timeout);",
+        sandbox.queue_dir().display(),
+        file.display()
+    );
+    let err = stderr(&output);
+    assert!(err.contains(&expected), "{err}");
+}
+
+#[test]
+fn ask_wait_names_no_warnings_once_a_result_came() {
+    // A finished session can no longer be replaced.
+    let (code, _, err) = ask_and_answer_session(&with_unknown_fields(1, true), |sha| {
+        SessionResult::submitted("batch-01", sha, &now_rfc3339(), None, Vec::new())
+    });
+
+    assert_eq!(code, Some(0));
+    assert!(err.contains("warning: later0"), "{err}");
+    assert!(!err.contains("warning above"), "{err}");
 }
 
 #[test]
