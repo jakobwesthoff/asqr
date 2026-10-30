@@ -2,7 +2,6 @@
 title: "Make the skill keep an agent from leaving the result of an info-only session unread"
 kind: improvement
 component: cli
-status: needs-discussion
 origin: incident
 ---
 # Make the skill keep an agent from leaving the result of an info-only session unread
@@ -123,3 +122,26 @@ Added by Jakob on 2026-10-29, after reading the agent's account:
   style, but with fable, opus, sonnet and haiku discussing solutions
   with each other from the start, to find the best one. The lead watches
   it and puts the result to Jakob in an asqr session.
+
+## Decisions (2026-10-30, asqr session 01M663RDEWA9W6SVK9KWFMC1ZV)
+
+Jakob accepted the plan worked out by fable, opus, sonnet and haiku
+(kept in the conductor logbook of 2026-10-30,
+`~/playground/2026_10_30_asqr-todos-worked-off-by-agents/plans/skill-structure-plan.md`):
+
+- A core `SKILL.md` of at most 16,000 bytes with every rule no asqr check
+  catches, plus three reference parts (`context`, `withdrawing`,
+  `patterns`) that an agent reads with `asqr skill <part>`. The core
+  opens with "read this in full" and ends with `End of the asqr skill.`
+- New rule, landing first and on its own: every session, an info-only
+  one too, comes back as a result; wait for it and read all of it, every
+  note included.
+- Duplicates go; an inventory of every rule, ticked by a reviewer who did
+  not edit, proves none is lost.
+- The skill carries the asqr version in its header (frontmatter
+  `metadata`), checked by a test against the crate version. It travels
+  with every copy; each release edits it once.
+- Tests check the structure plus about nine key rules by a short phrase
+  each, so a later rewrite cannot drop one silently.
+- `asqr ask` prints a reminder to wait for the result after every
+  session it accepts, not only info-only ones.

@@ -41,3 +41,23 @@ remember to reinstall the skill by hand.
   user's home, others).
 - Whether `--install` should also offer to update an existing older copy
   in place, and whether asqr should name the command to run.
+
+## Settled by the skill split (2026-10-30, asqr session 01M663RDEWA9W6SVK9KWFMC1ZV)
+
+- The installed skill becomes the directory `asqr/` with `SKILL.md` and
+  `references/`; a check treats the directory as the unit.
+- `--install` always rewrites `references/` and removes stale parts, so
+  reinstalling is a complete update in place.
+- `asqr skill <part>` with an unknown part names the known parts and the
+  command that prints the current skill: a first, passive signal of a
+  mismatch.
+- The version lives in the skill's frontmatter `metadata`, equal to the
+  crate version (Jakob chose this over a marker file written on install,
+  since only `--install` would write a marker and hand copies would have
+  none).
+
+Still open: where the check runs, and which directories asqr looks in.
+
+## Relations
+
+- Depends on: [Make the skill keep an agent from leaving the result of an info-only session unread](01M63AVXW95AQA517AV8K35XGV-make-the-skill-keep-an-agent-from-leaving-the-result-of-an-info-only.md)
