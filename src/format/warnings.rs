@@ -1739,6 +1739,57 @@ mod tests {
         );
     }
 
+    /// TGA has no signature, so only its extension names the format.
+    #[test]
+    fn a_tga_file_is_checked_by_its_extension() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let tga = directory.path().join("dot.tga");
+        image::RgbImage::new(2, 3)
+            .save(&tga)
+            .expect("tga is writable");
+
+        assert_eq!(
+            warn(&text_question_with_image(&tga), None),
+            [] as [String; 0]
+        );
+        let file = File::open(&tga).expect("tga is readable");
+        let size = image_header(&file, &tga).expect("a TGA has a header");
+        assert_eq!(size, (2, 3));
+    }
+
+    /// The warning says only that the format is unsupported, so the error
+    /// under it is checked here: it names the extension.
+    #[test]
+    fn an_unknown_extension_without_a_signature_names_itself() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("dot.xyzzy");
+        std::fs::write(&path, b"no picture in here").expect("file is writable");
+        let file = File::open(&path).expect("file is readable");
+
+        let error = image_header(&file, &path).expect_err("no format is known");
+
+        assert!(matches!(error, ImageError::Unsupported(_)), "{error:?}");
+        assert!(error.to_string().contains("xyzzy"), "{error}");
+    }
+
+    /// A signature decides before the extension is asked, also where the
+    /// extension names another format that does exist.
+    #[test]
+    fn a_png_named_as_another_format_is_still_read_as_a_png() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("picture.jpg");
+        image::RgbImage::new(4, 5)
+            .save_with_format(&path, image::ImageFormat::Png)
+            .expect("png is writable");
+        let file = File::open(&path).expect("file is readable");
+
+        assert_eq!(image_header(&file, &path).expect("a PNG"), (4, 5));
+        assert_eq!(
+            warn(&text_question_with_image(&path), None),
+            [] as [String; 0]
+        );
+    }
+
     /// An image is decoded by what its bytes are, and only an image that
     /// no bytes identify falls back to the name of its file.
     #[test]

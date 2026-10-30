@@ -411,6 +411,43 @@ mod tests {
             .map(|error| error.to_string())
     }
 
+    /// A PNG, as the bytes of a file.
+    fn png_bytes() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        ::image::RgbImage::new(1, 1)
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .expect("PNG is encodable into memory");
+        bytes
+    }
+
+    /// No signature in the bytes and an extension no format knows: the
+    /// error names the extension, so the asker can tell what to rename.
+    #[test]
+    fn a_file_with_an_unknown_extension_and_no_signature_names_the_extension() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("dot.xyzzy");
+        fs::write(&path, b"no picture in here").expect("file is writable");
+
+        let reason = refused(path.to_str().expect("a UTF-8 path")).expect("refused");
+
+        assert!(reason.contains("xyzzy"), "{reason}");
+    }
+
+    /// A signature decides before the extension is asked, whatever format
+    /// the extension names.
+    #[test]
+    fn the_signature_of_a_file_wins_over_its_extension() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        for name in ["picture.jpg", "picture.xyzzy", "picture"] {
+            let path = directory.path().join(name);
+            fs::write(&path, png_bytes()).expect("file is writable");
+
+            let reason = refused(path.to_str().expect("a UTF-8 path"));
+
+            assert_eq!(reason, None, "{name}");
+        }
+    }
+
     #[test]
     fn a_file_that_is_no_image_says_why() {
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
