@@ -95,6 +95,49 @@ Jakob picked this as the larger design topic to discuss soon
 (asqr session 01M6628SFCCK00ENY6YV0XQZR1). It relates to the queue name on the waiting screen, which
 is being designed at the same time.
 
+## Decisions (2026-10-30, asqr session 01M666SB2DM25EBG50X16CGMP3)
+
+Design worked out in the conductor logbook of 2026-10-30
+(`~/playground/2026_10_30_asqr-todos-worked-off-by-agents/plans/instances/design.md`).
+Checked there: agents in Claude Code keep `$TMUX` and `$TMUX_PANE`;
+`tmux display-message -p -t "$TMUX_PANE" '#S'` names the pane's session
+in about 5 ms; `tmux show-environment -t "$TMUX_PANE" <var>` reads a
+session variable live, also from processes started before it was set.
+
+Jakob chose:
+
+- Pairing model D: inside tmux asqr derives the queue from the pane's
+  tmux session, and the TUI pins the queue it watches to that session
+  (a tmux session variable); agents' commands read the pin. Order:
+  `--queue`/`--dir`, then `ASQR_QUEUE`/`ASQR_DIR`, then the pin, then
+  the session name, then `default`.
+- It works without setup whenever asqr runs inside tmux.
+- The pin stays when asqr quits.
+- An `ask` into a queue nobody watches is queued with a warning that
+  names the watched queues. The warning's last line must tell the agent
+  to ask the person to start asqr in that session, not tell the agent to
+  start it.
+- A listing `asqr queues` (also `--json`).
+- `asqr prune` removes unwatched queues that hold no file at all.
+- A start picker outside tmux, when several queues exist.
+- The skill: pass no `--queue` unless told; never switch to another
+  session's watched queue on your own.
+
+Jakob's notes:
+
+- Outside tmux everything must keep working and stay usable, even where
+  nothing is detected automatically. Automatic pairing only in tmux is
+  fine for now; leave room for other multiplexers later.
+- When tmux cannot be asked from inside tmux, asqr should behave
+  sensibly, more or less as today: use the default queue (recorded as
+  his direction; to confirm).
+- Open: how exactly an agent in the same tmux session learns a queue
+  chosen by hand, and how to choose the default queue on purpose (the
+  pin question was left open for this). New idea: a queue selector the
+  person opens with a shortcut inside the TUI, as a pop-up, to switch
+  between queues, showing which session tmux detected.
+- Other multiplexers: later, keep open.
+
 ## Relations
 
 - Relates to: [Decide whether to build a terminal dashboard that agents write their status to](01M5VR1S0NSFH97XRWCKNBG7DR-decide-whether-to-build-a-terminal-dashboard-that-agents-write-their.md), the same question of which agents feed which view
