@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outline, and the submit button and a diff's changed lines show as dim
   text in their colour, where colours are on, instead of staying bright.
 
+### Fixed
+
+- The log no longer holds text you typed. `ask --replaces` wrote the
+  withdrawn session's whole result into `asqr.log`, your answers, notes
+  and draft included; it now writes the ids, the status and the number
+  of answers. The error of a draft that cannot be read names the line
+  and column instead of quoting the value. Logs written by earlier
+  versions may still hold such text.
+
 ## [0.15.0] - 2026-10-30
 
 ### Added

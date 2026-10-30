@@ -10,6 +10,8 @@ Amended by [56. Show text with ANSI colours as a context entry](0056-show-text-w
 
 Amended by [83. Set which events reach the log through ASQR_LOG](0083-set-which-events-reach-the-log-through-asqr-log.md)
 
+Amended by [90. Keep what the person typed out of the log](0090-keep-what-the-person-typed-out-of-the-log.md)
+
 ## Context
 
 asqr has few settings: the queue, notifications and the bell. The

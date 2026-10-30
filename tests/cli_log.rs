@@ -6,6 +6,8 @@
 
 mod common;
 
+use asqr::format::{Answer, SessionResult};
+use asqr::queue::{QueueLocation, save_draft};
 use common::{Sandbox, stderr, stdout};
 
 /// A filter in `ASQR_LOG` that does not parse leaves the command and its
@@ -76,4 +78,73 @@ fn an_unusable_cache_directory_does_not_stop_the_command() {
     std::fs::write(&cache, "a file where the cache directory should be").expect("written");
 
     sandbox.asqr_in_queue(&["status"]).assert().success();
+}
+
+/// The session `round-1` waits and the person has started on it: a draft
+/// with a custom answer and a note, both text they typed. Returns the file
+/// of `round-2`, which replaces `round-1`.
+fn started_on_round_one(sandbox: &Sandbox) -> std::path::PathBuf {
+    let session = |id: &str| {
+        format!(
+            r#"{{"asqr": 2, "id": "{id}", "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#
+        )
+    };
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(sandbox.file("round-1.json", &session("round-1")))
+        .assert()
+        .success();
+    let typed = Answer {
+        custom: Some("half-typed secret".into()),
+        ..Answer::new("q")
+    };
+    let mut draft = SessionResult::draft("round-1", "q", vec![typed]);
+    draft.note = Some("a private note".into());
+    save_draft(&QueueLocation::at(sandbox.queue_dir()), &draft).expect("saved");
+    sandbox.file("round-2.json", &session("round-2"))
+}
+
+#[test]
+fn replacing_a_session_does_not_log_what_the_person_typed() {
+    let sandbox = Sandbox::new();
+    let second = started_on_round_one(&sandbox);
+
+    sandbox
+        .asqr_in_queue(&["ask", "--replaces", "round-1", "--force"])
+        .arg(&second)
+        .assert()
+        .success();
+
+    let log = std::fs::read_to_string(sandbox.log_path()).expect("the log file exists");
+    assert!(log.contains("replaced a session"), "{log}");
+    assert!(!log.contains("half-typed secret"), "{log}");
+    assert!(!log.contains("a private note"), "{log}");
+}
+
+#[test]
+fn the_line_of_a_replaced_session_names_ids_status_and_counts() {
+    let sandbox = Sandbox::new();
+    let second = started_on_round_one(&sandbox);
+
+    sandbox
+        .asqr_in_queue(&["ask", "--replaces", "round-1", "--force"])
+        .arg(&second)
+        .assert()
+        .success();
+
+    let log = std::fs::read_to_string(sandbox.log_path()).expect("the log file exists");
+    let line = log
+        .lines()
+        .find(|line| line.contains("replaced a session"))
+        .unwrap_or_else(|| panic!("no replaced-a-session line in {log:?}"));
+    for field in [
+        r#"id="round-2""#,
+        r#"old="round-1""#,
+        r#"outcome="now""#,
+        "status=Withdrawn",
+        "answers=0",
+        "draft_answers=1",
+    ] {
+        assert!(line.contains(field), "{field} missing from {line}");
+    }
 }

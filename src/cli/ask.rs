@@ -178,7 +178,21 @@ fn replace(
     }
     match drop_replacing(location, old, id, bytes, force, Gate::default()) {
         Ok((withdrawn, dropped)) => {
-            tracing::info!(id, old, ?withdrawn, "replaced a session");
+            // The result holds what the person typed, so the log gets its
+            // status and counts only (ADR 90).
+            let (outcome, result) = match &withdrawn {
+                Withdrawn::Now(result) => ("now", result),
+                Withdrawn::Already(result) => ("already", result),
+            };
+            tracing::info!(
+                id,
+                old,
+                outcome,
+                status = ?result.status,
+                answers = result.answers.len(),
+                draft_answers = result.draft.as_ref().map_or(0, |draft| draft.answers.len()),
+                "replaced a session"
+            );
             Ok((withdrawn, dropped))
         }
         Err(error) => {

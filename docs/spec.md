@@ -618,6 +618,11 @@ Commands log the sessions they drop, finish, archive or prune into
 `asqr.log` in the platform's cache directory (ADR 15). Draft saves are
 not logged. A log that cannot be written never stops a command.
 
+The log holds no text the person typed (ADR 90). A line about a session
+or its result names ids, status and counts, never answers, notes, custom
+text or draft content. Logs written by earlier versions may hold such
+text.
+
 `ASQR_LOG` sets which events reach the log (ADR 83). A level, such as
 `ASQR_LOG=debug`, applies to every event, those of the libraries asqr
 uses included. Comma-separated `target=level` directives set the level

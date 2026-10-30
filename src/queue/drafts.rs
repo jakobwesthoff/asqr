@@ -17,9 +17,20 @@ pub fn load_draft(location: &QueueLocation, id: &str) -> io::Result<Option<Sessi
         return Ok(None);
     };
     let bytes = std::fs::read(path)?;
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+        // serde_json quotes the value it did not expect, and a draft holds
+        // what the person typed, which must not reach the log (ADR 90)
+        // through this error.
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "the draft is not readable: {:?} error at line {} column {}",
+                error.classify(),
+                error.line(),
+                error.column()
+            ),
+        )
+    })
 }
 
 /// Saves `draft` under its id. An existing draft of the same session keeps
@@ -140,6 +151,23 @@ mod tests {
         delete_draft(&location, "batch-01").expect("draft is deleted");
         assert_eq!(load_draft(&location, "batch-01").expect("readable"), None);
         delete_draft(&location, "batch-01").expect("deleting a missing draft is fine");
+    }
+
+    #[test]
+    fn an_unreadable_draft_does_not_quote_what_it_holds() {
+        let (_scratch, location) = queue();
+        fs::write(
+            location.drafts().join("batch-01.json"),
+            "{\n  \"asqr\": 2,\n  \"id\": \"batch-01\",\n  \"status\": \"draft\",\n  \"answers\": [{\"question\": \"q1\", \"custom_unpicked\": \"half-typed secret\"}]\n}\n",
+        )
+        .expect("written");
+
+        let error = load_draft(&location, "batch-01").expect_err("a string is no boolean");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        let message = error.to_string();
+        assert!(!message.contains("half-typed secret"), "{message}");
+        assert!(message.contains("line 5"), "{message}");
     }
 
     #[test]
