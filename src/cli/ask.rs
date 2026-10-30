@@ -14,6 +14,7 @@ use serde_json::Value;
 use super::Exit;
 use super::format::{print_errors, print_warnings, read_session_file, session_dir};
 use super::hint::{self, Caller, Invocation, Refusing};
+use super::skill_age;
 use super::wait::{Elsewhere, elsewhere, wait_for_result};
 use crate::format::{WarningKind, is_valid_session_id, same_session_id, validate, warnings};
 use crate::pairing::{self, Tmux, TmuxPane, TmuxSession};
@@ -51,6 +52,7 @@ pub(super) fn run(
     options: AskOptions,
     around: &Surroundings<'_>,
 ) -> Exit {
+    skill_age::hint_if_older();
     let mut session_file = match read_session_file(file) {
         Ok(session_file) => session_file,
         Err(error) => return error.report(file),

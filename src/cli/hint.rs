@@ -4,7 +4,9 @@
 
 //! Advice for agents on stderr (spec section 6.7): the texts of the hints
 //! and of the errors, warnings and notices that carry advice, and the one
-//! function that prints them. stdout never changes for a hint.
+//! function that prints them. stdout never changes for a hint. The one
+//! exception is the hint about an older installed skill, whose text is in
+//! [`super::skill_age`] with the search that finds the copies.
 
 use std::fmt;
 use std::io::Write;
@@ -33,7 +35,7 @@ pub(super) struct Line {
 }
 
 impl Line {
-    fn hint(text: String) -> Self {
+    pub(super) fn hint(text: String) -> Self {
         Line {
             prefix: "hint",
             text,
@@ -132,7 +134,7 @@ fn queue_command(name: &str) -> String {
 /// it holds only ASCII letters, digits and `_./-`, otherwise in single
 /// quotes. A path that cannot be written that way, not UTF-8 or holding a
 /// control character such as a newline, shows as `placeholder`.
-fn shell_word(path: &Path, placeholder: &str) -> String {
+pub(super) fn shell_word(path: &Path, placeholder: &str) -> String {
     let Some(text) = path
         .to_str()
         .filter(|text| !text.contains(char::is_control))

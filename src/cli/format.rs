@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::Exit;
+use super::skill_age;
 use crate::format::{
     FORMAT_VERSION, ParseError, Session, ValidationError, Warning, parse_session, result_schema,
     session_schema, validate, warnings,
@@ -78,6 +79,7 @@ pub(super) fn print_warnings<'a>(found: impl IntoIterator<Item = &'a Warning>) {
 }
 
 pub(super) fn run_validate(path: &Path) -> Exit {
+    skill_age::hint_if_older();
     let file = match read_session_file(path) {
         Ok(file) => file,
         Err(error) => return error.report(path),

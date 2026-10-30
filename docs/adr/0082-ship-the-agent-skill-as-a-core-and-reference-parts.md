@@ -6,6 +6,8 @@ Date: 2026-10-30
 
 Accepted
 
+Amended by [87. Tell the agent when an installed skill is older than asqr](0087-tell-the-agent-when-an-installed-skill-is-older-than-asqr.md)
+
 Amends [6. Integrate agents through a bundled skill first](0006-integrate-agents-through-a-bundled-skill-first.md):
 the skill is a directory of a core and reference parts, `asqr skill
 <part>` prints a part, and an installed skill is the one of the asqr

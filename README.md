@@ -127,7 +127,12 @@ stderr.
 installs the skill as `asqr/SKILL.md`, with its parts in
 `asqr/references/`, under the skills directory you name. An installed
 copy stays as it is when asqr is updated; running the install again
-replaces it, parts included.
+replaces it, parts included. `asqr ask` and `asqr validate` print a hint
+when they find an installed copy that is older than asqr, in the skills
+directories of Claude Code, Codex, Gemini CLI, GitHub Copilot and Cursor,
+in the project up to the git root and in your home directory. The hint
+tells the agent to read the current skill with `asqr skill` and to ask
+you whether to update the copy.
 
 ## Inside tmux
 

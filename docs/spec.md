@@ -1166,7 +1166,9 @@ stands as it is when it holds only ASCII letters and digits, `_`, `.`,
 `/` and `-`, and otherwise in single quotes, each `'` written as
 `'\''`. A relative path that starts with `-` gets `./` in front, and a
 path that is not UTF-8 or holds a control character shows as `<file>`
-or `<dir>`. A session file's path is the one given to `ask`, since the
+or `<dir>`. A directory below the home directory in the hint about an
+older installed skill (section 9) starts with `~/` outside any quotes, so
+a shell expands it. A session file's path is the one given to `ask`, since the
 agent runs the command where it ran `ask`. An id that starts with `-`
 has to stand last, after `--`, with the options before it (`asqr wait
 --timeout 540 -- -v2`), or as `--replaces=<id>`; hints print ids as
@@ -1184,7 +1186,9 @@ to wait. Under `--wait`, the first
 comes before the id, and the one for warnings only when the wait ends
 with 12, before the timeout line of section 6.4. After a printed result,
 the line for a rejection, an error or a `draft` comes first, then the
-one for notes.
+one for notes. The hint about an older installed skill is the first line
+`ask` and `validate` print, before every line above and, under `--wait`,
+before the id.
 
 - `ask` inside tmux whose queue `ASQR_QUEUE` or `ASQR_DIR` chose, while
   the tmux session pins another queue (section 7.1): the variable
@@ -1248,6 +1252,20 @@ one for notes.
   "before you act on the answers":
 
       hint: the person wrote notes on the session and on `go`, `highlight`; read them before you act on the answers
+
+- `ask` and `validate`, first of all their lines, when an installed copy
+  of the skill is older than this asqr (section 9). For one copy
+  installed by asqr 0.14.0 under `.claude/skills` of the current
+  directory, and for one without an `asqr-version`, where `<version>`
+  stands for the running asqr's version:
+
+      hint: the asqr skill in .claude/skills/asqr is from asqr 0.14.0, this asqr is <version>; read the current one with `asqr skill`, and ask the person whether to update the copy with `asqr skill --install .claude/skills`
+      hint: the asqr skill in .claude/skills/asqr is from an older asqr, this asqr is <version>; read the current one with `asqr skill`, and ask the person whether to update the copy with `asqr skill --install .claude/skills`
+
+  For several copies, each named with "(from asqr <v>)" or "(from an
+  older asqr)", the last two joined by "and" and the others by commas:
+
+      hint: the asqr skill copies in .claude/skills/asqr (from asqr 0.14.0) and ~/.agents/skills/asqr (from an older asqr) are older than this asqr, <version>; read the current skill with `asqr skill`, and ask the person whether to update them with `asqr skill --install .claude/skills` and `asqr skill --install ~/.agents/skills`
 
 ## 7. The TUI
 
@@ -2718,6 +2736,42 @@ installing it is possible but in most cases not needed. `asqr skill
 replaces `<dir>/asqr/references/` whole and leaves any other file in
 `<dir>/asqr/` alone, so `asqr skill --install .claude/skills` works and
 running it again replaces an older copy, parts included.
+
+`asqr ask` and `asqr validate` look for installed copies of the skill and
+print one hint on stderr (section 6.7) when a copy is older than the asqr
+that runs. A copy is the directory `asqr` with a `SKILL.md` in a skills
+directory. The project skills directories are `.agents/skills`,
+`.claude/skills`, `.gemini/skills`, `.github/skills`, `.cursor/skills` and
+`.codex/skills`, searched in the current directory and in each directory
+above it up to the git root, the nearest directory with a `.git` (a
+directory, or a file in a linked worktree). Without one, only the current
+directory is searched. The global ones are `~/.agents/skills`,
+`~/.claude/skills`, `~/.gemini/skills`, `~/.copilot/skills` and
+`~/.cursor/skills`, searched when `HOME` is set and not empty. Each is a
+location that the documentation of Claude Code, Codex, Gemini CLI, GitHub
+Copilot or Cursor names (ADR 87).
+
+- A copy is older when the frontmatter of its `SKILL.md` has an
+  `asqr-version` (asqr writes it under `metadata`) below the version of
+  this asqr, or has none, as a copy installed by asqr 0.14 or earlier.
+  Only the first 16 KiB of the file are read. The check compares
+  versions, not builds.
+- A copy of the same or a newer version, a `SKILL.md` that cannot be
+  read as a regular file and an `asqr-version` that is no
+  `MAJOR.MINOR.PATCH` version give no hint and no message. A suffix after
+  the patch number does not count.
+- A copy is identified by the real path of its `SKILL.md`, so a copy
+  that several directories reach through symlinks is named once, under
+  the first directory in this order: the current directory before those
+  above it, project directories before global ones, each group in the
+  order listed above. One hint names every older copy.
+- A copy in the current directory is named by its skills directory
+  (`.claude/skills/asqr`). A copy in a directory above it under the home
+  directory, and every global copy, are named by `~/` and the path below
+  the home directory. Any other copy is named by its absolute path.
+  `asqr skill --install` is given the skills directory as it is named.
+- The hint prints on every `ask` and `validate` until the copy is
+  updated.
 
 `asqr --help`, `asqr -h` and `asqr ask --help` show, below the line for
 the person, a line for agents: "Agents: run `asqr skill` and read its
