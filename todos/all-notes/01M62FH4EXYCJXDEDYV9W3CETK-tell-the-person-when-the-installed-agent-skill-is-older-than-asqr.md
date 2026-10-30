@@ -30,18 +30,6 @@ People who upgrade with brew or cargo keep an agent that does not know
 the new features, or that writes sessions asqr refuses, until they
 remember to reinstall the skill by hand.
 
-## Open questions
-
-- Where the check runs: `asqr validate` and `asqr ask` (where an agent
-  meets it), the TUI on start, `asqr status`, or a separate
-  `asqr skill --check <dir>`.
-- How an installed skill is found and identified: a version line in the
-  installed file's frontmatter, compared with the binary's version, and
-  which skill directories asqr knows to look in (`.claude/skills`, the
-  user's home, others).
-- Whether asqr should name the command to run. `--install` already
-  updates an existing older copy in place (below).
-
 ## Settled by the skill split (2026-10-30, asqr session 01M663RDEWA9W6SVK9KWFMC1ZV)
 
 Landed with ADR 82:
@@ -61,7 +49,43 @@ Landed with ADR 82:
   over a marker file written on install, since only `--install` would
   write a marker and hand copies would have none).
 
-Still open: where the check runs, and which directories asqr looks in.
+
+## Decided (2026-10-30, asqr session 01M66KP4BA5TMHBDRYRH7VMYKR)
+
+- The check runs in `asqr ask` and `asqr validate`, where an agent
+  reads it, as a `hint:` line on stderr. No separate `--check` command.
+  Jakob's note: the hint also tells the agent how to get the current
+  skill, by running the command (`asqr skill`).
+- A copy without `asqr-version` (installed by 0.14 or earlier) counts
+  as older; the hint then names no version.
+- Directories: project directories from the current directory up to
+  the git root, plus the home directory. Jakob's note: asqr is not only
+  for Claude Code. The list of directories lives in a module of its own
+  together with the check functions, so it can be extended.
+- Several old copies go into one hint (lead).
+
+Research on where agent runners look for skills (2026-10-30, kept in
+the run's logbook as `plans/skill-age/skill-dirs-research.md`):
+vercel-labs/skills 1.7.4 (commit 31b7451, `src/agents.ts`) knows about
+70 runners. Most read the shared `.agents/skills` (Codex, Gemini CLI,
+Copilot, Cursor, Cline, Amp, OpenCode, Zed and others). By default the
+installer writes one real copy to `.agents/skills/<name>` and symlinks
+each other agent's directory (such as `.claude/skills/<name>`) to it, so
+copies are compared by their real path. The installer anchors project
+paths at the current directory; Claude Code and Codex walk parents up to
+the repository root. Documented per agent: Claude Code `.claude/skills`,
+`~/.claude/skills`; Codex `.agents/skills`, `~/.agents/skills`; Gemini
+CLI `.gemini/skills` and `.agents/skills`, also in home; Copilot
+`.github/skills`, `.claude/skills`, `.agents/skills`,
+`~/.copilot/skills`, `~/.agents/skills`; Cursor `.agents`, `.cursor`,
+`.claude` and `.codex` skill directories, also in home. The doc pages
+were read through a summarising fetch; re-read them before pinning
+paths in code.
+
+Still open: which set of directories (asked in asqr session
+01M66M0CNZPVC10PC088D65K1K: the shared one plus those the big agents
+document, all of the installer's runners, or only `.agents/skills` and
+`.claude/skills`), and the hint's exact text.
 
 Jakob's note (2026-10-30, asqr session 01M664CT1H5WE3J1MT97JNYGDT): the
 docs should say that installing the skill is possible but in most cases
