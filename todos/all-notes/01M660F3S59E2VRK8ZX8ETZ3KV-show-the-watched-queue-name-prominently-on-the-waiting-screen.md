@@ -39,6 +39,20 @@ screen, centred near the emblem.
 Jakob asked for rendered design ideas to discuss before any code
 (2026-10-30).
 
+## Decisions (Jakob, 2026-10-30, asqr session 01M6628SFR6RSZNB8DP4YNGBQH)
+
+- None of the first eight rendered variants is chosen. Name in the
+  sentence was liked most but makes the sentence too long; a rule with
+  the name set into it was a bit too pushy; the name as a headline gave
+  too little context. A second round of variants follows.
+- The name shows only when a specific queue is chosen; for the default
+  queue the screen stays as it is.
+- On a screen too short for both, Talqi gives way and the name stays.
+- A `--dir` queue shows its path for now. Still open: the path may be
+  too long, to be discussed later.
+- The terminal tab title names the queue too, as
+  `asqr · asqr-todos · 2 waiting`.
+
 ## Relations
 
 - Relates to: [Let several asqr instances run side by side and route each agent to the right one](01M63MZBJYJ1ANX77CW5QAR9AG-let-several-asqr-instances-run-side-by-side-and-route-each-agent-to-the.md)
