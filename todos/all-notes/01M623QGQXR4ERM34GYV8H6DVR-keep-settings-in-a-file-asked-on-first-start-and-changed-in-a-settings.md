@@ -117,9 +117,11 @@ settings pane in the TUI.
     its values. Rejected: two explanation lines under the focused row;
     every value shown on the row.
   - **A setting set outside asqr is locked and explained in the
-    footer.** Its row shows the value in effect, without `‹ ›`, and
-    "set outside asqr"; `←`/`→` do nothing there and no error notice
-    appears. The footer says in full sentences what holds, why and what
+    footer.** Its row shows the value in effect dimmed, without `‹ ›`,
+    and beside it, dimmed, what sets it: "set by ASQR_LAYOUT" or "set by
+    --layout", the word to look for in a shell setup or an alias (Jakob
+    left the name beside the value to the lead; the lead keeps it).
+    `←`/`→` do nothing there and no error notice appears. The footer says in full sentences what holds, why and what
     to do, without developer shorthand, for example: "Your shell sets
     ASQR_LAYOUT=below, so asqr always shows context below the question,
     whatever you choose here. To choose here, remove ASQR_LAYOUT from
