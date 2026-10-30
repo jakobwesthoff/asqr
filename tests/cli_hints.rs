@@ -7,6 +7,8 @@
 
 mod common;
 
+use asqr::format::{SessionResult, now_rfc3339};
+use asqr::queue::{QueueLocation, finish, session_sha256};
 use common::{Sandbox, stderr};
 
 const SESSION: &str =
@@ -188,4 +190,59 @@ fn a_hint_names_the_session_file_as_given() {
 
     let err = stderr(&output);
     assert!(err.contains("ask session.json`, which replaces"), "{err}");
+}
+
+#[test]
+fn a_hint_after_a_result_starts_a_line_of_its_own() {
+    // An agent's tool, a terminal and `2>&1` show both streams as one
+    // text, and the result's JSON ends without a newline.
+    let sandbox = Sandbox::new();
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    let location = QueueLocation::at(sandbox.queue_dir());
+    let inbox = sandbox.queue_dir().join("inbox/batch-01.json");
+    let sha = session_sha256(&std::fs::read(&inbox).expect("waiting"));
+    let result = SessionResult::submitted(
+        "batch-01",
+        &sha,
+        &now_rfc3339(),
+        Some("go".into()),
+        Vec::new(),
+    );
+    finish(&location, &inbox, &result).expect("finished");
+
+    // The sandbox's own environment, for a shell that runs asqr with both
+    // streams joined.
+    let asqr = sandbox.spawnable_asqr();
+    let mut shell = std::process::Command::new("sh");
+    for (name, value) in asqr.get_envs() {
+        match value {
+            Some(value) => shell.env(name, value),
+            None => shell.env_remove(name),
+        };
+    }
+    let shell = shell
+        .arg("-c")
+        .arg(r#""$0" --dir "$1" result batch-01 2>&1"#)
+        .arg(asqr.get_program())
+        .arg(sandbox.queue_dir())
+        .output()
+        .expect("sh runs");
+    let alone = sandbox
+        .asqr_in_queue(&["result", "batch-01"])
+        .output()
+        .expect("runs");
+
+    let joined = String::from_utf8(shell.stdout).expect("UTF-8");
+    assert!(joined.contains("}\nhint: "), "{joined}");
+    assert!(!joined.contains("}hint:"), "{joined}");
+    let outbox = std::fs::read(sandbox.queue_dir().join("outbox/batch-01.json")).expect("result");
+    assert_eq!(
+        alone.stdout, outbox,
+        "stdout alone is the result file as it is"
+    );
 }

@@ -10,6 +10,7 @@ use std::fmt;
 use std::io::Write;
 use std::path::Path;
 
+use crate::format::{SessionResult, Status};
 use crate::queue::QueueLocation;
 
 /// The timeout of every wait a hint names on its own: the one the skill's
@@ -259,6 +260,78 @@ pub(super) fn unknown_session(invocation: &Invocation, id: &str) -> Line {
     ))
 }
 
+/// Prints the hints for `result` on stderr after its JSON, `printed`, went
+/// to stdout. A result's JSON ends without a newline, so where a terminal,
+/// `2>&1` or an agent's tool shows both streams as one text, the first
+/// hint would follow the closing brace; an empty line first gives it a
+/// line of its own.
+pub(super) fn after_result(printed: &[u8], result: &SessionResult) {
+    let lines = result_hints(result);
+    if lines.is_empty() {
+        return;
+    }
+    let mut stderr = std::io::stderr().lock();
+    if !printed.ends_with(b"\n") {
+        let _ = writeln!(stderr);
+    }
+    for line in &lines {
+        print_to(&mut stderr, line);
+    }
+}
+
+/// The hints a printed result gets, in the order they print.
+fn result_hints(result: &SessionResult) -> Vec<Line> {
+    notes(result).into_iter().collect()
+}
+
+/// The person wrote notes in a submitted or rejected result (W2), on the
+/// session or on questions, named in session order. `reason`, `draft` and
+/// `custom` do not count.
+fn notes(result: &SessionResult) -> Option<Line> {
+    let then = match result.status {
+        Status::Submitted => "before you act on the answers",
+        // A rejected result's answers were never submitted.
+        Status::Cancelled => "before you go on",
+        _ => return None,
+    };
+    let written =
+        |note: &Option<String>| note.as_deref().is_some_and(|note| !note.trim().is_empty());
+    let on_session = written(&result.note);
+    let questions: Vec<String> = result
+        .answers
+        .iter()
+        .filter(|answer| written(&answer.note))
+        .map(|answer| format!("`{}`", answer.question))
+        .collect();
+    let count = usize::from(on_session) + questions.len();
+    if count == 0 {
+        return None;
+    }
+    const LISTED: usize = 5;
+    let mut listed = questions
+        .iter()
+        .take(LISTED)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if questions.len() > LISTED {
+        listed += &format!(" and {} more", questions.len() - LISTED);
+    }
+    let place = match (on_session, questions.is_empty()) {
+        (true, true) => "the session".to_owned(),
+        (true, false) => format!("the session and on {listed}"),
+        (false, _) => listed,
+    };
+    let (noun, pronoun) = if count == 1 {
+        ("a note", "it")
+    } else {
+        ("notes", "them")
+    };
+    Some(Line::hint(format!(
+        "the person wrote {noun} on {place}; read {pronoun} {then}"
+    )))
+}
+
 /// The command whose wait ran out.
 pub(super) enum Caller {
     /// `wait` or `ask --wait`, with their `--timeout` in seconds.
@@ -444,6 +517,23 @@ mod tests {
         assert_eq!(
             two,
             "hint: 2 warnings above; if one matters to the person, fix the file and replace this session: `asqr --queue work ask session.json --replaces batch-01`; otherwise wait for its result: `asqr --queue work wait batch-01 --timeout 540`"
+        );
+    }
+
+    #[test]
+    fn the_notes_hint_lists_five_questions_and_counts_the_rest() {
+        let answers = (1..=7)
+            .map(|n| crate::format::Answer {
+                note: Some(format!("note {n}")),
+                ..crate::format::Answer::new(format!("q{n}"))
+            })
+            .collect();
+        let result =
+            SessionResult::submitted("notes", "9f2c", "2026-10-30T12:00:00+01:00", None, answers);
+
+        assert_eq!(
+            notes(&result).expect("a hint").to_string(),
+            "hint: the person wrote notes on `q1`, `q2`, `q3`, `q4`, `q5` and 2 more; read them before you act on the answers"
         );
     }
 

@@ -777,3 +777,168 @@ fn no_session(sandbox: &Sandbox, id: &str) -> String {
         queue.display()
     )
 }
+
+// -------------------------------------------------------------------------
+// Hints after a printed result
+// -------------------------------------------------------------------------
+
+/// An answer to question `question` that carries only `note`.
+fn noted(question: &str, note: &str) -> Answer {
+    Answer {
+        note: Some(note.into()),
+        ..Answer::new(question)
+    }
+}
+
+/// Asks session `id`, finishes it with `result` and returns what `command`
+/// (`result` or `wait`) prints on stderr for it.
+fn hints_after(
+    command: &str,
+    id: &str,
+    result: impl Fn(&str) -> SessionResult,
+) -> (Option<i32>, String) {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, id);
+    answer(&sandbox, id, result);
+    let output = sandbox
+        .asqr_in_queue(&[command, id])
+        .output()
+        .expect("runs");
+    (output.status.code(), stderr(&output))
+}
+
+#[test]
+fn points_at_the_session_note_and_the_question_notes() {
+    let (_, err) = hints_after("result", "notes", |sha| {
+        SessionResult::submitted(
+            "notes",
+            sha,
+            &now_rfc3339(),
+            Some("go ahead".into()),
+            vec![
+                noted("go", "only after the review"),
+                Answer::new("channels"),
+                noted("highlight", "ask me later"),
+            ],
+        )
+    });
+
+    // A result's JSON ends without a newline, so the hint starts with one.
+    assert_eq!(
+        err,
+        "\nhint: the person wrote notes on the session and on `go`, `highlight`; read them before you act on the answers\n"
+    );
+}
+
+#[test]
+fn points_at_a_single_question_note() {
+    let (_, err) = hints_after("result", "notes", |sha| {
+        SessionResult::submitted(
+            "notes",
+            sha,
+            &now_rfc3339(),
+            None,
+            vec![noted("highlight", "ask me later")],
+        )
+    });
+
+    assert_eq!(
+        err,
+        "\nhint: the person wrote a note on `highlight`; read it before you act on the answers\n"
+    );
+}
+
+#[test]
+fn points_at_the_session_note_alone() {
+    let (_, err) = hints_after("result", "notes", |sha| {
+        SessionResult::submitted(
+            "notes",
+            sha,
+            &now_rfc3339(),
+            Some("go ahead".into()),
+            Vec::new(),
+        )
+    });
+
+    assert_eq!(
+        err,
+        "\nhint: the person wrote a note on the session; read it before you act on the answers\n"
+    );
+}
+
+#[test]
+fn says_go_on_for_the_notes_of_a_rejected_result() {
+    // The answers of a rejected result were never submitted.
+    let (code, err) = hints_after("result", "notes", |sha| {
+        SessionResult::cancelled(
+            "notes",
+            sha,
+            &now_rfc3339(),
+            None,
+            None,
+            vec![noted("go", "not like this")],
+        )
+    });
+
+    assert_eq!(code, Some(10));
+    assert_eq!(
+        err,
+        "\nhint: the person wrote a note on `go`; read it before you go on\n"
+    );
+}
+
+#[test]
+fn a_blank_note_gets_no_hint() {
+    let (code, err) = hints_after("result", "notes", |sha| {
+        SessionResult::submitted(
+            "notes",
+            sha,
+            &now_rfc3339(),
+            Some("  ".into()),
+            vec![noted("go", "\n")],
+        )
+    });
+
+    assert_eq!(code, Some(0));
+    assert_eq!(err, "", "no hint, and no empty line for one");
+}
+
+#[test]
+fn wait_points_at_the_notes_too() {
+    let (_, err) = hints_after("wait", "notes", |sha| {
+        SessionResult::submitted(
+            "notes",
+            sha,
+            &now_rfc3339(),
+            Some("go ahead".into()),
+            Vec::new(),
+        )
+    });
+
+    assert_eq!(
+        err,
+        "\nhint: the person wrote a note on the session; read it before you act on the answers\n"
+    );
+}
+
+#[test]
+fn a_result_that_ends_with_a_newline_gets_no_empty_line_before_its_hint() {
+    // Written by hand or by another tool; asqr's own results end without
+    // one.
+    let sandbox = Sandbox::new();
+    location(&sandbox).create_layout().expect("layout");
+    let written = r#"{"asqr": 2, "id": "by-hand", "status": "submitted", "note": "go ahead", "answers": []}
+"#;
+    std::fs::write(sandbox.queue_dir().join("outbox/by-hand.json"), written).expect("written");
+
+    let output = sandbox
+        .asqr_in_queue(&["result", "by-hand"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(stdout(&output), written);
+    assert_eq!(
+        stderr(&output),
+        "hint: the person wrote a note on the session; read it before you act on the answers\n"
+    );
+}

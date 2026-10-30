@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   waiting session of the same id, and when nobody watches the queue,
   its warning tells the agent to have the person start asqr, with the
   command that reaches the queue. When `wait`, `result` or `ask --wait`
-  find no result yet, they name the `asqr wait` command to run next.
+  find no result yet, they name the `asqr wait` command to run next,
+  and with a result they point at the notes the person wrote in it.
   The refusal of `ask` for an unread result of the same id names the
   ways past it, and an unknown id names the queue that was searched and
   how to find the session. A command in advice names the queue with `--queue` or

@@ -136,8 +136,9 @@ pub(super) fn run_result(location: &QueueLocation, invocation: &Invocation, id: 
     exit
 }
 
-/// Prints the result file as it is and returns its status, or the exit
-/// for a file that cannot be read or is no result.
+/// Prints the result file as it is, then the hints it gets on stderr, and
+/// returns its status, or the exit for a file that cannot be read or is no
+/// result.
 fn print_result(path: &std::path::Path) -> Result<Status, Exit> {
     let bytes = std::fs::read(path).map_err(|error| {
         eprintln!("error: cannot read {}: {error}", path.display());
@@ -152,5 +153,6 @@ fn print_result(path: &std::path::Path) -> Result<Status, Exit> {
         .write_all(&bytes)
         .and_then(|()| stdout.flush())
         .map_err(|_| Exit::Failure)?;
+    hint::after_result(&bytes, &result);
     Ok(result.status)
 }

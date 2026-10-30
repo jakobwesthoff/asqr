@@ -1056,6 +1056,20 @@ example (section 9).
       hint: <n> warnings above; the session still waits; if one matters to the person, fix the file and replace it: `<asqr> ask <file> --replaces <id>`
       hint: <n> warnings above; the session still waits; if one matters to the person, fix the file, keep its `id`, and ask again: `<asqr> ask <file>`, which replaces it
 
+A result's JSON ends without a newline. When a hint follows a printed
+result, stderr gets an empty line first, so the hint starts a line of
+its own where the two streams are shown together.
+
+- A printed result, from `wait`, `result` or `ask --wait`, after the
+  JSON: a submitted or rejected result with a note that is not blank,
+  on the session or on any question. The question ids come in session
+  order, the first five and "and <n> more" past five; one note reads "a
+  note … read it", and a rejected result, whose answers were never
+  submitted, ends "before you go on" in place of "before you act on the
+  answers":
+
+      hint: the person wrote notes on the session and on `go`, `highlight`; read them before you act on the answers
+
 ## 7. The TUI
 
 ### 7.1 Starting and quitting
