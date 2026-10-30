@@ -52,6 +52,10 @@ pub enum Event {
     /// The key reader ended, with the reason it gives: nothing reads the
     /// terminal's input any more.
     InputEnded(String),
+    /// The system's opener, started for `o`, ended with an error; the
+    /// status line shows what [`opener_failure`](super::opener_failure)
+    /// says about it.
+    OpenerFailed(String),
 }
 
 impl Event {
@@ -67,7 +71,8 @@ impl Event {
             | Event::FocusGained
             | Event::Loaded
             | Event::KeepAlive
-            | Event::InputEnded(_) => false,
+            | Event::InputEnded(_)
+            | Event::OpenerFailed(_) => false,
         }
     }
 }
@@ -444,6 +449,12 @@ where
             Event::Paste(text) => app.paste(&text),
             // A keep-alive was taken above and never gets here.
             Event::Resize | Event::Loaded | Event::KeepAlive => continue,
+            // The opener ends on a thread of its own, after the key that
+            // started it; only its failure comes back.
+            Event::OpenerFailed(failure) => {
+                app.notice(Tone::Error, failure);
+                continue;
+            }
             // The caller gives the terminal back, as after `q`.
             Event::Quit => return Ok(()),
             // The other senders keep the channel open, so without this
@@ -1205,6 +1216,7 @@ mod tests {
             (Event::FocusGained, false),
             (Event::Loaded, false),
             (Event::InputEnded("the terminal is gone".to_owned()), false),
+            (Event::OpenerFailed("cannot open x".to_owned()), false),
         ];
         for (event, input) in cases {
             assert_eq!(event.is_input(), input, "{event:?}");
@@ -2075,6 +2087,28 @@ mod tests {
             "{}",
             harness.screen()
         );
+        assert_eq!(
+            app.current_notice().map(|notice| notice.tone),
+            Some(Tone::Error)
+        );
+    }
+
+    #[test]
+    fn an_opener_that_failed_is_a_notice() {
+        let mut harness = Harness::new();
+        harness.put("batch-01");
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+        let failed = "cannot open /pictures/cat.png: the opener exited with 1";
+
+        harness
+            .run_started(
+                &mut app,
+                &mut inbox,
+                vec![Event::OpenerFailed(failed.to_owned())],
+            )
+            .expect("runs");
+
+        assert_eq!(status_line(&harness), format!("✗ {failed}"));
         assert_eq!(
             app.current_notice().map(|notice| notice.tone),
             Some(Tone::Error)

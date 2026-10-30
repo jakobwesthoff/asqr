@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   description beside the labels, leaves room for `◀ default`. The lines
   below wrap at the full width instead of leaving an empty column under
   the marker.
+- When the program that opens an image for `o` exits with an error, a
+  notice says so and names its exit code, or that a signal ended it.
+  That program now runs in a process group of its own, so a program it
+  starts in the terminal does not take asqr's keys.
 
 ### Fixed
 
@@ -51,6 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a restart left such a default unpicked on a question that had none. A
   cleared default in a draft from asqr 0.14.0 or earlier comes back
   selected.
+- Each `o` left the finished program that opened the image behind as a
+  process until asqr quit; asqr now waits for it.
 
 ## [0.14.0] - 2026-10-29
 

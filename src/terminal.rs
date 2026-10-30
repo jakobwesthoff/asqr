@@ -30,7 +30,7 @@ use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
     Alerts, Event, EventSource, Host, KeepAlive, KeyReader, ProgressTerminal, SleepClock, alert,
-    progress_sequence, progress_terminal, run, start, watch_inbox,
+    opener_failure, progress_sequence, progress_terminal, run, spawn_reaped, start, watch_inbox,
 };
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -168,6 +168,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
 
     let loaded = sender.clone();
     let ticks = sender.clone();
+    let openers = sender.clone();
     // The thread reads for the life of the process and ends with it; it
     // pauses while another program has the terminal.
     let keys = KeyReader::spawn(CrosstermEvents, sender);
@@ -184,6 +185,7 @@ fn run_in_terminal(watch: &Watch) -> anyhow::Result<()> {
         env,
         keys,
         editing,
+        openers,
     };
     let mut view = View::new(&queue, watch.layout(), images)
         .chosen_queue(!location.is_default())
@@ -775,6 +777,9 @@ struct TerminalHost {
     /// Set while the person's editor has the terminal, for the thread
     /// that turns signals into quits.
     editing: Arc<AtomicBool>,
+    /// Where the threads that wait for the system's opener report its
+    /// failures: the run loop.
+    openers: mpsc::Sender<Event>,
 }
 
 impl Host for TerminalHost {
@@ -834,14 +839,22 @@ impl Host for TerminalHost {
         } else {
             "xdg-open"
         };
+        let failures = self.openers.clone();
+        let name = path.to_owned();
         // The viewer must not write into the TUI's screen.
-        Command::new(viewer)
+        let mut command = Command::new(viewer);
+        command
             .arg(path)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map(drop)
+            .stderr(Stdio::null());
+        spawn_reaped(&mut command, move |status| {
+            if let Some(failure) = opener_failure(&name, status) {
+                // The run loop is gone only as asqr quits.
+                let _ = failures.send(Event::OpenerFailed(failure));
+            }
+        })
+        .map(drop)
     }
 }
 

@@ -11,7 +11,7 @@
 //! Each `tmux set` it gets shows in the output as a [`tmux_set`] mark, so
 //! a test sees where among asqr's own writes it ran.
 //! Stand-ins for `open` and `xdg-open` record what the image viewer was
-//! asked to show.
+//! asked to show, and exit with `VIEWER_EXIT` where it is set.
 
 #![cfg(unix)]
 
@@ -101,8 +101,20 @@ impl Tui {
                     commands.display()
                 ),
             ),
-            ("open", format!("echo \"$1\" > '{}'", viewed.display())),
-            ("xdg-open", format!("echo \"$1\" > '{}'", viewed.display())),
+            (
+                "open",
+                format!(
+                    "echo \"$1\" > '{}'\nexit \"${{VIEWER_EXIT:-0}}\"",
+                    viewed.display()
+                ),
+            ),
+            (
+                "xdg-open",
+                format!(
+                    "echo \"$1\" > '{}'\nexit \"${{VIEWER_EXIT:-0}}\"",
+                    viewed.display()
+                ),
+            ),
         ];
         for (name, body) in scripts {
             let script = bin.join(name);
@@ -521,6 +533,39 @@ fn sigterm_sigint_and_sighup_quit_and_give_the_terminal_back() {
             "SIG{signal}: focus reports and bracketed paste off: {output:?}"
         );
     }
+}
+
+#[test]
+fn a_viewer_that_exits_with_an_error_is_named_in_the_status_line() {
+    let sandbox = Sandbox::new();
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--queue", "pty", "--no-notify", "--no-title"],
+        PASSTHROUGH_ON,
+        &[("VIEWER_EXIT", "3")],
+    );
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("queue: pty");
+    let file = sandbox.file(
+        "pictured.json",
+        &SESSION.replace(
+            r#""kind": "single","#,
+            r#""kind": "single", "context": [{"type": "image", "path": "/pictures/fruit.png"}],"#,
+        ),
+    );
+    sandbox
+        .asqr()
+        .args(["--queue", "pty", "ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("Pick a fruit");
+
+    tui.press("o");
+
+    tui.wait_for("cannot open /pictures/fruit.png: the opener exited with 3");
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
 }
 
 #[test]

@@ -1340,7 +1340,12 @@ On an option row (vim style plus arrows):
   session, which it closes like any other key.
 - `o` opens the image shown (section 8.8) with the system's opener
   (`open` on macOS, `xdg-open` elsewhere); when the opener cannot be
-  started, a notice says why. On a code, Markdown, ANSI or diff entry it
+  started, a notice says why. asqr waits for the opener on a thread, so
+  no finished opener stays behind as a process, and starts it in a
+  process group of its own, so a program it starts in the terminal does
+  not take asqr's keys. An opener that exits with an error shows the
+  notice "cannot open <path>: the opener exited with <code>", one ended
+  by a signal "cannot open <path>: the opener was ended by a signal". On a code, Markdown, ANSI or diff entry it
   opens nothing and says "o opens images only; z shows this entry full
   screen", in the full-screen view only "o opens images only", and
   where no entry shows it says "nothing to open here".
