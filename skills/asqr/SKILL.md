@@ -106,7 +106,8 @@ Once asked, asqr fits best when:
   `header`s and their order carry the grouping. Do not use a made-up
   question with options like "OK" in place of an info item.
 - A session may hold only info items, as a report the person can answer
-  with notes. Such a report follows the same rules. It is short items
+  with notes. Its result still comes back with the person's notes. Wait
+  for it and read it. Such a report follows the same rules. It is short items
   in reading order, not one text.
 - Keep an info item's text to a few lines the person takes in at a
   glance. A text taller than the question's area opens cut off at the
@@ -358,6 +359,14 @@ asqr wait "$id" --timeout 540
   again, as often as needed. People take their time, and they may answer
   hours later.
 - Pick a timeout below your command time limit.
+
+Every session you ask comes back as a result, an info-only one too,
+since the person can write a note on any item. Start `asqr wait` for
+each session you ask, in the background where you can, and read the
+whole result, every note included, before you treat the matter as done.
+When the person asks in the chat about something they may have answered
+in asqr, run `asqr result <id>` or `asqr status --json --since <age>`
+before you answer.
 
 If you can run commands in the background, the variant is one command:
 

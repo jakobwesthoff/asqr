@@ -112,7 +112,7 @@ fn the_example_session_validates_without_warnings() {
 
 #[test]
 fn the_skill_explains_every_exit_code() {
-    for code in ["0", "1", "2", "10", "11", "12", "13"] {
+    for code in ["0", "1", "2", "10", "11", "12", "13", "14"] {
         assert!(
             SKILL.contains(&format!("| {code} |")),
             "exit code {code} is missing from the skill's table"
@@ -131,4 +131,51 @@ fn the_skill_applies_only_when_the_user_asks_for_asqr() {
         description.contains("Only use it when the user explicitly asks"),
         "{description}"
     );
+}
+
+// =========================================================
+// Rules pinned by a phrase
+// =========================================================
+
+// A rewrite of the skill must not drop a rule an agent needs on every
+// session. Each rule is pinned by a short phrase rather than a sentence,
+// so rewording around it needs no change here. The skill is hard-wrapped,
+// and a phrase may cross a line break, so phrases are looked for in the
+// text with every run of whitespace joined into one space.
+
+/// `text` with every run of whitespace, line breaks included, as one
+/// space.
+fn flat(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The skill's section under `## <heading>`, up to the next `## `
+/// heading or the end.
+fn section(heading: &str) -> &'static str {
+    let start = SKILL
+        .find(&format!("\n## {heading}\n"))
+        .unwrap_or_else(|| panic!("the skill has a section {heading:?}"))
+        + 1;
+    let end = SKILL[start + 3..]
+        .find("\n## ")
+        .map_or(SKILL.len(), |offset| start + 3 + offset);
+    &SKILL[start..end]
+}
+
+#[test]
+fn asking_says_every_session_comes_back_as_a_result() {
+    assert!(
+        flat(section("Asking and waiting"))
+            .contains("Every session you ask comes back as a result")
+    );
+}
+
+#[test]
+fn an_info_only_session_still_comes_back_with_the_notes() {
+    assert!(flat(SKILL).contains("Its result still comes back with the person's notes"));
+}
+
+#[test]
+fn the_skill_says_to_look_in_asqr_before_answering_in_the_chat() {
+    assert!(flat(section("Asking and waiting")).contains("may have answered in asqr"));
 }

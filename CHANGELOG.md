@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   notice says so and names its exit code, or that a signal ended it.
   That program now runs in a process group of its own, so a program it
   starts in the terminal does not take asqr's keys.
+- The agent skill tells agents that every session, one of info items
+  only too, comes back as a result to wait for and read in full, every
+  note included, and to look at `asqr result` or `asqr status` before
+  answering in the chat about something the person may have answered in
+  asqr.
 
 ### Fixed
 

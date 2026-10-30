@@ -2311,6 +2311,11 @@ The skill teaches:
   exit code is not 12
 - as a variant for agents that run commands in the background: `asqr ask
   --wait` in the background
+- that every session, one of info items only too, comes back as a
+  result the agent waits for and reads in full, every note included, and
+  that `asqr result` or `asqr status --json --since <age>` comes before
+  an answer in the chat about something the person may have answered in
+  asqr
 - the exit codes, the "no asqr is watching" warning and an error naming
   a context type or a question kind the skill describes as not
   supported, both of which the agent should pass on to the person, and
