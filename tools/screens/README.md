@@ -100,6 +100,7 @@ tmux_session = "ntropy"
 | `[replay]` `result` | A result file in the result format, relative to the scene file, whose answers fill the session in: those of a sent or rejected result, the unsent draft of a withdrawn one. Examples are in `tools/screens/results/`. |
 | `[replay]` `bundle`, `waiting` | The month bundle the session came from, such as `2026-10.zip`, and the sessions waiting in the queue, which the title bar counts. |
 | `[[replay.files]]` | A file the session showed and what the archive recorded: `path` as the session file writes it, `original_path`, `state` (`kept`, `not_kept`, `missing`, `unreadable` or `not_recorded`), and where known `sha256`, `size`, `modified`, `kept_size`, `reason`, `copy` and `damaged`. A kept file is drawn from the file at `path`. |
+| `image` | A picture, relative to the scene file, that a terminal with graphics shows where the screen shows an image entry: the file of an image entry of the scene's sessions, which the scene's keys bring up. The tool cannot tell which entry is on screen; a path that is no image entry of the scene's sessions is an error. See "Images" below. |
 | `home` | The person's home folder, which asqr names `~` where a path lies below it. Without one nothing is named `~`. |
 | `[settings]` `path` | The settings file's path, as the frame of the settings pane names it at its bottom edge. The tool reads the file at that path if there is one: a path in a folder that exists on no machine, such as `/home/someone/.config/asqr/settings.toml`, keeps the picture independent of the machine. |
 | `[settings]` `context_held_by` | `flag` or `variable`: `Context` is held at the scene's `layout` as `--layout` or `ASQR_LAYOUT` holds it, which locks the row in the pane. |
@@ -203,6 +204,28 @@ Ghostty curves them. Ghostty is under the MIT licence, kept in
 distance to their path, so their edge pixels may differ a little from
 Ghostty's.
 
+## Images
+
+asqr works out the cells an image takes from the picture's pixels, the
+cell size and the room the viewer gives it, the same for every graphics
+protocol (`Image::lay_out` in `src/graphics/image.rs`). The tool gives
+asqr its own cell, 15 by 39 pixels, so the half blocks it draws take the
+cells the image takes in a terminal with graphics.
+
+A scene with `image` gets that picture where a terminal with graphics
+shows it. The cells with an RGB background are the image's, as half
+blocks colour every cell of an image in RGB and asqr draws its own
+screen in the terminal's named colours; they must form one rectangle,
+so a scene with an `ansi` entry in RGB colours or Talqi on the empty
+queue cannot take an `image`. The tool clears those cells to the
+terminal's background and paints the picture into their pixels as
+ratatui-image sends it under the Kitty protocol: scaled with
+`DynamicImage::resize` and asqr's `Triangle` filter into the cells,
+proportions kept, at their top left, and blended by its alpha over the
+background. A picture asqr enlarges three times or more goes to the
+terminal at a divisor of the cell's pixels for the terminal to enlarge
+(ADR 80); the tool scales it to the full pixels in one step.
+
 ## Fonts and licences
 
 | Directory | Files | Source | Licence |
@@ -263,7 +286,8 @@ character before it.
 ## Limits
 
 - Images in the context pane are drawn as half blocks, each cell two
-  pixels of the image, sized for the picture's cells.
+  pixels of the image, sized for the picture's cells, unless the scene
+  names its `image` (below).
 - No ligatures: Victor Mono's ligatures, such as `->` or `!=`, show as
   their characters. Ghostty shapes them with the font features `calt`,
   `clig` and `liga`, which needs a text shaper.

@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use asqr::format::{
-    CarriedFrom, SessionResult, make_context_paths_absolute, parse_session, same_session_id,
-    validate,
+    CarriedFrom, ContextEntry, Session, SessionResult, make_context_paths_absolute, parse_session,
+    same_session_id, validate,
 };
 use asqr::tui::SessionState;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -64,6 +64,12 @@ pub struct Scene {
     /// Shows the scene's one session as `asqr replay` shows a finished
     /// session (spec section 7.11).
     pub replay: Option<ReplayScene>,
+    /// The picture a terminal with graphics shows where the screen shows an
+    /// image entry, relative to the scene file. It is the file of an image
+    /// entry of the scene's sessions, and the scene's keys bring that entry
+    /// up; the tool paints it into the cells asqr gave the image
+    /// (`crate::picture`).
+    pub image: Option<PathBuf>,
 }
 
 /// What the archive knows about the finished session a scene replays.
@@ -437,6 +443,55 @@ pub fn load_sessions(scene: &Scene, scene_file: &Path) -> Result<Vec<SessionStat
     Ok(sessions)
 }
 
+/// The picture the scene's `image` names, as an absolute path, or `None`
+/// for a scene without one.
+///
+/// The picture stands for an image entry asqr shows, so it must be the file
+/// of an image entry of the scene's sessions; any other path is refused.
+/// Both are compared as the file system resolves them, as an entry's path
+/// keeps the `..` it was joined with.
+pub fn image_file(scene: &Scene, scene_file: &Path) -> Result<Option<PathBuf>> {
+    let Some(image) = &scene.image else {
+        return Ok(None);
+    };
+    let file = scene_file.parent().unwrap_or(Path::new("")).join(image);
+    let named = std::fs::canonicalize(&file)
+        .with_context(|| format!("reading the image {}", file.display()))?;
+    let sessions = load_sessions(scene, scene_file)?;
+    let shown = sessions
+        .iter()
+        .flat_map(|state| image_paths(state.session()))
+        .filter_map(|path| std::fs::canonicalize(path).ok())
+        .any(|path| path == named);
+    if !shown {
+        anyhow::bail!(
+            "`image` names {}, which is no image entry of the scene's sessions",
+            file.display()
+        );
+    }
+    Ok(Some(named))
+}
+
+/// The paths of the image entries of `session`, on its questions and their
+/// options.
+fn image_paths(session: &Session) -> Vec<&str> {
+    session
+        .questions
+        .iter()
+        .flat_map(|question| {
+            let options = question.options.iter().flatten();
+            question
+                .context
+                .iter()
+                .chain(options.flat_map(|option| option.context.iter()))
+        })
+        .filter_map(|entry| match entry {
+            ContextEntry::Image(image) => Some(image.path.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn load_session(
     file: &Path,
     id: Option<&str>,
@@ -553,6 +608,71 @@ mod tests {
                 tmux_session: Some("ntropy".to_owned())
             }]
         );
+    }
+
+    #[test]
+    fn image_names_the_picture_painted_where_the_image_shows() {
+        let scene = parse_scene(&format!("{SIZE}image = \"talqi.webp\"\n")).expect("parses");
+
+        assert_eq!(scene.image, Some(PathBuf::from("talqi.webp")));
+    }
+
+    /// A scene file in `dir` with `image`, whose session shows `shown.png`
+    /// on an option, and `other.png` only as the path of a code entry.
+    fn scene_with_image(dir: &Path, image: &str) -> (Scene, PathBuf) {
+        for picture in ["shown.png", "other.png"] {
+            image::RgbImage::new(2, 2)
+                .save(dir.join(picture))
+                .expect("written");
+        }
+        std::fs::write(
+            dir.join("session.json"),
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
+                "context": [{"type": "code", "path": "other.png"}],
+                "options": [{"id": "a", "label": "A",
+                    "context": [{"type": "image", "path": "shown.png"}]}]}]}"#,
+        )
+        .expect("written");
+        let scene = parse_scene(&format!(
+            "{SIZE}image = \"{image}\"\n[[sessions]]\nfile = \"session.json\"\n"
+        ))
+        .expect("parses");
+        (scene, dir.join("scene.toml"))
+    }
+
+    #[test]
+    fn the_image_of_an_entry_is_taken() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let (scene, file) = scene_with_image(dir.path(), "shown.png");
+
+        let image = image_file(&scene, &file).expect("taken");
+
+        assert_eq!(
+            image,
+            Some(std::fs::canonicalize(dir.path().join("shown.png")).expect("exists"))
+        );
+    }
+
+    #[test]
+    fn an_image_no_entry_shows_is_refused() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let (scene, file) = scene_with_image(dir.path(), "other.png");
+
+        let error = image_file(&scene, &file)
+            .map(|image| format!("taken: {image:?}"))
+            .unwrap_or_else(|error| format!("{error:#}"));
+
+        assert!(
+            error.contains("other.png") && error.contains("no image entry"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_scene_without_an_image_paints_none() {
+        let scene = parse_scene(SIZE).expect("parses");
+
+        assert_eq!(image_file(&scene, Path::new("scene.toml")).ok(), Some(None));
     }
 
     #[test]
