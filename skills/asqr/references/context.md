@@ -137,6 +137,11 @@ Every entry has a `type` and an optional `title`:
   lines of each text, each side of a diff on its own, with a note where
   it cuts, and `validate` and `ask` warn about more lines. Show an excerpt instead
   of a whole large file.
+- Markdown that asqr's parser fails on shows as plain text. A Markdown
+  entry or caption then stands as plain text below a dim "Markdown
+  failed: shown as plain text". The intro, a question's `text` and an
+  option's `label` and `description` show as written, without Markdown
+  and without a note. `validate` and `ask` do not warn about it.
 - The files an entry shows by path must exist until `asqr wait` returns.
   asqr reads them when the person finishes the session and copies them
   into its archive, so a temporary file may go after that. A file that
