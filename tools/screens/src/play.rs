@@ -13,15 +13,20 @@ use anyhow::{Result, anyhow};
 use asqr::format::same_session_id;
 use asqr::graphics::{CellSize, Graphics, Images};
 use asqr::queue::{QueueLocation, WaitingQueue};
-use asqr::tui::render::{Drawn, Glyphs, PaneLayout, View, draw};
-use asqr::tui::{App, AppEffect, PanePage, Place, QueueChoice, QueueRow, TakenQueue};
+use asqr::settings::{Lock, SettingsStore};
+use asqr::tui::render::{Drawn, Glyphs, PaneLayout, View, draw, draw_picker};
+use asqr::tui::{
+    App, AppEffect, Invalid, Notice, Outcome, PanePage, Place, QueueChoice, QueueRow, REFUSED_NAME,
+    SessionState, Switcher, SwitcherKey, TOO_LONG_NAME, TakenQueue, Tone,
+};
+use clap::CommandFactory;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::fonts::{CELL_HEIGHT, CELL_WIDTH};
-use crate::scene::{Emblem, Key, Layout, Scene, load_sessions};
+use crate::scene::{ContextHeldBy, Emblem, Key, Layout, Scene, load_sessions};
 
 // =====================================================================
 // One frame
@@ -128,15 +133,44 @@ fn apply(app: &mut App, effect: AppEffect, scene: &Scene, number: usize, key: &K
             app.set_elsewhere(elsewhere(scene));
             Ok(())
         }
-        // TODO: the full tour may want the notice of a sent session, which
-        // needs an inbox on a temporary queue to finish the session in.
-        AppEffect::Finish { .. } => Err(refused("finishes the session")),
+        // The session leaves the screen as it does in asqr's inbox, with the
+        // notice that says how it ended. No result is written: a picture
+        // leaves nothing on the disk.
+        AppEffect::Finish { id, outcome } => {
+            let confirmation = app
+                .sessions()
+                .iter()
+                .find(|state| state.id() == id)
+                .map(|state| confirmation(state, &outcome));
+            app.remove(&id);
+            if let Some(confirmation) = confirmation {
+                app.show(confirmation);
+            }
+            Ok(())
+        }
         AppEffect::Quit => Err(refused("quits asqr")),
         AppEffect::Open(_) => Err(refused("opens an entry")),
         AppEffect::Edit(_) => Err(refused("opens an editor")),
         AppEffect::Switch(_) => Err(refused("switches the queue")),
         // The value changed in memory already; a picture never writes the person's settings file.
         AppEffect::SaveSetting(_) => Ok(()),
+    }
+}
+
+/// The status line's word that `state` was finished as `outcome` (spec
+/// section 7.8), as `confirmation` in `src/tui/inbox.rs` words it.
+fn confirmation(state: &SessionState, outcome: &Outcome) -> Notice {
+    let name = state.name();
+    match outcome {
+        Outcome::Submitted { .. } => {
+            let counts = state.counts();
+            let after = format!(
+                "\" · {} answered, {} skipped",
+                counts.answered, counts.skipped
+            );
+            Notice::naming(Tone::Success, "✔ sent \"", name, &after)
+        }
+        Outcome::Rejected { .. } => Notice::naming(Tone::Info, "✗ rejected \"", name, "\""),
     }
 }
 
@@ -216,9 +250,18 @@ fn queue_choice(switcher: &crate::scene::Switcher) -> QueueChoice {
 /// buffer only takes the cells a frame changed, and keeps old text in a
 /// cell a wide character covers.
 pub fn play(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<Buffer> {
-    let mut app = App::default();
+    if scene.start_picker {
+        return play_picker(scene);
+    }
+    let mut app = App::with_settings(settings_store(scene));
     for state in load_sessions(scene, scene_file)? {
         app.add(state);
+    }
+    for invalid in &scene.invalid {
+        app.report_invalid(Invalid {
+            id: invalid.id.clone(),
+            errors: invalid.errors.clone(),
+        });
     }
     // A follow-up names the title of the session it follows while that one
     // waits too, as asqr's inbox gives it (`src/tui/inbox.rs`).
@@ -269,7 +312,17 @@ pub fn play(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<Buffer> {
     let mut terminal = Terminal::new(TestBackend::new(scene.columns, scene.rows))?;
     let mut picture = Buffer::empty(terminal.get_frame().area());
 
+    // The view takes the settings again once the pane changed one, as the
+    // run loop does (`Applied::SettingsChanged` in `src/tui/run.rs`). The
+    // view starts with the scene's `layout`, which the settings of a run
+    // without a held `Context` do not override before a change.
+    let mut applied = app.settings().effective();
     let mut frame = |app: &App| -> Result<Drawn> {
+        let settings = app.settings().effective();
+        if settings != applied {
+            view.set_settings(&settings);
+            applied = settings;
+        }
         let mut drawn = Drawn::default();
         let completed = terminal.draw(|frame| drawn = draw(frame, app, &mut view))?;
         picture = completed.buffer.clone();
@@ -278,6 +331,76 @@ pub fn play(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<Buffer> {
     play_keys(&mut app, &scene.keys, scene, &mut |app| {
         step(&mut frame, app, &wakes, cap)
     })?;
+    Ok(picture)
+}
+
+/// The settings a run of `scene` has: the file the scene names, if any, and
+/// the `Context` setting held at the scene's `layout`.
+fn settings_store(scene: &Scene) -> SettingsStore {
+    let Some(file) = &scene.settings else {
+        return SettingsStore::default();
+    };
+    let held = file.context_held_by.map(|by| {
+        let layout = match scene.layout {
+            Layout::Auto => PaneLayout::Auto,
+            Layout::Beside => PaneLayout::Beside,
+            Layout::Below => PaneLayout::Below,
+        };
+        let lock = match by {
+            ContextHeldBy::Flag => Lock::Flag("--layout"),
+            ContextHeldBy::Variable => Lock::Variable("ASQR_LAYOUT"),
+        };
+        (layout, lock)
+    });
+    SettingsStore::load(file.path.clone(), held).store
+}
+
+/// The start picker of `scene` (spec section 7.1) after its keys. The keys
+/// go to the picker as they do in `pick_queue` (`src/tui/picker.rs`), and a
+/// key that would take a queue is refused: a picture cannot show what comes
+/// after it.
+fn play_picker(scene: &Scene) -> Result<Buffer> {
+    let switcher = scene
+        .switcher
+        .as_ref()
+        .expect("a scene with a start picker has a switcher, which parse_scene checks");
+    let mut picker = Switcher::picker(queue_choice(switcher));
+    let version = format!(
+        "asqr {}",
+        asqr::cli::Cli::command().get_version().unwrap_or_default()
+    );
+    let mut terminal = Terminal::new(TestBackend::new(scene.columns, scene.rows))?;
+    let mut picture = Buffer::empty(terminal.get_frame().area());
+    let mut draw_picker_frame = |picker: &Switcher, notice: Option<&Notice>| -> Result<()> {
+        let completed = terminal.draw(|frame| draw_picker(frame, picker, notice, &version))?;
+        picture = completed.buffer.clone();
+        Ok(())
+    };
+
+    draw_picker_frame(&picker, None)?;
+    for (index, key) in scene.keys.iter().enumerate() {
+        let number = index + 1;
+        let refused = |what: &str| anyhow!("key {number} ({key}) {what}, which scenes do not play");
+        let answers = match key {
+            Key::Press { event, .. } => vec![picker.handle(*event)],
+            Key::Text(text) => text
+                .chars()
+                .map(|ch| picker.handle(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)))
+                .collect(),
+            Key::Paste(text) => vec![picker.paste(text)],
+        };
+        let mut notice = None;
+        for answer in answers {
+            notice = match answer {
+                SwitcherKey::Stay | SwitcherKey::Close => None,
+                SwitcherKey::Quit => return Err(refused("quits asqr")),
+                SwitcherKey::Switch(_) => return Err(refused("takes a queue")),
+                SwitcherKey::Refused => Some(Notice::new(Tone::Warning, REFUSED_NAME)),
+                SwitcherKey::TooLong => Some(Notice::new(Tone::Warning, TOO_LONG_NAME)),
+            };
+        }
+        draw_picker_frame(&picker, notice.as_ref())?;
+    }
     Ok(picture)
 }
 
@@ -604,15 +727,157 @@ mod tests {
         );
     }
 
+    const MINIMAL: &str = "[[sessions]]\nfile = \"../../../examples/sessions/minimal.json\"\n";
+
     #[test]
-    fn submitting_is_refused() {
-        let error = error(&scene_with(
-            "\"enter\", \"enter\"",
-            "[[sessions]]\nfile = \"../../../examples/sessions/minimal.json\"\n",
+    fn a_submitted_session_leaves_with_the_notice_of_a_sent_one() {
+        let buf = screen(&scene_with(
+            "{ text = \"Wait\" }, \"enter\", \"enter\"",
+            MINIMAL,
+        ));
+
+        let shown = text(&buf);
+        assert!(
+            shown.contains("✔ sent \"minimal\" · 1 answered, 0 skipped"),
+            "{shown}"
+        );
+        assert!(shown.contains("Nothing to answer."), "{shown}");
+    }
+
+    #[test]
+    fn a_session_rejected_with_a_reason_leaves_with_its_notice() {
+        let buf = screen(&scene_with(
+            "\"enter\", \"down\", \"down\", \"enter\"",
+            MINIMAL,
         ));
 
         assert!(
-            error.contains("finishes the session, which scenes do not play"),
+            text(&buf).contains("✗ rejected \"minimal\""),
+            "{}",
+            text(&buf)
+        );
+    }
+
+    #[test]
+    fn the_next_session_takes_over_after_a_finish() {
+        let buf = screen(&scene_with(
+            "\"enter\", \"enter\"",
+            "[[sessions]]\nfile = \"../../../examples/sessions/minimal.json\"\n\
+             [[sessions]]\nfile = \"../../../examples/sessions/release-checklist.json\"\n",
+        ));
+
+        assert!(text(&buf).contains("Release 0.2.0"), "{}", text(&buf));
+    }
+
+    #[test]
+    fn an_invalid_session_shows_its_dialog_with_each_error() {
+        let buf = screen(&scene_with(
+            "",
+            "[[invalid]]\nid = \"broken\"\n\
+             errors = [\"questions: at least one question is needed\", \"asqr: must be 2\"]\n",
+        ));
+
+        let shown = text(&buf);
+        assert!(shown.contains("broken"), "{shown}");
+        assert!(
+            shown.contains("• questions: at least one question is needed"),
+            "{shown}"
+        );
+        assert!(shown.contains("• asqr: must be 2"), "{shown}");
+        assert!(shown.contains("any key"), "{shown}");
+    }
+
+    #[test]
+    fn a_key_closes_the_dialog_of_an_invalid_session() {
+        let buf = screen(&scene_with(
+            "\"x\"",
+            &format!("{RELEASE}[[invalid]]\nid = \"broken\"\nerrors = [\"asqr: must be 2\"]\n"),
+        ));
+
+        assert!(!text(&buf).contains("asqr: must be 2"), "{}", text(&buf));
+    }
+
+    #[test]
+    fn the_context_row_names_the_flag_that_holds_it() {
+        let buf = screen(&scene_with(
+            "\",\", \"j\", \"j\"",
+            &format!(
+                "layout = \"below\"\n{RELEASE}\
+                 [settings]\npath = \"~/.config/asqr/settings.toml\"\ncontext_held_by = \"flag\"\n"
+            ),
+        ));
+
+        let shown = text(&buf);
+        assert!(shown.contains("set by --layout"), "{shown}");
+        assert!(shown.contains("~/.config/asqr/settings.toml"), "{shown}");
+    }
+
+    #[test]
+    fn the_context_row_names_the_variable_that_holds_it() {
+        let buf = screen(&scene_with(
+            "\",\", \"j\", \"j\"",
+            &format!("layout = \"beside\"\n{RELEASE}[settings]\ncontext_held_by = \"variable\"\n"),
+        ));
+
+        assert!(text(&buf).contains("set by ASQR_LAYOUT"), "{}", text(&buf));
+    }
+
+    #[test]
+    fn a_setting_changed_in_the_pane_applies_behind_it() {
+        // The context entry of the first question goes below the question
+        // once `Context` reads "always below".
+        let rows = |keys: &str| {
+            let buf = screen(&format!(
+                "caption = \"c\"\ncolumns = 120\nrows = 30\nkeys = [{keys}]\n\
+                 [[sessions]]\nfile = \"../../../examples/sessions/retry-review.json\"\n"
+            ));
+            let shown = text(&buf);
+            let row_of = |needle: &str| {
+                shown
+                    .lines()
+                    .position(|line| line.contains(needle))
+                    .unwrap_or_else(|| panic!("no {needle:?} in\n{shown}"))
+            };
+            (row_of("Retry with backoff"), row_of("pick one"))
+        };
+
+        let (beside_pane, beside_hint) = rows("");
+        let (below_pane, below_hint) = rows("\",\", \"j\", \"j\", \"right\", \"right\", \"esc\"");
+
+        assert!(beside_pane <= beside_hint + 1, "beside by default");
+        assert!(below_pane > below_hint, "below after the change");
+    }
+
+    const PICKER: &str = "start_picker = true\n[switcher]\nroot = \"/data/asqr\"\n\
+        [[switcher.queues]]\nname = \"default\"\nwaiting = 1\n\
+        [[switcher.queues]]\nname = \"other\"\nwaiting = 3\n";
+
+    #[test]
+    fn the_start_picker_shows_its_queues_and_the_version_of_asqr() {
+        let buf = screen(&scene_with("", PICKER));
+
+        let shown = text(&buf);
+        assert!(shown.contains("enter  watch"), "{shown}");
+        assert!(shown.contains("3 waiting"), "{shown}");
+        let command = asqr::cli::Cli::command();
+        let version = command.get_version().unwrap_or_default();
+        assert!(shown.contains(&format!("asqr {version}")), "{shown}");
+    }
+
+    #[test]
+    fn keys_move_the_cursor_of_the_start_picker() {
+        let first = screen(&scene_with("", PICKER));
+        let second = screen(&scene_with("\"j\"", PICKER));
+
+        assert_ne!(text(&first), text(&second));
+    }
+
+    #[test]
+    fn watching_a_queue_in_the_start_picker_is_refused() {
+        let error = error(&scene_with("\"enter\"", PICKER));
+
+        assert!(
+            error.contains("key 1 (\"enter\") takes a queue, which scenes do not play"),
             "{error}"
         );
     }

@@ -91,6 +91,10 @@ tmux_session = "ntropy"
 | `[[switcher.queues]]` `name` or `dir` | A named queue under `root`, or a `--dir` queue shown as written; one of the two. |
 | `[[switcher.queues]]` `waiting`, `watched` | The sessions waiting in it (default 0) and whether this asqr watches it (default false). |
 | `[[switcher.taken]]` `name`, `tmux_session` | A queue another asqr watches, and the tmux session it runs in. |
+| `start_picker` | `true` draws asqr's start picker (spec 7.1) over the `[switcher]`'s queues instead of asqr's screen; the keys go to the picker. Needs a `[switcher]`. Default `false`. |
+| `[[invalid]]` `id`, `errors` | A session file asqr answered with an error, and each problem it had, as the dialog shows them. |
+| `[settings]` `path` | The settings file's path, as the frame of the settings pane names it at its bottom edge. The tool reads the file at that path if there is one: a path starting with `~/` names a folder that is not there, so the picture does not depend on the machine. |
+| `[settings]` `context_held_by` | `flag` or `variable`: `Context` is held at the scene's `layout` as `--layout` or `ASQR_LAYOUT` holds it, which locks the row in the pane. |
 
 The switcher shows its rows in the order the scene lists them; asqr lists
 a `--dir` queue first, then the named queues by name.
@@ -110,11 +114,15 @@ app before the next one, as asqr's run loop does. A frame that shows
 `loading…` in the context pane waits for the entry to load, up to 60
 seconds, before the next key.
 
-A key that would make asqr finish a session, quit, open an entry, open an
-editor or switch the queue is an error: a picture cannot show what
-follows it. A key that saves a draft writes none; the picture shows the
-answer all the same. `w` opens the switcher with the scene's
-`[switcher]`, and closing it shows the scene's `[[elsewhere]]` again.
+A key that would make asqr quit, open an entry, open an editor or switch
+the queue is an error, and so is a key that takes a queue in the start
+picker: a picture cannot show what follows it. A key that finishes a
+session removes it from the screen with the notice asqr shows (`✔ sent`,
+`✗ rejected`) and writes no result. A key that saves a draft writes none;
+the picture shows the answer all the same. A change in the settings pane
+applies to the screen behind it and is not saved. `w` opens the switcher
+with the scene's `[switcher]`, and closing it shows the scene's
+`[[elsewhere]]` again.
 
 ### Sessions
 
@@ -249,8 +257,9 @@ character before it.
   `clig` and `liga`, which needs a text shaper.
 - Glyphs are rasterized by ab_glyph, not by Core Text, so their strokes
   can look a little thinner or thicker than in Ghostty.
-- Keys that finish a session, quit, open an entry, open an editor or
-  switch the queue are refused, and no draft is written.
+- Keys that quit, open an entry, open an editor, switch the queue or take
+  a queue in the start picker are refused, and no draft or result is
+  written.
 - A session that follows one outside the scene shows that one's id as
   written, as the tool has no archive to find its title in.
 - A character no committed font has is an error naming it and its cell.

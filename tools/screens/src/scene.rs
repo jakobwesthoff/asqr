@@ -37,6 +37,14 @@ pub struct Scene {
     #[serde(default)]
     pub elsewhere: Vec<Elsewhere>,
     pub switcher: Option<Switcher>,
+    /// Draws asqr's start picker, which comes before any session, over the
+    /// `[switcher]`'s queues instead of asqr's screen; the keys go to it.
+    #[serde(default)]
+    pub start_picker: bool,
+    /// Session files asqr answered with an error, whose dialogs show.
+    #[serde(default)]
+    pub invalid: Vec<InvalidSession>,
+    pub settings: Option<SettingsFile>,
 }
 
 /// Where the context pane goes, as asqr's `--layout`.
@@ -74,6 +82,39 @@ pub struct SessionEntry {
 pub struct Elsewhere {
     pub queue: String,
     pub waiting: usize,
+}
+
+/// A session file asqr found invalid and answered with an error, as the
+/// dialog shows it.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct InvalidSession {
+    pub id: String,
+    /// Each problem the file has, as validation words it.
+    pub errors: Vec<String>,
+}
+
+/// The settings file as the settings pane names it, and what holds the
+/// `Context` setting for the run.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsFile {
+    /// The path the frame's bottom edge names, as written there. The tool
+    /// reads the file at that path if there is one, so a path starting with
+    /// `~/`, which names a folder that is not there, keeps a picture from
+    /// depending on the machine that draws it.
+    pub path: Option<PathBuf>,
+    /// What holds `Context` at the scene's `layout`, as `--layout` or
+    /// `ASQR_LAYOUT` does in asqr.
+    pub context_held_by: Option<ContextHeldBy>,
+}
+
+/// What can hold the `Context` setting for a run.
+#[derive(Debug, Deserialize, PartialEq, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum ContextHeldBy {
+    Flag,
+    Variable,
 }
 
 /// What the queue switcher shows when a key opens it.
@@ -247,6 +288,9 @@ pub fn parse_scene(text: &str) -> Result<Scene> {
             }
         }
     }
+    if scene.start_picker && scene.switcher.is_none() {
+        anyhow::bail!("`start_picker` needs a [switcher] with the queues to pick from");
+    }
     Ok(scene)
 }
 
@@ -384,6 +428,51 @@ mod tests {
                 name: "ntropy".to_owned(),
                 tmux_session: Some("ntropy".to_owned())
             }]
+        );
+    }
+
+    #[test]
+    fn invalid_sessions_and_the_settings_file_read() {
+        let scene = parse_scene(&format!(
+            "{SIZE}layout = \"below\"\n\
+             [[invalid]]\nid = \"broken\"\nerrors = [\"asqr: must be 2\"]\n\
+             [settings]\npath = \"~/.config/asqr/settings.toml\"\ncontext_held_by = \"flag\"\n"
+        ))
+        .expect("the scene parses");
+
+        assert_eq!(
+            scene.invalid,
+            [InvalidSession {
+                id: "broken".to_owned(),
+                errors: vec!["asqr: must be 2".to_owned()]
+            }]
+        );
+        assert_eq!(
+            scene.settings,
+            Some(SettingsFile {
+                path: Some(PathBuf::from("~/.config/asqr/settings.toml")),
+                context_held_by: Some(ContextHeldBy::Flag)
+            })
+        );
+    }
+
+    #[test]
+    fn a_start_picker_needs_a_switcher() {
+        let error = error_of(&format!("{SIZE}start_picker = true\n"));
+
+        assert!(
+            error.contains("`start_picker` needs a [switcher]"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_context_hold_other_than_a_flag_or_a_variable_is_an_error() {
+        let error = error_of(&format!("{SIZE}[settings]\ncontext_held_by = \"config\"\n"));
+
+        assert!(
+            error.contains("context_held_by") || error.contains("config"),
+            "{error}"
         );
     }
 
