@@ -206,7 +206,7 @@ fn a_limit_of_zero_is_a_usage_error() {
 }
 
 #[test]
-fn history_json_is_one_parseable_object_per_queue() {
+fn history_json_is_always_an_array_of_queue_objects() {
     let sandbox = Sandbox::new();
     let location = QueueLocation::at(sandbox.queue_dir());
     let reference = finish_loose(&location, "hero-2", "Pick the hero", 1);
@@ -222,9 +222,10 @@ fn history_json_is_one_parseable_object_per_queue() {
         .expect("runs");
 
     let single: serde_json::Value = serde_json::from_str(&stdout(&single)).expect("JSON");
-    assert_eq!(single["total"], 1);
-    assert_eq!(single["entries"][0]["ref"], reference.as_str());
-    assert_eq!(single["entries"][0]["status"], "sent");
+    assert_eq!(single.as_array().map(Vec::len), Some(1), "{single}");
+    assert_eq!(single[0]["total"], 1);
+    assert_eq!(single[0]["entries"][0]["ref"], reference.as_str());
+    assert_eq!(single[0]["entries"][0]["status"], "sent");
     let all: serde_json::Value = serde_json::from_str(&stdout(&all)).expect("JSON");
     assert_eq!(all[0]["queue"], "default");
     assert_eq!(all[0]["entries"], serde_json::json!([]));

@@ -303,12 +303,9 @@ pub(super) fn run(location: &QueueLocation, root: Option<&Path>, options: Histor
         .collect();
 
     if options.json {
-        let values: Vec<Value> = blocks.iter().map(json_of).collect();
-        let printed = if options.all {
-            Value::Array(values)
-        } else {
-            values.into_iter().next().expect("one queue is listed")
-        };
+        // One shape for a reader to handle, whether one queue is listed
+        // or all of them.
+        let printed = Value::Array(blocks.iter().map(json_of).collect());
         println!("{printed}");
         return Exit::Success;
     }

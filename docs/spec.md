@@ -1498,12 +1498,12 @@ Open one with: asqr replay <REF>
   first and the others by name, one block each; `--limit` and `--since`
   apply per queue. A queue given by `--dir` is listed first and the
   hint to open an entry names it with `--dir`.
-- `--json` prints an object with `queue`, `total` (the sessions `--since`
-  keeps, before the limit cuts the list) and `entries`, a list of `ref`,
+- `--json` prints an array of objects, one per queue (one without
+  `--all`), each with `queue`, `total` (the sessions `--since` keeps,
+  before the limit cuts the list) and `entries`, a list of `ref`,
   `id`, `finished_at` (UTC, whole seconds), `status` (`sent`,
   `rejected`, `error`, `withdrawn` or `none`), `files` (`kept`, `gone`
-  and `not_kept` counts), `title` (or `null`) and `draft`. With `--all` it
-  prints an array of these objects, one per queue.
+  and `not_kept` counts), `title` (or `null`) and `draft`.
 - A bundle that cannot be read is a `warning:` line on stderr naming it;
   the other sessions are listed and the exit code stays 0, as it does for
   `status`.
