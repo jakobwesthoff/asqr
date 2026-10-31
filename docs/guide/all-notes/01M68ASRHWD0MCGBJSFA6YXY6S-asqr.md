@@ -31,4 +31,7 @@ way.
 ## Where to start
 
 - To answer questions, read
-  [Install and a first session](01M68ASRJ527YVE41S9V50YXQW-install-and-a-first-session.md).
+  [Install and a first session](01M68ASRJ527YVE41S9V50YXQW-install-and-a-first-session.md),
+  then [the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md) and the pages
+  after it.
+- Every key is listed on one page: [Keys](01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md).

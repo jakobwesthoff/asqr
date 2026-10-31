@@ -36,6 +36,8 @@ asqr
 Leave it running. With nothing waiting it says "Nothing to answer. New
 sessions show up here as soon as they arrive."
 
+![The empty queue with Talqi, and sessions waiting in another queue](../pictures/empty-queue.png)
+
 ## Ask a first session
 
 In another terminal, ask the session that `asqr new` prints. It has
@@ -54,6 +56,12 @@ same tmux session as asqr.
 asqr shows the session as soon as it arrives, with a desktop
 notification and a terminal bell.
 
+![A question of a session, with the title bar, the header, the tabs, the options and the key bar](../pictures/first-question.png)
+
+The picture shows another session, a release checklist from the
+`examples/sessions` folder of the asqr repository. Most pictures in this
+guide show it.
+
 ## Answer it
 
 These keys are enough for the first session:
@@ -68,6 +76,11 @@ These keys are enough for the first session:
 - `?` shows every key.
 - On the review tab, `enter` on `[ Submit ]` sends your answers. `q`
   quits asqr and keeps your answers so far as a draft.
+
+![The review tab of an answered session: every answer on a line, the counts and the submit button](../pictures/review.png)
+
+The pages after this one explain every screen and every key, starting
+with [the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md).
 
 ## Read the result
 
