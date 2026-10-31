@@ -41,6 +41,12 @@ separate sessions, into one view. How that works is open.
   to look at.
 - When entries expire and how a finished run gets cleared away.
 
+## Re-checked (Jakob, 2026-10-31, in the chat)
+
+Left as it stands, the open questions unasked: Jakob expects the
+dashboard to end up as an application of its own rather than part of
+asqr.
+
 ## Revisit when
 
 No trigger known; reconsider at the next sweep.
