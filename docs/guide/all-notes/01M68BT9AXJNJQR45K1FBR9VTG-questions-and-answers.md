@@ -81,7 +81,8 @@ agent with your answers.
 
 - `ctrl-j` adds a line. Every field takes several lines.
 - `ctrl-g` opens the field in your editor, the program `VISUAL` names, or
-  else `EDITOR`.
+  else `EDITOR`. While the editor runs, asqr does nothing else and ignores
+  SIGINT. SIGTERM and SIGHUP quit asqr after the editor has ended.
 - A paste goes in as a whole at the cursor, and a line break in it never
   picks, submits or rejects.
 - Every edit is saved to a draft as you go. `q` leaves asqr and the draft
