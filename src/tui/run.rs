@@ -1989,7 +1989,7 @@ mod tests {
                 gave_up.store(true, std::sync::atomic::Ordering::SeqCst);
                 return;
             }
-            let _ = crate::keep::apply::keep(&job, &|| {});
+            let _ = crate::keep::apply::keep(job, &|| {});
         });
         let (mut app, mut inbox) = start_with_keeper(
             harness.location.clone(),

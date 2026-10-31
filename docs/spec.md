@@ -1024,13 +1024,18 @@ asker that removes its temporary files as soon as it sees the result must
 not take away what the person saw. A file past the viewer's limit is not
 read, and at most 256 MiB of file content is held; a file that does not
 fit is left for the worker below, which reads it from its path (an asker
-that removes it first leaves it `missing`).
+that removes it first leaves it `missing`). Under `off` no content is held:
+each file is hashed while it is read and only its size, modification time
+and SHA-256 remain.
 
 After step 3 the TUI hands the archived session, what it read and the
 mode in force to the worker, a thread of its own that serves every queue
 the asqr shows. For each job the worker, without any lock, processes the
 files (an image is encoded, section 5.1) and writes each copy as a synced
-temp file `archive/files/.asqr-*.tmp`, never under its final name. Then it
+temp file `archive/files/.asqr-*.tmp`, never under its final name. It
+handles one file at a time: a file it still has to read from its path is
+read only when its turn comes, and its copy is written before the next
+file is read. Then it
 takes the drafts lock for a moment and checks that the archived file still
 holds exactly the bytes it was archived with. If it does, each copy takes
 its name (a file of that name with the same bytes is left as it is) and

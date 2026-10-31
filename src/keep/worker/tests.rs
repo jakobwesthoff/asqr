@@ -120,7 +120,12 @@ fn job_showing(queue: &std::path::Path, shown: &std::path::Path, archived: &str)
             "context": [{"type": "code", "path": shown}]}]
     }))
     .expect("serializes");
-    let seen = crate::keep::snapshot::snapshot(&session, &crate::keep::snapshot::Limits::VIEWERS);
+    let seen = crate::keep::snapshot::snapshot(
+        &session,
+        &crate::keep::snapshot::Limits::VIEWERS,
+        crate::keep::snapshot::Hold::Bytes,
+        &crate::keep::snapshot::MemoryBudget::new(crate::keep::snapshot::MemoryBudget::RUN),
+    );
     KeepJob::new(
         QueueLocation::at(queue),
         ArchivedSession {

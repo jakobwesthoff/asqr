@@ -69,7 +69,7 @@ fn lossless_webp(picture: &RgbaImage) -> Vec<u8> {
 }
 
 fn compact(original: &[u8], name: &str) -> Processed {
-    processor_for(ShownKind::Image, KeepFiles::Compact).process(original, name)
+    processor_for(ShownKind::Image, KeepFiles::Compact).process(original.to_vec(), name)
 }
 
 /// What the processor keeps when it refuses to change a file.
@@ -216,7 +216,7 @@ fn an_encoding_that_does_not_decode_back_keeps_the_original() {
     let processor = WebpImages::new(Fixed(Ok(b"not a webp".to_vec())));
 
     assert_eq!(
-        processor.process(&original, "hero.png"),
+        processor.process(original.clone(), "hero.png"),
         unchanged(&original, "png")
     );
 }
@@ -254,7 +254,7 @@ fn an_encoder_that_fails_keeps_the_original() {
     let processor = WebpImages::new(Fixed(Err("out of memory".to_owned())));
 
     assert_eq!(
-        processor.process(&original, "hero.png"),
+        processor.process(original.clone(), "hero.png"),
         unchanged(&original, "png")
     );
 }
@@ -280,7 +280,7 @@ fn an_encoding_with_other_dimensions_is_refused() {
     let processor = WebpImages::new(Fixed(Ok(smaller)));
 
     assert_eq!(
-        processor.process(&original, "hero.png"),
+        processor.process(original.clone(), "hero.png"),
         unchanged(&original, "png")
     );
 }
@@ -302,7 +302,7 @@ fn an_encoding_larger_than_the_original_is_refused() {
     });
 
     assert_eq!(
-        processor.process(&original, "flat.png"),
+        processor.process(original.clone(), "flat.png"),
         unchanged(&original, "png")
     );
 }
@@ -313,7 +313,7 @@ fn an_image_taller_than_webp_allows_keeps_the_original() {
     let processor = WebpImages::new(Forbidden);
 
     assert_eq!(
-        processor.process(&original, "tall.png"),
+        processor.process(original.clone(), "tall.png"),
         unchanged(&original, "png")
     );
 }
@@ -355,7 +355,8 @@ fn an_image_with_transparency_keeps_its_alpha() {
 fn exact_keeps_every_image_byte_for_byte() {
     let original = png(&photo_like(64, 64));
 
-    let processed = processor_for(ShownKind::Image, KeepFiles::Exact).process(&original, "a.PNG");
+    let processed =
+        processor_for(ShownKind::Image, KeepFiles::Exact).process(original.clone(), "a.PNG");
 
     assert_eq!(processed, unchanged(&original, "png"));
 }
@@ -371,7 +372,7 @@ fn non_image_kinds_are_kept_as_they_are_under_compact() {
         (ShownKind::Code, "payload.weirdext", "dat"),
     ] {
         let original = b"fn main() {}\n";
-        let processed = processor_for(kind, KeepFiles::Compact).process(original, name);
+        let processed = processor_for(kind, KeepFiles::Compact).process(original.to_vec(), name);
         assert_eq!(processed, unchanged(original, extension), "{name}");
     }
 }
@@ -402,4 +403,30 @@ fn an_animated_png_stays_as_it_is() {
     let original = apng(&photo_like(64, 64));
 
     assert_eq!(compact(&original, "a.png"), unchanged(&original, "png"));
+}
+
+// =========================================================
+// A file kept as it is is not copied
+// =========================================================
+
+#[test]
+fn a_file_kept_as_it_is_comes_back_in_the_allocation_it_went_in_with() {
+    let original = b"fn main() {}\n".to_vec();
+    let address = original.as_ptr();
+
+    let processed = AsIs.process(original, "main.rs");
+
+    assert_eq!(processed.bytes.as_ptr(), address);
+}
+
+#[test]
+fn an_image_that_stays_as_it_is_comes_back_in_the_allocation_it_went_in_with() {
+    let original = png(&photo_like(32, 32));
+    let address = original.as_ptr();
+    let processor = WebpImages::new(Fixed(Err("out of memory".to_owned())));
+
+    let processed = processor.process(original, "hero.png");
+
+    assert_eq!(processed.extension, "png");
+    assert_eq!(processed.bytes.as_ptr(), address);
 }

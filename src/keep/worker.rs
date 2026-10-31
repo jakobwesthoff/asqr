@@ -181,7 +181,7 @@ fn run_job(job: KeepJob) {
         wait_for_gate(&gate, GATE_PATIENCE);
     }
     let id = job.archived.path.display().to_string();
-    match keep(&job, &|| {}) {
+    match keep(job, &|| {}) {
         Ok(Kept::Recorded) => tracing::info!(session = %id, "kept the files of a session"),
         Ok(Kept::NothingToRecord) => {}
         Ok(Kept::Skipped(reason)) => {

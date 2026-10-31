@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::keep::sha256_hex;
-use crate::keep::snapshot::{Limits, snapshot};
+use crate::keep::snapshot::{Hold, Limits, MemoryBudget, snapshot};
 use crate::keep::test_support::gradient_png;
 use crate::queue::lock_drafts;
 
@@ -56,7 +56,12 @@ fn archived_showing(name: &str, bytes: &[u8]) -> Archived {
 
 impl Archived {
     fn job(&self, mode: KeepFiles) -> KeepJob {
-        let snapshot = snapshot(&self.session.bytes, &Limits::VIEWERS);
+        let snapshot = snapshot(
+            &self.session.bytes,
+            &Limits::VIEWERS,
+            Hold::Bytes,
+            &MemoryBudget::new(MemoryBudget::RUN),
+        );
         let mut job = KeepJob::new(self.location.clone(), self.session.clone(), snapshot, mode);
         job.lock_attempts = 1;
         job
@@ -95,7 +100,7 @@ fn nothing() {}
 fn keeping_replaces_the_plain_session_with_the_recording_and_places_the_copy() {
     let archived = archived_showing("hero.png", &gradient_png());
 
-    let kept = keep(&archived.job(KeepFiles::Compact), &nothing).expect("keeps");
+    let kept = keep(archived.job(KeepFiles::Compact), &nothing).expect("keeps");
 
     assert_eq!(kept, Kept::Recorded);
     let json = archived.archived_json();
@@ -128,25 +133,31 @@ fn a_session_that_shows_no_file_by_path_stays_as_it_is() {
             path: archived.session.path.clone(),
             bytes: plain.clone(),
         },
-        snapshot(&plain, &Limits::VIEWERS),
+        snapshot(
+            &plain,
+            &Limits::VIEWERS,
+            Hold::Bytes,
+            &MemoryBudget::new(MemoryBudget::RUN),
+        ),
         KeepFiles::Compact,
     );
 
-    assert_eq!(keep(&job, &nothing).expect("keeps"), Kept::NothingToRecord);
+    assert_eq!(keep(job, &nothing).expect("keeps"), Kept::NothingToRecord);
     assert_eq!(fs::read(&archived.session.path).expect("reads"), plain);
 }
 
 #[test]
 fn a_file_past_the_memory_cap_is_read_by_the_worker() {
     let archived = archived_showing("hero.png", &gradient_png());
-    let limits = Limits {
-        memory: 0,
-        ..Limits::VIEWERS
-    };
     let mut job = archived.job(KeepFiles::Compact);
-    job.snapshot = snapshot(&archived.session.bytes, &limits);
+    job.snapshot = snapshot(
+        &archived.session.bytes,
+        &Limits::VIEWERS,
+        Hold::Bytes,
+        &MemoryBudget::new(0),
+    );
 
-    assert_eq!(keep(&job, &nothing).expect("keeps"), Kept::Recorded);
+    assert_eq!(keep(job, &nothing).expect("keeps"), Kept::Recorded);
     assert_eq!(
         archived.archived_json()["questions"][0]["context"][0]["shown"]["state"],
         "kept"
@@ -158,7 +169,7 @@ fn off_records_fingerprints_and_places_no_copy() {
     let archived = archived_showing("hero.png", &gradient_png());
 
     assert_eq!(
-        keep(&archived.job(KeepFiles::Off), &nothing).expect("keeps"),
+        keep(archived.job(KeepFiles::Off), &nothing).expect("keeps"),
         Kept::Recorded
     );
 
@@ -182,10 +193,10 @@ fn a_reask_with_identical_bytes_gets_its_own_entry() {
         bytes: first.session.bytes.clone(),
     };
 
-    keep(&first.job(KeepFiles::Compact), &nothing).expect("keeps");
+    keep(first.job(KeepFiles::Compact), &nothing).expect("keeps");
     let mut job = first.job(KeepFiles::Compact);
     job.archived = second.clone();
-    keep(&job, &nothing).expect("keeps");
+    keep(job, &nothing).expect("keeps");
 
     let recorded = |path: &PathBuf| -> Value {
         serde_json::from_slice(&fs::read(path).expect("reads")).expect("JSON")
@@ -204,7 +215,7 @@ fn a_replacement_is_refused_when_the_archived_file_changed() {
     let archived = archived_showing("hero.png", &gradient_png());
     let path = archived.session.path.clone();
 
-    let kept = keep(&archived.job(KeepFiles::Compact), &|| {
+    let kept = keep(archived.job(KeepFiles::Compact), &|| {
         fs::write(&path, b"{\"asqr\": 2, \"id\": \"other\"}").expect("changes");
     })
     .expect("keeps");
@@ -225,7 +236,7 @@ fn a_replacement_is_refused_when_the_archived_file_went() {
     let archived = archived_showing("hero.png", &gradient_png());
     let path = archived.session.path.clone();
 
-    let kept = keep(&archived.job(KeepFiles::Compact), &|| {
+    let kept = keep(archived.job(KeepFiles::Compact), &|| {
         fs::remove_file(&path).expect("removes");
     })
     .expect("keeps");
@@ -244,7 +255,7 @@ fn a_failing_copy_leaves_the_plain_session() {
     // A file where the directory of the copies belongs.
     fs::write(archived.location.archive().join("files"), b"in the way").expect("writes");
 
-    let failed = keep(&archived.job(KeepFiles::Compact), &nothing);
+    let failed = keep(archived.job(KeepFiles::Compact), &nothing);
 
     assert!(failed.is_err());
     assert_eq!(
@@ -259,7 +270,7 @@ fn an_archived_path_that_cannot_be_read_is_an_error() {
     let mut job = archived.job(KeepFiles::Off);
     job.archived.path = archived.location.archive();
 
-    assert!(keep(&job, &nothing).is_err());
+    assert!(keep(job, &nothing).is_err());
 }
 
 #[test]
@@ -289,7 +300,7 @@ fn a_busy_lock_skips_the_replacement() {
     let archived = archived_showing("hero.png", &gradient_png());
     let held = lock_drafts(&archived.location, 1).expect("lock");
 
-    let kept = keep(&archived.job(KeepFiles::Compact), &nothing).expect("keeps");
+    let kept = keep(archived.job(KeepFiles::Compact), &nothing).expect("keeps");
     drop(held);
 
     assert_eq!(kept, Kept::Skipped("the drafts lock is busy"));
@@ -329,7 +340,7 @@ fn a_recording_that_cannot_be_written_takes_the_copies_it_placed_with_it() {
     let archived = archived_showing("hero.png", &gradient_png());
     let job = archived.job(KeepFiles::Exact);
     // A copy of the same name that was there before the job stays.
-    let failed = keep_with(&job, &nothing, &|_, _| {
+    let failed = keep_with(job, &nothing, &|_, _| {
         Err(io::Error::other("the disk is full"))
     });
 
@@ -344,7 +355,7 @@ fn a_recording_that_cannot_be_written_takes_the_copies_it_placed_with_it() {
 #[test]
 fn a_copy_that_was_there_before_a_failed_job_stays() {
     let archived = archived_showing("hero.png", &gradient_png());
-    keep(&archived.job(KeepFiles::Exact), &nothing).expect("kept once");
+    keep(archived.job(KeepFiles::Exact), &nothing).expect("kept once");
     let placed = archived.files();
     // The same file shown by a second session whose recording fails.
     let second = archived_showing("hero.png", &gradient_png());
@@ -357,7 +368,7 @@ fn a_copy_that_was_there_before_a_failed_job_stays() {
         .expect("copied");
     }
 
-    let failed = keep_with(&second.job(KeepFiles::Exact), &nothing, &|_, _| {
+    let failed = keep_with(second.job(KeepFiles::Exact), &nothing, &|_, _| {
         Err(io::Error::other("the disk is full"))
     });
 

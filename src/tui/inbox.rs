@@ -22,7 +22,7 @@ use crate::format::{
     parse_session, same_session_id, validate,
 };
 use crate::keep::apply::{KeepJob, snapshot_seen};
-use crate::keep::snapshot::{Limits, snapshot};
+use crate::keep::snapshot::{Hold, Limits, MemoryBudget, snapshot};
 use crate::keep::worker::KeepWorker;
 use crate::queue::{
     ArchivedSession, DRAFTS_LOCK_ATTEMPTS, Finished, Gate, QueueLocation, Recovery, Rejected,
@@ -32,14 +32,8 @@ use crate::queue::{
 };
 
 /// What the TUI thread reads of the files of a session it finishes: the
-/// limits of the viewers, within 256 MiB.
+/// limits of the viewers, within the memory budget.
 const KEEP_NOW: Limits = Limits::VIEWERS;
-
-/// A snapshot that reads nothing: every file is left to the worker.
-const LEAVE_TO_WORKER: Limits = Limits {
-    memory: 0,
-    ..Limits::VIEWERS
-};
 
 /// A session the app shows, with the bytes it was read from.
 #[derive(Debug)]
@@ -572,7 +566,12 @@ impl Inbox {
             return;
         };
         let mode = app.settings().effective().keep_files;
-        let seen = snapshot(&archived.bytes, &LEAVE_TO_WORKER);
+        let seen = snapshot(
+            &archived.bytes,
+            &Limits::VIEWERS,
+            Hold::Bytes,
+            &MemoryBudget::new(0),
+        );
         keeper.submit(KeepJob::new(self.location.clone(), archived, seen, mode));
     }
 
@@ -596,7 +595,13 @@ impl Inbox {
         // take them away. Encoding and writing the copies is the worker's.
         let keeping = self.keeper.clone().map(|keeper| {
             let mode = app.settings().effective().keep_files;
-            let seen = snapshot_seen(&known.path, &known.sha256, &KEEP_NOW);
+            let seen = snapshot_seen(
+                &known.path,
+                &known.sha256,
+                &KEEP_NOW,
+                Hold::for_mode(mode),
+                &MemoryBudget::new(MemoryBudget::RUN),
+            );
             (keeper, mode, seen)
         });
         let at = now_rfc3339();

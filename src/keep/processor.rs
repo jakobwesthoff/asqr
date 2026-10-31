@@ -27,17 +27,18 @@ pub struct Processed {
 
 pub trait Processor {
     /// `original` is the file as read, `name` the name or path it was
-    /// shown under.
-    fn process(&self, original: &[u8], name: &str) -> Processed;
+    /// shown under. The bytes come by value, so a processor that keeps a
+    /// file as it is hands the same allocation back.
+    fn process(&self, original: Vec<u8>, name: &str) -> Processed;
 }
 
 /// Keeps the bytes as they are.
 pub struct AsIs;
 
 impl Processor for AsIs {
-    fn process(&self, original: &[u8], name: &str) -> Processed {
+    fn process(&self, original: Vec<u8>, name: &str) -> Processed {
         Processed {
-            bytes: original.to_vec(),
+            bytes: original,
             extension: kept_extension(name),
         }
     }
@@ -137,8 +138,8 @@ impl<E: ImageEncoder> WebpImages<E> {
 }
 
 impl<E: ImageEncoder> Processor for WebpImages<E> {
-    fn process(&self, original: &[u8], name: &str) -> Processed {
-        let Some(rgba) = decode_for_reencoding(original) else {
+    fn process(&self, original: Vec<u8>, name: &str) -> Processed {
+        let Some(rgba) = decode_for_reencoding(&original) else {
             return AsIs.process(original, name);
         };
         let Ok(encoded) = self.encoder.encode_webp(&rgba, WEBP_QUALITY) else {

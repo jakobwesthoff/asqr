@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::record::{RecordedSession, kept_file_names, record};
-use super::snapshot::{Limits, Seen, Snapshot, snapshot, snapshot_with};
+use super::record::{Copy, kept_file_names, record};
+use super::snapshot::{Hold, Limits, MemoryBudget, Seen, Snapshot, snapshot, snapshot_with};
 use super::store::{place, stage};
 use super::*;
 
@@ -38,9 +38,38 @@ fn written(directory: &Path, name: &str, bytes: &[u8]) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn recorded(session: &[u8], mode: KeepFiles) -> (Value, RecordedSession) {
-    let seen = snapshot(session, &Limits::VIEWERS);
-    let recording = record(session, &seen, mode);
+/// A snapshot of `session` that holds bytes, with room for `memory` of them.
+fn taken(session: &[u8], limits: &Limits, memory: u64) -> Snapshot {
+    snapshot(session, limits, Hold::Bytes, &MemoryBudget::new(memory))
+}
+
+/// A snapshot as the TUI takes it.
+fn viewed(session: &[u8]) -> Snapshot {
+    taken(session, &Limits::VIEWERS, MemoryBudget::RUN)
+}
+
+/// What [`record`] made, with the copies it handed over collected.
+struct Recording {
+    json: Vec<u8>,
+    copies: Vec<Copy>,
+}
+
+fn collected(session: &[u8], seen: Snapshot, mode: KeepFiles) -> Recording {
+    let mut copies = Vec::new();
+    let recorded = record(session, seen, mode, &Limits::VIEWERS, &mut |copy| {
+        copies.push(copy);
+        Ok(())
+    })
+    .expect("records");
+    assert_eq!(recorded.copies, copies.len());
+    Recording {
+        json: recorded.json,
+        copies,
+    }
+}
+
+fn recorded(session: &[u8], mode: KeepFiles) -> (Value, Recording) {
+    let recording = collected(session, viewed(session), mode);
     let json = serde_json::from_slice(&recording.json).expect("the recording is JSON");
     (json, recording)
 }
@@ -184,7 +213,7 @@ fn a_fifo_is_recorded_as_unreadable_without_blocking() {
     // It runs apart, so a hang fails the test instead of stalling the run.
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
-        let _ = sender.send(snapshot(&session, &Limits::VIEWERS));
+        let _ = sender.send(viewed(&session));
     });
     let seen = receiver
         .recv_timeout(Duration::from_secs(5))
@@ -213,7 +242,7 @@ fn a_directory_and_dev_zero_are_unreadable() {
         directory.path().to_string_lossy().into_owned(),
         "/dev/zero".to_owned(),
     ] {
-        let seen = snapshot(&code_session(&path), &Limits::VIEWERS);
+        let seen = viewed(&code_session(&path));
 
         assert_eq!(
             seen.places[0].seen,
@@ -233,8 +262,8 @@ fn a_file_over_the_limit_is_not_kept_without_a_fingerprint() {
         ..Limits::VIEWERS
     };
 
-    let seen = snapshot(&session, &limits);
-    let recording = record(&session, &seen, KeepFiles::Compact);
+    let seen = taken(&session, &limits, MemoryBudget::RUN);
+    let recording = collected(&session, seen, KeepFiles::Compact);
 
     let json: Value = serde_json::from_slice(&recording.json).expect("JSON");
     let shown = &first_entry(&json)["shown"];
@@ -255,11 +284,12 @@ fn an_image_is_judged_by_the_image_limit_and_other_files_by_the_text_limit() {
         ..Limits::VIEWERS
     };
 
-    let image = snapshot(
+    let image = taken(
         &session_with_context(json!({"type": "image", "path": original})),
         &limits,
+        MemoryBudget::RUN,
     );
-    let code = snapshot(&code_session(&original), &limits);
+    let code = taken(&code_session(&original), &limits, MemoryBudget::RUN);
 
     assert!(matches!(
         &image.places[0].seen,
@@ -281,7 +311,7 @@ fn a_limit_in_whole_mebibytes_is_named_in_mebibytes() {
         ..Limits::VIEWERS
     };
 
-    let seen = snapshot(&code_session(&original), &limits);
+    let seen = taken(&code_session(&original), &limits, MemoryBudget::RUN);
 
     assert!(matches!(
         &seen.places[0].seen,
@@ -294,14 +324,20 @@ fn a_file_that_grows_while_it_is_read_is_unreadable() {
     let directory = tempfile::tempdir().expect("temp dir");
     let original = written(directory.path(), "log.txt", b"short");
 
-    let seen = snapshot_with(&code_session(&original), &Limits::VIEWERS, &|path| {
-        use std::io::Write;
-        fs::OpenOptions::new()
-            .append(true)
-            .open(path)
-            .and_then(|mut file| file.write_all(b" and longer"))
-            .expect("appends");
-    });
+    let seen = snapshot_with(
+        &code_session(&original),
+        &Limits::VIEWERS,
+        Hold::Bytes,
+        &MemoryBudget::new(MemoryBudget::RUN),
+        &|path| {
+            use std::io::Write;
+            fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .and_then(|mut file| file.write_all(b" and longer"))
+                .expect("appends");
+        },
+    );
 
     assert_eq!(
         seen.places[0].seen,
@@ -416,46 +452,27 @@ fn a_file_past_the_memory_cap_goes_to_the_worker_as_a_path() {
     let directory = tempfile::tempdir().expect("temp dir");
     let original = written(directory.path(), "big.txt", b"twenty bytes of text");
     let session = code_session(&original);
-    let limits = Limits {
-        memory: 5,
-        ..Limits::VIEWERS
-    };
-
-    let mut seen = snapshot(&session, &limits);
+    let mut seen = taken(&session, &Limits::VIEWERS, 5);
     assert_eq!(seen.places[0].seen, Seen::Deferred);
     assert_eq!(seen.places[0].path, original);
 
-    seen.resolve_deferred(&limits);
-    let Seen::Read(file) = &seen.places[0].seen else {
-        panic!("the worker reads it: {:?}", seen.places[0].seen);
+    let resolved = seen
+        .places
+        .remove(0)
+        .resolved(&Limits::VIEWERS, Hold::Bytes);
+    let Seen::Read(file) = &resolved.seen else {
+        panic!("the worker reads it: {:?}", resolved.seen);
     };
     assert_eq!(file.sha256, sha256_hex(b"twenty bytes of text"));
 }
 
 #[test]
-fn a_file_nobody_read_in_time_is_recorded_as_unreadable() {
-    let directory = tempfile::tempdir().expect("temp dir");
-    let original = written(directory.path(), "big.txt", b"twenty bytes of text");
-    let session = code_session(&original);
-    let limits = Limits {
-        memory: 5,
-        ..Limits::VIEWERS
-    };
-
-    let seen = snapshot(&session, &limits);
-    let recording = record(&session, &seen, KeepFiles::Compact);
-
-    let json: Value = serde_json::from_slice(&recording.json).expect("JSON");
-    assert_eq!(first_entry(&json)["shown"]["state"], "unreadable");
-}
-
-#[test]
 fn bytes_that_are_no_session_record_nothing() {
     for bytes in [&b"not json"[..], b"[1, 2]", b"{\"questions\": 3}"] {
-        let seen = snapshot(bytes, &Limits::VIEWERS);
-        assert_eq!(seen, Snapshot::default());
+        let seen = viewed(bytes);
+        assert!(seen.places.is_empty());
 
-        let recording = record(bytes, &seen, KeepFiles::Compact);
+        let recording = collected(bytes, seen, KeepFiles::Compact);
 
         assert_eq!(recording.json, bytes);
         assert!(recording.copies.is_empty());
@@ -478,7 +495,7 @@ fn entries_that_show_no_file_are_skipped() {
     }))
     .expect("serializes");
 
-    assert_eq!(snapshot(&session, &Limits::VIEWERS), Snapshot::default());
+    assert!(viewed(&session).places.is_empty());
     assert!(kept_file_names(&session).is_empty());
     assert!(kept_file_names(b"not json").is_empty());
 }
@@ -495,18 +512,17 @@ fn resolving_leaves_the_files_already_read_alone() {
             {"id": "b", "label": "B", "context": [{"type": "code", "path": big}]}]}]
     }))
     .expect("serializes");
-    let limits = Limits {
-        memory: 5,
-        ..Limits::VIEWERS
-    };
-    let mut seen = snapshot(&session, &limits);
-    let before = seen.places[0].clone();
+    let mut seen = taken(&session, &Limits::VIEWERS, 5);
+    let second = seen.places.remove(1);
+    let first = seen.places.remove(0);
+    let before = first.clone();
 
-    seen.resolve_deferred(&limits);
+    let first = first.resolved(&Limits::VIEWERS, Hold::Bytes);
+    let second = second.resolved(&Limits::VIEWERS, Hold::Bytes);
 
     assert!(matches!(before.seen, Seen::Read(_)));
-    assert_eq!(seen.places[0], before);
-    assert!(matches!(seen.places[1].seen, Seen::Read(_)));
+    assert_eq!(first, before);
+    assert!(matches!(second.seen, Seen::Read(_)));
 }
 
 #[test]
@@ -524,9 +540,9 @@ fn a_snapshot_of_another_session_records_nothing() {
     let directory = tempfile::tempdir().expect("temp dir");
     let one = code_session(&written(directory.path(), "one.txt", b"1"));
     let other = code_session(&written(directory.path(), "other.txt", b"2"));
-    let seen = snapshot(&one, &Limits::VIEWERS);
+    let seen = viewed(&one);
 
-    let recording = record(&other, &seen, KeepFiles::Compact);
+    let recording = collected(&other, seen, KeepFiles::Compact);
 
     assert_eq!(recording.json, other);
     assert!(recording.copies.is_empty());
@@ -574,4 +590,182 @@ fn only_well_formed_kept_names_are_listed() {
         kept_file_names(&session),
         [good.trim_start_matches("files/")]
     );
+}
+
+// =========================================================
+// How much of a snapshot is held, and for how long
+// =========================================================
+
+/// Three code files of 3, 5 and 7 bytes, shown by one session in this order.
+fn three_files(directory: &Path) -> (Vec<u8>, [String; 3]) {
+    let paths = [
+        written(directory, "a.txt", b"aaa"),
+        written(directory, "b.txt", b"bbbbb"),
+        written(directory, "c.txt", b"ccccccc"),
+    ];
+    let options: Vec<Value> = paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| {
+            json!({"id": format!("o{index}"), "label": "O",
+                "context": [{"type": "code", "path": path}]})
+        })
+        .collect();
+    let session = serde_json::to_vec(&json!({
+        "asqr": 2, "id": "s",
+        "questions": [{"id": "q", "text": "?", "kind": "single", "options": options}]
+    }))
+    .expect("serializes");
+    (session, paths)
+}
+
+#[test]
+fn a_fingerprint_snapshot_hashes_a_file_without_holding_or_deferring_it() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let bytes = b"twenty bytes of text";
+    let original = written(directory.path(), "big.txt", bytes);
+    let budget = MemoryBudget::new(0);
+
+    let seen = snapshot(
+        &code_session(&original),
+        &Limits::VIEWERS,
+        Hold::Fingerprint,
+        &budget,
+    );
+
+    let Seen::Hashed(file) = &seen.places[0].seen else {
+        panic!("a hash is all it takes: {:?}", seen.places[0].seen);
+    };
+    assert_eq!(file.sha256, sha256_hex(bytes));
+    assert_eq!(file.size, bytes.len() as u64);
+    assert!(file.modified.is_some());
+    assert_eq!(budget.unclaimed(), 0);
+    assert_eq!(seen.held.held(), 0);
+}
+
+#[test]
+fn a_fingerprint_of_a_file_that_grows_while_it_is_hashed_is_unreadable() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let original = written(directory.path(), "log.txt", b"short");
+
+    let seen = snapshot_with(
+        &code_session(&original),
+        &Limits::VIEWERS,
+        Hold::Fingerprint,
+        &MemoryBudget::new(0),
+        &|path| {
+            use std::io::Write;
+            fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .and_then(|mut file| file.write_all(b" and longer"))
+                .expect("appends");
+        },
+    );
+
+    assert_eq!(
+        seen.places[0].seen,
+        Seen::Unreadable("changed while it was read".to_owned())
+    );
+}
+
+#[test]
+fn a_fingerprint_of_a_file_over_the_limit_is_not_taken() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let original = written(directory.path(), "big.txt", b"0123456789");
+    let limits = Limits {
+        text: 4,
+        ..Limits::VIEWERS
+    };
+
+    let seen = snapshot(
+        &code_session(&original),
+        &limits,
+        Hold::Fingerprint,
+        &MemoryBudget::new(0),
+    );
+
+    assert!(matches!(seen.places[0].seen, Seen::TooLarge { .. }));
+}
+
+#[test]
+fn the_bytes_of_a_file_go_back_to_the_budget_once_it_is_staged() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let (session, _) = three_files(directory.path());
+    let budget = MemoryBudget::new(15);
+    let seen = snapshot(&session, &Limits::VIEWERS, Hold::Bytes, &budget);
+    assert_eq!(budget.unclaimed(), 0);
+
+    // What the budget has left each time a copy is handed over: the copy
+    // being staged still holds its share, those before it are released.
+    let mut left = Vec::new();
+    record(
+        &session,
+        seen,
+        KeepFiles::Compact,
+        &Limits::VIEWERS,
+        &mut |_| {
+            left.push(budget.unclaimed());
+            Ok(())
+        },
+    )
+    .expect("records");
+
+    assert_eq!(left, [0, 3, 8]);
+    assert_eq!(budget.unclaimed(), 15);
+}
+
+#[test]
+fn a_dropped_snapshot_gives_its_bytes_back() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let (session, _) = three_files(directory.path());
+    let budget = MemoryBudget::new(15);
+
+    let seen = snapshot(&session, &Limits::VIEWERS, Hold::Bytes, &budget);
+    assert_eq!(seen.held.held(), 15);
+    drop(seen);
+
+    assert_eq!(budget.unclaimed(), 15);
+}
+
+#[test]
+fn deferred_files_are_read_one_at_a_time_each_after_the_copy_before_it_is_staged() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let (session, paths) = three_files(directory.path());
+    let seen = snapshot(
+        &session,
+        &Limits::VIEWERS,
+        Hold::Bytes,
+        &MemoryBudget::new(0),
+    );
+    assert!(seen.places.iter().all(|place| place.seen == Seen::Deferred));
+
+    // The agent removes the second file while the first copy is staged.
+    // Had the worker read every deferred file first, it would have it.
+    let mut handed = Vec::new();
+    let recording = record(
+        &session,
+        seen,
+        KeepFiles::Compact,
+        &Limits::VIEWERS,
+        &mut |copy| {
+            if handed.is_empty() {
+                fs::remove_file(&paths[1]).expect("removes");
+            }
+            handed.push(copy.name);
+            Ok(())
+        },
+    )
+    .expect("records");
+
+    let json: Value = serde_json::from_slice(&recording.json).expect("JSON");
+    let states: Vec<&str> = (0..3)
+        .map(|index| {
+            json["questions"][0]["options"][index]["context"][0]["shown"]["state"]
+                .as_str()
+                .expect("a state")
+        })
+        .collect();
+    assert_eq!(states, ["kept", "missing", "kept"]);
+    assert_eq!(handed.len(), 2);
 }

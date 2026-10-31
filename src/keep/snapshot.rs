@@ -8,13 +8,15 @@
 
 use std::io::{self, Read};
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 
 use jiff::Timestamp;
 use serde_json::Value;
 
 use super::places::places_mut;
-use super::{ShownKind, sha256_hex};
+use super::{HashingReader, KeepFiles, ShownKind, sha256_hex};
 use crate::format::{MAX_BYTES, MAX_IMAGE_BYTES};
 use crate::regular_file::{self, OpenError};
 
@@ -25,17 +27,13 @@ pub struct Limits {
     pub image: u64,
     /// The most bytes read of any other file.
     pub text: u64,
-    /// The most bytes of file content a snapshot holds in memory. A file
-    /// that does not fit is left for [`Snapshot::resolve_deferred`].
-    pub memory: u64,
 }
 
 impl Limits {
-    /// The limits the viewers read by, and 256 MiB of memory.
+    /// The limits the viewers read by.
     pub const VIEWERS: Limits = Limits {
         image: MAX_IMAGE_BYTES,
         text: MAX_BYTES,
-        memory: 256 * MIB,
     };
 
     fn for_kind(&self, kind: ShownKind) -> u64 {
@@ -43,6 +41,100 @@ impl Limits {
             ShownKind::Image => self.image,
             _ => self.text,
         }
+    }
+}
+
+/// What a snapshot does with the content of a file it reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hold {
+    /// The bytes are held, so a copy can be made of them later.
+    Bytes,
+    /// The bytes are hashed as they stream by and not held. This is all
+    /// a mode that keeps no copy needs.
+    Fingerprint,
+}
+
+impl Hold {
+    /// What `mode` needs of a file it is shown.
+    pub fn for_mode(mode: KeepFiles) -> Hold {
+        match mode {
+            KeepFiles::Off => Hold::Fingerprint,
+            KeepFiles::Compact | KeepFiles::Exact => Hold::Bytes,
+        }
+    }
+}
+
+/// The bytes of file content that snapshots may hold in memory at once. Clones
+/// share one count, so every snapshot waiting for the worker draws on the
+/// same budget. Claiming never waits: what does not fit is left to be read
+/// later by its path.
+#[derive(Debug, Clone)]
+pub struct MemoryBudget {
+    unclaimed: Arc<AtomicU64>,
+}
+
+impl MemoryBudget {
+    /// What the snapshots of one run hold together: 256 MiB.
+    pub const RUN: u64 = 256 * MIB;
+
+    pub fn new(bytes: u64) -> Self {
+        MemoryBudget {
+            unclaimed: Arc::new(AtomicU64::new(bytes)),
+        }
+    }
+
+    /// The bytes nobody holds.
+    pub fn unclaimed(&self) -> u64 {
+        self.unclaimed.load(Ordering::SeqCst)
+    }
+
+    /// Takes `bytes` and says whether they were there.
+    fn claim(&self, bytes: u64) -> bool {
+        self.unclaimed
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                left.checked_sub(bytes)
+            })
+            .is_ok()
+    }
+
+    fn give_back(&self, bytes: u64) {
+        self.unclaimed.fetch_add(bytes, Ordering::SeqCst);
+    }
+}
+
+/// The part of a [`MemoryBudget`] one snapshot holds. It goes back when the
+/// snapshot is dropped, and file by file earlier, as the bytes of a file
+/// are processed.
+#[derive(Debug)]
+pub struct Reservation {
+    budget: MemoryBudget,
+    bytes: u64,
+}
+
+impl Reservation {
+    fn none() -> Self {
+        Reservation {
+            budget: MemoryBudget::new(0),
+            bytes: 0,
+        }
+    }
+
+    /// Returns `bytes` of what is held to the budget.
+    pub fn release(&mut self, bytes: u64) {
+        let bytes = bytes.min(self.bytes);
+        self.bytes -= bytes;
+        self.budget.give_back(bytes);
+    }
+
+    /// The bytes still held.
+    pub fn held(&self) -> u64 {
+        self.bytes
+    }
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        self.budget.give_back(self.bytes);
     }
 }
 
@@ -57,11 +149,22 @@ pub struct FileBytes {
     pub sha256: String,
 }
 
+/// A file as hashed, with its content not held.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fingerprint {
+    pub size: u64,
+    /// The modification time as RFC 3339 in UTC, when the system tells.
+    pub modified: Option<String>,
+    pub sha256: String,
+}
+
 /// What became of one file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Seen {
     Read(FileBytes),
-    /// Within the limits but past the memory cap.
+    /// Hashed while it streamed by, with no bytes held ([`Hold::Fingerprint`]).
+    Hashed(Fingerprint),
+    /// Within the limits but past what the memory budget had left.
     Deferred,
     /// Larger than its limit: never read, so not fingerprinted.
     TooLarge {
@@ -82,24 +185,45 @@ pub struct Place {
 }
 
 /// The files a session names, in the order the session lists them.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Snapshot {
     pub places: Vec<Place>,
+    /// The part of the memory budget the bytes in `places` take.
+    pub held: Reservation,
 }
 
-/// Reads every file the raw `session` names.
-pub fn snapshot(session: &[u8], limits: &Limits) -> Snapshot {
-    snapshot_with(session, limits, &|_| {})
+impl Default for Snapshot {
+    fn default() -> Self {
+        Snapshot {
+            places: Vec::new(),
+            held: Reservation::none(),
+        }
+    }
+}
+
+/// Reads every file the raw `session` names, holding what `hold` says and
+/// at most what is left of `budget`.
+pub fn snapshot(session: &[u8], limits: &Limits, hold: Hold, budget: &MemoryBudget) -> Snapshot {
+    snapshot_with(session, limits, hold, budget, &|_| {})
 }
 
 /// [`snapshot`], calling `between` with a file's path after its size was
 /// taken and before its bytes are read, so a test can change the file at
 /// that moment.
-pub(crate) fn snapshot_with(session: &[u8], limits: &Limits, between: &dyn Fn(&Path)) -> Snapshot {
+pub(crate) fn snapshot_with(
+    session: &[u8],
+    limits: &Limits,
+    hold: Hold,
+    budget: &MemoryBudget,
+    between: &dyn Fn(&Path),
+) -> Snapshot {
     let Ok(mut raw) = serde_json::from_slice::<Value>(session) else {
         return Snapshot::default();
     };
-    let mut memory = limits.memory;
+    let mut held = Reservation {
+        budget: budget.clone(),
+        bytes: 0,
+    };
     let places = places_mut(&mut raw)
         .into_iter()
         .map(|(kind, object)| {
@@ -107,27 +231,36 @@ pub(crate) fn snapshot_with(session: &[u8], limits: &Limits, between: &dyn Fn(&P
                 .as_str()
                 .expect("places hold a string path")
                 .to_owned();
-            let seen = observe(&path, limits.for_kind(kind), Some(&mut memory), between);
+            let seen = observe(&path, limits.for_kind(kind), hold, &mut held, between);
             Place { kind, path, seen }
         })
         .collect();
-    Snapshot { places }
+    Snapshot { places, held }
 }
 
-impl Snapshot {
-    /// Reads the files [`snapshot`] left because the memory cap was
-    /// reached, with no cap.
-    pub fn resolve_deferred(&mut self, limits: &Limits) {
-        for place in &mut self.places {
-            if place.seen == Seen::Deferred {
-                place.seen = observe(&place.path, limits.for_kind(place.kind), None, &|_| {});
-            }
+impl Place {
+    /// Reads the file of a place [`snapshot`] left because the memory budget
+    /// was used up, with no budget. Any other place is returned as it is.
+    pub fn resolved(mut self, limits: &Limits, hold: Hold) -> Place {
+        if self.seen == Seen::Deferred {
+            let mut unbudgeted = Reservation {
+                budget: MemoryBudget::new(u64::MAX),
+                bytes: 0,
+            };
+            self.seen = observe(
+                &self.path,
+                limits.for_kind(self.kind),
+                hold,
+                &mut unbudgeted,
+                &|_| {},
+            );
         }
+        self
     }
 }
 
 /// Looks at the file at `path`, and reads it unless it is over `limit`
-/// bytes or, with a `memory` budget, over what is left of it.
+/// bytes or what `held` can still claim from its budget.
 ///
 /// The file is opened by the rule every viewer of a file follows
 /// ([`regular_file::open`]), so a FIFO or a device never blocks the thread
@@ -135,7 +268,13 @@ impl Snapshot {
 /// The size comes from the opened handle. A file whose length differs from
 /// it once read has changed under the read, and its bytes match neither
 /// state, so it counts as unreadable.
-fn observe(path: &str, limit: u64, memory: Option<&mut u64>, between: &dyn Fn(&Path)) -> Seen {
+fn observe(
+    path: &str,
+    limit: u64,
+    hold: Hold,
+    held: &mut Reservation,
+    between: &dyn Fn(&Path),
+) -> Seen {
     let path_buf = Path::new(path);
     if path_buf.is_relative() {
         return Seen::Unreadable("relative path".to_owned());
@@ -163,28 +302,54 @@ fn observe(path: &str, limit: u64, memory: Option<&mut u64>, between: &dyn Fn(&P
             reason: format!("larger than {}", described(limit)),
         };
     }
-    if let Some(memory) = memory {
-        if size > *memory {
-            return Seen::Deferred;
+    match hold {
+        Hold::Fingerprint => {
+            between(path_buf);
+            // Reading one byte past the limit lets a file that grew beyond
+            // it show as a length that differs from the size.
+            let mut hashing = HashingReader::new(file.take(limit + 1));
+            let streamed = match io::copy(&mut hashing, &mut io::sink()) {
+                Ok(streamed) => streamed,
+                Err(error) => return Seen::Unreadable(error.to_string()),
+            };
+            if streamed != size {
+                return Seen::Unreadable(CHANGED_WHILE_READ.to_owned());
+            }
+            Seen::Hashed(Fingerprint {
+                size,
+                modified,
+                sha256: hashing.finish(),
+            })
         }
-        *memory -= size;
+        Hold::Bytes => {
+            if !held.budget.claim(size) {
+                return Seen::Deferred;
+            }
+            held.bytes += size;
+            between(path_buf);
+            let mut bytes = Vec::new();
+            // Reading one byte past the limit lets a file that grew beyond
+            // it show as a length that differs from the size.
+            let read = file.take(limit + 1).read_to_end(&mut bytes);
+            let failure = match read {
+                Err(error) => Some(error.to_string()),
+                Ok(_) if bytes.len() as u64 != size => Some(CHANGED_WHILE_READ.to_owned()),
+                Ok(_) => None,
+            };
+            if let Some(reason) = failure {
+                held.release(size);
+                return Seen::Unreadable(reason);
+            }
+            Seen::Read(FileBytes {
+                sha256: sha256_hex(&bytes),
+                bytes,
+                modified,
+            })
+        }
     }
-    between(path_buf);
-    // Reading one byte past the limit lets a file that grew beyond it show
-    // as a length that differs from the size.
-    let mut bytes = Vec::new();
-    if let Err(error) = file.take(limit + 1).read_to_end(&mut bytes) {
-        return Seen::Unreadable(error.to_string());
-    }
-    if bytes.len() as u64 != size {
-        return Seen::Unreadable("changed while it was read".to_owned());
-    }
-    Seen::Read(FileBytes {
-        sha256: sha256_hex(&bytes),
-        bytes,
-        modified,
-    })
 }
+
+const CHANGED_WHILE_READ: &str = "changed while it was read";
 
 /// `limit` in the words of the viewers' refusals: whole mebibytes as
 /// such, anything else in bytes.

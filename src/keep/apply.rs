@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use super::KeepFiles;
 use super::record::record;
-use super::snapshot::{Limits, Snapshot, snapshot, snapshot_with};
+use super::snapshot::{Hold, Limits, MemoryBudget, Snapshot, snapshot, snapshot_with};
 use super::store::{place, stage};
 use crate::queue::{
     ArchivedSession, DRAFTS_LOCK_ATTEMPTS, QueueLocation, lock_drafts, session_sha256,
@@ -73,40 +73,50 @@ pub enum Kept {
 /// copy therefore lies under its name only once a recording that refers to
 /// it was written, and a failure or a crash before the rename leaves the
 /// plain session and, at worst, temp files for the compaction's sweep.
-pub fn keep(job: &KeepJob, between: &dyn Fn()) -> io::Result<Kept> {
+pub fn keep(job: KeepJob, between: &dyn Fn()) -> io::Result<Kept> {
     keep_with(job, between, &write_atomically)
 }
 
 /// [`keep`] with the step that writes the recording over the archived
 /// session given, so a test can make it fail after the copies are placed.
 fn keep_with(
-    job: &KeepJob,
+    job: KeepJob,
     between: &dyn Fn(),
     write_recording: &dyn Fn(&Path, &[u8]) -> io::Result<()>,
 ) -> io::Result<Kept> {
-    let mut snapshot = job.snapshot.clone();
-    snapshot.resolve_deferred(&Limits::VIEWERS);
-    let recording = record(&job.archived.bytes, &snapshot, job.mode);
-    if recording.copies.is_empty() && recording.json == job.archived.bytes {
-        return Ok(Kept::NothingToRecord);
-    }
-
-    let files_dir = job.location.kept_files();
+    let KeepJob {
+        location,
+        archived,
+        snapshot,
+        mode,
+        lock_attempts,
+    } = job;
+    let files_dir = location.kept_files();
     let mut staged = Vec::new();
-    for copy in &recording.copies {
-        staged.push((copy.name.as_str(), stage(&files_dir, &copy.bytes)?));
+    let recording = record(
+        &archived.bytes,
+        snapshot,
+        mode,
+        &Limits::VIEWERS,
+        &mut |copy| {
+            staged.push((copy.name.clone(), stage(&files_dir, &copy.bytes)?));
+            Ok(())
+        },
+    )?;
+    if recording.copies == 0 && recording.json == archived.bytes {
+        return Ok(Kept::NothingToRecord);
     }
     between();
 
-    let _lock = match lock_drafts(&job.location, job.lock_attempts) {
+    let _lock = match lock_drafts(&location, lock_attempts) {
         Ok(lock) => lock,
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
             return Ok(Kept::Skipped("the drafts lock is busy"));
         }
         Err(error) => return Err(error),
     };
-    match fs::read(&job.archived.path) {
-        Ok(now) if now == job.archived.bytes => {}
+    match fs::read(&archived.path) {
+        Ok(now) if now == archived.bytes => {}
         Ok(_) => return Ok(Kept::Skipped(CHANGED)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(Kept::Skipped(CHANGED));
@@ -120,14 +130,14 @@ fn keep_with(
     let mut created: Vec<PathBuf> = Vec::new();
     let placed = (|| {
         for (name, copy) in staged {
-            let target = files_dir.join(name);
+            let target = files_dir.join(&name);
             let free = !target.exists();
-            place(&files_dir, name, copy)?;
+            place(&files_dir, &name, copy)?;
             if free {
                 created.push(target);
             }
         }
-        write_recording(&job.archived.path, &recording.json)
+        write_recording(&archived.path, &recording.json)
     })();
     if let Err(error) = placed {
         for target in &created {
@@ -145,9 +155,15 @@ const CHANGED: &str = "the archived session changed or is gone";
 /// The snapshot of the inbox file at `path`, which the person saw with the
 /// hash `sha256`. A file that holds other bytes by now, or cannot be read,
 /// gives an empty snapshot: the finish will not go through for it either.
-pub fn snapshot_seen(path: &Path, sha256: &str, limits: &Limits) -> Snapshot {
+pub fn snapshot_seen(
+    path: &Path,
+    sha256: &str,
+    limits: &Limits,
+    hold: Hold,
+    budget: &MemoryBudget,
+) -> Snapshot {
     match fs::read(path) {
-        Ok(bytes) if session_sha256(&bytes) == sha256 => snapshot(&bytes, limits),
+        Ok(bytes) if session_sha256(&bytes) == sha256 => snapshot(&bytes, limits, hold, budget),
         _ => Snapshot::default(),
     }
 }
@@ -173,9 +189,15 @@ pub fn record_fingerprints(
     archived: ArchivedSession,
     reading: &dyn Fn(&Path),
 ) -> io::Result<Kept> {
-    let snapshot = snapshot_with(&archived.bytes, &Limits::VIEWERS, reading);
+    let snapshot = snapshot_with(
+        &archived.bytes,
+        &Limits::VIEWERS,
+        Hold::Fingerprint,
+        &MemoryBudget::new(0),
+        reading,
+    );
     keep(
-        &KeepJob::new(location.clone(), archived, snapshot, KeepFiles::Off),
+        KeepJob::new(location.clone(), archived, snapshot, KeepFiles::Off),
         &|| {},
     )
 }

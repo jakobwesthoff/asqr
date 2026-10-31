@@ -6,11 +6,13 @@
 //! 5.1): its paths point at the kept copies, and each shown file gets a
 //! `shown` object with the original path and a fingerprint.
 
+use std::io;
+
 use serde_json::{Map, Value, json};
 
 use super::places::places_mut;
 use super::processor::processor_for;
-use super::snapshot::{FileBytes, Seen, Snapshot};
+use super::snapshot::{Hold, Limits, Seen, Snapshot};
 use super::{KeepFiles, sha256_hex};
 
 /// A file to keep: its bytes, under the name they hash to.
@@ -25,7 +27,8 @@ pub struct Copy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordedSession {
     pub json: Vec<u8>,
-    pub copies: Vec<Copy>,
+    /// How many different copies were handed to the sink.
+    pub copies: usize,
 }
 
 /// Records `snapshot`, taken of the raw `session`, as `mode` keeps files.
@@ -34,46 +37,77 @@ pub struct RecordedSession {
 /// A session that shows no file, or that is no JSON object, comes back as
 /// it is: there is nothing to record, and a session without an `archived`
 /// object is paired with its result by the hash of its own bytes.
-pub fn record(session: &[u8], snapshot: &Snapshot, mode: KeepFiles) -> RecordedSession {
+pub fn record(
+    session: &[u8],
+    snapshot: Snapshot,
+    mode: KeepFiles,
+    limits: &Limits,
+    keep_copy: &mut dyn FnMut(Copy) -> io::Result<()>,
+) -> io::Result<RecordedSession> {
     let unchanged = || RecordedSession {
         json: session.to_vec(),
-        copies: Vec::new(),
+        copies: 0,
     };
     let Ok(mut raw) = serde_json::from_slice::<Value>(session) else {
-        return unchanged();
+        return Ok(unchanged());
     };
+    let Snapshot {
+        places: seen,
+        mut held,
+    } = snapshot;
     let mut places = places_mut(&mut raw);
-    let same_places = places.len() == snapshot.places.len()
+    let same_places = places.len() == seen.len()
         && places
             .iter()
-            .zip(&snapshot.places)
+            .zip(&seen)
             .all(|((_, object), seen)| object["path"] == seen.path.as_str());
     if places.is_empty() || !same_places {
-        return unchanged();
+        return Ok(unchanged());
     }
 
-    let mut copies: Vec<Copy> = Vec::new();
-    for ((kind, object), place) in places.iter_mut().zip(&snapshot.places) {
+    // Each file is processed and handed to the sink before the next one is
+    // read or processed, so a session of many large files never holds more
+    // than the bytes of the snapshot and of one file at a time.
+    let mut names: Vec<String> = Vec::new();
+    for ((kind, object), place) in places.iter_mut().zip(seen) {
+        // A deferred file is not part of what the snapshot holds, so
+        // nothing of the reservation goes back for it.
+        let held_bytes = match &place.seen {
+            Seen::Read(file) => file.bytes.len() as u64,
+            _ => 0,
+        };
+        let place = place.resolved(limits, Hold::for_mode(mode));
         let mut shown = Map::new();
         shown.insert("original_path".to_owned(), json!(place.path));
-        match &place.seen {
+        match place.seen {
             Seen::Read(file) if mode != KeepFiles::Off => {
-                let processed = processor_for(*kind, mode).process(&file.bytes, &place.path);
+                let size = file.bytes.len() as u64;
+                fingerprint(&mut shown, &file.sha256, size, &file.modified);
+                let processed = processor_for(*kind, mode).process(file.bytes, &place.path);
                 let name = format!("{}.{}", sha256_hex(&processed.bytes), processed.extension);
                 shown.insert("state".to_owned(), json!("kept"));
-                fingerprint(&mut shown, file);
                 shown.insert("kept_size".to_owned(), json!(processed.bytes.len()));
                 object["path"] = json!(format!("files/{name}"));
-                if !copies.iter().any(|copy| copy.name == name) {
-                    copies.push(Copy {
+                if !names.contains(&name) {
+                    names.push(name.clone());
+                    keep_copy(Copy {
                         name,
                         bytes: processed.bytes,
-                    });
+                    })?;
                 }
             }
             Seen::Read(file) => {
                 shown.insert("state".to_owned(), json!("not_kept"));
-                fingerprint(&mut shown, file);
+                fingerprint(
+                    &mut shown,
+                    &file.sha256,
+                    file.bytes.len() as u64,
+                    &file.modified,
+                );
+            }
+            Seen::Hashed(file) => {
+                shown.insert("state".to_owned(), json!("not_kept"));
+                fingerprint(&mut shown, &file.sha256, file.size, &file.modified);
             }
             Seen::TooLarge {
                 size,
@@ -82,7 +116,7 @@ pub fn record(session: &[u8], snapshot: &Snapshot, mode: KeepFiles) -> RecordedS
             } => {
                 shown.insert("state".to_owned(), json!("not_kept"));
                 shown.insert("size".to_owned(), json!(size));
-                insert_modified(&mut shown, modified);
+                insert_modified(&mut shown, &modified);
                 shown.insert("reason".to_owned(), json!(reason));
             }
             Seen::Missing => {
@@ -92,12 +126,10 @@ pub fn record(session: &[u8], snapshot: &Snapshot, mode: KeepFiles) -> RecordedS
                 shown.insert("state".to_owned(), json!("unreadable"));
                 shown.insert("reason".to_owned(), json!(reason));
             }
-            Seen::Deferred => {
-                shown.insert("state".to_owned(), json!("unreadable"));
-                shown.insert("reason".to_owned(), json!("not read in time"));
-            }
+            Seen::Deferred => unreachable!("deferred files are read before they are recorded"),
         }
         object["shown"] = Value::Object(shown);
+        held.release(held_bytes);
     }
     drop(places);
 
@@ -107,15 +139,18 @@ pub fn record(session: &[u8], snapshot: &Snapshot, mode: KeepFiles) -> RecordedS
     });
     let mut json = serde_json::to_vec_pretty(&raw).expect("a serde_json Value always serializes");
     json.push(b'\n');
-    RecordedSession { json, copies }
+    Ok(RecordedSession {
+        json,
+        copies: names.len(),
+    })
 }
 
 /// The fields every file that was read has: the fingerprint of the
 /// original bytes, their size and the file's modification time.
-fn fingerprint(shown: &mut Map<String, Value>, file: &FileBytes) {
-    shown.insert("sha256".to_owned(), json!(file.sha256));
-    shown.insert("size".to_owned(), json!(file.bytes.len()));
-    insert_modified(shown, &file.modified);
+fn fingerprint(shown: &mut Map<String, Value>, sha256: &str, size: u64, modified: &Option<String>) {
+    shown.insert("sha256".to_owned(), json!(sha256));
+    shown.insert("size".to_owned(), json!(size));
+    insert_modified(shown, modified);
 }
 
 fn insert_modified(shown: &mut Map<String, Value>, modified: &Option<String>) {

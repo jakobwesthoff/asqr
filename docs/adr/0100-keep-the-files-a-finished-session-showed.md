@@ -121,7 +121,14 @@ limits above and hashes it, before the result is written, so an agent that
 removes its temporary files after `asqr wait` returns cannot take them
 away. At most 256 MiB is held; a file that does not fit is read by the
 worker from its path, and an agent that removes it first leaves it
-`missing`. Encoding and writing stay off the TUI thread: the result is
+`missing`. Under `off` no content is held at all: a file is hashed while it
+is read, which `asqr withdraw` and `ask --replaces` do as well. The worker
+handles one file at a time: it reads a file that was left to it when its
+turn comes, processes it, writes its copy as a temp file and only then goes
+on to the next, and the job gives the memory of a file back to the budget
+as soon as that file is done. A job is consumed when it runs and a
+processor takes the bytes of a file by value, so a file that is kept as it
+is exists once in memory. Encoding and writing stay off the TUI thread: the result is
 written, the session is archived by a plain rename and the draft deleted
 as before, and then a job goes to one worker thread per run, which serves
 every queue the run shows. Measured in a release build on the six largest
