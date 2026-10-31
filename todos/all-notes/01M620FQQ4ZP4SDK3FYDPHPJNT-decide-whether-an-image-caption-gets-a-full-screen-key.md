@@ -55,6 +55,13 @@ only):
 - If so: which key, what it shows (caption alone, or caption with a
   small image), and how it goes back (`c`, `esc`).
 
+## Re-checked (Jakob, 2026-10-31, in the chat)
+
+No new key for now. Captions stay in the pane, and the todo waits for its
+trigger. Rejected: `z` from a pane showing image and caption first (which
+would amend ADR 69), a `c` key showing the caption alone, and closing the
+todo.
+
 ## Revisit when
 
 Long captions turn out to be hard to read in practice, for example

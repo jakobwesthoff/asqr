@@ -35,6 +35,14 @@ room left for other multiplexers later ("later, keep open").
   every pane of it reads, as tmux does with `set-environment`?
 - Detection: which variables tell asqr it runs inside which multiplexer.
 
+## Re-checked (Jakob, 2026-10-31, in the chat)
+
+Kept for later, tmux-only pairing stays (ADR 85). The lead's check that
+day: zellij documents no per-session variable asqr could write, so a pin
+as tmux has would have to live in a file under the data root; pairing
+through `ZELLIJ_SESSION_NAME` alone would need no pin. Rejected for now:
+zellij by session name, zellij with a pin, zellij and GNU screen.
+
 ## Revisit when
 
 No trigger known; reconsider at the next sweep.

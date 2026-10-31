@@ -49,6 +49,13 @@ clips only at the right and bottom, so it does not cut the top.
 
 Estimate for half blocks and Kitty: about 200 to 300 lines with tests.
 
+## Re-checked (Jakob, 2026-10-31, in the chat)
+
+Kept for later: no screen scrolls an image with its text, since captions
+use the Fit layout (ADR 69). Rejected for now: partial drawing in half
+blocks and Kitty only, partial drawing in all four protocols, and closing
+the todo.
+
 ## Revisit when
 
 A pane needs to scroll an image together with other content, or the
