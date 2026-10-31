@@ -6,12 +6,28 @@ site:
   label: Queues and settings
   order: 4
 ---
-Sessions wait in a queue. A queue is a directory with an inbox for the
-sessions, an outbox for the results, a place for drafts and an archive.
-One asqr watches one queue. This page covers choosing the queue, moving
-between queues and the lists asqr shows about them.
+Sessions wait in a queue, and one asqr watches one queue. Queues keep the
+questions of your projects apart, and most of the time they need no setup.
+
+## Most of the time
+
+- Inside tmux, each tmux session has a queue of its own, which asqr and
+  the agents of that tmux session use without any setup.
+- Outside tmux, asqr and your agents use the default queue.
+- To keep the questions of a project apart outside tmux, start `asqr
+  --queue <name>` and tell your agent to use `--queue <name>` too.
+- Once there is a queue besides `default` that no other asqr watches, a
+  plain `asqr` outside tmux asks which queue to watch before it starts.
+  `↑`/`↓` and `enter` pick one; [the start picker](#the-start-picker)
+  below shows it.
+
+The rest of this page covers choosing the queue in detail, moving between
+queues and the lists asqr shows about them.
 
 ## Which queue
+
+A queue is a directory with an inbox for the sessions, an outbox for the
+results, a place for drafts and an archive.
 
 The default queue lives in the platform's data directory, in
 `~/Library/Application Support/asqr/` on macOS and

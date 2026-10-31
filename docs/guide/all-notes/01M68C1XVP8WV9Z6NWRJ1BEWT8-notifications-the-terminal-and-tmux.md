@@ -2,7 +2,7 @@
 title: "Notifications, the terminal and tmux"
 tags: [guide/queues]
 site:
-  order: 3
+  order: 4
 ---
 asqr uses what your terminal offers to tell you that a session arrived and
 how far you are. This page lists what it sends and what tmux has to allow.

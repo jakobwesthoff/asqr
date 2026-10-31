@@ -4,8 +4,10 @@ tags: [guide/queues]
 site:
   order: 2
 ---
-asqr has four settings. You change them in asqr with `,`, and asqr keeps
-them in a file.
+asqr has four settings. The first time asqr starts, it asks one of them,
+whether it keeps copies of the files a session showed. After that, `,`
+opens the settings pane, where `↑`/`↓` move between the settings and
+`←`/`→` change one, saved at once. asqr keeps them in a file.
 
 ## The settings pane
 
