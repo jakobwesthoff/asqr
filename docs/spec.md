@@ -1015,8 +1015,9 @@ due:
   A result stays in the outbox while a session of its id waits in the
   inbox, as recovery (section 5.7) decides what happens to that pair.
   Once a result has left the outbox, it no longer stops a new `ask` of
-  its id (section 5.5); `asqr result <id>` still prints it until the new
-  session is answered.
+  its id (section 5.5); `asqr result <id>` still prints it from the
+  archive until a new session of that id is asked, and then reports
+  that session as waiting.
 
 An entry that comes due after its month's bundle exists joins that
 bundle, so a month never has two. A bundle is never changed in place:

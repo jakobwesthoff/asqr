@@ -107,8 +107,9 @@ bundling after 7 days or at any command; `asqr archive` and
 ## Consequences
 
 - A result older than 30 days is no longer in the outbox, so it no longer
-  stops a new `ask` of its id; `asqr result <id>` still prints it until
-  the new session is answered.
+  stops a new `ask` of its id; `asqr result <id>` still prints it from the
+  archive until a new session of that id is asked, and then reports that
+  session as waiting.
 - `zip` is released often (ten releases in 18 days, 9.0.0 to 9.1.3);
   `Cargo.lock` fixes the version.
 - The extra field `0xA5C1` carries the bundling time because the standard

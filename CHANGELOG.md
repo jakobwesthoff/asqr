@@ -65,10 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `status` lists bundled results among the answered sessions. The header
   of a session that `follows` another shows the title of a bundled
   session too.
-- A result older than 30 days leaves the outbox, so it no longer stops a
-  new `ask` of its id. `asqr result <id>` still prints it from the
-  archive until the new session is answered.
-
 - `asqr prune --older-than` takes the units `d`, `w`, `mo` and `y`, at
   least 30 days, and deletes the month bundles and archive entries of
   months that are entirely older than the age. Without `--yes` it only
@@ -76,7 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   covers the removal of named queues that hold nothing too.
 - A result older than 30 days leaves the outbox, so it no longer stops a
   new `ask` of its id. `asqr result <id>` still prints it from the
-  archive until the new session is answered.
+  archive until a new session of that id is asked, and then reports that
+  session as waiting.
 
 ### Removed
 
