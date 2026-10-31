@@ -182,6 +182,9 @@ pub struct SettingsStore {
     path: Option<PathBuf>,
     values: Settings,
     locks: Locks,
+    /// Whether the read at [`SettingsStore::load`] found no file, as
+    /// opposed to one it could not read.
+    file_absent: bool,
 }
 
 /// The settings a flag or a variable fixes for a run, each with the value
@@ -229,17 +232,18 @@ impl SettingsStore {
     /// wrong with the file never fails the read: every setting the file
     /// cannot give takes its default, and `warnings` says why.
     pub fn load(path: Option<PathBuf>, locks: Locks) -> Loaded {
-        let (values, warnings) = match path.as_deref() {
+        let read = match path.as_deref() {
             Some(path) => read_file(path),
-            None => (Settings::default(), Vec::new()),
+            None => FileRead::default(),
         };
         Loaded {
             store: SettingsStore {
                 path,
-                values,
+                values: read.settings,
                 locks,
+                file_absent: read.absent,
             },
-            warnings,
+            warnings: read.warnings,
         }
     }
 
@@ -273,6 +277,24 @@ impl SettingsStore {
         self.path.as_deref()
     }
 
+    /// Whether the TUI asks the settings that need a deliberate answer
+    /// before it starts: when there is no settings file. A file that is
+    /// there, whatever it holds, was written by an earlier asqr or by hand,
+    /// and a setting a variable holds is decided already.
+    pub fn asks_first_start(&self) -> bool {
+        self.file_absent && self.lock(Setting::KeepFiles).is_none()
+    }
+
+    /// Sets `setting` to its value number `choice` for this run. Says
+    /// whether it did: a setting a flag or a variable holds does not move.
+    pub fn choose(&mut self, setting: Setting, choice: usize) -> bool {
+        if self.lock(setting).is_some() {
+            return false;
+        }
+        self.values = self.values.with_choice(setting, choice);
+        true
+    }
+
     /// Which of the values of `setting`, in the order the pane cycles
     /// through them, is in effect.
     pub fn choice(&self, setting: Setting) -> usize {
@@ -283,17 +305,13 @@ impl SettingsStore {
     /// the ends, for this run. Says whether it moved: a setting a flag or
     /// a variable holds does not.
     pub fn step(&mut self, setting: Setting, direction: Direction) -> bool {
-        if self.lock(setting).is_some() {
-            return false;
-        }
         let count = setting.choices();
         let current = self.values.choice(setting);
         let next = match direction {
             Direction::Next => (current + 1) % count,
             Direction::Previous => (current + count - 1) % count,
         };
-        self.values = self.values.with_choice(setting, next);
-        true
+        self.choose(setting, next)
     }
 
     /// Writes the value `setting` has now into the settings file.
@@ -428,22 +446,39 @@ pub(crate) fn file_reads_on_this_thread() -> usize {
     FILE_READS.with(std::cell::Cell::get)
 }
 
+/// What reading the settings file gave.
+#[derive(Default)]
+struct FileRead {
+    settings: Settings,
+    warnings: Vec<String>,
+    /// There was no file to read.
+    absent: bool,
+}
+
 /// Reads the settings from the file at `path`: a file that is not there
 /// holds none, and one that cannot be read gives every default.
-fn read_file(path: &Path) -> (Settings, Vec<String>) {
+fn read_file(path: &Path) -> FileRead {
     #[cfg(test)]
     FILE_READS.with(|reads| reads.set(reads.get() + 1));
     match std::fs::read_to_string(path) {
-        Ok(text) => parse(&text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            (Settings::default(), Vec::new())
+        Ok(text) => {
+            let (settings, warnings) = parse(&text);
+            FileRead {
+                settings,
+                warnings,
+                absent: false,
+            }
         }
-        Err(error) => (
-            Settings::default(),
-            vec![format!(
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => FileRead {
+            absent: true,
+            ..FileRead::default()
+        },
+        Err(error) => FileRead {
+            warnings: vec![format!(
                 "cannot read {FILE_NAME}: {error}; every setting takes its default"
             )],
-        ),
+            ..FileRead::default()
+        },
     }
 }
 
@@ -1122,6 +1157,84 @@ mod tests {
 
         assert_eq!(store.effective().keep_files, KeepFiles::Off);
         assert!(store.step(Setting::Context, Direction::Next), "others move");
+    }
+
+    #[test]
+    fn a_missing_settings_file_asks_the_first_start() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let missing = scratch.path().join("asqr").join(FILE_NAME);
+
+        let store = SettingsStore::load(Some(missing), Locks::default()).store;
+
+        assert!(store.asks_first_start());
+    }
+
+    #[test]
+    fn a_file_that_is_there_never_asks_the_first_start() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let directory = scratch.path().join("a-directory-in-its-place");
+        std::fs::create_dir(&directory).expect("directory");
+        let cases = [
+            ("an empty file", loaded(b"").0.store),
+            (
+                "a file without keep_files",
+                loaded(b"diff_layout = \"unified\"\n").0.store,
+            ),
+            ("a file that does not parse", loaded(b"context =\n").0.store),
+            (
+                "something that cannot be read as a file",
+                SettingsStore::load(Some(directory), Locks::default()).store,
+            ),
+        ];
+
+        for (what, store) in cases {
+            assert!(!store.asks_first_start(), "{what}");
+        }
+    }
+
+    #[test]
+    fn a_held_keep_files_setting_never_asks_the_first_start() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let missing = scratch.path().join(FILE_NAME);
+
+        let store = SettingsStore::load(
+            Some(missing),
+            Locks {
+                keep_files: Some((KeepFiles::Off, Lock::Variable("ASQR_KEEP_FILES"))),
+                ..Locks::default()
+            },
+        )
+        .store;
+
+        assert!(!store.asks_first_start());
+    }
+
+    #[test]
+    fn with_no_place_for_a_file_nothing_asks_the_first_start() {
+        let store = SettingsStore::load(None, Locks::default()).store;
+
+        assert!(!store.asks_first_start());
+    }
+
+    #[test]
+    fn choose_sets_a_value_outright_and_refuses_a_held_setting() {
+        let mut store = SettingsStore::default();
+
+        assert!(store.choose(Setting::KeepFiles, 2));
+        assert_eq!(store.effective().keep_files, KeepFiles::Off);
+        assert!(store.choose(Setting::KeepFiles, 0));
+        assert_eq!(store.effective().keep_files, KeepFiles::Compact);
+
+        let mut held = SettingsStore::load(
+            None,
+            Locks {
+                keep_files: Some((KeepFiles::Exact, Lock::Variable("ASQR_KEEP_FILES"))),
+                ..Locks::default()
+            },
+        )
+        .store;
+        assert!(!held.choose(Setting::KeepFiles, 2));
+        assert_eq!(held.effective().keep_files, KeepFiles::Exact);
     }
 
     #[test]
