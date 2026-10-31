@@ -1630,10 +1630,12 @@ entry's archive ULID, of which 6 or more are accepted, in any case.
     when the same original path and SHA-256 are shown at two places with
     two different kept copies it names the first. The values a state does
     not have are `null`.
-  - `extracted_to` is the absolute directory given to `--extract`, else
-    `null`. No file's bytes are printed.
+  - `extracted_to` is the absolute directory given to `--extract`,
+    without a trailing separator and with the links above it as they are
+    named, else `null`. No file's bytes are printed.
 - `--extract <dir>` writes `session.json`, the archived session as
-  stored with its kept `path`s as `files/<sha256>.<extension>`;
+  stored with its kept `path`s as `files/<sha256>.<extension>`, which
+  resolve below `<dir>` for a good copy only;
   `result.json`, the result as `--json` gives it, absent without a
   result; and `files/<sha256>.<extension>`, each good kept copy once. The
   names come from content only, and the original paths are in
@@ -1642,7 +1644,9 @@ entry's archive ULID, of which 6 or more are accepted, in any case.
     checked before anything is written, so a session that cannot be shown
     leaves an absent `<dir>` absent and an empty one empty.
   - `<dir>` must be absent or empty, hidden files counting. A symbolic
-    link at `<dir>`, a path that is not a directory and a `<dir>` inside
+    link at `<dir>` (also with a trailing separator), a path that is not a
+    directory, the current directory or one of its parents (the rename
+    would leave the shell in a directory that is gone), and a `<dir>` inside
     the data directory, the selected queue's directory or the directory
     of the queue the session was found in (judged by where the path really
     lies) are refused with `error: ` and exit code 1. There is no
@@ -1650,7 +1654,8 @@ entry's archive ULID, of which 6 or more are accepted, in any case.
   - The files are written into a staging directory next to `<dir>` (mode
     0700, files 0600) that is renamed onto `<dir>` at the end. A write
     error removes the staging directory and the parents the command
-    created, and ends with exit code 1.
+    created, and ends with exit code 1. A command that is killed leaves
+    its staging directory `.<name>.asqr-<ulid>` next to `<dir>`.
   - Without `--json`, stdout lists `extracted to <dir>`, `session.json`,
     `result.json` or `no result`, the number of files in `files/`, and
     for each shown file without a good copy a line `<original path>:

@@ -21,14 +21,15 @@ use crate::queue::{BundleError, EntryRef, LoadedReplay, ReplayError, ReplayFile,
 pub(super) type KeptCopy = (String, Vec<u8>);
 
 /// Loads `entry` for reading. Nothing is written: the copies of the kept
-/// files are checked against their hashes and collected, each once, and
-/// the session names them as `files/<name>`.
+/// files are checked against their hashes and, with `keep_copies`,
+/// collected, each once. The session names them as `files/<name>`.
 pub(super) fn load_for_reading(
     entry: &EntryRef,
+    keep_copies: bool,
 ) -> Result<(LoadedReplay, Vec<KeptCopy>), ReplayError> {
     let mut copies: Vec<KeptCopy> = Vec::new();
     let loaded = load_replay(entry, &mut |copy_name, _, bytes| {
-        if !copies.iter().any(|(name, _)| name == copy_name) {
+        if keep_copies && !copies.iter().any(|(name, _)| name == copy_name) {
             copies.push((copy_name.to_owned(), bytes.to_vec()));
         }
         Ok(PathBuf::from(format!("files/{copy_name}")))
@@ -65,7 +66,7 @@ pub(super) fn run_read(
             }
         },
     };
-    let (loaded, copies) = match load_for_reading(entry) {
+    let (loaded, copies) = match load_for_reading(entry, target.is_some()) {
         Ok(loaded) => loaded,
         Err(error) => {
             eprintln!("error: {error}");
@@ -108,19 +109,28 @@ pub(super) fn parse_directory(input: &str) -> Result<PathBuf, String> {
 // Where an extraction may go
 // =========================================================
 
-/// The directory `dir` names, absolute, when a session may be extracted
-/// into it, else why not.
+/// The directory `dir` names, made absolute and without a trailing
+/// separator, when a session may be extracted into it, else why not.
 ///
 /// The directory is judged by where it really lies, symbolic links in the
 /// directories above it resolved, so it cannot reach into `keep_out`
 /// through one. A directory that is a link itself is refused whatever it
-/// points at, since the staging directory is renamed onto the name and a
-/// link would be replaced, not filled.
+/// points at, since the staging directory is renamed onto the name and the
+/// link would be replaced, not filled. The current directory and its
+/// parents are refused for the same reason: the rename would leave the
+/// caller's shell in a directory that no longer exists. The name that is
+/// returned is the one given, not where links above it lead.
 pub(super) fn prepare_target(dir: &Path, keep_out: &[PathBuf]) -> Result<PathBuf, String> {
     let shown = plain_line(&dir.display().to_string());
     let refuse = |why: &str| format!("cannot extract into {shown}: {why}");
 
-    let target = resolved(dir).map_err(|error| refuse(&error.to_string()))?;
+    // A trailing separator would make the lookup of a link follow it, and
+    // the components leave it out.
+    let named: PathBuf = std::path::absolute(dir)
+        .map_err(|error| refuse(&error.to_string()))?
+        .components()
+        .collect();
+    let target = resolved(&named).map_err(|error| refuse(&error.to_string()))?;
     for forbidden in keep_out {
         let forbidden = resolved(forbidden).unwrap_or_else(|_| forbidden.clone());
         if target.starts_with(&forbidden) {
@@ -130,12 +140,21 @@ pub(super) fn prepare_target(dir: &Path, keep_out: &[PathBuf]) -> Result<PathBuf
         }
     }
 
-    match std::fs::symlink_metadata(dir) {
+    if let Ok(here) = std::env::current_dir().and_then(|here| here.canonicalize())
+        && here.starts_with(&target)
+    {
+        return Err(refuse(
+            "it is the current directory or one of its parents; name a new directory",
+        ));
+    }
+
+    match std::fs::symlink_metadata(&named) {
         Ok(found) if found.is_symlink() => return Err(refuse("it is a symbolic link")),
         Ok(found) if !found.is_dir() => return Err(refuse("it is not a directory")),
         Ok(_) => {
             // A hidden file counts: the directory is for the session alone.
-            let mut entries = std::fs::read_dir(dir).map_err(|error| refuse(&error.to_string()))?;
+            let mut entries =
+                std::fs::read_dir(&named).map_err(|error| refuse(&error.to_string()))?;
             if entries.next().is_some() {
                 return Err(refuse("it is not empty"));
             }
@@ -143,7 +162,7 @@ pub(super) fn prepare_target(dir: &Path, keep_out: &[PathBuf]) -> Result<PathBuf
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(refuse(&error.to_string())),
     }
-    Ok(target)
+    Ok(named)
 }
 
 /// `path` made absolute, with the links in the part that exists resolved

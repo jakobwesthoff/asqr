@@ -122,7 +122,7 @@ fn submitted(session: &Value) -> SessionResult {
 }
 
 fn read(entry: &EntryRef) -> Value {
-    let (loaded, _) = load_for_reading(entry).expect("loaded");
+    let (loaded, _) = load_for_reading(entry, false).expect("loaded");
     replay_json(&loaded, None)
 }
 
@@ -597,7 +597,7 @@ fn names_in(dir: &Path) -> Vec<String> {
 
 /// Loads `entry` and writes it below `dir` the way the command does.
 fn extract_into(entry: &EntryRef, dir: &Path) -> (LoadedReplay, Vec<KeptCopy>) {
-    let (loaded, copies) = load_for_reading(entry).expect("loaded");
+    let (loaded, copies) = load_for_reading(entry, true).expect("loaded");
     write_extraction(dir, &loaded, &copies, &mut write_to_disk).expect("written");
     (loaded, copies)
 }
@@ -777,7 +777,7 @@ fn an_existing_empty_directory_is_filled_and_no_staging_directory_stays() {
 fn a_write_that_fails_leaves_no_staging_directory_and_no_created_parent() {
     let (scene, entry, _, _) = answered_image();
     let out = out_dir(&scene).join("deep").join("er");
-    let (loaded, copies) = load_for_reading(&entry).expect("loaded");
+    let (loaded, copies) = load_for_reading(&entry, true).expect("loaded");
     let mut calls = 0;
 
     let error = write_extraction(&out, &loaded, &copies, &mut |path, bytes| {
@@ -801,7 +801,7 @@ fn a_write_that_fails_leaves_an_existing_empty_directory_empty() {
     let (scene, entry, _, _) = answered_image();
     let out = out_dir(&scene);
     fs::create_dir(&out).expect("made");
-    let (loaded, copies) = load_for_reading(&entry).expect("loaded");
+    let (loaded, copies) = load_for_reading(&entry, true).expect("loaded");
 
     write_extraction(&out, &loaded, &copies, &mut |_, _| {
         Err(io::Error::other("disk full"))
@@ -830,7 +830,7 @@ fn the_summary_lists_what_was_written_and_each_file_without_a_good_copy() {
         &[(name, bytes), (damaged, b"something else".to_vec())],
         Some(submitted(&session)),
     );
-    let (loaded, copies) = load_for_reading(&entry).expect("loaded");
+    let (loaded, copies) = load_for_reading(&entry, true).expect("loaded");
     let out = Path::new("/out/dir");
 
     let text = summary(out, &loaded, &copies);
@@ -851,7 +851,7 @@ fn the_summary_lists_what_was_written_and_each_file_without_a_good_copy() {
 fn the_summary_says_when_there_is_no_result() {
     let scene = scene();
     let entry = finish(&scene, &plain_session(), &[], None);
-    let (loaded, copies) = load_for_reading(&entry).expect("loaded");
+    let (loaded, copies) = load_for_reading(&entry, true).expect("loaded");
 
     let text = summary(Path::new("/out"), &loaded, &copies);
 
@@ -864,7 +864,7 @@ fn the_summary_says_when_there_is_no_result() {
 #[test]
 fn json_names_the_directory_and_where_each_good_copy_lies_in_it() {
     let (scene, entry, name, _) = answered_image();
-    let (loaded, _) = load_for_reading(&entry).expect("loaded");
+    let (loaded, _) = load_for_reading(&entry, true).expect("loaded");
     let out = out_dir(&scene);
 
     let printed = replay_json(&loaded, Some(&out));
@@ -967,6 +967,61 @@ fn a_symbolic_link_into_a_kept_out_directory_is_refused() {
     let why = prepare_target(&link.join("new"), &[queue]).expect_err("refused");
 
     assert!(why.contains("lies inside"), "{why}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symbolic_link_given_with_a_trailing_slash_is_still_refused() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    fs::create_dir(scratch.path().join("real")).expect("made");
+    let link = scratch.path().join("link");
+    std::os::unix::fs::symlink(scratch.path().join("real"), &link).expect("linked");
+    let with_slash = PathBuf::from(format!("{}/", link.display()));
+
+    let why = prepare_target(&with_slash, &[]).expect_err("refused");
+
+    assert!(why.contains("is a symbolic link"), "{why}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_directory_is_named_as_given_not_by_where_a_link_above_it_leads() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    fs::create_dir(scratch.path().join("real")).expect("made");
+    let link = scratch.path().join("link");
+    std::os::unix::fs::symlink(scratch.path().join("real"), &link).expect("linked");
+
+    let named =
+        prepare_target(&PathBuf::from(format!("{}/out/", link.display())), &[]).expect("allowed");
+
+    assert_eq!(named, link.join("out"));
+}
+
+#[test]
+fn a_load_that_keeps_no_copies_still_checks_them() {
+    let scene = scene();
+    let (name, bytes) = copy(b"webp bytes", "webp");
+    let (damaged, _) = copy(b"what the name promises", "webp");
+    let session = session_showing(vec![
+        kept(&name, "/tmp/x/hero.png", &"ab".repeat(32)),
+        kept(&damaged, "/tmp/x/broken.png", &"cd".repeat(32)),
+    ]);
+    let entry = finish(
+        &scene,
+        &session,
+        &[(name, bytes), (damaged, b"something else".to_vec())],
+        None,
+    );
+
+    let (loaded, copies) = load_for_reading(&entry, false).expect("loaded");
+
+    assert!(copies.is_empty(), "{} copies kept", copies.len());
+    let problems: Vec<Option<&str>> = loaded
+        .shown
+        .iter()
+        .map(|file| file.damaged.as_deref())
+        .collect();
+    assert_eq!(problems, [None, Some("the kept copy is damaged")]);
 }
 
 #[test]

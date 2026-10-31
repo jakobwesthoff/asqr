@@ -80,21 +80,27 @@ is the queue the entry was found in, by its name, or for a queue given with
 ```
 
 Names come from content only. The kept `path`s in `session.json` are
-`files/<sha256>.<ext>` and resolve below `<dir>`; the original names are in
-`session.json` as `shown.original_path` and in `files` of `--json`.
+`files/<sha256>.<ext>` and resolve below `<dir>` for a good copy only; the
+original names are in `session.json` as `shown.original_path` and in
+`files` of `--json`.
 
 - The session loads and validates, and every copy is read and checked
   against its hash, before anything is written. A session that does not
   parse or validate leaves an absent `<dir>` absent and an empty one empty.
 - `<dir>` must be absent or empty. A hidden file makes it non-empty.
-  asqr refuses a symbolic link at `<dir>`, a path that is not a directory,
+  asqr refuses a symbolic link at `<dir>`, also given with a trailing
+  separator, a path that is not a directory, the current directory and its
+  parents (the rename would leave the shell in a directory that is gone),
   and a `<dir>` that lies inside the data directory, the selected queue's
   directory or the directory of the queue the session was found in,
   judged by where the path really lies. There is no `--force`.
+  `extracted_to` and the `extracted to` line name `<dir>` as given, made
+  absolute.
 - The files go into a staging directory `.<name>.asqr-<ulid>` next to
   `<dir>`, created with mode 0700, with the files at 0600, and the staging
   directory is renamed onto `<dir>` when all is written. A failure removes
-  the staging directory and the parents this run created. A race on an
+  the staging directory and the parents this run created; a run that is
+  killed leaves its staging directory behind. A race on an
   existing empty `<dir>` between the check and the rename is accepted.
 - Without `--json` stdout lists `extracted to <dir>`, `session.json`,
   `result.json` or `no result`, the number of files in `files/`, and one

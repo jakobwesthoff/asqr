@@ -717,6 +717,31 @@ fn extract_refuses_a_symbolic_link_to_the_inbox_of_the_queue() {
 }
 
 #[test]
+fn extract_refuses_the_current_directory_even_when_it_is_empty() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, _) = archive_with_image(&location, 0x1234_5678_9abc);
+    let here = sandbox.home().join("here");
+    fs::create_dir(&here).expect("made");
+
+    let output = sandbox
+        .asqr()
+        .current_dir(&here)
+        .args(["replay", &reference, "--extract", "."])
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("current directory"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(here.is_dir());
+    assert_eq!(walk(&here), Vec::<String>::new());
+}
+
+#[test]
 fn extract_with_an_empty_directory_name_is_a_usage_error() {
     let sandbox = Sandbox::new();
 
