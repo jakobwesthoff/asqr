@@ -274,6 +274,28 @@ impl SettingsStore {
 const HEADER: &str =
     "# asqr settings, written by the settings pane (`,` in asqr) and fine to edit by hand.\n";
 
+/// The most links `link_target` follows, as many as the operating system
+/// follows before it reports a loop.
+const MAX_LINKS: usize = 40;
+
+/// The path the chain of symbolic links from `path` ends in, which is
+/// `path` itself where it is no link. A link's target is taken from the
+/// link's own directory when it is relative, and need not exist: a file
+/// is made there. Links that lead round in a circle are an error.
+fn link_target(path: &Path) -> std::io::Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    for _ in 0..MAX_LINKS {
+        let is_link = std::fs::symlink_metadata(&current).is_ok_and(|meta| meta.is_symlink());
+        if !is_link {
+            return Ok(current);
+        }
+        let to = std::fs::read_link(&current)?;
+        // An absolute target replaces the directory it is joined to.
+        current = current.parent().unwrap_or(Path::new("")).join(to);
+    }
+    Err(std::io::Error::other("too many levels of symbolic links"))
+}
+
 /// Sets the key of `setting` in the settings file at `path` to its value
 /// in `values`. The file is read again first, so what the person or
 /// another asqr changed since asqr read it stays, and every comment, key
@@ -284,8 +306,8 @@ fn write_setting(path: &Path, setting: Setting, values: &Settings) -> Result<(),
         SaveError::Io(format!("cannot {what} {FILE_NAME}: {error}"))
     };
     // A file that is a link, as a dotfile manager makes it, stays one: the
-    // file it points to is written.
-    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    // file it points to is written, also where that one is not there yet.
+    let target = link_target(path).map_err(|error| io("read", error))?;
     let text = match std::fs::read_to_string(&target) {
         Ok(text) => Some(text),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -1072,6 +1094,71 @@ mod tests {
         let written = std::fs::read_to_string(&target).expect("readable");
         assert!(written.starts_with("# from my dotfiles\n"), "{written}");
         assert!(written.contains("side-by-side"), "{written}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_file_that_is_not_there_stays_a_link_and_the_file_is_made() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let link = scratch.path().join("config").join(FILE_NAME);
+        std::fs::create_dir_all(link.parent().expect("parent")).expect("dir");
+        // A relative target, resolved from the link's directory, in a
+        // directory that does not exist either.
+        std::os::unix::fs::symlink("../dotfiles/deep/asqr.toml", &link).expect("linked");
+        let mut store = SettingsStore::load(Some(link.clone()), None).store;
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        let result = store.save(Setting::DiffLayout);
+
+        assert_eq!(result, Ok(()));
+        assert!(std::fs::symlink_metadata(&link).expect("meta").is_symlink());
+        let target = scratch.path().join("dotfiles/deep/asqr.toml");
+        let written = std::fs::read_to_string(target).expect("the target is made");
+        assert!(
+            written.contains("diff_layout = \"side-by-side\""),
+            "{written}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_chain_of_links_is_followed_to_its_end() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let end = scratch.path().join("end.toml");
+        let middle = scratch.path().join("middle.toml");
+        let link = scratch.path().join(FILE_NAME);
+        std::os::unix::fs::symlink(&end, &middle).expect("linked");
+        std::os::unix::fs::symlink(&middle, &link).expect("linked");
+        let mut store = SettingsStore::load(Some(link.clone()), None).store;
+
+        store.step(Setting::Context, Direction::Next);
+        store.save(Setting::Context).expect("saved");
+
+        for stays in [&link, &middle] {
+            assert!(std::fs::symlink_metadata(stays).expect("meta").is_symlink());
+        }
+        let written = std::fs::read_to_string(end).expect("the end of the chain is made");
+        assert!(written.contains("context = \"beside\""), "{written}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_that_lead_round_in_a_circle_are_an_error_and_stay_as_they_are() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let link = scratch.path().join(FILE_NAME);
+        let other = scratch.path().join("other.toml");
+        std::os::unix::fs::symlink(&other, &link).expect("linked");
+        std::os::unix::fs::symlink(&link, &other).expect("linked");
+        let mut store = SettingsStore::load(Some(link.clone()), None).store;
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        let result = store.save(Setting::DiffLayout);
+
+        assert!(
+            matches!(&result, Err(SaveError::Io(text)) if text.starts_with("cannot read settings.toml: ")),
+            "{result:?}"
+        );
+        assert!(std::fs::symlink_metadata(&link).expect("meta").is_symlink());
     }
 
     #[cfg(unix)]

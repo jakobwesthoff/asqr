@@ -674,8 +674,10 @@ three keys, each of which may be left out:
   key it does not know and their order. A value it replaces keeps the
   comment on its line, a new key gets a comment naming its values, a file
   of comments gets the key under them, and a file with `\r\n` line ends
-  keeps them. A file that is a symbolic link stays one, and the file it
-  points to is written. The file is written whole to a temporary file in
+  keeps them. A file that is a symbolic link stays one: the file at the
+  end of the chain of links is written, and made, with its directory,
+  where it is not there. Links that lead round in a circle are an
+  error, and the save fails. The file is written whole to a temporary file in
   its directory and renamed over the old one, with the old one's
   permissions, so a reader never sees half of it. A file that does not
   parse is never written over, and a missing one is created with its
