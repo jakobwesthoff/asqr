@@ -51,6 +51,21 @@ on the question. [Context: files, diffs and
 images](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md) shows
 the rest.
 
+## More than one queue
+
+Sessions wait in a queue, and each asqr watches one. Inside tmux, each
+tmux session has a queue of its own; outside tmux, asqr and your agents
+use the `default` queue unless you name another with `--queue <name>`.
+
+- When sessions wait in a queue that no asqr watches, the status line says
+  so, such as `2 sessions wait in asqr-todos   w  queues`.
+- `w` opens the queue switcher. `↑`/`↓` and `enter` switch to another
+  queue without a restart, and asqr saves your drafts in the old queue
+  first. The switcher's footer says what your agents need to follow.
+- `L` lists the sessions waiting in the queue you watch.
+
+[Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) has the details.
+
 ## Help
 
 `?` shows the keys that work where you are.
