@@ -1970,10 +1970,25 @@ mod tests {
         .expect("written");
         // The job waits for `release`, so the switch below runs while it is
         // still queued.
+        // A switch that waited for the job would wait for ever, as only the
+        // test releases it after the switch. The job gives up waiting after
+        // a minute and says so, so such a switch fails the test instead of
+        // hanging it. The wait has to be far longer than the switch takes on
+        // a machine under load, or a slow switch would pass for a waiting
+        // one.
         let (release, gate) = mpsc::channel::<()>();
         let gate = std::sync::Mutex::new(gate);
+        let waited_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let gave_up = std::sync::Arc::clone(&waited_out);
         let keeper = KeepWorker::new_with(move |job| {
-            gate.lock().expect("lock").recv().expect("released");
+            let waited = gate
+                .lock()
+                .expect("lock")
+                .recv_timeout(std::time::Duration::from_secs(60));
+            if waited.is_err() {
+                gave_up.store(true, std::sync::atomic::Ordering::SeqCst);
+                return;
+            }
             let _ = crate::keep::apply::keep(&job, &|| {});
         });
         let (mut app, mut inbox) = start_with_keeper(
@@ -1998,6 +2013,10 @@ mod tests {
         assert_eq!(inbox.location(), &work(&harness), "the switch happened");
         release.send(()).expect("sends");
         keeper.idle();
+        assert!(
+            !waited_out.load(std::sync::atomic::Ordering::SeqCst),
+            "the switch waited for the job, which gave up"
+        );
 
         let archived: Vec<_> = fs::read_dir(old.archive())
             .expect("archive")

@@ -12,6 +12,18 @@ use crate::queue::{
     Body, Slot, add_entries, archive_name, bundle_path, list_entries, lock_queue, read_entry,
 };
 
+/// Whether the tests run as root, which reads a file whatever its mode, so
+/// a test that takes the permissions away to make a read fail proves
+/// nothing there and returns.
+#[cfg(unix)]
+fn running_as_root() -> bool {
+    let root = rustix::process::geteuid().is_root();
+    if root {
+        eprintln!("skipped: root reads files whatever their mode");
+    }
+    root
+}
+
 fn at(text: &str) -> SystemTime {
     SystemTime::from(text.parse::<jiff::Timestamp>().expect("a timestamp"))
 }
@@ -568,6 +580,9 @@ fn files_in_the_outbox_that_are_no_results_stay() {
 #[cfg(unix)]
 #[test]
 fn a_queue_whose_archive_cannot_be_listed_is_a_problem_and_nothing_else() {
+    if running_as_root() {
+        return;
+    }
     use std::os::unix::fs::PermissionsExt;
 
     let (_scratch, location, lock) = queue();
@@ -609,6 +624,9 @@ fn an_outbox_file_that_vanished_since_the_listing_is_skipped() {
 #[cfg(unix)]
 #[test]
 fn an_outbox_whose_files_cannot_be_examined_is_a_problem() {
+    if running_as_root() {
+        return;
+    }
     use std::os::unix::fs::PermissionsExt;
 
     let (_scratch, location, lock) = queue();
@@ -945,6 +963,9 @@ mod unix {
 
     #[test]
     fn a_loose_kept_file_that_cannot_be_opened_is_named_and_not_bundled() {
+        if running_as_root() {
+            return;
+        }
         let (_scratch, location, lock) = queue();
         let name = kept(&location, b"the picture");
         let path = kept_path(&location, &name);
@@ -983,6 +1004,9 @@ mod unix {
 
     #[test]
     fn an_unreadable_loose_session_keeps_every_loose_kept_file() {
+        if running_as_root() {
+            return;
+        }
         let (_scratch, location, lock) = queue();
         let name = kept(&location, b"the picture");
         loose_showing(&location, "old", "2026-09-15T10:00:00Z", &[&name]);

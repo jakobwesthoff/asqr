@@ -111,11 +111,11 @@ fn quitting_waits_for_the_worker_but_not_longer_than_the_limit() {
     assert_eq!(*seen.lock().expect("lock"), ["slow"]);
 }
 
-/// A job in the queue at `queue` whose session shows `shown`, archived at
-/// `archive/gone.json`, which is not there.
-fn job_showing(queue: &std::path::Path, shown: &std::path::Path) -> KeepJob {
+/// A job in the queue at `queue` whose session shows `shown`, archived as
+/// `archive/<archived>.json`, which the caller makes or leaves out.
+fn job_showing(queue: &std::path::Path, shown: &std::path::Path, archived: &str) -> KeepJob {
     let session = serde_json::to_vec(&serde_json::json!({
-        "asqr": 2, "id": "gone",
+        "asqr": 2, "id": archived,
         "questions": [{"id": "q", "text": "?", "kind": "text",
             "context": [{"type": "code", "path": shown}]}]
     }))
@@ -124,7 +124,7 @@ fn job_showing(queue: &std::path::Path, shown: &std::path::Path) -> KeepJob {
     KeepJob::new(
         QueueLocation::at(queue),
         ArchivedSession {
-            path: queue.join("archive/gone.json"),
+            path: queue.join(format!("archive/{archived}.json")),
             bytes: session,
         },
         seen,
@@ -132,23 +132,68 @@ fn job_showing(queue: &std::path::Path, shown: &std::path::Path) -> KeepJob {
     )
 }
 
-#[test]
-fn the_real_runner_ends_a_job_that_was_skipped_or_failed_and_takes_the_next() {
+/// Makes the job's archived session a file, as the finish does before the
+/// job is submitted.
+fn archive(job: &KeepJob) {
+    std::fs::write(&job.archived.path, &job.archived.bytes).expect("written");
+}
+
+/// Whether the archived session at `path` records the files it showed.
+fn recorded(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path).is_ok_and(|text| text.contains("\"archived\""))
+}
+
+fn queue_with_a_shown_file() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
     let scratch = tempfile::tempdir().expect("temp dir");
     let queue = scratch.path().join("queue");
     QueueLocation::at(&queue).create_layout().expect("layout");
     let shown = scratch.path().join("notes.txt");
     std::fs::write(&shown, "text").expect("written");
-    let worker = KeepWorker::new();
+    (scratch, queue, shown)
+}
 
-    // The archived file is gone, so the replacement is skipped. A file
-    // where the directory of the copies belongs makes the next job fail.
-    worker.submit(job_showing(&queue, &scratch.path().join("missing.txt")));
-    std::fs::write(queue.join("archive/files"), "in the way").expect("written");
-    worker.submit(job_showing(&queue, &shown));
+#[test]
+fn the_real_runner_ends_a_skipped_job_and_takes_the_next() {
+    let (scratch, queue, shown) = queue_with_a_shown_file();
+    let worker = KeepWorker::new();
+    // The archived file of the first job is gone, so its replacement is
+    // skipped.
+    let skipped = job_showing(&queue, &scratch.path().join("missing.txt"), "gone");
+    let next = job_showing(&queue, &shown, "next");
+    archive(&next);
+    let next_path = next.archived.path.clone();
+
+    worker.submit(skipped);
+    worker.submit(next);
     worker.idle();
 
     assert!(!queue.join("archive/gone.json").exists());
+    assert!(
+        recorded(&next_path),
+        "the second job ran and recorded its file"
+    );
+}
+
+#[test]
+fn the_real_runner_ends_a_failed_job_and_takes_the_next() {
+    let (_scratch, queue, shown) = queue_with_a_shown_file();
+    let worker = KeepWorker::new();
+    // The archived path of the first job is a directory, which cannot be
+    // read as a file.
+    let failing = job_showing(&queue, &shown, "failing");
+    std::fs::create_dir(&failing.archived.path).expect("created");
+    let next = job_showing(&queue, &shown, "next");
+    archive(&next);
+    let next_path = next.archived.path.clone();
+
+    worker.submit(failing);
+    worker.submit(next);
+    worker.idle();
+
+    assert!(
+        recorded(&next_path),
+        "the second job ran and recorded its file"
+    );
 }
 
 #[test]

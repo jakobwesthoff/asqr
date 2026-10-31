@@ -270,13 +270,18 @@ fn a_failed_recording_after_a_withdrawal_is_only_logged() {
         bytes: archived.session.bytes.clone(),
     };
 
-    record_after_withdrawal(&archived.location, Some(unreadable));
-    record_after_withdrawal(&archived.location, None);
+    let failed = crate::tui::render::test_support::logged(|| {
+        record_after_withdrawal(&archived.location, Some(unreadable));
+    });
+    let nothing_archived = crate::tui::render::test_support::logged(|| {
+        record_after_withdrawal(&archived.location, None);
+    });
 
-    assert_eq!(
-        fs::read(&archived.session.path).expect("reads"),
-        archived.session.bytes
+    assert!(
+        failed.contains("could not record the files a withdrawn session showed"),
+        "{failed}"
     );
+    assert!(nothing_archived.is_empty(), "{nothing_archived}");
 }
 
 #[test]
