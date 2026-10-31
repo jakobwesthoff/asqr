@@ -49,7 +49,7 @@ memory, not this time.
 - **Covers code entries and diff sides,** which share `HIGHLIGHT_LIMIT`
   today (`src/tui/render/code.rs:71`, `src/tui/render/diff.rs:295`).
   Fenced code blocks in Markdown stay as they are; Markdown above 1 MiB
-  shows as plain text (todo 01M629Z78N0KB7Q5D3T1DQE272). Rejected:
+  shows as plain text (ADR 94). Rejected:
   Markdown code blocks too; code entries only.
 
 ## Technical notes (lead, 2026-10-30)

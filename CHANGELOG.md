@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asqr paths` names. `asqr paths` still prints the current `asqr.log`.
 - A TUI of an earlier version keeps writing into its moved log until it
   is restarted.
+- A Markdown entry or an image caption above 1 MiB shows as plain text,
+  wrapped to the pane, below a dim "over 1 MiB: shown as plain text",
+  instead of being rendered. Rendering 8 MiB of Markdown took 13.6 s and
+  693 MB, and the plain text of 8 MiB takes 0.24 s and 89 MB. `asqr validate` and
+  `asqr ask` say in their warning that such an entry shows as plain text.
 
 ### Fixed
 

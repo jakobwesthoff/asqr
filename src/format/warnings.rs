@@ -52,8 +52,12 @@ pub enum WarningKind {
     /// diff.
     UnifiedDiff,
     /// A code, Markdown, ANSI or diff entry above 1 MiB. Carries its size
-    /// in bytes, an ANSI entry's escape sequences included.
-    LargeEntry(u64),
+    /// in bytes, an ANSI entry's escape sequences included, and whether it
+    /// is Markdown, which the pane shows as plain text.
+    LargeEntry {
+        size: u64,
+        markdown: bool,
+    },
     /// A code, Markdown or ANSI entry, a side of a diff or an image's
     /// caption of more than [`MAX_LINES`] lines, which its viewer cuts.
     ManyLines,
@@ -81,13 +85,19 @@ impl fmt::Display for Warning {
             WarningKind::UnifiedDiff => formatter.write_str(
                 "looks like a unified diff; give the text before and after the change as `old` and `new`, asqr computes the diff",
             ),
-            WarningKind::LargeEntry(size) => {
+            WarningKind::LargeEntry { size, markdown } => {
                 // Rounded up, so a size just above the limit does not read
                 // as the limit itself.
                 let tenths = size.saturating_mul(10).div_ceil(LARGE_ENTRY_BYTES);
+                // The Markdown viewer shows a text of this size as plain text.
+                let shown = if *markdown {
+                    "shows it as plain text"
+                } else {
+                    "still shows it"
+                };
                 write!(
                     formatter,
-                    "{}.{} MiB, more than the 1 MiB an entry should stay under; asqr still shows it",
+                    "{}.{} MiB, more than the 1 MiB an entry should stay under; asqr {shown}",
                     tenths / 10,
                     tenths % 10
                 )
@@ -319,27 +329,27 @@ fn check_context(
                 // is text the pane renders like a Markdown entry.
                 if let Some(caption) = &image.caption {
                     let caption_path = path.field("caption");
-                    check_size(caption.len() as u64, &caption_path, found);
+                    check_size(caption.len() as u64, true, &caption_path, found);
                     let text = Some(caption.as_str());
                     check_lines(text, None, LineBreaks::Any, &caption_path, found);
                 }
             }
             ContextEntry::Code(code) => {
                 let (size, file) = source_size(&code.path, &code.content, &path, base_dir, found);
-                check_size(size, &path, found);
+                check_size(size, false, &path, found);
                 let text = code.content.as_deref();
                 check_lines(text, handle(&file), LineBreaks::Any, &path, found);
             }
             ContextEntry::Markdown(markdown) => {
                 let (size, file) =
                     source_size(&markdown.path, &markdown.content, &path, base_dir, found);
-                check_size(size, &path, found);
+                check_size(size, true, &path, found);
                 let text = markdown.content.as_deref();
                 check_lines(text, handle(&file), LineBreaks::Any, &path, found);
             }
             ContextEntry::Ansi(ansi) => {
                 let (size, file) = source_size(&ansi.path, &ansi.content, &path, base_dir, found);
-                check_size(size, &path, found);
+                check_size(size, false, &path, found);
                 let text = ansi.content.as_deref();
                 check_lines(text, handle(&file), LineBreaks::Newline, &path, found);
             }
@@ -360,7 +370,7 @@ fn check_context(
                     check_unified_diff(content, handle(&file), side_path.clone(), found);
                     texts.push((side_path, content, file));
                 }
-                check_size(size, &path, found);
+                check_size(size, false, &path, found);
                 for (side_path, content, file) in texts {
                     check_lines(content, handle(&file), LineBreaks::Any, &side_path, found);
                 }
@@ -491,11 +501,11 @@ fn is_hunk_header(line: &str) -> bool {
     rest.is_some_and(|section| section.is_empty() || section.starts_with(' '))
 }
 
-fn check_size(size: u64, path: &FieldPath, found: &mut Vec<Warning>) {
+fn check_size(size: u64, markdown: bool, path: &FieldPath, found: &mut Vec<Warning>) {
     if size > LARGE_ENTRY_BYTES {
         found.push(Warning {
             path: path.clone(),
-            kind: WarningKind::LargeEntry(size),
+            kind: WarningKind::LargeEntry { size, markdown },
         });
     }
 }
@@ -870,7 +880,7 @@ mod tests {
             caption_warnings(&serde_json::json!(
                 {"type": "image", "path": "/a.png", "caption": "x".repeat(MIB + 1)})),
             [
-                "questions[0].context[0].caption: 1.1 MiB, more than the 1 MiB an entry should stay under; asqr still shows it"
+                "questions[0].context[0].caption: 1.1 MiB, more than the 1 MiB an entry should stay under; asqr shows it as plain text"
             ]
         );
     }
@@ -896,7 +906,7 @@ mod tests {
                 None
             ),
             [
-                "questions[0].context[0]: 1.5 MiB, more than the 1 MiB an entry should stay under; asqr still shows it"
+                "questions[0].context[0]: 1.5 MiB, more than the 1 MiB an entry should stay under; asqr shows it as plain text"
             ]
         );
         assert_eq!(
@@ -906,6 +916,21 @@ mod tests {
             ),
             Vec::<String>::new(),
             "exactly 1 MiB is fine"
+        );
+    }
+
+    #[test]
+    fn a_markdown_entry_above_1_mib_says_it_shows_as_plain_text() {
+        assert_eq!(
+            warn(
+                &with_context(
+                    &serde_json::json!({"type": "markdown", "content": "x".repeat(MIB + 1)})
+                ),
+                None
+            ),
+            [
+                "questions[0].context[0]: 1.1 MiB, more than the 1 MiB an entry should stay under; asqr shows it as plain text"
+            ]
         );
     }
 

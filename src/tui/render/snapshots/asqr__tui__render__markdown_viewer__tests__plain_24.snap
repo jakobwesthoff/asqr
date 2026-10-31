@@ -1,0 +1,16 @@
+---
+source: src/tui/render/markdown_viewer.rs
+expression: "shown(&mut viewer, 24, 0)"
+---
+"over 1 MiB: shown as pla"
+"Retries                 "
+"                        "
+"A **failed** request is "
+"↪ tried again up to thre"
+"↪ e times,              "
+"  with `delay` doubling."
+"                        "
+"```rust                 "
+"let delay = Duration::fr"
+"↪ om_millis(100);       "
+"```                     "

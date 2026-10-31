@@ -9,8 +9,8 @@ origin: implementation
 Found on 2026-10-31 by the viewer-limits agent while measuring the
 Markdown viewer: an 8 MiB file made of concatenated local `.md` files
 makes the `markdown` crate 1.0.0 panic at `src/to_mdast.rs:193`
-("Cannot push to non-parent"). The viewer-limits item shows Markdown
-above 1 MiB as plain text, which removes this input from the parser.
+("Cannot push to non-parent"). A Markdown entry above 1 MiB now shows
+as plain text, which removes this input from the parser.
 Whether some input below 1 MiB makes the parser panic is not known.
 
 ## Problem

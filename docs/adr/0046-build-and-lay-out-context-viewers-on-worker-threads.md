@@ -14,6 +14,8 @@ Amends [45. Keep image handling in a graphics module around an asqr-owned value]
 
 Amended by [49. Present problems through one component in three forms](0049-present-problems-through-one-component-in-three-forms.md)
 
+Amended by [94. Show a Markdown entry above 1 MiB as plain text](0094-show-a-markdown-entry-above-1-mib-as-plain-text.md)
+
 ## Context
 
 - Building a context viewer reads its file and prepares its content:

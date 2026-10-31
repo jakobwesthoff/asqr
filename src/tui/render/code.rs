@@ -44,7 +44,7 @@ fn content_of(
 ) -> Content<Lines> {
     match source {
         Err(unreadable) => Content::Problem(unreadable.card(home)),
-        Ok(Source { text, cut }) => {
+        Ok(Source { text, cut, .. }) => {
             let lines: Vec<SourceLine> =
                 patine::highlight(&text, language_for(entry, &text).as_deref())
                     .iter()
@@ -407,6 +407,7 @@ mod tests {
         let source = Ok(Source {
             text: "one\ntwo\n".into(),
             cut: Some(Cut::Bytes),
+            size: 8 * 1024 * 1024,
         });
         let mut viewer = content_of(
             &entry(r#"{"type": "code", "path": "/var/log/big.log"}"#),

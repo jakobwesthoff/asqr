@@ -183,7 +183,8 @@ such as a file name:
   `rust`, names the language; without it the extension of `path`, then
   of `title`, decides, and failing that it is plain text.
 - `markdown`: Markdown, rendered, from the file at `path` or inline in
-  `content`, exactly one of the two.
+  `content`, exactly one of the two. Above 1 MiB it shows as plain text
+  (section 8.7).
 - `diff`: a change between two versions of a text, which asqr diffs
   itself. `old` and `new` are each `{ "path": ... }` or
   `{ "content": ... }`, exactly one of the two. A missing `old` is a new
@@ -305,7 +306,9 @@ add optional fields.
   asqr computes the diff.
 - about a `code`, `markdown`, `ansi` or `diff` entry above 1 MiB, from
   its file or inline; for a diff, both sides count together, and for an
-  `ansi` entry its escape sequences count. asqr still shows it.
+  `ansi` entry its escape sequences count. asqr still shows it; the
+  warning for a `markdown` entry, and for an image entry's `caption`,
+  says asqr shows it as plain text (section 8.7).
   Image files get no such warning; an image entry's `caption` above
   1 MiB does.
 - about a `code`, `markdown` or `ansi` entry or a side of a `diff` of
@@ -2415,7 +2418,8 @@ keeps the session and shows its own notice instead.
 
 The intro, question texts, option labels and option descriptions
 (section 3.1) and Markdown entries (section 8.7) render the same way
-(ADRs 34, 35, 55 and 57):
+(ADRs 34, 35, 55 and 57); a Markdown entry above 1 MiB shows as plain
+text instead (section 8.7):
 headings bold
 (level one also italic and underlined, level two underlined), emphasis,
 inline code in yellow, lists with bullets, task lists with `☐` for an
@@ -2734,6 +2738,20 @@ A Markdown entry (ADR 34) shows rendered as section 7.10 describes,
 wrapped at the pane's width, without a gutter and without sideways
 scrolling.
 
+A Markdown entry above 1 MiB (ADR 94) is not rendered. It shows as plain
+text, the whole of what is read of it (section 8.3), below a dim "over
+1 MiB: shown as plain text". Each line wraps at the pane's width behind a
+dim `↪`; a continuation repeats the blanks the line starts with and no
+list marker, since plain text has no list items. Tabs and control
+characters show as in section 8.4. The size counts the text as given:
+inline, its length; from a file, the bytes read, before the 500,000-line
+limit cuts them and before bytes that are not UTF-8 become `�`. A text
+that those steps make longer than 1 MiB shows as plain text as well. The
+dim notes of a cut (section 8.3) follow the note on plain text. A text of
+blank lines only shows "empty", or the notes of its cut. An image's
+caption follows the same rule. The warning for such an entry (section
+3.4) says it shows as plain text.
+
 ### 8.8 Images
 
 - Terminals that support the Kitty graphics protocol (Ghostty, kitty),
@@ -2759,7 +2777,7 @@ scrolling.
   keeps its natural size in both, and only shrinks when it does not fit.
 - An image entry with a caption (section 3.3) shows the caption under
   the image, after a blank row, wrapped at the pane's width and rendered
-  as a Markdown entry is (section 8.7). The image is scaled to the rows
+  as a Markdown entry is, plain above 1 MiB (section 8.7). The image is scaled to the rows
   the caption leaves, so image and caption always show together and
   nothing scrolls. Where that leaves the image fewer than 3 rows, the
   pane shows the caption alone under a dim `z shows the image` and a

@@ -79,6 +79,11 @@ pub(super) fn between_cut_notes<T>(
 pub(super) struct Source {
     pub text: String,
     pub cut: Option<Cut>,
+    /// The bytes of the text as given: inline, its length; from a file,
+    /// the bytes read. Counted before the line limit cuts the text and
+    /// before bytes that are not UTF-8 become `�`, so it is the size the
+    /// warning about a large entry counts.
+    pub size: usize,
 }
 
 /// What the image decoder's `error` is, for the log: the kind of error,
@@ -276,10 +281,12 @@ pub(super) fn inline(text: &str, breaks: LineBreaks) -> Source {
         Some(end) => Source {
             text: text[..end].to_owned(),
             cut: Some(Cut::Lines),
+            size: text.len(),
         },
         None => Source {
             text: text.to_owned(),
             cut: None,
+            size: text.len(),
         },
     }
 }
@@ -313,6 +320,7 @@ fn text_within(
         limit
     };
     bytes.truncate(end);
+    let size = bytes.len();
     // A NUL byte marks a binary file, as git decides; its lines would be
     // noise, however they were decoded.
     if bytes.contains(&0) {
@@ -334,6 +342,7 @@ fn text_within(
     Ok(Source {
         text: String::from_utf8_lossy(&bytes).into_owned(),
         cut,
+        size,
     })
 }
 
@@ -355,6 +364,7 @@ mod tests {
         Ok(Source {
             text: text.to_owned(),
             cut: None,
+            size: text.len(),
         })
     }
 
@@ -382,8 +392,43 @@ mod tests {
 
         assert_eq!(
             read_source(Some(&path), None, LineBreaks::Any),
-            whole("gr\u{fffd}\u{fffd}\n")
+            Ok(Source {
+                text: "gr\u{fffd}\u{fffd}\n".to_owned(),
+                cut: None,
+                size: 5,
+            }),
+            "the size counts the bytes read, not the longer text"
         );
+    }
+
+    #[test]
+    fn inline_content_counts_its_whole_length_after_the_line_limit_cut_it() {
+        let text = lines_of_x(MAX_LINES + 1);
+
+        let source = read_source(None, Some(&text), LineBreaks::Any).expect("inline");
+
+        assert_eq!(source.size, text.len());
+        assert!(source.text.len() < source.size);
+    }
+
+    #[test]
+    fn a_file_counts_the_bytes_read_after_the_line_limit_cut_it() {
+        let bytes = lines_of_x(MAX_LINES + 1);
+        let (_directory, path) = file(bytes.as_bytes());
+
+        let source = read_source(Some(&path), None, LineBreaks::Any).expect("readable");
+
+        assert_eq!(source.size, bytes.len());
+    }
+
+    #[test]
+    fn a_file_above_the_byte_limit_counts_the_bytes_read() {
+        let limit = usize::try_from(MAX_BYTES).expect("8 MiB fit");
+        let (_directory, path) = file(&b"x".repeat(limit + 3));
+
+        let source = read_source(Some(&path), None, LineBreaks::Any).expect("readable");
+
+        assert_eq!(source.size, limit);
     }
 
     #[test]
@@ -426,7 +471,8 @@ mod tests {
                 text_within("/a.txt", bytes, limit, LineBreaks::Any),
                 Ok(Source {
                     text: text.to_owned(),
-                    cut
+                    cut,
+                    size: text.len()
                 }),
                 "{bytes:?} at {limit}"
             );

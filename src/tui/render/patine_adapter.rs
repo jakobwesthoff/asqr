@@ -116,6 +116,31 @@ pub(super) fn markdown_rows_from(
     first: usize,
     width: usize,
 ) -> Vec<SourceLine> {
+    wrapped_rows(lines, first, width, indent)
+}
+
+/// The rows that show `lines`, text that is no Markdown, in `width`
+/// columns. A line wider than `width` wraps behind a dim `↪` as in
+/// [`markdown_rows`], but its further rows repeat only the blanks the line
+/// starts with: a `1. ` or a `• ` in plain text is no list item to line
+/// the rest up under.
+pub(super) fn plain_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
+    wrapped_rows(lines, width, width, leading_blanks)
+}
+
+/// What the continuation rows of a line repeat before their marker, in
+/// their styles, and its width.
+type Indent = (Vec<(String, Style)>, usize);
+
+/// The rows of `lines` with the first line at most `first` columns wide and
+/// every later one `width`, a wider line wrapping behind a `↪` after the
+/// indent `indent_of` finds for it.
+fn wrapped_rows(
+    lines: &[StyledLine],
+    first: usize,
+    width: usize,
+    indent_of: fn(&SourceLine) -> Indent,
+) -> Vec<SourceLine> {
     let marker = theme::secondary();
     let marker_width = 2;
     let mut rows = Vec::new();
@@ -126,7 +151,7 @@ pub(super) fn markdown_rows_from(
             rows.push(line);
             continue;
         }
-        let (indent, indent_width) = indent(&line);
+        let (indent, indent_width) = indent_of(&line);
         // A row behind the prefix holds at least one grapheme, so a
         // prefix leaving less than a wide character's columns would push
         // that character past the edge.
@@ -163,7 +188,7 @@ pub(super) fn markdown_rows_from(
 /// block starts with blanks, and its `1. ` is code. A nested numbered item
 /// therefore continues under its number. The box of an ordered task comes
 /// after its number, `1. ☐ `, and counts with it.
-fn indent(line: &SourceLine) -> (Vec<(String, Style)>, usize) {
+fn indent(line: &SourceLine) -> Indent {
     let mut indent = Vec::new();
     let mut lead = String::new();
     let mut rest = String::new();
@@ -210,6 +235,20 @@ fn indent(line: &SourceLine) -> (Vec<(String, Style)>, usize) {
         width += marker;
     }
     (indent, width)
+}
+
+/// What the continuation rows of plain text repeat: the blanks `line`
+/// starts with, in their style, and their width. Plain text is one span a
+/// line, so its blanks sit at the start of the first piece.
+fn leading_blanks(line: &SourceLine) -> Indent {
+    let blanks = line.pieces().next().map(|(text, style)| {
+        let run = text.chars().take_while(|c| *c == ' ').count();
+        (run, style)
+    });
+    match blanks {
+        Some((run, style)) if run > 0 => (vec![(" ".repeat(run), style)], run),
+        _ => (Vec::new(), 0),
+    }
 }
 
 /// Whether `lead` is nothing but blockquote bars, each followed by at most

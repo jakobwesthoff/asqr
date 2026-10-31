@@ -15,6 +15,8 @@ one-line hint first with its caption
 
 Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
 
+Amended by [94. Show a Markdown entry above 1 MiB as plain text](0094-show-a-markdown-entry-above-1-mib-as-plain-text.md)
+
 ## Context
 
 - An image entry carried a `title` and its image only (ADR 28, ADR 32).

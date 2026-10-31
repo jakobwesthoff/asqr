@@ -52,7 +52,7 @@ fn content_of(
 ) -> Content<Painted> {
     match source {
         Err(unreadable) => Content::Problem(unreadable.card(home)),
-        Ok(Source { text, cut }) => {
+        Ok(Source { text, cut, .. }) => {
             let lines = styled_lines(&text, colours);
             if lines.is_empty() {
                 Content::Note(Placeholder::note("empty"))
@@ -1015,6 +1015,7 @@ mod tests {
         let source = Ok(Source {
             text: "one\n\x1b[31mtwo\n".into(),
             cut: Some(Cut::Bytes),
+            size: 8 * 1024 * 1024,
         });
         let mut viewer = content_of(source, true, None);
 

@@ -14,6 +14,8 @@ Amended by [57. Show a Markdown table that does not fit as records](0057-show-a-
 
 Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
 
+Amended by [94. Show a Markdown entry above 1 MiB as plain text](0094-show-a-markdown-entry-above-1-mib-as-plain-text.md)
+
 ## Context
 
 A `code` entry is shown exactly as written and highlighted, and a

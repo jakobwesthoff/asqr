@@ -128,10 +128,11 @@ Every entry has a `type` and an optional `title`:
   a `↪` marker.
 - Keep a code, Markdown, ANSI or diff entry, and an image's caption,
   under 1 MiB (both sides of a diff together, escape sequences
-  included); `validate` and `ask` warn above that. asqr shows at most
-  the first 8 MiB of a file and the first 500,000 lines of each text,
-  each side of a diff on its own, with a note where it cuts, and
-  `validate` and `ask` warn about more lines. Show an excerpt instead
+  included); `validate` and `ask` warn above that. A Markdown entry or
+  caption above 1 MiB is not rendered: asqr shows it as plain text.
+  asqr shows at most the first 8 MiB of a file and the first 500,000
+  lines of each text, each side of a diff on its own, with a note where
+  it cuts, and `validate` and `ask` warn about more lines. Show an excerpt instead
   of a whole large file.
 - Questions and options have no `image` field. A file that still uses
   one gets a warning, and the image does not show.

@@ -23,6 +23,8 @@ viewer keeps
 Amends [69. Show a Markdown caption with an image entry](0069-show-a-markdown-caption-with-an-image-entry.md):
 a caption is cut after 500,000 lines
 
+Amended by [94. Show a Markdown entry above 1 MiB as plain text](0094-show-a-markdown-entry-above-1-mib-as-plain-text.md)
+
 ## Context
 
 - A viewer reads at most the first 8 MiB of a file (ADR 33, ADR 34,

@@ -5,7 +5,9 @@
 //! The viewer of Markdown entries (spec section 8.7, ADR 34): the text
 //! rendered by patine for the body's width and wrapped, without a gutter
 //! and without sideways scrolling. Lines that patine leaves wider, such as
-//! those of a code block, wrap behind a dim `↪`.
+//! those of a code block, wrap behind a dim `↪`. A text of more than 1 MiB
+//! is not rendered: it shows as plain text, wrapped the same way, below a
+//! dim note.
 
 use std::path::Path;
 
@@ -14,13 +16,13 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
 
-use super::patine_adapter::markdown_rows;
+use super::patine_adapter::{markdown_rows, plain_rows};
 use super::source_file::{
     Cut, LineBreaks, Source, Unreadable, between_cut_notes, inline, read_source,
 };
 use super::source_line::{Note, SourceLine, rows_from};
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
-use crate::format::MarkdownEntry;
+use crate::format::{LARGE_ENTRY_BYTES, MarkdownEntry};
 use crate::graphics::PlacedImage;
 use crate::tui::Offset;
 
@@ -40,11 +42,20 @@ pub(super) fn markdown_content(
     content_of(source, quote, home)
 }
 
-/// The caption of an image entry, `text`, rendered as a Markdown entry's
-/// content is, cut by the same line limit, with quotes in `quote`.
+/// The caption of an image entry, `text`, shown as a Markdown entry's
+/// content is, cut by the same line limit and plain above the same size,
+/// with quotes in `quote`.
 pub(super) fn caption(text: &str, quote: QuoteStyle) -> Markdown {
-    let Source { text, cut } = inline(text, LineBreaks::Any);
-    document(text, cut, quote)
+    document(inline(text, LineBreaks::Any), quote)
+}
+
+/// What heads a text too large to render, above the notes of a cut.
+const PLAIN_NOTE: Note = Note::new("over 1 MiB: shown as plain text");
+
+/// The size above which a text shows as plain text instead of rendered
+/// Markdown: the size the warning about a large entry counts.
+fn plain_limit() -> usize {
+    usize::try_from(LARGE_ENTRY_BYTES).expect("1 MiB fits a usize")
 }
 
 /// What the viewer shows of `source`, as read for its entry: its
@@ -57,27 +68,41 @@ fn content_of(
     quote: QuoteStyle,
     home: Option<&Path>,
 ) -> Content<Markdown> {
+    content_within(source, quote, home, plain_limit())
+}
+
+/// [`content_of`] with plain text above `limit` bytes.
+fn content_within(
+    source: Result<Source, Unreadable>,
+    quote: QuoteStyle,
+    home: Option<&Path>,
+    limit: usize,
+) -> Content<Markdown> {
     match source {
         Err(unreadable) => Content::Problem(unreadable.card(home)),
-        Ok(Source { text, cut: None }) if text.trim().is_empty() => {
+        Ok(source) if source.cut.is_none() && source.text.trim().is_empty() => {
             Content::Note(Placeholder::note("empty"))
         }
-        Ok(Source { text, cut }) => Content::Body(document(text, cut, quote)),
+        Ok(source) => Content::Body(document_within(source, quote, limit)),
     }
 }
 
-/// The Markdown `source`, the start of a longer text where the limit `cut`
-/// ended it, with quotes in `quote`, not laid out yet.
-fn document(source: String, cut: Option<Cut>, quote: QuoteStyle) -> Markdown {
+/// The Markdown `source`, the start of a longer text where the limit
+/// `cut` ended it, with quotes in `quote`, not laid out yet.
+fn document(source: Source, quote: QuoteStyle) -> Markdown {
+    document_within(source, quote, plain_limit())
+}
+
+/// [`document`] shown as plain text above `limit` bytes.
+fn document_within(source: Source, quote: QuoteStyle, limit: usize) -> Markdown {
+    let Source { text, cut, size } = source;
     // A blank text renders to no rows, but patine still takes its time
     // over it: 500,000 blank lines took 40 s and 418 MB (release build).
     // Only a cut text gets here blank, and it then shows its notes alone.
-    let source = if source.trim().is_empty() {
-        String::new()
-    } else {
-        source
-    };
+    let blank = text.trim().is_empty();
+    let source = if blank { String::new() } else { text };
     Markdown {
+        plain: !blank && (size > limit || source.len() > limit),
         source,
         cut,
         // A document keeps patine's defaults, where a single newline joins
@@ -94,6 +119,9 @@ fn document(source: String, cut: Option<Cut>, quote: QuoteStyle) -> Markdown {
 /// The Markdown of an entry with the rows it was last laid out into.
 pub(super) struct Markdown {
     source: String,
+    /// Whether `source` is too large to render and shows as plain text,
+    /// wrapped to the width, below [`PLAIN_NOTE`].
+    plain: bool,
     /// The limit that ended `source`, the start of a longer text.
     cut: Option<Cut>,
     /// How patine renders `source`.
@@ -127,12 +155,27 @@ impl Viewer for Markdown {
             self.renders += 1;
         }
         let columns = usize::from(width);
-        let text = markdown_rows(
-            &patine::render_lines_with(&self.source, columns, &self.options),
-            columns,
-        );
-        self.rows =
-            between_cut_notes(self.cut, text.into_iter().map(Row::Text), Row::Note).collect();
+        // The rows of the width before are dropped first, so that they
+        // and the new ones never sit in memory together.
+        self.rows = Vec::new();
+        let text = if self.plain {
+            plain_rows(&patine::highlight(&self.source, None), columns)
+        } else {
+            markdown_rows(
+                &patine::render_lines_with(&self.source, columns, &self.options),
+                columns,
+            )
+        };
+        self.rows = self
+            .plain
+            .then_some(Row::Note(PLAIN_NOTE))
+            .into_iter()
+            .chain(between_cut_notes(
+                self.cut,
+                text.into_iter().map(Row::Text),
+                Row::Note,
+            ))
+            .collect();
         // Only a character wider than the whole body is wider than a row,
         // and it shows cut.
         let widest = self
@@ -200,6 +243,7 @@ mod tests {
             Ok(Source {
                 text: "**Plan**\n".into(),
                 cut: Some(Cut::Lines),
+                size: 9,
             }),
             quote_style(false),
             None,
@@ -231,6 +275,249 @@ mod tests {
         assert_eq!(row(&buf, 1), "… the rest is cut after 500,000 lines");
     }
 
+    // -----------------------------------------------------------------
+    // Plain text above the size limit
+    // -----------------------------------------------------------------
+
+    const PLAIN_NOTE: &str = "over 1 MiB: shown as plain text";
+
+    /// Markdown whose syntax shows only when it is rendered.
+    const MIXED: &str = "**bold** and `code`\n# Heading\n";
+
+    fn source(text: &str) -> Source {
+        Source {
+            text: text.to_owned(),
+            cut: None,
+            size: text.len(),
+        }
+    }
+
+    /// The viewer of `text` as a text of `source` and `limit` would show it.
+    fn within(source: Source, limit: usize) -> Content<Markdown> {
+        content_within(Ok(source), quote_style(false), None, limit)
+    }
+
+    #[test]
+    fn a_text_over_the_limit_shows_as_plain_text_below_a_note() {
+        let mut viewer = within(source(MIXED), MIXED.len() - 1);
+
+        let buf = drawn(&mut viewer, 40, 3, Offset::default());
+
+        assert_eq!(row(&buf, 0), PLAIN_NOTE);
+        assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
+        assert_eq!(row(&buf, 1), "**bold** and `code`");
+        assert!(!buf[(2, 1)].modifier.contains(Modifier::BOLD));
+        assert_eq!(row(&buf, 2), "# Heading");
+        assert!(!buf[(0, 2)].modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn a_text_of_exactly_the_limit_is_rendered() {
+        let mut viewer = within(source(MIXED), MIXED.len());
+
+        let buf = drawn(&mut viewer, 40, 1, Offset::default());
+
+        assert_eq!(row(&buf, 0), "bold and code");
+        assert!(buf[(0, 0)].modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn a_text_whose_size_as_given_is_over_the_limit_shows_plain_though_its_kept_lines_are_not() {
+        let cut = Source {
+            text: MIXED.to_owned(),
+            cut: Some(Cut::Lines),
+            size: 100,
+        };
+        let mut viewer = within(cut, 99);
+
+        let buf = drawn(&mut viewer, 40, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "first 500,000 lines shown");
+        assert_eq!(row(&buf, 0), PLAIN_NOTE);
+        assert_eq!(row(&buf, 2), "**bold** and `code`");
+    }
+
+    #[test]
+    fn a_text_that_decoding_made_longer_than_the_limit_shows_plain() {
+        let decoded = Source {
+            text: MIXED.to_owned(),
+            cut: None,
+            size: 10,
+        };
+        let mut viewer = within(decoded, MIXED.len() - 1);
+
+        let buf = drawn(&mut viewer, 40, 2, Offset::default());
+
+        assert_eq!(row(&buf, 0), PLAIN_NOTE);
+        assert_eq!(row(&buf, 1), "**bold** and `code`");
+    }
+
+    #[test]
+    fn a_blank_text_over_the_limit_is_still_empty() {
+        let blank = Source {
+            text: "\n\n".to_owned(),
+            cut: None,
+            size: 1000,
+        };
+        let mut viewer = within(blank, 10);
+
+        let buf = drawn(&mut viewer, 40, 1, Offset::default());
+
+        assert_eq!(row(&buf, 0), "empty");
+    }
+
+    #[test]
+    fn plain_text_wraps_behind_a_marker_and_keeps_its_leading_blanks() {
+        let text = "  alpha beta gamma delta\n";
+        let mut viewer = within(source(text), 5);
+
+        let buf = drawn(&mut viewer, 14, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "  alpha beta g");
+        assert_eq!(row(&buf, 2), "  ↪ amma delta");
+        assert!(buf[(2, 2)].modifier.contains(Modifier::DIM), "the marker");
+    }
+
+    #[test]
+    fn a_plain_line_that_starts_like_a_numbered_item_wraps_without_an_item_indent() {
+        let mut viewer = within(source("1. alpha beta gamma delta\n"), 5);
+
+        let buf = drawn(&mut viewer, 14, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "1. alpha beta");
+        assert_eq!(row(&buf, 2), "↪ gamma delta");
+    }
+
+    #[test]
+    fn a_plain_line_that_starts_like_a_bullet_wraps_without_an_item_indent() {
+        let mut viewer = within(source("• alpha beta gamma delta\n"), 5);
+
+        let buf = drawn(&mut viewer, 14, 3, Offset::default());
+
+        assert_eq!(row(&buf, 1), "• alpha beta g");
+        assert_eq!(row(&buf, 2), "↪ amma delta");
+    }
+
+    #[test]
+    fn plain_text_expands_tabs_and_pictures_controls() {
+        let mut viewer = within(source("\tx = 1;\u{1b}\n"), 5);
+
+        let buf = drawn(&mut viewer, 20, 2, Offset::default());
+
+        assert_eq!(row(&buf, 1), "    x = 1;␛");
+    }
+
+    #[test]
+    fn the_plain_note_comes_before_the_notes_of_a_cut_in_bytes() {
+        let cut = Source {
+            text: "**x**\n".to_owned(),
+            cut: Some(Cut::Bytes),
+            size: 8 * 1024 * 1024,
+        };
+        let mut viewer = content_of(Ok(cut), quote_style(false), None);
+
+        assert_eq!(
+            shown(&mut viewer, 40, 0),
+            [
+                format!("{PLAIN_NOTE:<40}"),
+                format!("{:<40}", "first 8 MiB shown"),
+                format!("{:<40}", "**x**"),
+                format!("{:<40}", "… the rest is cut after 8 MiB"),
+            ]
+            .map(|row| format!("{row:?}"))
+            .join("\n")
+        );
+    }
+
+    #[test]
+    fn the_plain_note_comes_before_the_notes_of_a_cut_in_lines() {
+        let cut = Source {
+            text: "**x**\n".to_owned(),
+            cut: Some(Cut::Lines),
+            size: 2 * 1024 * 1024,
+        };
+        let mut viewer = content_of(Ok(cut), quote_style(false), None);
+
+        let buf = drawn(&mut viewer, 40, 4, Offset::default());
+
+        assert_eq!(row(&buf, 0), PLAIN_NOTE);
+        assert_eq!(row(&buf, 1), "first 500,000 lines shown");
+        assert_eq!(row(&buf, 2), "**x**");
+        assert_eq!(row(&buf, 3), "… the rest is cut after 500,000 lines");
+    }
+
+    #[test]
+    fn plain_rows_are_wrapped_again_for_a_new_width_only() {
+        let mut viewer = within(source("abc def ghi jkl mno pqr\n"), 4);
+
+        let wide = viewer.lay_out(40, 10);
+        assert_eq!(wide.lines, 2, "the note and the line");
+        assert_eq!(viewer.lay_out(40, 12), wide, "the rows depend on the width");
+        assert_eq!(renders(&viewer), 1);
+
+        assert_eq!(viewer.lay_out(10, 12).lines, 4, "the note and three rows");
+        assert_eq!(renders(&viewer), 2);
+    }
+
+    #[test]
+    fn a_plain_text_is_as_wide_as_the_body_at_most() {
+        let mut viewer = within(source("abc def ghi jkl mno pqr\n"), 4);
+
+        assert_eq!(viewer.lay_out(10, 10).columns, 10);
+        assert_eq!(viewer.lay_out(60, 10).columns, 31, "the note is the widest");
+    }
+
+    #[test]
+    fn plain_text_shows_in_the_narrowest_context_pane() {
+        let mut viewer = within(source(MIXED), 5);
+
+        let buf = drawn(&mut viewer, 40, 1, Offset::default());
+
+        assert_eq!(row(&buf, 0), PLAIN_NOTE, "the whole note fits 40 columns");
+    }
+
+    #[test]
+    fn plain_text_snapshot() {
+        let text = "Retries\n\nA **failed** request is tried again up to three times,\n  with `delay` doubling.\n\n```rust\nlet delay = Duration::from_millis(100);\n```\n";
+        let mut viewer = within(source(text), 5);
+
+        insta::assert_snapshot!("plain_24", shown(&mut viewer, 24, 0));
+    }
+
+    /// A text of 1 MiB and one byte, the least that shows plain. Its lines
+    /// are short, so it has more than 500,000 of them: the line limit cuts
+    /// it, and only the size as given tells that it is large.
+    fn one_mib_and_a_byte() -> String {
+        let limit = usize::try_from(LARGE_ENTRY_BYTES).expect("1 MiB fits a usize");
+        format!("{}x", "x\n".repeat(limit / 2))
+    }
+
+    // A wiring check of the constant: the old code needs over nine minutes
+    // for this text in a debug build, so it cannot fail in reasonable time.
+    #[test]
+    fn an_inline_text_of_one_mib_and_a_byte_shows_as_plain_text() {
+        let text = one_mib_and_a_byte();
+        let mut viewer = inline(&text);
+
+        let buf = drawn(&mut viewer, 40, 3, Offset::default());
+
+        assert_eq!(row(&buf, 0), PLAIN_NOTE);
+        assert_eq!(row(&buf, 1), "first 500,000 lines shown", "524,289 lines");
+        assert_eq!(row(&buf, 2), "x");
+    }
+
+    // A wiring check of the constant, as for the inline text above.
+    #[test]
+    fn a_caption_of_one_mib_and_a_byte_shows_as_plain_text() {
+        let mut viewer = caption(&one_mib_and_a_byte(), quote_style(false));
+
+        let buf = drawn(&mut viewer, 40, 3, Offset::default());
+
+        assert_eq!(row(&buf, 0), PLAIN_NOTE);
+        assert_eq!(row(&buf, 1), "first 500,000 lines shown", "524,289 lines");
+        assert_eq!(row(&buf, 2), "x");
+    }
+
     #[test]
     fn markdown_renders_wrapped_to_the_body() {
         let mut viewer = inline(NOTES);
@@ -255,7 +542,7 @@ mod tests {
         );
     }
 
-    /// How often `viewer`'s Markdown was rendered.
+    /// How often `viewer`'s Markdown was laid out.
     fn renders(viewer: &Content<Markdown>) -> usize {
         match viewer {
             Content::Body(markdown) => markdown.renders,
@@ -560,6 +847,7 @@ mod tests {
             Ok(Source {
                 text: "**Plan**\n".into(),
                 cut: Some(Cut::Bytes),
+                size: 9,
             }),
             quote_style(false),
             None,
