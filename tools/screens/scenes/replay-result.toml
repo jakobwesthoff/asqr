@@ -1,0 +1,13 @@
+caption = "The Result tab of a replay: how the session ended and every answer"
+columns = 80
+rows = 24
+keys = ["enter", "enter", "enter"]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+[replay]
+reference = "H3WQ8N5X"
+outcome = "sent"
+finished = "Thu 29 Oct 16:41"
+result = "../results/release-sent.json"

@@ -1,0 +1,42 @@
+{
+  "asqr": 2,
+  "id": "archived-fetch",
+  "title": "Look at the fetcher change",
+  "intro": "Three files shown by path. What the archive kept of each one decides what a replay shows.",
+  "from": "code review",
+  "questions": [
+    {
+      "id": "code",
+      "header": "Code",
+      "text": "Is the retry loop right?",
+      "kind": "single",
+      "context": [{ "type": "code", "title": "fetch.rs", "language": "rust", "path": "../files/fetch.txt" }],
+      "options": [
+        { "id": "yes", "label": "Yes" },
+        { "id": "no", "label": "No", "description": "Say what is wrong in a note." }
+      ]
+    },
+    {
+      "id": "note",
+      "header": "Note",
+      "text": "Is the migration note enough?",
+      "kind": "single",
+      "context": [{ "type": "markdown", "title": "notes.md", "path": "../files/notes.md" }],
+      "options": [
+        { "id": "yes", "label": "Yes" },
+        { "id": "more", "label": "It needs more" }
+      ]
+    },
+    {
+      "id": "log",
+      "header": "Log",
+      "text": "Is this the failure you saw?",
+      "kind": "single",
+      "context": [{ "type": "ansi", "title": "test.log", "path": "../files/test.log" }],
+      "options": [
+        { "id": "yes", "label": "Yes" },
+        { "id": "no", "label": "No" }
+      ]
+    }
+  ]
+}

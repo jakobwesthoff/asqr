@@ -93,6 +93,10 @@ tmux_session = "ntropy"
 | `[[switcher.taken]]` `name`, `tmux_session` | A queue another asqr watches, and the tmux session it runs in. |
 | `start_picker` | `true` draws asqr's start picker (spec 7.1) over the `[switcher]`'s queues instead of asqr's screen; the keys go to the picker. Needs a `[switcher]`. Default `false`. |
 | `[[invalid]]` `id`, `errors` | A session file asqr answered with an error, and each problem it had, as the dialog shows them. |
+| `[replay]` `reference`, `outcome`, `finished` | Shows the scene's one session as `asqr replay` shows a finished one (spec 7.11): the REF `asqr history` prints, how it ended (`sent`, `rejected`, `error`, `withdrawn` or `none`) and when, as the status line writes it, such as `Thu 29 Oct 16:41`. The scene lists exactly one `[[sessions]]`. |
+| `[replay]` `result` | A result file in the result format, relative to the scene file, whose answers fill the session in: those of a sent or rejected result, the unsent draft of a withdrawn one. Examples are in `tools/screens/results/`. |
+| `[replay]` `bundle`, `waiting` | The month bundle the session came from, such as `2026-10.zip`, and the sessions waiting in the queue, which the title bar counts. |
+| `[[replay.files]]` | A file the session showed and what the archive recorded: `path` as the session file writes it, `original_path`, `state` (`kept`, `not_kept`, `missing`, `unreadable` or `not_recorded`), and where known `sha256`, `size`, `modified`, `kept_size`, `reason`, `copy` and `damaged`. A kept file is drawn from the file at `path`. |
 | `home` | The person's home folder, which asqr names `~` where a path lies below it. Without one nothing is named `~`. |
 | `[settings]` `path` | The settings file's path, as the frame of the settings pane names it at its bottom edge. The tool reads the file at that path if there is one: a path in a folder that exists on no machine, such as `/home/someone/.config/asqr/settings.toml`, keeps the picture independent of the machine. |
 | `[settings]` `context_held_by` | `flag` or `variable`: `Context` is held at the scene's `layout` as `--layout` or `ASQR_LAYOUT` holds it, which locks the row in the pane. |

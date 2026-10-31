@@ -1,0 +1,12 @@
+caption = "A finished session shown again: read-only, its answers filled in"
+columns = 80
+rows = 24
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+[replay]
+reference = "H3WQ8N5X"
+outcome = "sent"
+finished = "Thu 29 Oct 16:41"
+result = "../results/release-sent.json"

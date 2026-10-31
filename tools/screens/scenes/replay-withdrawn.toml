@@ -1,0 +1,12 @@
+caption = "A withdrawn session: the unsent draft shows dim, its pick marked as the draft"
+columns = 80
+rows = 24
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+[replay]
+reference = "D0M6Z4TB"
+outcome = "withdrawn"
+finished = "Thu 29 Oct 11:20"
+result = "../results/release-withdrawn.json"

@@ -1,0 +1,13 @@
+{
+  "asqr": 2,
+  "id": "release-0-2-0",
+  "status": "withdrawn",
+  "submitted_at": "2026-10-29T11:20:44+00:00",
+  "session_sha256": "0b7af853270911da0703acd0ad93371681c078f649738c6a1d852b3590e83813",
+  "draft": {
+    "answers": [
+      { "question": "go", "selected": ["later"] },
+      { "question": "highlights", "custom": "Startup is" }
+    ]
+  }
+}

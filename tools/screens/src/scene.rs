@@ -49,6 +49,65 @@ pub struct Scene {
     #[serde(default)]
     pub invalid: Vec<InvalidSession>,
     pub settings: Option<SettingsFile>,
+    /// Shows the scene's one session as `asqr replay` shows a finished
+    /// session (spec section 7.11).
+    pub replay: Option<ReplayScene>,
+}
+
+/// What the archive knows about the finished session a scene replays.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayScene {
+    /// The REF `asqr history` prints for the session.
+    pub reference: String,
+    pub outcome: ReplayOutcome,
+    /// When the session was finished, as the status line writes it, such
+    /// as `Thu 29 Oct 16:41`.
+    pub finished: String,
+    /// The result file, in the result format, relative to the scene file,
+    /// whose answers fill the session in as a replay fills them in.
+    pub result: Option<PathBuf>,
+    /// The month bundle the session came from, such as `2026-10.zip`.
+    pub bundle: Option<String>,
+    /// The sessions waiting in the queue, which the title bar counts.
+    #[serde(default)]
+    pub waiting: usize,
+    /// The files the session showed, as the archive recorded them.
+    #[serde(default)]
+    pub files: Vec<ReplayFileScene>,
+}
+
+/// How a finished session ended, as `asqr history` words it.
+#[derive(Debug, Deserialize, PartialEq, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum ReplayOutcome {
+    Sent,
+    Rejected,
+    Error,
+    Withdrawn,
+    #[serde(rename = "none")]
+    NoResult,
+}
+
+/// A file a replayed session showed and what the archive recorded of it.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayFileScene {
+    /// The path the session names the file at, as the session file writes
+    /// it: relative to the session file, or absolute.
+    pub path: String,
+    pub original_path: String,
+    /// `kept`, `not_kept`, `missing`, `unreadable` or `not_recorded`.
+    pub state: String,
+    pub sha256: Option<String>,
+    pub size: Option<u64>,
+    pub modified: Option<String>,
+    pub kept_size: Option<u64>,
+    pub reason: Option<String>,
+    /// Where the copy lay in the archive, such as `files/9f2c….rs`.
+    pub copy: Option<String>,
+    /// Why a kept copy cannot be shown.
+    pub damaged: Option<String>,
 }
 
 /// Where the context pane goes, as asqr's `--layout`.
@@ -291,6 +350,9 @@ pub fn parse_scene(text: &str) -> Result<Scene> {
                 _ => {}
             }
         }
+    }
+    if scene.replay.is_some() && scene.sessions.len() != 1 {
+        anyhow::bail!("a replay needs a session: the scene lists exactly one [[sessions]]");
     }
     if scene.start_picker && scene.switcher.is_none() {
         anyhow::bail!("`start_picker` needs a [switcher] with the queues to pick from");
