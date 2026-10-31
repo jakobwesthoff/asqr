@@ -48,7 +48,8 @@ asqr and your agent use different queues. That happens when one of them
 runs inside a tmux session and the other outside it, or in another tmux
 session. While asqr has nothing else to say, its status line counts the
 sessions waiting in queues no asqr watches, such as `1 session waits in
-default   w  queues`, and `w` switches to that queue. Or start both the
+default   w  queues`, and `w` opens the queue switcher, where `enter`
+switches to that queue. Or start both the
 same way. [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) explains which
 queue each of them uses.
 
@@ -82,8 +83,8 @@ later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) says mor
 On the review tab, type a reason into the Reject field and press `enter`.
 Your agent gets the reason. If you answered in the chat instead, tell your
 agent: it takes the session back with `asqr withdraw`, after checking with
-you if you had started on it in asqr, and the session leaves your screen
-with a notice. [Review, submit and come back
+you if you had started on it in asqr. The session leaves your screen, with
+a notice if you had it open or had entered answers. [Review, submit and come back
 later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) shows both.
 
 ## What does my agent get back?
@@ -97,8 +98,8 @@ shows a result.
 Yes. Your answers go to your agent as a result file in the queue's
 directory on your machine, and a finished session stays in the queue's
 archive. `asqr history` lists the finished sessions, and `asqr replay
-<REF>` shows one again, read-only, with your answers and the files it
-showed. [Finished sessions: history and
+<REF>` shows one again, read-only, with your answers and the copies asqr
+kept of the files it showed. [Finished sessions: history and
 replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
 explains both.
 

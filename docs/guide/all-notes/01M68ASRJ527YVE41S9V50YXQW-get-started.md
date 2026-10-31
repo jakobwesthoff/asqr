@@ -60,9 +60,9 @@ queue without any setup. Outside tmux, both use the default queue.
 > tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
 > says why.
 
-The first time asqr starts and has no settings file, it asks one question
-before anything else: whether it keeps copies of the files a session
-showed. Pick a value with `↑`/`↓` and `enter`, then press `enter` on
+The first time asqr starts without a settings file, and `ASQR_KEEP_FILES`
+is not set, it asks one question before anything else: whether it keeps
+copies of the files a session showed. Pick a value with `↑`/`↓` and `enter`, then press `enter` on
 `[ Save and start ]`. The
 [settings page](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
 describes the screen.

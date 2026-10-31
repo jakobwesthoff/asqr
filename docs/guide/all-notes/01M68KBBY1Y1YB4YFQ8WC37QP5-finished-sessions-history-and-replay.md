@@ -14,7 +14,7 @@ asqr replay <REF>
 
 `asqr history` lists the finished sessions, newest first, each with a
 reference, and `asqr replay` opens one of them again, read-only, with your
-answers filled in and the files it showed. `q` leaves it.
+answers filled in and the copies asqr kept of the files it showed. `q` leaves it.
 
 ## The list
 
