@@ -358,6 +358,9 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<Hint> {
     if state.help() {
         return vec![hint("any key", "close", Rank::Leave)];
     }
+    if state.is_read_only() {
+        return vec![cursor("↑/↓", "move"), QUESTION_HINT, HELP_HINT, QUIT_HINT];
+    }
     let row = state.rows().get(state.row()).copied();
     let kind = state.question().map(|question| question.kind);
     // `ctrl-g` stands last of a field's keys, so a bar too narrow for all

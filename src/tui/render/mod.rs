@@ -28,6 +28,8 @@ mod panes;
 mod parts;
 mod patine_adapter;
 mod problem;
+#[cfg(test)]
+mod replay_tests;
 mod screen;
 mod settings;
 mod source_file;

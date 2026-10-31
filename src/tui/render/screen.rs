@@ -38,6 +38,7 @@ use super::tabs::tab_bar;
 use super::theme;
 use crate::format::ContextEntry;
 use crate::graphics::{Images, KittyBook, PlacedImage, disarm_placeholders};
+use crate::queue::HistoryOutcome;
 use crate::settings::Settings;
 use crate::tui::text_field::FieldShape;
 use crate::tui::{
@@ -398,7 +399,16 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     ])
     .areas(area);
 
-    let waiting = app.sessions().len();
+    // A replay counts the sessions waiting in its queue; it is no waiting
+    // session itself.
+    let waiting = if app
+        .active()
+        .is_some_and(|state| state.replay_info().is_some())
+    {
+        app.replay_waiting()
+    } else {
+        app.sessions().len()
+    };
     match app.active() {
         Some(state) => title_bar(
             state,
@@ -649,12 +659,47 @@ fn status_line(app: &App, state: Option<&SessionState>, width: u16) -> Line<'sta
         // watches (ADR 86), and names `w` where it opens the switcher: over
         // a question that has the keys, and nothing over it. The empty
         // queue's key bar names it there.
+        None if state.is_some_and(|state| state.replay_info().is_some()) => {
+            let state = state.expect("a replay is a session");
+            replay_status_line(state, app.replay_waiting())
+        }
         None => {
             let key = app.overlay().is_none()
                 && state.is_some_and(|state| state.focus() == Focus::None && !state.pane_focused());
             other_queues_line(app.elsewhere(), key, width).unwrap_or_default()
         }
     }
+}
+
+/// The status line of a replay at rest, in the warning colour: what it is,
+/// when it ended and how, that it is read-only, and what the colours of
+/// the screen mean or, while sessions wait, where to answer them.
+fn replay_status_line(state: &SessionState, waiting: usize) -> Line<'static> {
+    let replay = state
+        .replay_info()
+        .expect("only a replay has a replay line");
+    let ended = match replay.outcome {
+        HistoryOutcome::Sent => format!("sent {}", replay.finished),
+        HistoryOutcome::Rejected => format!("rejected {}", replay.finished),
+        HistoryOutcome::Error => format!("error {}", replay.finished),
+        HistoryOutcome::Withdrawn => format!("withdrawn {}", replay.finished),
+        HistoryOutcome::NoResult => format!("no result, archived {}", replay.finished),
+    };
+    let mut parts = vec!["◷ replay".to_owned(), ended, "read-only".to_owned()];
+    if waiting > 0 {
+        parts.push(format!(
+            "{waiting} waiting, answer in the asqr that watches the queue"
+        ));
+    } else {
+        match replay.outcome {
+            HistoryOutcome::Sent | HistoryOutcome::Rejected => {
+                parts.push("only your answers stand out".to_owned());
+            }
+            HistoryOutcome::Withdrawn => parts.push("dim is your unsent draft".to_owned()),
+            HistoryOutcome::Error | HistoryOutcome::NoResult => {}
+        }
+    }
+    Line::styled(parts.join(" · "), theme::warning())
 }
 
 #[cfg(test)]

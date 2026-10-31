@@ -2797,6 +2797,41 @@ The text fields and Markdown entries differ in two rules:
 The intro under the title shows these styles in the text colour, as
 the `i` frame does.
 
+### 7.11 A finished session shown again
+
+A finished session of the archive (section 5.1) opens in the screen of
+section 7.2 with its answers filled in and nothing writable. It opens on
+the first question and its last tab is `Result`, where the review of a
+live session has `Review`.
+
+- `space`, `1` to `9`, `n`, `backspace`, `L`, `w`, `,`, `ctrl-g`, typing
+  and paste do nothing, no field takes the keys, and no key saves a draft
+  or sends a result. `enter` moves to the next question and, from the
+  last, to `Result`, where it does nothing; on the `Result` tab it still
+  opens a question from the list. Moving between questions and rows,
+  `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` keep their meaning.
+- The answers are those of the result that answers the session: a
+  `submitted` or `cancelled` result's, or the unsent `draft` of a
+  `withdrawn` one. A question the person skipped shows no pick, also where
+  it has a default. An `error` result, or no result, leaves the session
+  empty.
+- The title bar reads `asqr ◷ read-only` followed by the title, the mark
+  in the warning colour without a fill. It is part of the bar, so every
+  state of the screen shows it. At the right end stand `<queue> · replay
+  <REF>` dim and, while sessions wait in the queue, `▲ <n> waiting` in the
+  warning colour; where the bar is too narrow the queue and the reference
+  go before the title is cut or the count is.
+- The status line at rest is in the warning colour: `◷ replay · sent Thu
+  29 Oct 16:41 · read-only · only your answers stand out`. `rejected` and
+  `error` replace `sent` for those results, `withdrawn` ends in `dim is
+  your unsent draft`, and a session without a result reads `no result,
+  archived <time>`. While sessions wait it ends in `<n> waiting, answer in
+  the asqr that watches the queue` instead. A notice replaces the line for
+  as long as it lasts.
+- The tab of the result carries `✔`, or `↩` for a withdrawn session.
+- The key bar names `↑/↓ move`, `←/→ question`, `tab context` where a
+  pane shows, `? help` and `q quit`.
+
 ## 8. Context
 
 ### 8.1 The context pane

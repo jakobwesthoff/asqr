@@ -14,6 +14,7 @@ use ratatui::widgets::Widget;
 use super::parts::answer_mark;
 use super::source_line::columns;
 use super::theme;
+use crate::queue::HistoryOutcome;
 use crate::tui::SessionState;
 
 /// One tab of the bar: its mark, styled as it shows, and its text.
@@ -126,9 +127,21 @@ pub(super) fn tab_bar(state: &SessionState) -> TabBar {
                 .to_owned(),
         })
         .collect();
-    tabs.push(Tab {
-        mark: Span::from("✔"),
-        text: "Review".to_owned(),
+    // A replay ends in what was sent, or, for a session the asker took
+    // back, in what was withdrawn.
+    tabs.push(match state.replay_info() {
+        Some(replay) => Tab {
+            mark: Span::from(if replay.outcome == HistoryOutcome::Withdrawn {
+                "↩"
+            } else {
+                "✔"
+            }),
+            text: "Result".to_owned(),
+        },
+        None => Tab {
+            mark: Span::from("✔"),
+            text: "Review".to_owned(),
+        },
     });
     TabBar::new(tabs, state.tab())
 }

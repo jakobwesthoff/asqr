@@ -16,7 +16,7 @@ use super::source_line::{columns, fitting};
 use super::text::field_lines;
 use super::theme;
 use super::wrap::{cut, indented};
-use crate::tui::SessionState;
+use crate::tui::{ReplayInfo, SessionState};
 
 /// The column the session's title starts in, after ` asqr` and two
 /// blanks. The lines under the title start there too.
@@ -55,6 +55,9 @@ pub(super) fn title_bar(
     width: usize,
     reading: ReadingWidth,
 ) -> Line<'static> {
+    if let Some(replay) = state.replay_info() {
+        return replay_title_bar(state, replay, queue, waiting, width, reading);
+    }
     let text_width = text_width(width, reading);
     let title = one_line(state.name()).unwrap_or_default();
     let count = format!("{waiting} waiting ");
@@ -79,6 +82,57 @@ pub(super) fn title_bar(
         Span::styled(title, theme::title()),
         Span::from(" ".repeat(blanks)),
         Span::styled(format!("{queue}{count}"), theme::secondary()),
+    ])
+}
+
+/// What stands after `asqr` in the title bar of a replay, in the warning
+/// colour and without a fill. The title bar draws it, so every state of
+/// the screen shows it and its left end is never cut.
+const READ_ONLY_MARK: &str = " ◷ read-only";
+
+/// The title bar of a replay: `asqr`, the mark, the session's title and,
+/// dim at the right end, the queue and the reference, then in the warning
+/// colour how many sessions wait. The title is cut before the right end
+/// goes, and the right end before the count.
+fn replay_title_bar(
+    state: &SessionState,
+    replay: &ReplayInfo,
+    queue: &str,
+    waiting: usize,
+    width: usize,
+    reading: ReadingWidth,
+) -> Line<'static> {
+    let start = INDENT + columns(READ_ONLY_MARK);
+    let text_width = text_width(width, reading).saturating_sub(columns(READ_ONLY_MARK));
+    let title = one_line(state.name()).unwrap_or_default();
+    let named = format!("{queue} · replay {} ", replay.reference);
+    let count = if waiting > 0 {
+        format!(" ▲ {waiting} waiting ")
+    } else {
+        String::new()
+    };
+
+    let whole_title = columns(&title).min(text_width);
+    let named = if start + whole_title + GAP + columns(&named) + columns(&count) <= width {
+        named
+    } else {
+        String::new()
+    };
+    let right = columns(&named) + columns(&count);
+    let title = cut(
+        &title,
+        text_width.min(width.saturating_sub(start + GAP + right)),
+    );
+    let blanks = width.saturating_sub(start + columns(&title) + right);
+
+    Line::from(vec![
+        Span::styled(" asqr", theme::app_name()),
+        Span::styled(READ_ONLY_MARK, theme::warning()),
+        Span::from("  "),
+        Span::styled(title, theme::title()),
+        Span::from(" ".repeat(blanks)),
+        Span::styled(named, theme::secondary()),
+        Span::styled(count, theme::warning()),
     ])
 }
 

@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::ReplayInfo;
 use super::scroll::scroll;
 use super::text_field::cleaned;
 use super::{
@@ -276,6 +277,8 @@ pub struct SessionState {
     working: Vec<Working>,
     /// A finished session shown again (see [`Self::is_read_only`]).
     read_only: bool,
+    /// What the screen shows of a replay besides the session.
+    replay_info: Option<ReplayInfo>,
     /// The current tab; `session.questions.len()` is the review.
     tab: usize,
     row: usize,
@@ -378,6 +381,7 @@ impl SessionState {
             session,
             working,
             read_only,
+            replay_info: None,
             tab,
             row: 0,
             focus: Focus::None,
@@ -415,6 +419,18 @@ impl SessionState {
     /// `draft`. Nothing in it can change: see [`Self::is_read_only`].
     pub fn replay(id: impl Into<String>, session: Session, draft: Option<&SessionResult>) -> Self {
         Self::build(id.into(), session, draft, true)
+    }
+
+    /// Gives a replayed session what its screen shows besides it.
+    pub fn with_replay_info(mut self, info: ReplayInfo) -> Self {
+        self.replay_info = Some(info);
+        self
+    }
+
+    /// What the screen shows of a replay besides the session; `None` for
+    /// a session being answered.
+    pub fn replay_info(&self) -> Option<&ReplayInfo> {
+        self.replay_info.as_ref()
     }
 
     /// Whether this is a finished session shown again: no key changes an

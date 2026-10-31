@@ -211,6 +211,9 @@ pub struct App {
     dialog_seen: bool,
     /// The queues no asqr watches in which sessions wait (ADR 86).
     elsewhere: Vec<WaitingQueue>,
+    /// While a finished session is replayed: how many sessions wait in the
+    /// queue it was found in.
+    replay_waiting: usize,
     /// The open queue switcher.
     switcher: Option<Switcher>,
     /// The layout diffs open in.
@@ -230,6 +233,17 @@ impl App {
             settings,
             ..App::default()
         }
+    }
+
+    /// Sets how many sessions wait in the queue a replay shows; the title
+    /// bar and the status line count them.
+    pub fn set_replay_waiting(&mut self, waiting: usize) {
+        self.replay_waiting = waiting;
+    }
+
+    /// See [`Self::set_replay_waiting`].
+    pub fn replay_waiting(&self) -> usize {
+        self.replay_waiting
     }
 
     /// The settings of this run.

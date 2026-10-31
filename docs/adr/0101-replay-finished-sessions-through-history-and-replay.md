@@ -94,3 +94,17 @@ typing and paste do nothing, no field takes the keys, and no key asks the
 app to save a draft. `enter` moves to the next question and, on the last
 one, to the last tab, where it does nothing. Moving between questions and
 rows, `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` keep their meaning.
+
+### The look
+
+- The title bar carries a permanent mark `◷ read-only` right after `asqr`,
+  in the warning colour without a fill, and the right end names the queue
+  and the reference. The title bar draws the mark itself, so no state of
+  the screen hides it.
+- The status line at rest says what the screen is, when the session ended
+  and how, and what the colours mean. A notice replaces it for as long as
+  it lasts and the title bar keeps the mark.
+- The last tab is `Result`.
+- While sessions wait in the queue, the title bar counts them and the
+  status line says where to answer. The replay does not notify and has no
+  key that hands the session over.
