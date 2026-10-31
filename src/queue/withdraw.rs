@@ -286,6 +286,13 @@ pub fn drop_replacing_carrying(
     mut gate: Gate<'_>,
 ) -> Result<Replaced, ReplaceError> {
     let refused = |error| ReplaceError::Drop(DropError::Io(error));
+    // A queue that is not there holds no session to replace, and a
+    // mistyped queue name must not leave a directory, as with `withdraw`.
+    if !location.dir().is_dir() {
+        return Err(ReplaceError::Withdraw(WithdrawError::Unknown(
+            old.to_owned(),
+        )));
+    }
     // Made under the drafts lock, as `drop_session_with` makes them.
     let _lock = lock_drafts(location, gate.attempts).map_err(refused)?;
     location.create_layout().map_err(refused)?;

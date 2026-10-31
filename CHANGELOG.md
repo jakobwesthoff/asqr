@@ -196,6 +196,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asqr withdraw` of a session withdrawn before prints the result file as
   the outbox holds it, as `wait` and `result` do. Before, it printed a
   copy that lost the fields a newer asqr had written.
+- `asqr ask --replaces` against a queue that does not exist creates nothing,
+  as `withdraw` does. Before, a mistyped queue name left a queue directory
+  with its four folders behind.
 
 ## [0.15.0] - 2026-10-30
 

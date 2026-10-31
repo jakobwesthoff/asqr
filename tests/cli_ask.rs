@@ -1650,7 +1650,8 @@ fn ask_replaces_an_unknown_id_exits_13_without_dropping() {
 
     assert_eq!(output.status.code(), Some(13));
     assert_eq!(stderr(&output), no_session(&sandbox, "round-1"));
-    assert_eq!(waiting(&sandbox), Vec::<String>::new());
+    // Nothing was dropped, and the queue that was not there is still not.
+    assert!(!sandbox.queue_dir().exists());
 }
 
 #[test]

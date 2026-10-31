@@ -937,7 +937,9 @@ refuses with "the queue is busy".
 rebuilt under another id (ADR 64). It holds the drafts lock once for
 both: first the refusals of the new session above, then those of the
 withdrawal, and only then the withdrawal and the drop, so a refusal of
-either leaves the queue as it was. Without `--force`, the old session is
+either leaves the queue as it was. A queue directory that does not exist
+holds no session to replace, and `ask --replaces` creates nothing for it.
+Without `--force`, the old session is
 withdrawn only while nobody has started answering it, and the refusal
 reads "session "<old-id>" is being answered; check with the person
 first, then run this command again with --force, which withdraws it,
