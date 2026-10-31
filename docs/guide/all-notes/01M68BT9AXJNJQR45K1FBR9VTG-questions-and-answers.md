@@ -58,7 +58,7 @@ within the target, `140/125 !` above it and `182/125 !!` above the
 warning limit. A line break counts as one character. asqr never refuses
 input because of the length.
 
-![A text question whose counter shows the answer is inside the target range](../pictures/text-counter.png)
+![A text question whose length counter shows the answer is inside the target range](../pictures/text-counter.png)
 
 ## Info item
 

@@ -175,6 +175,117 @@ fn every_scene_has_its_picture_and_every_picture_its_scene() {
     );
 }
 
+/// The pictures `text` shows from the guide's `pictures/` folder, as pairs
+/// of the picture's name without `.png` and its alt text.
+fn pictures_shown(text: &str) -> Vec<(String, String)> {
+    let mut shown = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("![") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("](") else { break };
+        let alt = &after[..end];
+        let target = &after[end + 2..];
+        let Some(close) = target.find(')') else { break };
+        if let Some(name) = target[..close]
+            .strip_prefix("../pictures/")
+            .and_then(|file| file.strip_suffix(".png"))
+        {
+            shown.push((name.to_owned(), alt.to_owned()));
+        }
+        rest = &target[close..];
+    }
+    shown
+}
+
+/// The caption of every scene, by the scene's name: the `caption = "..."`
+/// line of its file, which `just guide-pictures` draws the picture of the
+/// same name from.
+fn scene_captions() -> Vec<(String, String)> {
+    let scenes = Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/screens/scenes");
+    let mut captions: Vec<(String, String)> = fs::read_dir(&scenes)
+        .expect("the scenes are readable")
+        .map(|entry| entry.expect("a directory entry").path())
+        .filter(|path| path.extension().is_some_and(|found| found == "toml"))
+        .map(|path| {
+            let text = fs::read_to_string(&path).expect("a scene is readable");
+            let caption = text
+                .lines()
+                .find_map(|line| line.strip_prefix("caption = \""))
+                .and_then(|rest| rest.strip_suffix('"'))
+                .unwrap_or_else(|| panic!("{} has a caption line", path.display()));
+            assert!(
+                !caption.contains('\\'),
+                "{}: a caption with an escape is not read here",
+                path.display()
+            );
+            let name = path
+                .file_stem()
+                .expect("a scene has a name")
+                .to_string_lossy()
+                .into_owned();
+            (name, caption.to_owned())
+        })
+        .collect();
+    captions.sort();
+    captions
+}
+
+#[test]
+fn every_picture_a_page_shows_has_its_scene_s_caption_as_alt_text() {
+    let captions = scene_captions();
+    let mut drifted = Vec::new();
+    for note in notes(&guide()) {
+        let text = fs::read_to_string(&note).expect("a note is readable");
+        for (picture, alt) in pictures_shown(&text) {
+            let caption = captions
+                .iter()
+                .find(|(name, _)| *name == picture)
+                .map(|(_, caption)| caption.as_str());
+            if caption != Some(alt.as_str()) {
+                drifted.push(format!(
+                    "{}: {picture}.png has alt text {alt:?}, its scene's caption is {caption:?}",
+                    file_name(&note)
+                ));
+            }
+        }
+    }
+
+    assert!(drifted.is_empty(), "{}", drifted.join("\n"));
+}
+
+#[test]
+fn every_picture_is_shown_by_a_page() {
+    let shown: Vec<String> = notes(&guide())
+        .iter()
+        .flat_map(|note| pictures_shown(&fs::read_to_string(note).expect("a note is readable")))
+        .map(|(name, _)| name)
+        .collect();
+
+    let unshown: Vec<String> = scene_captions()
+        .into_iter()
+        .map(|(name, _)| name)
+        .filter(|name| !shown.contains(name))
+        .collect();
+
+    assert!(
+        unshown.is_empty(),
+        "no page shows these pictures: {unshown:?}"
+    );
+}
+
+#[test]
+fn pictures_are_read_with_their_alt_text() {
+    let text = "![A b](../pictures/one.png) ![c](../pictures/talqi.webp) [d](x.md) ![](../pictures/two.png)";
+
+    assert_eq!(
+        pictures_shown(text),
+        [
+            ("one".to_owned(), "A b".to_owned()),
+            ("two".to_owned(), String::new())
+        ]
+    );
+}
+
 #[test]
 fn links_are_read_without_the_ones_that_leave_the_vault() {
     let text = "[a](x.md) ![b](../p/y.png) [c](https://example.org/z) [d](#here) [e](f.md#top)";

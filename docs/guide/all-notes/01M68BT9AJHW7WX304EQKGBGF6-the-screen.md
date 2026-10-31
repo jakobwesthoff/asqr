@@ -9,7 +9,7 @@ site:
 asqr draws a session as a stack of rows over the full width of the
 terminal. This page names the parts of the screen from the top down.
 
-![A question of a session, with the title bar, the header, the tabs, the options and the key bar](../pictures/first-question.png)
+![The first question of a session: title bar, header, tabs, options and key bar](../pictures/first-question.png)
 
 1. **The title bar.** `asqr` in bold, then the session's title, or its
    id when it has no title. At the right end, dim, stand the queue and the

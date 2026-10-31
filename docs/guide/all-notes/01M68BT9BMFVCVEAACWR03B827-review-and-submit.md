@@ -106,4 +106,4 @@ The header of the new session says that it continues your draft. If you had
 the old session open, it leaves with an information notice in place of the
 withdrawn notices above, which names both sessions.
 
-![A session that continues the draft of the one it replaced](../pictures/continues-draft.png)
+![A session that continues the draft of the one it replaced: the header note and the information notice](../pictures/continues-draft.png)
