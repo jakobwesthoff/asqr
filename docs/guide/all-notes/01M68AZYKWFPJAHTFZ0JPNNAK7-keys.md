@@ -92,7 +92,8 @@ the question behind it. `z`, `esc`, `tab` and `q` leave it.
   and `g`/`G` or `home`/`end` to the ends. `esc`, `q` and `i` close it,
   `ctrl-c` quits asqr, and every other key does nothing.
 - The session list (`L`): `↑`/`↓` or `k`/`j` move, `enter` switches to
-  the session, `esc` or `L` close the list and `q` quits asqr.
+  the session, `esc` or `L` close the list and `q` quits asqr. Its key bar
+  reads `↑/↓  move   enter  open   esc  close`.
 - The queue switcher (`w`): `↑`/`↓` or `k`/`j` move, `enter` switches
   to the queue under the cursor, `esc`, `q` and `w` close it and
   `ctrl-c` quits asqr. On the new-queue row, letters, digits, `-`, `_`
@@ -101,6 +102,19 @@ the question behind it. `z`, `esc`, `tab` and `q` leave it.
 - The settings pane (`,`): `↑`/`↓` or `k`/`j` move, `←`/`→` or `h`/`l`
   change the value and save it at once, `esc`, `q` and `,` close it and
   `ctrl-c` quits asqr.
+
+## At the start
+
+The [first-start screen](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md): `↑`/`↓`
+or `k`/`j` move, `enter` or `space` on a value picks it, and `enter` then
+moves to the button. `enter` on `[ Save and start ]` writes the setting and
+starts asqr. `q` and `ctrl-c` quit and write nothing. Every other key does
+nothing, and a paste goes nowhere.
+
+The [start picker](01M68C1XV58STWHBH179QYXPZR-queues.md): `↑`/`↓` move,
+`enter` watches the queue under the cursor, and `q` and `ctrl-c` quit. On
+the new-queue row `q` types, and `esc` stops typing there and does nothing
+elsewhere.
 
 ## In a replay
 
