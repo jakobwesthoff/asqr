@@ -318,3 +318,48 @@ fn fingerprints_are_recorded_without_holding_the_drafts_lock_while_files_are_rea
     assert_eq!(json["archived"]["keep"], "off");
     assert!(archived.files().is_empty());
 }
+
+#[test]
+fn a_recording_that_cannot_be_written_takes_the_copies_it_placed_with_it() {
+    let archived = archived_showing("hero.png", &gradient_png());
+    let job = archived.job(KeepFiles::Exact);
+    // A copy of the same name that was there before the job stays.
+    let failed = keep_with(&job, &nothing, &|_, _| {
+        Err(io::Error::other("the disk is full"))
+    });
+
+    assert!(failed.is_err());
+    assert!(archived.files().is_empty(), "{:?}", archived.files());
+    assert_eq!(
+        fs::read(&archived.session.path).expect("reads"),
+        archived.session.bytes
+    );
+}
+
+#[test]
+fn a_copy_that_was_there_before_a_failed_job_stays() {
+    let archived = archived_showing("hero.png", &gradient_png());
+    keep(&archived.job(KeepFiles::Exact), &nothing).expect("kept once");
+    let placed = archived.files();
+    // The same file shown by a second session whose recording fails.
+    let second = archived_showing("hero.png", &gradient_png());
+    fs::create_dir_all(second.location.kept_files()).expect("created");
+    for name in &placed {
+        fs::copy(
+            archived.location.kept_files().join(name),
+            second.location.kept_files().join(name),
+        )
+        .expect("copied");
+    }
+
+    let failed = keep_with(&second.job(KeepFiles::Exact), &nothing, &|_, _| {
+        Err(io::Error::other("the disk is full"))
+    });
+
+    assert!(failed.is_err());
+    assert_eq!(
+        second.files(),
+        placed,
+        "what another session's recording refers to stays"
+    );
+}

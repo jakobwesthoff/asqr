@@ -8,7 +8,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::KeepFiles;
 use super::record::record;
@@ -74,6 +74,16 @@ pub enum Kept {
 /// it was written, and a failure or a crash before the rename leaves the
 /// plain session and, at worst, temp files for the compaction's sweep.
 pub fn keep(job: &KeepJob, between: &dyn Fn()) -> io::Result<Kept> {
+    keep_with(job, between, &write_atomically)
+}
+
+/// [`keep`] with the step that writes the recording over the archived
+/// session given, so a test can make it fail after the copies are placed.
+fn keep_with(
+    job: &KeepJob,
+    between: &dyn Fn(),
+    write_recording: &dyn Fn(&Path, &[u8]) -> io::Result<()>,
+) -> io::Result<Kept> {
     let mut snapshot = job.snapshot.clone();
     snapshot.resolve_deferred(&Limits::VIEWERS);
     let recording = record(&job.archived.bytes, &snapshot, job.mode);
@@ -103,10 +113,30 @@ pub fn keep(job: &KeepJob, between: &dyn Fn()) -> io::Result<Kept> {
         }
         Err(error) => return Err(error),
     }
-    for (name, copy) in staged {
-        place(&files_dir, name, copy)?;
+    // The copies this job puts under a name that was free are removed again
+    // if a later step fails, still under the lock: a loose kept file that no
+    // recording refers to would be an orphan until a prune ages it out. A
+    // name that was taken before is another session's and stays.
+    let mut created: Vec<PathBuf> = Vec::new();
+    let placed = (|| {
+        for (name, copy) in staged {
+            let target = files_dir.join(name);
+            let free = !target.exists();
+            place(&files_dir, name, copy)?;
+            if free {
+                created.push(target);
+            }
+        }
+        write_recording(&job.archived.path, &recording.json)
+    })();
+    if let Err(error) = placed {
+        for target in &created {
+            if let Err(removal) = fs::remove_file(target) {
+                tracing::warn!(%removal, path = %target.display(), "could not remove a copy of a failed job");
+            }
+        }
+        return Err(error);
     }
-    write_atomically(&job.archived.path, &recording.json)?;
     Ok(Kept::Recorded)
 }
 
