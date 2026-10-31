@@ -208,7 +208,7 @@ enum Command {
     /// List, and with --yes remove, archived sessions and results of
     /// months older than an age.
     Prune {
-        /// Remove what lies in months older than this age, such as 90d, 2w
+        /// Remove what lies in months older than this age, such as 90d, 5w
         /// or 6mo: days, weeks (w), months of 30 days (mo) or years of 365
         /// days (y), at least 30d.
         #[arg(long, value_name = "AGE", value_parser = prune::parse_prune_age)]
