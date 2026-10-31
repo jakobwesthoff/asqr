@@ -12,6 +12,10 @@ reading order. The pictures are in `pictures/`.
 - [asqr](all-notes/01M68ASRHWD0MCGBJSFA6YXY6S-asqr.md)
 - [Install and a first session](all-notes/01M68ASRJ527YVE41S9V50YXQW-install-and-a-first-session.md)
 
+### Reference
+
+- [Keys](all-notes/01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md)
+
 ## As a website
 
 ```sh
