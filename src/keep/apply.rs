@@ -69,10 +69,14 @@ pub enum Kept {
 /// The copies are written as temp files first. Under the drafts lock, which
 /// the prune and the compaction also take, the archived file must still
 /// hold exactly the bytes it was archived with; then the copies take their
-/// names and the recording replaces the archived file by one rename. A
-/// copy therefore lies under its name only once a recording that refers to
-/// it was written, and a failure or a crash before the rename leaves the
-/// plain session and, at worst, temp files for the compaction's sweep.
+/// names and the recording replaces the archived file by one rename.
+///
+/// The session itself is never at risk: until the rename it stays plain.
+/// A failing step removes the copies this job placed. A process that exits
+/// between placing the copies and the rename cannot, and leaves them under
+/// their names without a recording that refers to them. Those orphans stay
+/// until `prune` ages them out. The placing comes first so that a recording
+/// never refers to a copy that is not there yet.
 pub fn keep(job: KeepJob, between: &dyn Fn()) -> io::Result<Kept> {
     keep_with(job, between, &write_atomically)
 }

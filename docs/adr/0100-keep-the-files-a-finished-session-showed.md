@@ -168,13 +168,16 @@ The worker writes each copy as a synced temp file under
 the archived file still holds exactly the bytes it was archived with,
 gives the copies their names and replaces the archived file with the
 recording by one rename. The archived file therefore has two states,
-plain and recorded. A copy lies under its name only once a recording that
-refers to it was written, and placing the copies, the scans that look for
-references and the removals all happen under the drafts lock. A busy
-lock, a changed or missing archived file, a failing copy, a panic in a job
-(caught and logged) or a crash leaves the plain session. What is lost then
-are the copies and fingerprints of that session, and temp files that the
-compaction's sweep removes. Quitting gives the terminal back, prints one
+plain and recorded. A recording never refers to a copy that has no name
+yet, and placing the copies, the scans that look for references and the
+removals all happen under the drafts lock. A busy lock, a changed or
+missing archived file, a failing copy, a panic in a job (caught and
+logged) or a crash leaves the plain session. What is lost then are the
+copies and fingerprints of that session, and temp files that the
+compaction's sweep removes. A failing step removes the copies it placed.
+A process that exits between placing the copies and the rename leaves
+them under their names without a recording that refers to them: orphans
+that stay until `prune` ages them out. Quitting gives the terminal back, prints one
 line on stderr that says how many finished sessions are still being kept,
 and waits for the worker to run its queue empty for up to 10 seconds;
 ctrl-c ends the wait. What is left is let go of, as a crash would. A

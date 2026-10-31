@@ -1049,10 +1049,11 @@ its name (a file of that name with the same bytes is left as it is) and
 the recording replaces the archived file by one rename. If the lock stays
 taken, or the archived file changed or went, the plain archived session
 stays and the job ends with a warning in the log. So the archived file
-has two states, plain and recorded, a copy lies under its name only once
-a recording that refers to it was written, and a crash or a failing copy
-at any point leaves the plain session. What is lost then are the copies
-and the fingerprints of that session. Quitting, or a SIGTERM, gives the
+has two states, plain and recorded, and a crash or a failing copy at any
+point leaves the plain session. What is lost then are the copies and the
+fingerprints of that session. A failing step removes the copies it
+placed; a process that exits between placing them and the rename leaves
+them as orphans, which `prune` ages out. Quitting, or a SIGTERM, gives the
 terminal back first. Where jobs are still running it prints `keeping the
 files of <n> finished sessions, ctrl-c lets go of them...` on stderr (`1
 finished session, ctrl-c lets go of it` for one; a stderr that cannot be
