@@ -21,7 +21,8 @@ use crate::queue::QueueLocation;
 /// gives what `take` made of it, or `None` once the person quits. A queue
 /// `take` refuses, with the notice it gives, leaves the picker open with
 /// the notice in its status line. `version` is asqr's name and version,
-/// which the key bar names.
+/// which the key bar names. The picker draws without colours when
+/// `no_color` is set.
 ///
 /// The picker reads `events`, the run loop's channel, so a signal that
 /// quits asqr quits the picker too.
@@ -30,6 +31,7 @@ pub fn pick_queue<B: Backend, T>(
     mut picker: Switcher,
     events: &Receiver<Event>,
     version: &str,
+    no_color: bool,
     mut take: impl FnMut(&QueueLocation) -> Result<T, Notice>,
 ) -> anyhow::Result<Option<T>>
 where
@@ -38,7 +40,7 @@ where
     let mut notice: Option<Notice> = None;
     loop {
         terminal
-            .draw(|frame| draw_picker(frame, &picker, notice.as_ref(), version))
+            .draw(|frame| draw_picker(frame, &picker, notice.as_ref(), version, no_color))
             .context("drawing the screen")?;
         let Ok(event) = events.recv() else {
             return Ok(None);
@@ -115,20 +117,27 @@ mod tests {
         drop(sender);
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
         let mut asked = Vec::new();
-        let picked = pick_queue(&mut terminal, picker(), &receiver, "asqr 0.0.0", |target| {
-            let name = target.name().expect("named").to_owned();
-            asked.push(name.clone());
-            if refused.contains(&name.as_str()) {
-                Err(Notice::naming_queue(
-                    Tone::Error,
-                    "another asqr is watching queue ",
-                    &name,
-                    "",
-                ))
-            } else {
-                Ok(name)
-            }
-        });
+        let picked = pick_queue(
+            &mut terminal,
+            picker(),
+            &receiver,
+            "asqr 0.0.0",
+            false,
+            |target| {
+                let name = target.name().expect("named").to_owned();
+                asked.push(name.clone());
+                if refused.contains(&name.as_str()) {
+                    Err(Notice::naming_queue(
+                        Tone::Error,
+                        "another asqr is watching queue ",
+                        &name,
+                        "",
+                    ))
+                } else {
+                    Ok(name)
+                }
+            },
+        );
         let screen = terminal.backend().to_string();
         (picked, asked, screen)
     }

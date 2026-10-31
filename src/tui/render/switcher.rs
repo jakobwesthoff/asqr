@@ -43,8 +43,15 @@ const FOOTER_EDGE: usize = 5;
 
 /// Draws the start picker `picker` over the whole of `frame`: asqr's name
 /// in the title line, the queues in the middle, `notice` in the status
-/// line and the picker's keys with `version` in the key bar.
-pub fn draw_picker(frame: &mut Frame, picker: &Switcher, notice: Option<&Notice>, version: &str) {
+/// line and the picker's keys with `version` in the key bar, without
+/// colours when `no_color` is set.
+pub fn draw_picker(
+    frame: &mut Frame,
+    picker: &Switcher,
+    notice: Option<&Notice>,
+    version: &str,
+    no_color: bool,
+) {
     if draw_too_small(frame) {
         return;
     }
@@ -63,6 +70,11 @@ pub fn draw_picker(frame: &mut Frame, picker: &Switcher, notice: Option<&Notice>
     }
     key_line_with_version(&picker_hints(picker.typing()), keys.width, version).render(keys, buf);
     draw_switcher(area, buf, picker);
+    // The pass that takes the colours off the session screen (spec section
+    // 7.3) over the finished picker: attributes stay.
+    if no_color {
+        theme::strip_colours(buf);
+    }
 }
 
 /// Draws `switcher` in a frame in the middle of `area`.
@@ -658,7 +670,7 @@ mod tests {
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).expect("terminal");
         terminal
-            .draw(|frame| draw_picker(frame, &picker, notice, "asqr 0.0.0"))
+            .draw(|frame| draw_picker(frame, &picker, notice, "asqr 0.0.0", false))
             .expect("draws");
         terminal.backend().clone()
     }
@@ -687,7 +699,7 @@ mod tests {
     }
 
     /// The start picker drawn at `width`×`height`.
-    fn picker_at(width: u16, height: u16) -> ratatui::backend::TestBackend {
+    fn picker_at(width: u16, height: u16, no_color: bool) -> ratatui::backend::TestBackend {
         let mut choice = choice(Place::Outside);
         choice.rows[1].watched = false;
         let picker = Switcher::picker(choice);
@@ -695,7 +707,7 @@ mod tests {
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
                 .expect("terminal");
         terminal
-            .draw(|frame| draw_picker(frame, &picker, None, "asqr 0.0.0"))
+            .draw(|frame| draw_picker(frame, &picker, None, "asqr 0.0.0", no_color))
             .expect("draws");
         terminal.backend().clone()
     }
@@ -705,7 +717,7 @@ mod tests {
         // The text fits on one line at these sizes; narrower terminals
         // wrap it, as the session screen's does.
         for (width, height) in [(59, 24), (80, 14), (50, 10)] {
-            let screen = picker_at(width, height).to_string();
+            let screen = picker_at(width, height, false).to_string();
 
             assert!(
                 screen.contains(&format!(
@@ -722,10 +734,34 @@ mod tests {
 
     #[test]
     fn a_picker_at_the_minimum_size_draws_the_queues() {
-        let screen = picker_at(60, 15).to_string();
+        let screen = picker_at(60, 15, false).to_string();
 
         assert!(screen.contains("asqr-todos"), "{screen}");
         assert!(!screen.contains("asqr needs at least"), "{screen}");
+    }
+
+    #[test]
+    fn the_picker_draws_no_colour_under_no_color_and_keeps_its_attributes() {
+        let coloured = |no_color| {
+            let backend = picker_at(80, 24, no_color);
+            backend
+                .buffer()
+                .content
+                .iter()
+                .filter(|cell| {
+                    [cell.fg, cell.bg]
+                        .iter()
+                        .any(|colour| !matches!(colour, Color::Reset | Color::Rgb(..)))
+                })
+                .count()
+        };
+
+        assert!(coloured(false) > 0, "the picker has colours to strip");
+        assert_eq!(coloured(true), 0);
+
+        let backend = picker_at(80, 24, true);
+        let buf = backend.buffer();
+        assert_eq!(look_at(buf, "asqr"), (Color::Reset, Modifier::BOLD));
     }
 
     #[test]

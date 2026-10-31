@@ -163,6 +163,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The start picker shows "asqr needs at least 60×15; this terminal is
   W×H." on a smaller terminal, as the session screen does. Before, it drew
   its frame into whatever room there was.
+- The start picker draws without colours under `NO_COLOR`, keeping bold and
+  dim, as the rest of the TUI does. Before, it kept its colours.
 
 ## [0.15.0] - 2026-10-30
 

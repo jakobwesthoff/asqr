@@ -351,6 +351,7 @@ fn run_tui(
                 Switcher::picker(choice.clone()),
                 events,
                 VERSION,
+                watch.no_color(),
                 |target| {
                     let changes = inbox_events.clone();
                     take_picked_with_keeper(target, &settings, keeper.clone(), move || {
