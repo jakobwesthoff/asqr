@@ -13,6 +13,8 @@ Amends [46. Build and lay out context viewers on worker threads](0046-build-and-
 a panic of the Markdown parser no longer ends asqr; the panic of any
 other job still does
 
+Amended by [99. Show text fields the Markdown parser panics on as written](0099-show-text-fields-the-markdown-parser-panics-on-as-written.md)
+
 ## Context
 
 - The Markdown parser, `markdown` 1.0.0 behind patine, panics on short

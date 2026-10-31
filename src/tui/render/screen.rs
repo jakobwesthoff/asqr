@@ -686,6 +686,89 @@ mod tests {
         app
     }
 
+    /// A session of one single question, with `fields` merged into the
+    /// session, the question and the option `a`, as JSON objects of
+    /// their own.
+    fn app_with_fields(
+        session: serde_json::Value,
+        question: serde_json::Value,
+        option: serde_json::Value,
+    ) -> App {
+        let mut question_json = serde_json::json!({"id": "q", "text": "Pick one", "kind": "single",
+            "options": [{"id": "a", "label": "Apples"}]});
+        question_json
+            .as_object_mut()
+            .expect("an object")
+            .extend(question.as_object().expect("an object").clone());
+        question_json["options"][0]
+            .as_object_mut()
+            .expect("an object")
+            .extend(option.as_object().expect("an object").clone());
+        let mut session_json =
+            serde_json::json!({"asqr": 2, "id": "s", "questions": [question_json]});
+        session_json
+            .as_object_mut()
+            .expect("an object")
+            .extend(session.as_object().expect("an object").clone());
+        app(&[("s", &session_json.to_string())])
+    }
+
+    /// Whether some row of the screen holds `text`.
+    fn shows(backend: &TestBackend, text: &str) -> bool {
+        test_support::rows(backend.buffer())
+            .iter()
+            .any(|row| row.contains(text))
+    }
+
+    // `markdown` 1.0.0 panics on this text (an unclosed fence in a numbered
+    // item before a bullet). Once a later version handles it, it renders,
+    // and these tests still hold.
+    const PANICKING_MARKDOWN: &str = "1. ~~~\n*";
+
+    #[test]
+    fn an_intro_the_parser_panics_on_shows_in_the_header() {
+        let app = app_with_fields(
+            serde_json::json!({"intro": PANICKING_MARKDOWN}),
+            serde_json::json!({}),
+            serde_json::json!({}),
+        );
+
+        assert!(shows(&screen(&app, 80, 30), "~~~"));
+    }
+
+    #[test]
+    fn a_question_text_the_parser_panics_on_shows() {
+        let app = app_with_fields(
+            serde_json::json!({}),
+            serde_json::json!({"text": PANICKING_MARKDOWN}),
+            serde_json::json!({}),
+        );
+
+        assert!(shows(&screen(&app, 80, 30), "~~~"));
+    }
+
+    #[test]
+    fn an_option_label_the_parser_panics_on_shows() {
+        let app = app_with_fields(
+            serde_json::json!({}),
+            serde_json::json!({}),
+            serde_json::json!({"label": PANICKING_MARKDOWN}),
+        );
+
+        assert!(shows(&screen(&app, 80, 30), "~~~"));
+    }
+
+    #[test]
+    fn an_option_description_the_parser_panics_on_shows() {
+        let app = app_with_fields(
+            serde_json::json!({}),
+            serde_json::json!({}),
+            serde_json::json!({"description": PANICKING_MARKDOWN}),
+        );
+
+        assert!(shows(&screen(&app, 80, 30), "~~~"));
+    }
+
     fn keys(app: &mut App, keys: &str) {
         for c in keys.chars() {
             app.handle(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));

@@ -241,6 +241,15 @@ mod tests {
         assert_eq!(summary_text(&single, &gone), "`gone`");
     }
 
+    /// `markdown` 1.0.0 panics on this text (an unclosed fence in a numbered
+    /// item before a bullet). Once a later version handles it, it renders.
+    #[test]
+    fn a_label_the_parser_panics_on_shows_in_the_summary() {
+        let summary = text_of(&summary_of_label("1. ~~~\n*", 40));
+
+        assert!(summary.contains("~~~"), "{summary}");
+    }
+
     #[test]
     fn a_label_of_several_lines_shows_on_one_line_in_the_summary() {
         assert_eq!(

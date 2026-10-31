@@ -1765,6 +1765,43 @@ fn a_markdown_entry_the_parser_panics_on_shows_as_plain_text_and_asqr_goes_on() 
     assert!(!log.contains("1. ~~~"), "the log holds no text: {log}");
 }
 
+/// The text of a question that the Markdown parser panics on shows as
+/// written, and asqr goes on. The texts of the fields render on the
+/// drawing thread, every frame; the log gets one warning for the text. See
+/// the test above for the text.
+#[test]
+fn a_question_text_the_parser_panics_on_shows_as_written_and_asqr_goes_on() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+        "off\t1\t",
+        &[],
+    );
+    tui.wait_for("Nothing to answer");
+    let session = SESSION.replace("Pick a fruit", "1. ~~~\\n*");
+    let file = sandbox.file("session.json", &session);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+
+    tui.wait_for("1. ~~~");
+    tui.press("j");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let log = read_log(&sandbox.log_path());
+    assert_eq!(
+        log.matches("the Markdown parser panicked; showing the text as plain text")
+            .count(),
+        1,
+        "{log}"
+    );
+}
+
 /// Inside tmux 3.4 or later, asqr sets `allow-passthrough all` for its
 /// pane once the terminal answered as one with Kitty graphics, so images
 /// and their deletes pass while the pane is hidden, and puts the pane's

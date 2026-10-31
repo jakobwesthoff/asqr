@@ -10,10 +10,16 @@
 //! wraps behind a dim `↪`. The first line of a text may get fewer columns
 //! than the rest, for the marker of a default option.
 
-use patine::{Html, QuoteStyle, RenderOptions, SoftBreaks};
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+use patine::{Html, QuoteStyle, RenderOptions, SoftBreaks, StyledLine};
 use ratatui::text::{Line, Span};
 
-use super::patine_adapter::{markdown_rows_from, source_line};
+use super::loading::contain;
+use super::patine_adapter::{markdown_rows_from, plain_rows_from, source_line};
 use super::source_line::SourceLine;
 
 /// How the text fields differ from Markdown documents (ADR 35): a single
@@ -43,31 +49,101 @@ pub(super) fn field_lines_from(
     width: usize,
     quote: QuoteStyle,
 ) -> Vec<Line<'static>> {
+    field_lines_with(patine::render_lines_with, source, first, width, quote)
+}
+
+/// Renders Markdown to styled lines for a width. Tests put a renderer in
+/// its place that panics on any text.
+type Render = fn(&str, usize, &RenderOptions) -> Vec<StyledLine>;
+
+/// [`field_lines_from`] with `render` in place of patine's.
+fn field_lines_with(
+    render: Render,
+    source: &str,
+    first: usize,
+    width: usize,
+    quote: QuoteStyle,
+) -> Vec<Line<'static>> {
     let options = field_options(quote).with_first_line_width(first);
-    markdown_rows_from(
-        &patine::render_lines_with(source, width, &options),
-        first,
-        width,
-    )
-    .iter()
-    .map(|row| {
-        Line::from(
-            row.pieces()
-                .map(|(text, style)| Span::styled(text.to_owned(), style))
-                .collect::<Vec<_>>(),
-        )
-    })
-    .collect()
+    let rows = match rendered(render, source, width, &options) {
+        Some(lines) => markdown_rows_from(&lines, first, width),
+        None => plain_rows_from(&patine::highlight(source, None), first, width),
+    };
+    rows.iter()
+        .map(|row| {
+            Line::from(
+                row.pieces()
+                    .map(|(text, style)| Span::styled(text.to_owned(), style))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect()
 }
 
 /// `source` rendered for `width` columns as patine lays it out, with
 /// quotes in `quote`: each line whole, also where patine leaves it wider,
 /// for a text shown on one line that a cut ends.
 pub(super) fn field_source_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<SourceLine> {
-    patine::render_lines_with(source, width, &field_options(quote))
-        .iter()
-        .map(source_line)
-        .collect()
+    field_source_lines_with(patine::render_lines_with, source, width, quote)
+}
+
+/// [`field_source_lines`] with `render` in place of patine's.
+fn field_source_lines_with(
+    render: Render,
+    source: &str,
+    width: usize,
+    quote: QuoteStyle,
+) -> Vec<SourceLine> {
+    let lines = rendered(render, source, width, &field_options(quote))
+        .unwrap_or_else(|| patine::highlight(source, None));
+    lines.iter().map(source_line).collect()
+}
+
+/// How many sources that made the parser panic are remembered.
+const FAILED_TEXTS: usize = 64;
+
+thread_local! {
+    /// Fingerprints of the texts the parser panicked on, on this thread.
+    static FAILED: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
+}
+
+/// The lines `render` makes of `source`, or `None` where the parser
+/// panics on it.
+///
+/// The fields render on the drawing thread, once to count their rows and
+/// again to draw them, every frame. A text that made the parser panic is
+/// remembered, so it is not parsed again for each of them, and its panic
+/// is logged once. The panic message names a place in the parser's code,
+/// never the text. A panic does not depend on the width or on the
+/// options, so the text alone is the key.
+fn rendered(
+    render: Render,
+    source: &str,
+    width: usize,
+    options: &RenderOptions,
+) -> Option<Vec<StyledLine>> {
+    let mut hasher = DefaultHasher::new();
+    source.hash(&mut hasher);
+    let fingerprint = hasher.finish();
+    if FAILED.with_borrow(|failed| failed.contains(&fingerprint)) {
+        return None;
+    }
+    match contain(|| render(source, width, options)) {
+        Ok(lines) => Some(lines),
+        Err(message) => {
+            tracing::warn!(
+                panic = message,
+                "the Markdown parser panicked; showing the text as plain text"
+            );
+            FAILED.with_borrow_mut(|failed| {
+                if failed.len() >= FAILED_TEXTS {
+                    failed.clear();
+                }
+                failed.insert(fingerprint);
+            });
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -103,6 +179,148 @@ mod tests {
             .iter()
             .map(|span| (span.content.to_string(), span.style))
             .collect()
+    }
+
+    // -----------------------------------------------------------------
+    // Where the parser panics
+    // -----------------------------------------------------------------
+
+    thread_local! {
+        /// How often the renderer that panics was asked on this thread.
+        static PARSER_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    fn parser_panics(_: &str, _: usize, _: &RenderOptions) -> Vec<StyledLine> {
+        PARSER_CALLS.set(PARSER_CALLS.get() + 1);
+        panic!("the parser panics");
+    }
+
+    /// The text of each piece of each source line.
+    fn source_texts(lines: &[SourceLine]) -> Vec<String> {
+        lines
+            .iter()
+            .map(|line| line.pieces().map(|(text, _)| text).collect())
+            .collect()
+    }
+
+    #[test]
+    fn a_text_the_parser_panics_on_shows_as_written_within_its_first_width() {
+        let rows = field_lines_with(
+            parser_panics,
+            "**alpha** beta gamma delta",
+            11,
+            20,
+            quote_style(false),
+        );
+
+        let texts = texts(&rows);
+        assert_eq!(texts[0], "**alpha** b", "the first row fits 11 columns");
+        assert_eq!(texts[1], "↪ eta gamma delta", "the rest takes 20");
+    }
+
+    #[test]
+    fn a_label_the_parser_panics_on_shows_each_line_whole_on_one_line() {
+        let rows = field_source_lines_with(
+            parser_panics,
+            "**one**\nsecond line is longer than the room",
+            8,
+            quote_style(false),
+        );
+
+        assert_eq!(
+            source_texts(&rows),
+            ["**one**", "second line is longer than the room"]
+        );
+    }
+
+    #[test]
+    fn a_text_the_parser_fails_on_is_asked_once() {
+        PARSER_CALLS.set(0);
+        let text = "**again** and again";
+
+        for _ in 0..3 {
+            field_lines_with(parser_panics, text, 20, 20, quote_style(false));
+            field_source_lines_with(parser_panics, text, 20, quote_style(false));
+        }
+
+        assert_eq!(PARSER_CALLS.get(), 1);
+    }
+
+    #[test]
+    fn a_memory_of_failed_texts_that_is_full_starts_over() {
+        PARSER_CALLS.set(0);
+        for number in 0..=FAILED_TEXTS {
+            field_lines_with(
+                parser_panics,
+                &format!("text {number}"),
+                20,
+                20,
+                quote_style(false),
+            );
+        }
+        assert_eq!(PARSER_CALLS.get(), FAILED_TEXTS + 1);
+
+        field_lines_with(parser_panics, "text 0", 20, 20, quote_style(false));
+
+        assert_eq!(PARSER_CALLS.get(), FAILED_TEXTS + 2, "forgotten again");
+    }
+
+    /// Where the log of a thread goes to in a test.
+    #[derive(Clone, Default)]
+    struct Logged(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Logged {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("not poisoned")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logged {
+        type Writer = Logged;
+
+        fn make_writer(&'a self) -> Logged {
+            self.clone()
+        }
+    }
+
+    #[test]
+    fn a_text_the_parser_fails_on_is_logged_once_without_the_text() {
+        let logged = Logged::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(logged.clone())
+            .with_ansi(false)
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            for _ in 0..3 {
+                field_lines_with(parser_panics, "secret words", 20, 20, quote_style(false));
+            }
+        });
+
+        let log = String::from_utf8(logged.0.lock().expect("not poisoned").clone())
+            .expect("the log is UTF-8");
+        assert_eq!(log.lines().count(), 1, "{log}");
+        assert!(
+            log.contains("the Markdown parser panicked; showing the text as plain text"),
+            "{log}"
+        );
+        assert!(log.contains("the parser panics"), "{log}");
+        assert!(!log.contains("secret words"), "{log}");
+    }
+
+    /// `markdown` 1.0.0 panics on this text. Once a later version handles
+    /// it, it renders; the tests above keep the fallback pinned.
+    #[test]
+    fn an_unclosed_fence_in_a_numbered_item_before_a_bullet_does_not_end_a_field() {
+        assert!(!lines("1. ~~~\n*", 40).is_empty());
     }
 
     #[test]

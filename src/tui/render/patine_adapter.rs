@@ -135,7 +135,13 @@ pub(super) fn markdown_rows_from(
 /// starts with: a `1. ` or a `• ` in plain text is no list item to line
 /// the rest up under.
 pub(super) fn plain_rows(lines: &[StyledLine], width: usize) -> Vec<SourceLine> {
-    wrapped_rows(lines, width, width, leading_blanks)
+    plain_rows_from(lines, width, width)
+}
+
+/// The rows that show `lines` as [`plain_rows`] does, with the first line
+/// at most `first` columns wide and every later one `width` (ADR 79).
+pub(super) fn plain_rows_from(lines: &[StyledLine], first: usize, width: usize) -> Vec<SourceLine> {
+    wrapped_rows(lines, first, width, leading_blanks)
 }
 
 /// What the continuation rows of a line repeat before their marker, in

@@ -13,6 +13,8 @@ Amended by [66. Let the cursor keys reach every line of the question](0066-let-t
 Amended by [76. Mark the default option](0076-mark-the-default-option.md):
 the first line of a default option leaves room for its marker
 
+Amended by [99. Show text fields the Markdown parser panics on as written](0099-show-text-fields-the-markdown-parser-panics-on-as-written.md)
+
 ## Context
 
 An option's label was one line of plain text after the option's

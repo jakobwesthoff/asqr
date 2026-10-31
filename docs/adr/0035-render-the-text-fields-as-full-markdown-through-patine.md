@@ -14,6 +14,8 @@ Amended by [55. Wrap option labels and render them as Markdown](0055-wrap-option
 
 Amended by [57. Show a Markdown table that does not fit as records](0057-show-a-markdown-table-that-does-not-fit-as-records.md)
 
+Amended by [99. Show text fields the Markdown parser panics on as written](0099-show-text-fields-the-markdown-parser-panics-on-as-written.md)
+
 ## Context
 
 The session's text fields are the intro, question texts and option

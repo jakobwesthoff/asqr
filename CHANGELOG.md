@@ -93,6 +93,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such as an unclosed code fence in a numbered item followed by a bullet,
   shows as plain text below a dim "Markdown failed: shown as plain text".
   Before, it ended asqr and you lost the screen.
+- The intro, a question text, an option label or description that the
+  Markdown parser panics on shows as written, without Markdown. Before, it
+  ended asqr and you lost the screen.
 
 ## [0.15.0] - 2026-10-30
 
