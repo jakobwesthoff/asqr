@@ -53,9 +53,11 @@ an agent could fill in answers the person never wrote.
 ## Checked on main 1dcae03 (lead, 2026-10-30)
 
 - `note` on a question is a boolean in format version 2; a string there
-  is a shape error (`src/format/session.rs:251-257`), so a note preset
-  cannot use that name before format version 3 (todo
-  01M61Z3MJBAWT63Y2RYEKSMJD6).
+  is a shape error (`src/format/session.rs:251-257`). Todo
+  01M61Z3MJBAWT63Y2RYEKSMJD6 removes that field within version 2
+  (decided 2026-10-31), and a file that still sets `note` then gets a
+  warning that it is ignored; a note preset needs another name, or a
+  deliberate change of that warning.
 - `person_entered` (`src/queue/drafts.rs:85-90`) counts any own text and
   note, whatever their flags. A preset stored without a flag would count
   as the person's input and block a withdrawal without `--force`, so the
