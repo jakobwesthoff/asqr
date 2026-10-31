@@ -10,6 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use super::compact::bundled_strays;
 use super::names::{entries_if_present, read_if_present};
 use super::{
     Archived, BundleReader, DRAFTS_LOCK_ATTEMPTS, EntryKind, EntryName, EntryRef, Month,
@@ -97,13 +98,15 @@ pub fn prune_with(
 /// written and anything else in the folder stay.
 ///
 /// A file that a bundled session shows is no reason to keep the loose
-/// copy: a bundle holds its own copy of every file its sessions show.
+/// copy: a bundle holds its own copy of every file its sessions show. The
+/// exception is a file the bundle lacks, which an asqr that knew no kept
+/// files bundled the session without: the loose copy stays.
 fn unneeded_kept_files(
     location: &QueueLocation,
     going: &[PathBuf],
     cutoff: SystemTime,
 ) -> io::Result<Vec<PathBuf>> {
-    let mut staying: HashSet<String> = HashSet::new();
+    let mut staying = strays_of_staying_bundles(location, going, None)?;
     let mut leaving: HashSet<String> = HashSet::new();
     for entry in entries_if_present(&location.archive())? {
         let path = entry.path();
@@ -144,6 +147,34 @@ fn unneeded_kept_files(
         }
     }
     Ok(unneeded)
+}
+
+/// The kept files that sessions in a month bundle show and the bundle
+/// lacks, over every bundle that stays: the loose copy is the only one
+/// there is, until a compaction adds it to the bundle. A bundle in
+/// `going` is removed and needs nothing. `ignoring` names a session of
+/// one bundle that is removed with it.
+fn strays_of_staying_bundles(
+    location: &QueueLocation,
+    going: &[PathBuf],
+    ignoring: Option<(Month, &str)>,
+) -> io::Result<HashSet<String>> {
+    let mut strays = HashSet::new();
+    for entry in entries_if_present(&location.archive())? {
+        let month: Option<Month> = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.strip_suffix(".zip"))
+            .and_then(|month| month.parse().ok());
+        let Some(month) = month.filter(|_| !going.contains(&entry.path())) else {
+            continue;
+        };
+        let session = ignoring
+            .filter(|(ignored, _)| *ignored == month)
+            .map(|(_, name)| name);
+        strays.extend(bundled_strays(location, month, session));
+    }
+    Ok(strays)
 }
 
 /// The bytes of the loose archived session at `path`, `None` when it is
@@ -270,7 +301,10 @@ pub fn prune_session(entry: &EntryRef, remove: bool) -> io::Result<Vec<Removal>>
     if let Some(path) = &loose {
         removals.push(Removal::File(path.clone()));
         let own = read_session(path)?.unwrap_or_default();
-        let mut shown_by_others: HashSet<String> = HashSet::new();
+        // A bundled session that lacks a file it shows needs the loose
+        // copy, whoever else shows it.
+        let mut shown_by_others =
+            strays_of_staying_bundles(location, &[], Some((month, session_name.as_str())))?;
         for other in entries_if_present(&location.archive())? {
             let other = other.path();
             let is_session = other
@@ -1119,6 +1153,117 @@ mod tests {
             "the read fails, not the removal: {error}"
         );
         assert!(file.exists());
+    }
+
+    // -----------------------------------------------------------------
+    // Loose copies a bundled session still needs
+    // -----------------------------------------------------------------
+
+    /// A session at `when` in the bundle of its month that shows `names`,
+    /// with no `files/` entry for any of them, as an asqr that knew no
+    /// kept files bundled it.
+    fn bundled_without_files(
+        location: &QueueLocation,
+        id: &str,
+        when: &str,
+        names: &[&str],
+    ) -> EntryRef {
+        let ulid = Ulid::from_parts(millis(at(when)), 11);
+        let name = EntryName {
+            kind: EntryKind::Session,
+            id: id.to_owned(),
+            ulid,
+        };
+        let zip_name = name.zip_name();
+        let entry = NewEntry::named(name, showing(names).into_bytes());
+        add_entries(location, Month::of(ulid), &[entry], now()).expect("bundled");
+        EntryRef {
+            queue: location.clone(),
+            id: id.to_owned(),
+            ulid,
+            place: EntryPlace::Bundled(Month::of(ulid), zip_name),
+        }
+    }
+
+    #[test]
+    fn older_than_keeps_a_loose_copy_a_staying_bundle_lacks_and_its_session_shows() {
+        let (_scratch, location) = queue();
+        let (old, _) = loose_showing(&location, "old", "2026-08-10T10:00:00Z", &[SHA_A]);
+        bundled_without_files(&location, "recent", "2027-01-10T10:00:00Z", &[SHA_A]);
+        let stray = kept(&location, SHA_A, "2027-01-12T00:00:00Z");
+
+        let removed = prune(&location, 30 * DAY, now(), true).expect("prunes");
+
+        assert_eq!(removed, std::slice::from_ref(&old));
+        assert!(stray.exists());
+    }
+
+    #[test]
+    fn older_than_keeps_an_aged_orphan_a_staying_bundle_lacks_and_its_session_shows() {
+        let (_scratch, location) = queue();
+        bundled_without_files(&location, "recent", "2027-01-10T10:00:00Z", &[SHA_C]);
+        let stray = kept(&location, SHA_C, "2026-08-01T00:00:00Z");
+
+        let removed = prune(&location, 30 * DAY, now(), true).expect("prunes");
+
+        assert!(removed.is_empty(), "{removed:?}");
+        assert!(stray.exists());
+    }
+
+    #[test]
+    fn older_than_removes_a_loose_copy_whose_bundle_goes_too() {
+        let (_scratch, location) = queue();
+        bundled_without_files(&location, "old", "2026-08-10T10:00:00Z", &[SHA_A]);
+        let copy = kept(&location, SHA_A, "2026-08-12T00:00:00Z");
+
+        prune(&location, 30 * DAY, now(), true).expect("prunes");
+
+        assert!(!copy.exists());
+    }
+
+    #[test]
+    fn prune_session_keeps_a_loose_copy_a_bundled_session_lacks_and_shows() {
+        let (_scratch, location) = queue();
+        let (path, entry) = loose_showing(&location, "old", "2026-08-10T10:00:00Z", &[SHA_A]);
+        bundled_without_files(&location, "other", "2026-10-10T10:00:00Z", &[SHA_A]);
+        let stray = kept(&location, SHA_A, "2027-01-12T00:00:00Z");
+
+        let removals = prune_session(&entry, true).expect("pruned");
+
+        assert_eq!(removals, [Removal::File(path.clone())]);
+        assert!(!path.exists() && stray.exists());
+    }
+
+    #[test]
+    fn prune_session_removes_a_loose_copy_only_its_own_bundled_twin_shows() {
+        let (_scratch, location) = queue();
+        let (path, loose) = loose_showing(&location, "old", "2026-08-10T10:00:00Z", &[SHA_A]);
+        // The twin, as an interrupted compaction leaves it: the same
+        // session in the bundle of its month, without the file.
+        let twin = {
+            let name = EntryName {
+                kind: EntryKind::Session,
+                id: "old".to_owned(),
+                ulid: loose.ulid,
+            };
+            add_entries(
+                &location,
+                Month::of(loose.ulid),
+                &[NewEntry::named(name, showing(&[SHA_A]).into_bytes())],
+                now(),
+            )
+            .expect("bundled");
+            loose.clone()
+        };
+        let copy = kept(&location, SHA_A, "2027-01-12T00:00:00Z");
+
+        let removals = prune_session(&twin, true).expect("pruned");
+
+        assert!(
+            removals.contains(&Removal::File(copy.clone())),
+            "{removals:?}"
+        );
+        assert!(!path.exists() && !copy.exists());
     }
 
     #[test]

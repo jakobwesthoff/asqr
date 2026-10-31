@@ -75,7 +75,9 @@ verb says. A bare `asqr history` is the list.
   it removes that no loose session that stays shows, and loose kept files
   no loose session shows whose own modification time is before the cutoff;
   a dry run lists them. A loose copy is needed by loose sessions only,
-  since a bundle holds a copy of every file its sessions show. A loose
+  since a bundle holds a copy of every file its sessions show, unless the
+  bundle lacks the file: then the loose copy stays, for `prune --session`
+  as well. A loose
   session that cannot be read may show any kept file, so it is an error
   and nothing is removed, as the compaction treats it.
 

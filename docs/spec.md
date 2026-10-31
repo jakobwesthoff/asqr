@@ -1202,7 +1202,9 @@ makes the exit code 1.
   one whose own modification time lies before the cutoff and that no
   loose session shows, which a session removed earlier left behind. A
   bundle holds its own copy of every file its sessions show, so a bundled
-  session is no reason to keep a loose copy. Only files named as kept
+  session is no reason to keep a loose copy, unless the bundle lacks the
+  file (an asqr that knew no kept files bundled the session): then the
+  loose copy stays. Only files named as kept
   files count: the temp files of a copy being written and anything else
   in `archive/files/` stay. A loose session that cannot be read is an
   error naming its file, exit code 1, and nothing is removed, as it may
@@ -1222,7 +1224,8 @@ makes the exit code 1.
   reference names the entry, never the id. A session can lie in two
   places, as a loose file and as an entry of the bundle of its month; both
   go. Kept files go that no other session of the same place shows: loose
-  copies that no other loose session shows, and the `files/` entries of
+  copies that no other loose session shows and no bundled session shows
+  without its bundle holding the file, and the `files/` entries of
   the bundle that no other session of that bundle shows. The bundle is
   written anew without them under the drafts lock, and removed when
   nothing is left in it. The result of the session stays. It prints and

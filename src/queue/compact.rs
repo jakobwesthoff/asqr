@@ -441,7 +441,7 @@ fn plan_kept_files(
             }
         }
     }
-    let strays = bundled_strays(location, month);
+    let strays = bundled_strays(location, month, None);
     let wanted: Vec<String> = shown_by
         .keys()
         .cloned()
@@ -514,8 +514,13 @@ fn plan_kept_files(
 
 /// The kept files that sessions already in the bundle of `month` show and
 /// the bundle lacks. A bundle that cannot be read has none to report; the
-/// build of the new bundle reports it.
-fn bundled_strays(location: &QueueLocation, month: Month) -> Vec<String> {
+/// build of the new bundle reports it. The session `ignoring`, which is
+/// about to leave the bundle, shows nothing.
+pub(super) fn bundled_strays(
+    location: &QueueLocation,
+    month: Month,
+    ignoring: Option<&str>,
+) -> Vec<String> {
     let Ok(entries) = list_entries(location, month) else {
         return Vec::new();
     };
@@ -525,10 +530,11 @@ fn bundled_strays(location: &QueueLocation, month: Month) -> Vec<String> {
         .collect();
     let mut strays = BTreeSet::new();
     for entry in &entries {
-        if entry
-            .parsed
-            .as_ref()
-            .is_some_and(|name| name.kind == EntryKind::Session)
+        if Some(entry.name.as_str()) != ignoring
+            && entry
+                .parsed
+                .as_ref()
+                .is_some_and(|name| name.kind == EntryKind::Session)
             && let Ok(bytes) = read_entry(location, month, &entry.name)
         {
             strays.extend(
