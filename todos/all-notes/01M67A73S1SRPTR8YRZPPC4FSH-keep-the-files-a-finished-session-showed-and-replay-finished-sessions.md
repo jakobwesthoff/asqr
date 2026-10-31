@@ -40,8 +40,8 @@ give the archive a read-only viewer so it can be looked at.
   with its images) is a separate, later todo. Rejected: keeping files
   without a viewer; export in the same todo.
 - **On by default.** Keeping files is on unless switched off; the
-  switch should be easy to find, possibly asked on first start once
-  asqr has user settings (todo 01M623QGQXR4ERM34GYV8H6DVR).
+  switch should be easy to find, possibly asked on first start (todo
+  01M623QGQXR4ERM34GYV8H6DVR).
 - **Copied when the session finishes,** by the asqr that shows the
   queue, as it moves the session to the archive: the files the person
   saw, while agents' temporary files still exist. Rejected: at

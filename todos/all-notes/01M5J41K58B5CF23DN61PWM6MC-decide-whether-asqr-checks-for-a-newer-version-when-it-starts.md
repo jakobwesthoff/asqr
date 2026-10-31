@@ -42,8 +42,8 @@ To be worked out; none is decided.
 The user's direction, not final:
 
 - The automatic check belongs together with user preferences (todo
-  01M623QGQXR4ERM34GYV8H6DVR, Keep settings in a file, asked on first
-  start and changed in a settings pane), which it needs: on the first start asqr
+  01M623QGQXR4ERM34GYV8H6DVR, Ask the settings that need a deliberate
+  answer on first start), which it needs: on the first start asqr
   would ask whether it may look for updates automatically, at start and
   at intervals while it runs for a long time, as torchsnap does.
 - A possible first step before the preferences exist: the check itself,
@@ -58,8 +58,8 @@ The user's direction, not final:
 
 - **asqr asks on first start whether it may look for newer versions,
   with "no" preselected,** and keeps the answer as a setting (todo
-  01M623QGQXR4ERM34GYV8H6DVR: the settings file, the first-start screen
-  and the settings pane). Each check sends only `asqr/<version>` as its
+  01M623QGQXR4ERM34GYV8H6DVR: the first-start screen; the settings
+  file and the settings pane exist). Each check sends only `asqr/<version>` as its
   `User-Agent`, never queue content or paths. The spec's "no network"
   (`docs/spec.md:34-35`, and "Networking" under "Not in asqr yet")
   changes with an ADR to "no network unless the person allows it". No
@@ -94,5 +94,5 @@ The user's direction, not final:
 
 ## Revisit when
 
-The settings file and the first-start screen exist (todo
-01M623QGQXR4ERM34GYV8H6DVR), and the notice's design round has run.
+The first-start screen exists (todo 01M623QGQXR4ERM34GYV8H6DVR), and the
+notice's design round has run.
