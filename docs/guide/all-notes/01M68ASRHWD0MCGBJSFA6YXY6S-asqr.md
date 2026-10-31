@@ -43,6 +43,8 @@ own diff, so you see what each choice would change:
 - [Answering a session](01M6916HYT9Z4N422AX47A8JQH-answering-a-session.md)
   covers what you need for most sessions, and the pages after it the
   details.
+- [What your agent can ask you](01M68C6WV57K25ZD05875QJY73-what-your-agent-can-ask-you.md)
+  shows how to ask for a session and what sessions look like.
 - [How an agent asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
   shows what your agent writes and what it gets back.
 - [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) keeps the questions of

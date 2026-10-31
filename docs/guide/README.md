@@ -23,18 +23,18 @@ reading order. The pictures are in `pictures/`.
 - [The context pane in detail](all-notes/01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md), details of the context pane
 - [Less obvious keys](all-notes/01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md), details of answering a session
 
+### Your agent
+
+- [What your agent can ask you](all-notes/01M68C6WV57K25ZD05875QJY73-what-your-agent-can-ask-you.md)
+- [How an agent asks](all-notes/01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md), details of what your agent writes and reads
+- [The skill and other agents](all-notes/01M68C6WTY7EK8Q9RB1MCWSFM3-the-skill-and-other-agents.md), details of the skill
+
 ### Queues and settings
 
 - [Queues](all-notes/01M68C1XV58STWHBH179QYXPZR-queues.md)
 - [Settings](all-notes/01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
 - [Notifications, the terminal and tmux](all-notes/01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
 - [Finished sessions: history and replay](all-notes/01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
-
-### Agents
-
-- [How an agent asks](all-notes/01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
-- [The skill and other agents](all-notes/01M68C6WTY7EK8Q9RB1MCWSFM3-the-skill-and-other-agents.md)
-- [What agents can ask](all-notes/01M68C6WV57K25ZD05875QJY73-what-agents-can-ask.md)
 
 ### Reference
 
