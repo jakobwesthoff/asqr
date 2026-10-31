@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `asqr replay <ref>` opens a finished session of the archive, by the
+  reference `asqr history` prints, read-only: its answers are filled in,
+  the options not picked are dim, the files the session showed come from
+  the copies asqr kept, a file that could not be kept or read shows a card
+  that says so, and `d` shows where a copy lies and its SHA-256. It writes
+  nothing into the queue and runs beside the asqr that watches it.
 - `asqr history` lists the finished sessions of the queue, newest first,
   with a reference for each, when it ended, how it ended, what became of
   the files it showed and its title. `--all` covers every queue under the

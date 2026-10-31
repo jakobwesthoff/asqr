@@ -329,6 +329,11 @@ pub(super) fn paired_entry(entry: &EntryRef) -> io::Result<(PairedEntry, Vec<Bun
     Ok((paired, unreadable))
 }
 
+/// The list row of the entry `entry`: its title, how it ended and when.
+pub fn describe_entry(entry: &EntryRef) -> io::Result<HistoryEntry> {
+    paired_entry(entry).map(|(paired, _)| paired.entry)
+}
+
 /// Reads `sessions` and the results that may answer them, and pairs each
 /// session with its result.
 fn pair(
@@ -525,11 +530,11 @@ pub struct Resolved {
 const CROCKFORD: &str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /// Finds the entry `text` names in the default queue and every named
-/// queue under `root`, and in `extra`, a queue given as a directory. The
+/// queue under `root`, where there is one, and in `extra`, a queue given as a directory. The
 /// ULID is part of the name of a file or bundle entry, so no content is
 /// read.
 pub fn resolve_reference(
-    root: &Path,
+    root: Option<&Path>,
     extra: Option<&QueueLocation>,
     text: &str,
 ) -> io::Result<Resolved> {
@@ -549,10 +554,13 @@ pub fn resolve_reference(
         return Ok(resolved(Resolution::NotAReference(stray)));
     }
 
-    let mut queues: Vec<QueueLocation> = list_queues(root)?
-        .into_iter()
-        .map(|summary| summary.location)
-        .collect();
+    let mut queues: Vec<QueueLocation> = match root {
+        Some(root) => list_queues(root)?
+            .into_iter()
+            .map(|summary| summary.location)
+            .collect(),
+        None => Vec::new(),
+    };
     if let Some(extra) = extra
         && !queues.iter().any(|queue| queue.same_queue(extra))
     {

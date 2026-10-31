@@ -1280,6 +1280,7 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr withdraw <id> [--force]` | takes a waiting session back and prints its result, status `withdrawn` (section 5.10) |
 | `asqr status [--json] [--limit <count> \| --all] [--since <age>]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
 | `asqr history [--json] [--all] [--limit <count>] [--since <age>]` | the finished sessions of the queue, newest first, each with the reference `asqr replay` takes (section 6.5) |
+| `asqr replay <ref>` | opens a finished session read-only in the terminal UI (section 6.5, 7.11) |
 | `asqr queues [--json]` | every named queue, the sessions waiting in it and its results, and the asqr watching it (section 6.5) |
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
@@ -1402,7 +1403,7 @@ withdrawn before it prints that result and exits with 0 too. Its
 refusals exit with 1, and an id that only the archive or nothing in the
 queue knows with 13, with the messages of section 5.10.
 
-### 6.5 `status`, `queues` and `history`
+### 6.5 `status`, `queues`, `history` and `replay`
 
 `status --json` prints an object with `queue`, `watched_by` (the lock
 holder, or `null`), `waiting` (a list of `{id, draft_has_answers}`),
@@ -1507,6 +1508,32 @@ Open one with: asqr replay <REF>
 - A bundle that cannot be read is a `warning:` line on stderr naming it;
   the other sessions are listed and the exit code stays 0, as it does for
   `status`.
+
+`asqr replay <ref>` opens one finished session in the screen of section
+7.11. `<ref>` is the REF `history` prints: the last 8 characters of the
+entry's archive ULID, of which 6 or more are accepted, in any case.
+
+- The reference is searched in the default queue and every named queue
+  under the root (section 5.2), and in the queue `--dir` names, which is
+  searched only when it is named. The search reads file and bundle entry
+  names, not their content.
+- A reference of fewer than 6 or more than 8 characters, or with a letter
+  no ULID holds (`I`, `L`, `O`, `U`), is a usage error (exit code 2). A
+  reference that ends no session, or whose bundle cannot be read, ends
+  with exit code 1 and names the bundle where one could not be read. A
+  reference that ends several sessions ends with exit code 1 and lists
+  them, each with its REF, queue, the time it was archived and its title,
+  newest first, so a longer reference can name one.
+- A session file that does not parse or validate, and a bundle that
+  cannot be read, end the replay with `error: ` naming the file or bundle
+  and exit code 1. Without a terminal, `replay` fails as `asqr` does.
+- The replay takes no lock and writes nothing into the queue, so it runs
+  beside the asqr that watches the queue. It rings no bell, sends no
+  notification and has no key that answers a session waiting in the
+  queue; it counts those sessions in the title bar and says in the status
+  line where to answer them. The terminal title is `asqr replay <REF>`
+  and no progress is reported.
+- It ends with exit code 0 when the person quits, never with 10 to 14.
 
 ### 6.6 Exit codes
 

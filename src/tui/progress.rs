@@ -25,7 +25,12 @@ use crate::terminal_env::{TerminalEnv, TmuxState, passthrough, version_at_least}
 /// neither way, as in the review's counts. The review tab keeps the
 /// share, so it reads 100 once every question is answered.
 pub fn session_progress(app: &App) -> Option<u8> {
-    let counts = app.active()?.counts();
+    let active = app.active()?;
+    // A finished session has nothing left to answer.
+    if active.replay_info().is_some() {
+        return None;
+    }
+    let counts = active.counts();
     (counts.questions > 0).then(|| {
         u8::try_from(counts.answered * 100 / counts.questions)
             .expect("no more questions are answered than there are")

@@ -24,8 +24,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::render::{Drawn, View, draw, picture, shorten_from_left};
 use super::{
-    App, Applied, EditRequest, Held, Inbox, Notice, OpenedFiles, QueueChoice, Refusal, Tone,
-    edited_text, editor_file, session_progress, switch_queue,
+    App, Applied, EditRequest, Held, Inbox, Notice, OpenedFiles, QueueChoice, Refusal,
+    SessionState, Tone, edited_text, editor_file, session_progress, switch_queue,
 };
 use crate::graphics::KittyDeletes;
 use crate::keep::worker::KeepWorker;
@@ -289,6 +289,9 @@ const TITLE_MAX_BYTES: usize = 255;
 /// tells how many sessions wait (spec section 7.9), and which queue they
 /// wait in where `queue` names a chosen one (ADR 81).
 pub fn terminal_title(app: &App, queue: Option<&str>) -> String {
+    if let Some(replay) = app.active().and_then(SessionState::replay_info) {
+        return format!("asqr replay {}", replay.reference);
+    }
     let count = format!("{} waiting", app.sessions().len());
     let Some(queue) = queue else {
         return format!("asqr · {count}");
@@ -345,6 +348,22 @@ pub fn start_with_keeper(
         inbox.set_keeper(keeper);
     }
     inbox.sync(&mut app).context("reading the inbox")?;
+    Ok((app, inbox))
+}
+
+/// The app and the inbox of a replay of `state`, which shows beside the
+/// queue it was found in without taking any lock or touching a file.
+pub fn start_replay(
+    location: QueueLocation,
+    settings: SettingsStore,
+    state: SessionState,
+) -> anyhow::Result<(App, Inbox)> {
+    let mut app = App::with_settings(settings);
+    app.add(state);
+    let mut inbox = Inbox::counting(location);
+    inbox
+        .sync(&mut app)
+        .context("counting the waiting sessions")?;
     Ok((app, inbox))
 }
 
@@ -614,6 +633,7 @@ mod tests {
     use crate::format::{SessionResult, Status};
     use crate::graphics::testing::{kitty_ids_on_screen, transmission};
     use crate::graphics::{Graphics, Images, Passthrough, Protocol};
+    use crate::tui::ReplayInfo;
     use crate::tui::render::{PaneLayout, test_support};
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "Pick one", "kind": "single",
@@ -847,6 +867,146 @@ mod tests {
 
     fn key(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    // -----------------------------------------------------------------
+    // A replay
+    // -----------------------------------------------------------------
+
+    /// A replay of a session answered with `a`, beside the queue of the
+    /// harness, which has two sessions waiting.
+    fn replaying(harness: &Harness) -> (App, Inbox) {
+        harness.put("waiting-1");
+        harness.put("waiting-2");
+        let session: crate::format::Session = serde_json::from_str(SESSION).expect("parses");
+        let state = SessionState::replay("old", session, None).with_replay_info(ReplayInfo {
+            reference: "7C3FA19K".to_owned(),
+            outcome: crate::queue::HistoryOutcome::Sent,
+            finished: "Thu 29 Oct 16:41".to_owned(),
+            files: std::collections::HashMap::new(),
+            bundle: None,
+            zone: jiff::tz::TimeZone::UTC,
+        });
+        start_replay(harness.location.clone(), SettingsStore::default(), state).expect("starts")
+    }
+
+    /// Every file of the queue with its size, to compare before and after.
+    fn listing(dir: &Path) -> Vec<String> {
+        let mut found = Vec::new();
+        for entry in fs::read_dir(dir).expect("listed") {
+            let path = entry.expect("entry").path();
+            found.push(format!(
+                "{} {}",
+                path.display(),
+                fs::metadata(&path).expect("metadata").len()
+            ));
+            if path.is_dir() {
+                found.extend(listing(&path));
+            }
+        }
+        found.sort();
+        found
+    }
+
+    #[test]
+    fn a_replay_counts_the_sessions_waiting_beside_it() {
+        let harness = Harness::new();
+
+        let (app, _inbox) = replaying(&harness);
+
+        assert_eq!(app.replay_waiting(), 2);
+        assert_eq!(
+            app.sessions().len(),
+            1,
+            "the waiting sessions are not shown"
+        );
+    }
+
+    #[test]
+    fn a_replay_neither_alerts_nor_shows_a_session_that_arrives() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) = replaying(&harness);
+        harness.put("arrived-3");
+
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::InboxChanged])
+            .expect("runs");
+
+        assert!(harness.host.alerts.is_empty(), "{:?}", harness.host.alerts);
+        assert_eq!(app.sessions().len(), 1);
+        assert_eq!(app.replay_waiting(), 3, "the count follows");
+    }
+
+    #[test]
+    fn a_replay_titles_the_terminal_with_its_reference() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) = replaying(&harness);
+
+        harness
+            .run_started(&mut app, &mut inbox, vec![key(KeyCode::Char('q'))])
+            .expect("runs");
+
+        assert_eq!(harness.host.titles, ["asqr replay 7C3FA19K"]);
+    }
+
+    #[test]
+    fn a_replay_reports_no_progress() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) = replaying(&harness);
+
+        harness
+            .run_started(&mut app, &mut inbox, vec![key(KeyCode::Char('q'))])
+            .expect("runs");
+
+        assert!(
+            harness.host.progress.is_empty(),
+            "{:?}",
+            harness.host.progress
+        );
+    }
+
+    #[test]
+    fn a_replay_writes_nothing_into_the_queue_whatever_is_pressed() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) = replaying(&harness);
+        let before = listing(harness.location.dir());
+        let keys = [
+            KeyCode::Enter,
+            KeyCode::Char('1'),
+            KeyCode::Char(' '),
+            KeyCode::Char('n'),
+            KeyCode::Backspace,
+            KeyCode::Down,
+            KeyCode::Right,
+            KeyCode::Left,
+            KeyCode::Char('w'),
+            KeyCode::Char('L'),
+            KeyCode::Char('x'),
+        ];
+        let mut events: Vec<Event> = keys.into_iter().map(key).collect();
+        events.push(Event::InboxChanged);
+        events.push(key(KeyCode::Char('q')));
+
+        harness
+            .run_started(&mut app, &mut inbox, events)
+            .expect("runs");
+
+        assert_eq!(listing(harness.location.dir()), before);
+    }
+
+    #[test]
+    fn a_replay_quits_on_q_and_opens_what_o_names() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) = replaying(&harness);
+
+        let ran = harness.run_started(
+            &mut app,
+            &mut inbox,
+            vec![key(KeyCode::Char('q')), key(KeyCode::Char('j'))],
+        );
+
+        assert!(ran.is_ok());
+        assert_eq!(harness.host.opened.len(), 0);
     }
 
     #[test]

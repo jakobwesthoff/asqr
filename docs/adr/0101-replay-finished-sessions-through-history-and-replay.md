@@ -41,6 +41,22 @@ verb says. A bare `asqr history` is the list.
 - A bundle that cannot be read is a warning on stderr and the other
   sessions are listed, as `status` does.
 
+### Replay
+
+- `asqr replay <ref>` takes the reference of the list, in any case, 6 to 8
+  characters, and searches it in the default queue, every named queue
+  under the data directory and the queue `--dir` names. A reference too
+  short, too long or with a letter no ULID holds is a usage error. No
+  match or several matches end with exit code 1, the latter listing the
+  candidates. The replay never ends with 10 to 14.
+- It takes no lock and writes nothing into the queue, so it runs beside
+  the asqr that watches it. It reuses the run loop of the terminal UI with
+  an inbox that only counts the sessions waiting in the queue, so no
+  session arrives in it and no notification, bell or progress report comes
+  from it. The terminal title is `asqr replay <REF>`.
+- Loading happens before the terminal is taken, so an error that ends the
+  replay prints on the normal screen with exit code 1.
+
 ### The reference
 
 An entry is named by the last 8 characters of its archive ULID, which are

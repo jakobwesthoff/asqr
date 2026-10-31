@@ -18,7 +18,7 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use asqr::cli::{Exit, Watch};
+use asqr::cli::{Exit, Replay, Watch};
 use asqr::graphics::{
     Graphics, Images, KittyBook, KittyDeletes, KittyExit, PanePassthrough, QUERY_WAIT,
     answers_may_follow_the_query, may_query_protocol, passthrough_all_for_images,
@@ -29,13 +29,14 @@ use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::keep::worker::{KeepWorker, job_panicked};
 use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure, TmuxPane};
 use asqr::queue::{QueueLocation, QueueLock, WaitingQueue, platform_data_dir, waiting_elsewhere};
+use asqr::settings::SettingsStore;
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
     Alerts, Clock, Event, EventSource, Held, Host, InboxWatcher, KeepAlive, KeyReader, OpenedFiles,
     ProgressTerminal, QueueChoice, Refusal, SleepClock, Switcher, Taken, alert, opener_failure,
     pick_queue, prepare_switch, progress_sequence, progress_terminal, queue_choice, queue_label,
-    run, spawn_reaped, start_with_keeper, take_picked_with_keeper, watch_inbox,
+    run, spawn_reaped, start_replay, start_with_keeper, take_picked_with_keeper, watch_inbox,
 };
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -58,11 +59,75 @@ pub fn run_terminal_ui(mut watch: Watch) -> Exit {
         eprintln!("error: asqr needs a terminal; run it in a terminal of its own");
         return Exit::Failure;
     }
-    match run_in_terminal(&mut watch) {
+    run_and_report(&mut Mode::Watch(&mut watch))
+}
+
+/// Runs the TUI on a finished session.
+pub fn run_replay_ui(mut replay: Replay) -> Exit {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        eprintln!("error: asqr needs a terminal; run it in a terminal of its own");
+        return Exit::Failure;
+    }
+    run_and_report(&mut Mode::Replay(&mut replay))
+}
+
+fn run_and_report(mode: &mut Mode<'_>) -> Exit {
+    match run_in_terminal(mode) {
         Ok(()) => Exit::Success,
         Err(error) => {
             eprintln!("error: {error:#}");
             Exit::Failure
+        }
+    }
+}
+
+/// What the TUI runs on: the queue to answer, or a finished session to
+/// look at.
+enum Mode<'a> {
+    Watch(&'a mut Watch),
+    Replay(&'a mut Replay),
+}
+
+/// What the run takes from either mode besides the queue itself.
+struct RunConfig {
+    alerts: Alerts,
+    title: bool,
+    settings: SettingsStore,
+    warnings: Vec<String>,
+    no_color: bool,
+    home: Option<PathBuf>,
+    lock_pane: Option<TmuxPane>,
+    pin_pane: Option<TmuxPane>,
+}
+
+impl RunConfig {
+    fn of(mode: &Mode<'_>) -> Self {
+        match mode {
+            Mode::Watch(watch) => RunConfig {
+                alerts: watch.alerts(),
+                title: watch.title(),
+                settings: watch.settings().clone(),
+                warnings: watch.settings_warnings().to_vec(),
+                no_color: watch.no_color(),
+                home: watch.home().map(Path::to_path_buf),
+                lock_pane: watch.lock_pane().cloned(),
+                pin_pane: watch.pin_pane().cloned(),
+            },
+            // A replay rings no bell and sends no notification, and has no
+            // queue to pin.
+            Mode::Replay(replay) => RunConfig {
+                alerts: Alerts {
+                    notify: false,
+                    bell: false,
+                },
+                title: true,
+                settings: replay.settings().clone(),
+                warnings: Vec::new(),
+                no_color: replay.no_color(),
+                home: replay.home().map(Path::to_path_buf),
+                lock_pane: None,
+                pin_pane: None,
+            },
         }
     }
 }
@@ -72,40 +137,41 @@ pub fn run_terminal_ui(mut watch: Watch) -> Exit {
 /// crash would: the plain archived session stays.
 const KEEP_DRAIN: Duration = Duration::from_secs(10);
 
-fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
+fn run_in_terminal(mode: &mut Mode<'_>) -> anyhow::Result<()> {
+    let config = RunConfig::of(mode);
     // One worker for the whole run, whichever queue is shown: a job carries
     // its queue.
-    let keeper = KeepWorker::new();
+    let keeper = matches!(mode, Mode::Watch(_)).then(KeepWorker::new);
     let (sender, events) = mpsc::channel();
     let inbox_events = sender.clone();
     // A queue chosen at the start is held already. Its watcher comes first
     // and the first scan second, so no file can arrive unseen in between
     // (spec section 5.4). The start picker takes its queue the same way,
     // once the terminal is set up and the person picked one.
-    let started = match watch.take_lock() {
-        Some(lock) => {
-            let location = watch.location().clone();
-            let changes = inbox_events.clone();
-            let watcher = watch_inbox(&location, move || {
-                let _ = changes.send(Event::InboxChanged);
-            })
-            .context("watching the inbox")?;
-            let (app, inbox) = start_with_keeper(
-                location.clone(),
-                watch.settings().clone(),
-                Some(keeper.clone()),
-            )?;
-            Some(Taken {
-                held: Held {
-                    location,
-                    lock,
-                    watcher,
-                },
-                app,
-                inbox,
-            })
-        }
-        None => None,
+    let started = match &mut *mode {
+        Mode::Watch(watch) => match watch.take_lock() {
+            Some(lock) => {
+                let location = watch.location().clone();
+                let changes = inbox_events.clone();
+                let watcher = watch_inbox(&location, move || {
+                    let _ = changes.send(Event::InboxChanged);
+                })
+                .context("watching the inbox")?;
+                let (app, inbox) =
+                    start_with_keeper(location.clone(), watch.settings().clone(), keeper.clone())?;
+                Some(Taken {
+                    held: Held {
+                        location,
+                        lock,
+                        watcher,
+                    },
+                    app,
+                    inbox,
+                })
+            }
+            None => None,
+        },
+        Mode::Replay(_) => None,
     };
 
     // asqr honours NO_COLOR itself, in the drawn buffer, and crossterm has
@@ -214,21 +280,35 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
     // pauses while another program has the terminal.
     let keys = KeyReader::spawn(CrosstermEvents, sender);
 
-    let Taken {
-        held: Held {
+    let (location, lock, watcher, mut app, mut inbox, mut opened) = match (started, &mut *mode) {
+        (
+            Some(Taken {
+                held:
+                    Held {
+                        location,
+                        lock,
+                        watcher,
+                    },
+                app,
+                inbox,
+            }),
+            _,
+        ) => (
             location,
-            lock,
-            watcher,
-        },
-        mut app,
-        mut inbox,
-    } = match started {
-        Some(started) => started,
-        None => {
+            Some(lock),
+            Some(watcher),
+            app,
+            inbox,
+            // The files `o` wrote in earlier runs that may go are removed
+            // here, under the queue's lock.
+            OpenedFiles::in_temp_dir(),
+        ),
+        (None, Mode::Watch(watch)) => {
             let choice = watch
                 .pick()
                 .expect("a watch without a lock carries the picker's queues");
             let settings = watch.settings().clone();
+            let keeper = keeper.clone();
             let picked = pick_queue(
                 &mut terminal,
                 Switcher::picker(choice.clone()),
@@ -236,22 +316,52 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
                 VERSION,
                 |target| {
                     let changes = inbox_events.clone();
-                    take_picked_with_keeper(target, &settings, Some(keeper.clone()), move || {
+                    take_picked_with_keeper(target, &settings, keeper.clone(), move || {
                         let _ = changes.send(Event::InboxChanged);
                     })
                 },
             )?;
             match picked {
-                Some(taken) => taken,
+                Some(Taken {
+                    held:
+                        Held {
+                            location,
+                            lock,
+                            watcher,
+                        },
+                    app,
+                    inbox,
+                }) => (
+                    location,
+                    Some(lock),
+                    Some(watcher),
+                    app,
+                    inbox,
+                    OpenedFiles::in_temp_dir(),
+                ),
                 None => return Ok(()),
             }
         }
+        // A replay takes no lock and writes nothing into the queue; it
+        // watches the inbox only to count the sessions waiting there.
+        (None, Mode::Replay(replay)) => {
+            let location = replay.location().clone();
+            let (app, inbox) =
+                start_replay(location.clone(), config.settings.clone(), replay.state())?;
+            let changes = inbox_events.clone();
+            let watcher = watch_inbox(&location, move || {
+                let _ = changes.send(Event::InboxChanged);
+            })
+            .map_err(|error| tracing::warn!(%error, "not watching the inbox of the replayed queue"))
+            .ok();
+            (location, None, watcher, app, inbox, replay.take_opened())
+        }
     };
-    app.report_settings_problems(watch.settings_warnings());
-    let queue = queue_label(&location, watch.home());
+    app.report_settings_problems(&config.warnings);
+    let queue = queue_label(&location, config.home.as_deref());
     let mut host = TerminalHost {
-        alerts: watch.alerts(),
-        title: watch.title(),
+        alerts: config.alerts,
+        title: config.title,
         title_pushed,
         progress: ProgressOut::new(env.clone(), run_tmux, progress, ticks),
         env,
@@ -262,20 +372,24 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
         watched: location.clone(),
         // A queue given by `--dir` stays in the switcher for the run.
         dir_queue: location.name().is_none().then(|| location.clone()),
-        lock: Some(lock),
+        lock,
         watcher,
         inbox_events,
-        lock_pane: watch.lock_pane().cloned(),
-        pin_pane: watch.pin_pane().cloned(),
-        home: watch.home().map(Path::to_path_buf),
+        lock_pane: config.lock_pane.clone(),
+        pin_pane: config.pin_pane.clone(),
+        home: config.home.clone(),
     };
-    // The other queues are looked at again every few seconds (ADR 86).
-    tick_queues(SleepClock, QUEUES_TICK, queues_ticks);
-    let mut view = View::new(&queue, watch.layout(), images)
+    // The other queues are looked at again every few seconds (ADR 86). A
+    // replay has no switcher to keep up to date.
+    if matches!(mode, Mode::Watch(_)) {
+        tick_queues(SleepClock, QUEUES_TICK, queues_ticks);
+    }
+    let effective = config.settings.effective();
+    let mut view = View::new(&queue, effective.context, images)
         .chosen_queue(!location.is_default())
-        .no_color(watch.no_color())
-        .reading_width(watch.reading_width())
-        .home(watch.home().map(Path::to_path_buf))
+        .no_color(config.no_color)
+        .reading_width(effective.max_question_width)
+        .home(config.home.clone())
         .glyphs(glyphs)
         .wake_on_load(move || {
             // The run loop is gone only as asqr quits.
@@ -287,13 +401,11 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
     if let Some(path) = std::env::var_os("ASQR_TEST_PANIC_ON_LOAD") {
         view = view.panicking_on_load(path);
     }
-    // The files `o` wrote in earlier runs that may go are removed here,
-    // under the queue's lock.
-    let mut opened = OpenedFiles::in_temp_dir();
     // The pin goes in once the TUI runs, so a start that failed earlier
     // leaves the session's agents where they were (ADR 85). A pin tmux
     // refuses leaves asqr as outside tmux, without a word.
-    if let Some(pin) = watch.pin()
+    if let Mode::Watch(watch) = &*mode
+        && let Some(pin) = watch.pin()
         && let Err(TmuxFailure(reason)) =
             pairing::pin(&SystemTmux::default(), &pin.pane, &pin.queue)
     {
@@ -308,7 +420,9 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
         &mut host,
         &mut opened,
     );
-    if !keeper.drain(KEEP_DRAIN) {
+    if let Some(keeper) = &keeper
+        && !keeper.drain(KEEP_DRAIN)
+    {
         tracing::warn!("quit before the files of the last sessions were kept");
     }
     ran
@@ -899,7 +1013,7 @@ struct TerminalHost {
     /// The lock and the inbox watcher of the queue watched, which a switch
     /// replaces.
     lock: Option<QueueLock>,
-    watcher: InboxWatcher,
+    watcher: Option<InboxWatcher>,
     /// Where the watcher of a queue switched to reports changes: the run
     /// loop.
     inbox_events: mpsc::Sender<Event>,
@@ -937,7 +1051,7 @@ impl Host for TerminalHost {
     fn switch(&mut self, held: Held) -> Result<(), TmuxFailure> {
         // The old lock and watcher go as the new ones take their place.
         self.lock = Some(held.lock);
-        self.watcher = held.watcher;
+        self.watcher = Some(held.watcher);
         self.watched = held.location;
         match (&self.pin_pane, self.watched.name()) {
             (Some(pane), Some(name)) => pairing::pin(&SystemTmux::default(), pane, name),

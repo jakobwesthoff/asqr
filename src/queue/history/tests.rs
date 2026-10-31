@@ -717,7 +717,7 @@ fn six_characters_resolve_in_any_case() {
         reference[2..].to_lowercase(),
         reference.to_lowercase(),
     ] {
-        let entry = found(resolve_reference(&root, None, &text).expect("resolved"));
+        let entry = found(resolve_reference(Some(&root), None, &text).expect("resolved"));
         assert_eq!(entry.id, "hero-2", "{text}");
     }
 }
@@ -726,7 +726,7 @@ fn six_characters_resolve_in_any_case() {
 fn five_are_too_short() {
     let (_scratch, root) = root_with(&["default"]);
 
-    let resolved = resolve_reference(&root, None, "9PA7K").expect("resolved");
+    let resolved = resolve_reference(Some(&root), None, "9PA7K").expect("resolved");
 
     assert_eq!(resolved.resolution, Resolution::TooShort);
 }
@@ -735,7 +735,7 @@ fn five_are_too_short() {
 fn nine_are_too_long() {
     let (_scratch, root) = root_with(&["default"]);
 
-    let resolved = resolve_reference(&root, None, "9PA7KXZQ1").expect("resolved");
+    let resolved = resolve_reference(Some(&root), None, "9PA7KXZQ1").expect("resolved");
 
     assert_eq!(resolved.resolution, Resolution::TooLong);
 }
@@ -744,7 +744,7 @@ fn nine_are_too_long() {
 fn a_letter_no_ulid_holds_matches_nothing_and_is_named() {
     let (_scratch, root) = root_with(&["default"]);
 
-    let resolved = resolve_reference(&root, None, "9PA7KXZO").expect("resolved");
+    let resolved = resolve_reference(Some(&root), None, "9PA7KXZO").expect("resolved");
 
     assert_eq!(resolved.resolution, Resolution::NotAReference('O'));
 }
@@ -761,7 +761,7 @@ fn no_entry_ending_in_the_text_is_no_match() {
         &session("a"),
     );
 
-    let resolved = resolve_reference(&root, None, "ZZZZZZ").expect("resolved");
+    let resolved = resolve_reference(Some(&root), None, "ZZZZZZ").expect("resolved");
 
     assert_eq!(resolved.resolution, Resolution::NoMatch);
 }
@@ -779,7 +779,7 @@ fn a_unique_match_in_another_queue_is_found() {
     );
     let reference = reference_of(ulid);
 
-    let entry = found(resolve_reference(&root, None, &reference).expect("resolved"));
+    let entry = found(resolve_reference(Some(&root), None, &reference).expect("resolved"));
 
     assert_eq!(entry.queue.name(), Some("work"));
     assert_eq!(entry.id, "hero-2");
@@ -798,7 +798,7 @@ fn an_entry_in_a_bundle_is_found_by_its_name_alone() {
     );
     let reference = reference_of(ulid);
 
-    let entry = found(resolve_reference(&root, None, &reference).expect("resolved"));
+    let entry = found(resolve_reference(Some(&root), None, &reference).expect("resolved"));
 
     assert!(matches!(entry.place, EntryPlace::Bundled(..)));
 }
@@ -817,13 +817,13 @@ fn a_queue_given_as_a_directory_is_searched_when_it_is_passed() {
     let reference = reference_of(ulid);
 
     assert_eq!(
-        resolve_reference(&root, None, &reference)
+        resolve_reference(Some(&root), None, &reference)
             .expect("resolved")
             .resolution,
         Resolution::NoMatch
     );
     assert_eq!(
-        found(resolve_reference(&root, Some(&outside), &reference).expect("resolved")).queue,
+        found(resolve_reference(Some(&root), Some(&outside), &reference).expect("resolved")).queue,
         outside
     );
 }
@@ -848,7 +848,7 @@ fn two_matches_are_ambiguous_with_both_listed() {
     );
     let shared = reference_of(second)[2..].to_owned();
 
-    let resolved = resolve_reference(&root, None, &shared).expect("resolved");
+    let resolved = resolve_reference(Some(&root), None, &shared).expect("resolved");
 
     let Resolution::Ambiguous(entries) = resolved.resolution else {
         panic!("expected ambiguity, got {:?}", resolved.resolution);
@@ -864,7 +864,7 @@ fn an_unreadable_bundle_is_reported_with_the_resolution() {
     let location = QueueLocation::named(&root, "default");
     fs::write(location.archive().join("2026-09.zip"), "this is no zip").expect("written");
 
-    let resolved = resolve_reference(&root, None, "ABCDEFGH").expect("resolved");
+    let resolved = resolve_reference(Some(&root), None, "ABCDEFGH").expect("resolved");
 
     assert_eq!(resolved.resolution, Resolution::NoMatch);
     assert_eq!(resolved.unreadable.len(), 1);

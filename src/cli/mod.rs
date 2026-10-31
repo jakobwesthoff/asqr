@@ -17,6 +17,7 @@ pub(crate) mod log;
 mod paths;
 mod prune;
 mod queues;
+mod replay;
 mod skill;
 mod skill_age;
 mod status;
@@ -31,6 +32,7 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 pub use exit::Exit;
+pub use replay::Replay;
 pub use skill_age::override_variables as skill_override_variables;
 pub use watch::{Pin, Watch};
 
@@ -218,6 +220,15 @@ enum Command {
         since: Option<Duration>,
     },
 
+    /// Open a finished session read-only, by the reference `asqr history`
+    /// prints.
+    Replay {
+        /// The last characters of the session's reference: at least 6, in
+        /// any case.
+        #[arg(value_name = "REF")]
+        reference: String,
+    },
+
     /// List every queue, what waits in it and which asqr watches it.
     Queues {
         /// Print the queues as JSON.
@@ -336,22 +347,29 @@ fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
 
 /// Runs the parsed command line. `environment` is what [`environment`]
 /// read, passed in so the precedence of flags over the environment is
-/// decided in one place. `terminal_ui` runs the TUI; only the binary has a
-/// terminal to hand it.
-pub fn run(cli: Cli, environment: Environment, terminal_ui: impl FnOnce(Watch) -> Exit) -> Exit {
+/// decided in one place. `terminal_ui` runs the TUI on a queue and
+/// `replay_ui` runs it on a finished session; only the binary has a
+/// terminal to hand them.
+pub fn run(
+    cli: Cli,
+    environment: Environment,
+    terminal_ui: impl FnOnce(Watch) -> Exit,
+    replay_ui: impl FnOnce(Replay) -> Exit,
+) -> Exit {
     log::init(environment.log.as_deref());
-    dispatch(
+    dispatch_with(
         cli,
         environment,
         &SystemTmux::default(),
         platform_data_dir(),
         settings_file(),
         terminal_ui,
+        replay_ui,
     )
 }
 
-/// Runs the command with `tmux` to ask, the named queues under `root` and
-/// the settings file at `config`, which tests choose.
+/// [`dispatch_with`] for tests of everything but a replay.
+#[cfg(test)]
 fn dispatch(
     cli: Cli,
     environment: Environment,
@@ -359,6 +377,22 @@ fn dispatch(
     root: Option<PathBuf>,
     config: Option<PathBuf>,
     terminal_ui: impl FnOnce(Watch) -> Exit,
+) -> Exit {
+    dispatch_with(cli, environment, tmux, root, config, terminal_ui, |_| {
+        panic!("these tests replay nothing")
+    })
+}
+
+/// Runs the command with `tmux` to ask, the named queues under `root` and
+/// the settings file at `config`, which tests choose.
+fn dispatch_with(
+    cli: Cli,
+    environment: Environment,
+    tmux: &dyn Tmux,
+    root: Option<PathBuf>,
+    config: Option<PathBuf>,
+    terminal_ui: impl FnOnce(Watch) -> Exit,
+    replay_ui: impl FnOnce(Replay) -> Exit,
 ) -> Exit {
     let flags = Selection {
         queue: cli.queue,
@@ -562,6 +596,17 @@ fn dispatch(
                 limit,
                 json,
             },
+        ),
+        Command::Replay { reference } => replay::run(
+            &location,
+            replay::ReplayRequest {
+                reference: &reference,
+                root: root.as_deref(),
+                config,
+                no_color: environment.no_color,
+                home: environment.home,
+            },
+            replay_ui,
         ),
         Command::Queues { json } => queues::run(root.as_deref(), tmux, json),
         Command::Compact { all } => compact::run(&location, root.as_deref(), all),
@@ -1634,5 +1679,114 @@ mod tests {
         .collect();
 
         assert_eq!(named, [true, true, false, false, false, true]);
+    }
+
+    // -----------------------------------------------------------------
+    // replay
+    // -----------------------------------------------------------------
+
+    /// A root with one finished session in its default queue, answered
+    /// `a`; its reference.
+    fn finished_in(root: &Path) -> String {
+        use crate::queue::{Archived, archive_name, session_sha256};
+
+        let location = QueueLocation::named(root, "default");
+        location.create_layout().expect("layout");
+        let body = r#"{"asqr": 2, "title": "Pick", "questions": [{"id": "q", "text": "?",
+            "kind": "single", "options": [{"id": "a", "label": "A"}]}]}"#;
+        let ulid = ulid::Ulid::from_parts(1_788_000_000_000, 0x1234_5678_9abc);
+        std::fs::write(
+            location
+                .archive()
+                .join(archive_name("old", ulid, Archived::Session)),
+            body,
+        )
+        .expect("written");
+        let result = crate::format::SessionResult::submitted(
+            "old",
+            &session_sha256(body.as_bytes()),
+            "2026-08-29T10:39:00+00:00",
+            None,
+            vec![crate::format::Answer {
+                selected: vec!["a".to_owned()],
+                ..crate::format::Answer::new("q")
+            }],
+        );
+        std::fs::write(
+            location.outbox().join("old.json"),
+            serde_json::to_vec(&result).expect("serialises"),
+        )
+        .expect("written");
+        let text = ulid.to_string();
+        text[text.len() - 8..].to_owned()
+    }
+
+    #[test]
+    fn a_replay_hands_the_loaded_session_to_the_terminal_ui() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let reference = finished_in(scratch.path());
+        let cli =
+            Cli::try_parse_from(["asqr", "replay", &reference.to_lowercase()]).expect("parses");
+        let mut shown = None;
+
+        let exit = dispatch_with(
+            cli,
+            Environment::default(),
+            &Unasked,
+            Some(scratch.path().to_path_buf()),
+            None,
+            |_| panic!("no queue is watched"),
+            |mut replay| {
+                let state = replay.state();
+                shown = Some((
+                    replay.reference(),
+                    replay.location().name().map(str::to_owned),
+                    state.is_read_only(),
+                    state.answers()[0].selected.clone(),
+                    state.replay_info().map(|info| info.finished.clone()),
+                    replay.no_color(),
+                    replay.home().is_none(),
+                    replay.settings().effective().diff_layout,
+                ));
+                // The files the replay wrote stay with the run loop.
+                let _ = replay.take_opened();
+                Exit::Cancelled
+            },
+        );
+
+        assert_eq!(exit, Exit::Cancelled, "the exit is the terminal UI's");
+        let (found, queue, read_only, selected, finished, no_color, no_home, _layout) =
+            shown.expect("the terminal UI got the replay");
+        assert_eq!(found, reference);
+        assert_eq!(queue.as_deref(), Some("default"));
+        assert!(read_only);
+        assert_eq!(selected, ["a"]);
+        assert!(
+            finished.is_some_and(|text| text.contains("Aug")),
+            "the time of the result"
+        );
+        assert!(!no_color && no_home);
+    }
+
+    #[test]
+    fn a_replay_with_no_queue_to_search_is_an_error() {
+        let cli = Cli::try_parse_from(["asqr", "--dir", "/nonexistent-queue", "replay", "ABCDEF"])
+            .expect("parses");
+
+        let exit = dispatch_with(
+            cli,
+            Environment::default(),
+            &Unasked,
+            None,
+            None,
+            |_| Exit::Success,
+            |_| Exit::Success,
+        );
+
+        assert_eq!(
+            exit,
+            Exit::Failure,
+            "no session ends so in the one directory named"
+        );
     }
 }

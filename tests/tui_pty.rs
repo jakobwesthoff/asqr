@@ -2046,3 +2046,97 @@ fn a_terminal_not_known_to_show_progress_gets_none() {
     assert_eq!(tui.wait_for_exit(), 0);
     assert!(!tui.output().contains("]9;4"), "{:?}", tui.output());
 }
+
+// =========================================================
+// A replay
+// =========================================================
+
+/// A queue in the sandbox with one finished session, answered `Sent`; its
+/// reference.
+fn finished_session(sandbox: &Sandbox) -> String {
+    use asqr::queue::{Archived, QueueLocation, archive_name, session_sha256};
+
+    let location = QueueLocation::at(sandbox.queue_dir());
+    location.create_layout().expect("layout");
+    let body = r#"{"asqr": 2, "id": "old-1", "title": "An old question", "questions": [{"id": "q",
+        "text": "Pick a fruit", "kind": "single",
+        "options": [{"id": "a", "label": "Apples"}, {"id": "b", "label": "Bananas"}]}]}"#;
+    let ulid = ulid::Ulid::from_parts(1_788_000_000_000, 0x1234_5678_9abc);
+    std::fs::write(
+        location
+            .archive()
+            .join(archive_name("old-1", ulid, Archived::Session)),
+        body,
+    )
+    .expect("written");
+    let result = SessionResult::submitted(
+        "old-1",
+        &session_sha256(body.as_bytes()),
+        "2026-08-29T10:39:00+00:00",
+        None,
+        vec![asqr::format::Answer {
+            selected: vec!["b".to_owned()],
+            ..asqr::format::Answer::new("q")
+        }],
+    );
+    std::fs::write(
+        location.outbox().join("old-1.json"),
+        serde_json::to_vec_pretty(&result).expect("serialises"),
+    )
+    .expect("written");
+    let text = ulid.to_string();
+    text[text.len() - 8..].to_owned()
+}
+
+#[test]
+fn a_replay_opens_read_only_counts_what_waits_and_leaves_the_queue_alone() {
+    let sandbox = Sandbox::new();
+    let reference = finished_session(&sandbox);
+    let dir = sandbox.queue_dir();
+    let file = sandbox.file("session.json", SESSION);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    let listing = |dir: &std::path::Path| {
+        let mut names = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(next) = stack.pop() {
+            for entry in std::fs::read_dir(&next).expect("listed") {
+                let path = entry.expect("entry").path();
+                names.push(path.clone());
+                if path.is_dir() {
+                    stack.push(path);
+                }
+            }
+        }
+        names.sort();
+        names
+    };
+    let before = listing(&dir);
+
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "replay", &reference],
+        "off\t1\t",
+    );
+    tui.wait_for("◷ read-only");
+    tui.wait_for("Pick a fruit");
+    tui.wait_for(&format!("replay {reference}"));
+    tui.wait_for("1 waiting");
+    tui.press("1");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let output = tui.output();
+    assert!(
+        output.contains(&format!("asqr replay {reference}")),
+        "{output:?}"
+    );
+    assert_eq!(
+        listing(&dir),
+        before,
+        "a replay writes nothing into the queue"
+    );
+}

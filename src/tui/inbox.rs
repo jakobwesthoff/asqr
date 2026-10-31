@@ -92,6 +92,8 @@ pub struct Inbox {
     /// one, nothing is kept: the tests of other behaviour finish sessions
     /// in temp queues and need no worker.
     keeper: Option<KeepWorker>,
+    /// The inbox of a replay (see [`Inbox::counting`]).
+    counting: bool,
     /// Called after each step of an operation under the drafts lock.
     #[cfg(test)]
     step_hook: Option<StepHook>,
@@ -116,8 +118,18 @@ impl Inbox {
             lock_attempts: DRAFTS_LOCK_ATTEMPTS,
             kept_texts: Vec::new(),
             keeper: None,
+            counting: false,
             #[cfg(test)]
             step_hook: None,
+        }
+    }
+
+    /// The inbox of a replay: it only counts the sessions waiting in the
+    /// queue and leaves every file alone (ADR 101).
+    pub fn counting(location: QueueLocation) -> Self {
+        Inbox {
+            counting: true,
+            ..Inbox::new(location)
         }
     }
 
@@ -284,6 +296,12 @@ impl Inbox {
     /// Brings `app` in line with the inbox. A failure with a single file
     /// becomes a notice; only an unreadable inbox is an error.
     pub fn sync(&mut self, app: &mut App) -> io::Result<Synced> {
+        // A replay takes no session in and recovers nothing: it counts, and
+        // nothing arrives for it.
+        if self.counting {
+            app.set_replay_waiting(scan_inbox(&self.location)?.sessions.len());
+            return Ok(Synced::default());
+        }
         // Recovery runs on every sync, not only at the start: it is also
         // what archives a session dropped by hand next to an unread result
         // under its id (spec section 5.7).
@@ -493,6 +511,15 @@ impl Inbox {
     /// Carries out what a key asked for. Failures become notices, so a
     /// full disk or a vanished file never ends the app with answers lost.
     pub fn apply(&mut self, app: &mut App, effect: AppEffect) -> Applied {
+        // A replay can quit and open the file shown; no other effect has
+        // anything to act on.
+        if self.counting {
+            return match effect {
+                AppEffect::Quit => Applied::Quit,
+                AppEffect::Open(entry) => Applied::Open(entry),
+                _ => Applied::Continue,
+            };
+        }
         match effect {
             AppEffect::None => {}
             AppEffect::SaveDraft(draft) => {
@@ -658,6 +685,40 @@ mod tests {
         Archived, Withdrawn, archive_name, drop_session, parse_archive_name, save_draft,
     };
     use crate::settings::{Locks, SettingsStore};
+
+    #[test]
+    fn a_counting_inbox_applies_quit_and_open_and_nothing_else() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let location = QueueLocation::at(scratch.path().join("queue"));
+        location.create_layout().expect("layout");
+        let mut inbox = Inbox::counting(location);
+        let mut app = App::default();
+        let entry: ContextEntry =
+            serde_json::from_str(r#"{"type": "code", "content": "x"}"#).expect("parses");
+
+        assert_eq!(inbox.apply(&mut app, AppEffect::Quit), Applied::Quit);
+        assert_eq!(
+            inbox.apply(&mut app, AppEffect::Open(entry.clone())),
+            Applied::Open(entry)
+        );
+        assert_eq!(
+            inbox.apply(&mut app, AppEffect::OpenQueues),
+            Applied::Continue
+        );
+        assert_eq!(
+            inbox.apply(
+                &mut app,
+                AppEffect::Finish {
+                    id: "x".to_owned(),
+                    outcome: Outcome::Submitted {
+                        answers: vec![],
+                        note: None,
+                    },
+                }
+            ),
+            Applied::Continue
+        );
+    }
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
