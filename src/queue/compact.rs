@@ -24,6 +24,7 @@ use super::{
     QueueLock, STALE_TEMP_AGE, classify_inbox_name, find_session_file, finished_at, lock_drafts,
     prepare_bundle, read_if_present, result_entry_name,
 };
+use crate::format::same_session_id;
 
 /// How old a session or result must be before it is bundled.
 pub const COMPACT_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -157,6 +158,19 @@ fn remove_stale_temps(location: &QueueLocation, now: SystemTime) {
     }
 }
 
+/// The ids of the sessions waiting in the inbox.
+fn waiting_ids(location: &QueueLocation) -> io::Result<Vec<String>> {
+    Ok(entries_if_present(&location.inbox())?
+        .iter()
+        .filter_map(
+            |entry| match classify_inbox_name(entry.file_name().to_str()?) {
+                InboxName::Session(id) => Some(id.to_owned()),
+                _ => None,
+            },
+        )
+        .collect())
+}
+
 /// The files due, by the month of their entry.
 fn gather(
     location: &QueueLocation,
@@ -286,6 +300,8 @@ fn bundle_month(
     // loose entries under it, and askers move outbox results under it.
     let _lock = lock_drafts(location, lock_attempts)
         .map_err(|error| format!("the queue is busy: {error}"))?;
+    // The inbox is read once for all candidates, not once for each.
+    let waiting = waiting_ids(location).map_err(|error| error.to_string())?;
     let unchanged = prepared
         .still_current()
         .map_err(|error| error.to_string())?
@@ -295,7 +311,9 @@ fn bundle_month(
                 Ok::<_, io::Error>(
                     all && read_if_present(&candidate.path)?.as_deref() == Some(bytes.as_slice())
                         && !(candidate.in_outbox
-                            && find_session_file(&location.inbox(), &candidate.name.id)?.is_some()),
+                            && waiting
+                                .iter()
+                                .any(|id| same_session_id(id, &candidate.name.id))),
                 )
             })
             .map_err(|error| error.to_string())?;
