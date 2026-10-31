@@ -1373,9 +1373,11 @@ has context (section 7.4, ADRs 30 and 31):
 
 - The title bar has no fill: `asqr` is bold in the primary colour. With
   nothing waiting it reads `asqr · queue: <queue> · N sessions waiting`,
-  the queue and the count dim, as beside a session. A queue name too long
-  for the line is cut from the left with `…`, at a `/` where possible,
-  so the count stays visible.
+  the queue and the count dim, as beside a session. A queue given by
+  `--dir` is named by its absolute path, with `~` for the home folder,
+  here and wherever else the queue is named (section 7.5, 7.6, 7.9). A
+  queue name too long for the line is cut from the left with `…`, at a
+  `/` where possible, so the count stays visible.
 - With a session shown, the session's title (or its id) follows `asqr`
   after two blanks, bold, in one line that ends where the reading width
   ends. The queue and `N waiting` stand dim at the right end. Where the
@@ -1645,8 +1647,8 @@ has context (section 7.4, ADRs 30 and 31):
   show up here as soon as they arrive." For any queue but the default
   one (section 5.2) it names the queue in two lines instead: "Nothing to
   answer in queue <queue>." and below it "New sessions show up here as
-  soon as they arrive." `<queue>` is the name or the `--dir` directory as
-  given, bold in the primary colour. Where the first line does not fit,
+  soon as they arrive." `<queue>` is the name or the `--dir` directory, absolute with `~` for
+  the home folder, bold in the primary colour. Where the first line does not fit,
   the name takes a line of its own, whole; only a name too long for that
   line shows its end behind `…`, cut at a `/` where possible (ADR 81).
   Either way the sentence takes at most the 3 rows kept for it. Notices
@@ -1849,8 +1851,8 @@ Overlays and dialogs:
   to, sorted by name with `default` among them: each with `N waiting`
   where sessions wait, the watched one with `◀ this asqr` at its row's
   end, bold in the primary colour. A queue this run was given by `--dir`
-  stands first, by its path with `~` for the home folder, for the whole
-  run. The last row the cursor reaches is `✎ New queue: —`. The queues
+  stands first, by its absolute path with `~` for the home folder, for the
+  whole run. The last row the cursor reaches is `✎ New queue: —`. The queues
   another asqr watches follow below a blank row, dim, with `watched in
   tmux <session>`, or `watched by another asqr` where tmux names no
   session; the cursor never reaches them. The cursor opens on the
@@ -1883,7 +1885,11 @@ Overlays and dialogs:
     queue`. Outside tmux, or where tmux does not answer: `tell your
     agents: --queue <name>`, no footer on `default` and on the new-queue
     row while no name is typed, and on a `--dir` row `tell your agents:
-    --dir <path>`. A path or a name too long for the footer is never
+    --dir <path>`, where `<path>` is the absolute path as a shell reads
+    it back: `~/` followed by the rest, quoted where the rest needs
+    quotes, for a path inside the home folder, the quoted absolute path
+    otherwise, and `<dir>` for a path that is not UTF-8 or holds a control
+    character. A path or a name too long for the footer is never
     shortened there: the footer reads `tell your agents --dir with this
     path` or `tell your agents --queue with this name`, and the row
     shows as much of it as fits. The frame keeps one width while it is
@@ -2122,7 +2128,7 @@ keeps the session and shows its own notice instead.
   and changes with the count (OSC 0, the window and the icon title).
   For any queue but the default one (section 5.2) it names the queue
   too, "asqr · <queue> · N waiting", by its name or its `--dir`
-  directory as given, with control characters shown as in text entries
+  directory, absolute with `~` for the home folder, with control characters shown as in text entries
   (section 8.4). The queue takes at most 40 columns there: a longer one
   shows its end behind `…`, cut at a `/` where possible, and gives up
   more from its start where the title would reach 256 bytes, which
@@ -2164,7 +2170,7 @@ keeps the session and shows its own notice instead.
   the new queue's sessions, and the title bar, the terminal title and
   the empty queue name it as they name a queue given at the start (ADR
   81). The status line says what came of the
-  switch, naming a queue by its name or its `--dir` directory:
+  switch, naming a queue by its name or its absolute `--dir` directory, with `~` for the home folder:
 
       watching default · 2 sessions wait in asqr-todos
       watching default

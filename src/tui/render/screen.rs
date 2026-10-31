@@ -1659,6 +1659,19 @@ mod tests {
         insta::assert_snapshot!(screen_in(&App::default(), &mut view, 80, 17));
     }
 
+    /// A queue given by `--dir` shows its path absolute, with `~` for the
+    /// home folder, in the title bar and the sentence both.
+    #[test]
+    fn a_dir_queue_path_is_named_on_the_empty_queue() {
+        let mut view = View::for_tests(
+            "~/projects/clients/.asqr",
+            PaneLayout::Auto,
+            Images::half_blocks(),
+        )
+        .chosen_queue(true);
+        insta::assert_snapshot!(screen_in(&App::default(), &mut view, 80, 17));
+    }
+
     /// The name takes no row of Talqi's: he shows from 32 rows for every
     /// queue, and below them the sentence names the queue alone.
     #[test]
@@ -2321,6 +2334,7 @@ mod tests {
         let row = |name: &str, waiting, watched| crate::tui::QueueRow {
             location: crate::queue::QueueLocation::named(root, name),
             label: name.to_owned(),
+            agent_dir: None,
             waiting,
             watched,
         };

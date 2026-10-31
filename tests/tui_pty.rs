@@ -462,6 +462,22 @@ const PUSH_TITLE: &str = "\x1b[22;0t";
 const EMPTY_TITLE: &str = "\x1b]0;\x07";
 const POP_TITLE: &str = "\x1b[23;0t";
 
+/// The sandbox is the home folder, so its queue is `~/queue` on the
+/// waiting screen: in the sentence and in the title bar.
+#[test]
+fn a_dir_queue_is_named_by_its_path_with_a_tilde_for_home() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+    );
+
+    tui.wait_for("Nothing to answer in queue ~/queue.");
+    tui.wait_for("queue: ~/queue");
+}
+
 #[test]
 fn the_title_counts_the_waiting_sessions_and_is_given_back_on_quit() {
     let sandbox = Sandbox::new();
@@ -487,11 +503,10 @@ fn the_title_counts_the_waiting_sessions_and_is_given_back_on_quit() {
     let output = tui.output();
     let alternate_screen = first(&output, "\x1b[?1049h");
     let push = first(&output, PUSH_TITLE);
-    // A queue given by `--dir` is named by its directory. The sandbox's
-    // may be longer than the 40 columns the title gives the queue, so only
-    // the path's end is certain.
-    let none_waiting = first_title(&output, "/queue · 0 waiting");
-    let one_waiting = first_title(&output, "/queue · 1 waiting");
+    // A queue given by `--dir` is named by its directory. The sandbox is
+    // the home folder, so the title names it `~/queue`.
+    let none_waiting = first_title(&output, "~/queue · 0 waiting");
+    let one_waiting = first_title(&output, "~/queue · 1 waiting");
     let cleared = last(&output, EMPTY_TITLE);
     let pop = last(&output, POP_TITLE);
     let main_screen = last(&output, "\x1b[?1049l");

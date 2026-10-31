@@ -1,0 +1,21 @@
+---
+source: src/tui/render/screen.rs
+expression: "screen_in(&App::default(), &mut view, 80, 17)"
+---
+" asqr · queue: ~/projects/clients/.asqr · 0 sessions waiting                    "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"              Nothing to answer in queue ~/projects/clients/.asqr.              "
+"                New sessions show up here as soon as they arrive.               "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+"                                                                                "
+" w  queues   q  quit                                                 asqr 0.0.0 "

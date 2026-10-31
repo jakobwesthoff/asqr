@@ -32,6 +32,10 @@ pub struct QueueRow {
     /// The queue's name, or the path of a queue given by `--dir`, with `~`
     /// for the home folder.
     pub label: String,
+    /// The word after `--dir` that tells an agent this queue, for a queue
+    /// given by `--dir`: as a shell reads it, with `~/` in front where the
+    /// path is inside the home folder. `None` for a named queue.
+    pub agent_dir: Option<String>,
     /// The sessions waiting in it.
     pub waiting: usize,
     /// Whether this asqr watches it.
@@ -292,6 +296,7 @@ mod tests {
         QueueRow {
             location: QueueLocation::named(Path::new(ROOT), name),
             label: name.to_owned(),
+            agent_dir: None,
             waiting,
             watched,
         }

@@ -143,8 +143,11 @@ fn footer(switcher: &Switcher, at: usize, width: usize) -> Option<String> {
         )),
         Place::Tmux(session) => Some(format!("agents in tmux session {session} follow this asqr")),
         Place::Outside => match row {
-            Some(row) if dir => fitting(format!("tell your agents: --dir {}", row.label))
-                .or_else(|| Some("tell your agents --dir with this path".to_owned())),
+            Some(row) if dir => fitting(format!(
+                "tell your agents: --dir {}",
+                row.agent_dir.as_deref().unwrap_or(&row.label)
+            ))
+            .or_else(|| Some("tell your agents --dir with this path".to_owned())),
             Some(row) => tell_name(&row.label),
             None if switcher.name().is_empty() => None,
             None => tell_name(switcher.name()),
@@ -366,6 +369,7 @@ mod tests {
         QueueRow {
             location: QueueLocation::named(Path::new(ROOT), name),
             label: name.to_owned(),
+            agent_dir: None,
             waiting,
             watched,
         }
@@ -621,6 +625,7 @@ mod tests {
             QueueRow {
                 location: QueueLocation::at("~/projects/clients/some-client/2026/asqr/queue"),
                 label: "~/projects/clients/some-client/2026/asqr/queue".into(),
+                agent_dir: Some("~/projects/clients/some-client/2026/asqr/queue".into()),
                 waiting: 0,
                 watched: false,
             },
@@ -712,9 +717,15 @@ mod tests {
 
     /// A `--dir` queue `path` first, then `default` watched.
     fn with_a_dir(path: &str, place: Place) -> Switcher {
+        with_a_dir_told(path, path, place)
+    }
+
+    /// Like [`with_a_dir`], with `word` as what the footer tells agents.
+    fn with_a_dir_told(path: &str, word: &str, place: Place) -> Switcher {
         let dir = QueueRow {
             location: QueueLocation::at(path),
             label: path.to_owned(),
+            agent_dir: Some(word.to_owned()),
             waiting: 0,
             watched: false,
         };
@@ -746,6 +757,22 @@ mod tests {
             shown
                 .last()
                 .is_some_and(|edge| edge.ends_with(" tell your agents: --dir ~/work/queue ╯")),
+            "{shown:#?}"
+        );
+    }
+
+    /// The footer tells the word an agent can paste after `--dir`, which
+    /// the row carries beside the label it shows.
+    #[test]
+    fn outside_tmux_the_footer_tells_the_agents_word_not_the_label() {
+        let switcher = with_a_dir_told("~/my q", "~/'my q'", Place::Outside);
+
+        let shown = frame(&drawn(&switcher));
+
+        assert!(
+            shown
+                .last()
+                .is_some_and(|edge| edge.ends_with(" tell your agents: --dir ~/'my q' ╯")),
             "{shown:#?}"
         );
     }

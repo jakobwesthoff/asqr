@@ -233,7 +233,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
             }
         }
     };
-    let queue = queue_label(&location);
+    let queue = queue_label(&location, watch.home());
     let mut host = TerminalHost {
         alerts: watch.alerts(),
         title: watch.title(),
@@ -900,6 +900,10 @@ impl Host for TerminalHost {
             &SystemTmux::default(),
             self.home.as_deref(),
         )
+    }
+
+    fn home(&self) -> Option<&Path> {
+        self.home.as_deref()
     }
 
     fn prepare(&mut self, target: &QueueLocation) -> Result<Held, Refusal> {

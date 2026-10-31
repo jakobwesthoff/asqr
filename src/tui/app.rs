@@ -1304,6 +1304,7 @@ mod tests {
         let row = |name: &str, watched| crate::tui::QueueRow {
             location: QueueLocation::named(root, name),
             label: name.to_owned(),
+            agent_dir: None,
             waiting: 0,
             watched,
         };

@@ -156,7 +156,7 @@ fn queue_choice(switcher: &crate::scene::Switcher) -> QueueChoice {
         .queues
         .iter()
         .map(|queue| {
-            let (location, label) = match (&queue.name, &queue.dir) {
+            let (location, label, agent_dir) = match (&queue.name, &queue.dir) {
                 (Some(name), _) => (
                     QueueLocation::named(
                         root.as_deref()
@@ -164,15 +164,21 @@ fn queue_choice(switcher: &crate::scene::Switcher) -> QueueChoice {
                         name,
                     ),
                     name.clone(),
+                    None,
                 ),
                 (None, dir) => {
                     let dir = dir.clone().expect("a queue without a name has a dir");
-                    (QueueLocation::at(PathBuf::from(&dir)), dir)
+                    (
+                        QueueLocation::at(PathBuf::from(&dir)),
+                        dir.clone(),
+                        Some(dir),
+                    )
                 }
             };
             QueueRow {
                 location,
                 label,
+                agent_dir,
                 waiting: queue.waiting,
                 watched: queue.watched,
             }

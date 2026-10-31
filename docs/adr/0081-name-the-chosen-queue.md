@@ -16,6 +16,8 @@ the title names a queue other than the default one
 Amends [43. Draw Talqi as the emblem in text cells](0043-draw-talqi-as-the-emblem-in-text-cells.md):
 the sentence under Talqi names a chosen queue
 
+Amended by [93. Show a `--dir` queue's path absolute, with `~` for home](0093-show-a-dir-queues-path-absolute-with-for-home.md)
+
 ## Context
 
 - asqr watches one queue: the queue named `default`, a queue named with

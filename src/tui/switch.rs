@@ -7,11 +7,12 @@
 //! and reads it before it lets go of the old queue, and pins the new queue
 //! last; a step that fails leaves asqr on the old queue.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::render::{View, shown_path};
 use super::{App, Host, Inbox, InboxWatcher, Notice, Place, QueueChoice, QueueRow, TakenQueue};
 use super::{Tone, start, watch_inbox};
+use crate::cli::shell_word;
 use crate::pairing::{self, Tmux, TmuxFailure, TmuxPane};
 use crate::queue::{LockError, QueueLocation, QueueLock, list_queues, lock_queue, summarize};
 
@@ -45,9 +46,15 @@ pub fn queue_choice(
     let mut rows = Vec::new();
     let mut taken = Vec::new();
     for summary in &summaries {
-        let label = match summary.location.name() {
-            Some(name) => name.to_owned(),
-            None => shown_path(&summary.location.dir().display().to_string(), home),
+        let (label, agent_dir) = match summary.location.name() {
+            Some(name) => (name.to_owned(), None),
+            None => {
+                let dir = summary.location.dir();
+                (
+                    absolute_with_home_as_tilde(dir, home),
+                    Some(agent_dir_word(dir, home)),
+                )
+            }
         };
         let mine = watched.is_some_and(|watched| summary.location.same_queue(watched));
         match &summary.holder {
@@ -58,6 +65,7 @@ pub fn queue_choice(
             _ => rows.push(QueueRow {
                 location: summary.location.clone(),
                 label,
+                agent_dir,
                 waiting: summary.waiting,
                 watched: mine,
             }),
@@ -133,7 +141,9 @@ pub fn take_picked(
     target: &QueueLocation,
     changed: impl FnMut() + Send + 'static,
 ) -> Result<Taken, Notice> {
-    let name = queue_label(target);
+    // The picker lists named queues, whose label does not use the home
+    // folder.
+    let name = queue_label(target, None);
     let held = prepare_switch(target, None, changed).map_err(|refusal| refused(&name, refusal))?;
     // A failed read drops `held`, and with it the lock and the watcher.
     let (app, inbox) = start(target.clone())
@@ -160,11 +170,83 @@ fn watch_failure(error: notify_debouncer_full::notify::Error) -> String {
 }
 
 /// How a queue is named in the status line and the title: by its name, or
-/// by its directory for a queue given by `--dir`.
-pub fn queue_label(location: &QueueLocation) -> String {
+/// by its absolute directory, with `~` for `home`, for a queue given by
+/// `--dir`.
+pub fn queue_label(location: &QueueLocation, home: Option<&Path>) -> String {
     match location.name() {
         Some(name) => name.to_owned(),
-        None => location.dir().display().to_string(),
+        None => absolute_with_home_as_tilde(location.dir(), home),
+    }
+}
+
+/// `dir` as an absolute path, for showing to the person: relative to the
+/// current directory where it is relative, without a trailing slash, and
+/// not resolved through symlinks.
+///
+/// `std::path::absolute` fails only for an empty path, which clap refuses,
+/// or a current directory that cannot be read. The directory as given is
+/// the best name left then.
+fn absolute_dir(dir: &Path) -> PathBuf {
+    let absolute = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    // `absolute` keeps a trailing slash, which would make `--dir ./` from
+    // the home folder show as `~/` and `--dir .` as the full path.
+    absolute.components().collect()
+}
+
+/// `dir` made absolute, with the home folder as `~`, as a queue given by
+/// `--dir` is named wherever the person sees it.
+pub(crate) fn absolute_with_home_as_tilde(dir: &Path, home: Option<&Path>) -> String {
+    let absolute = absolute_dir(dir).display().to_string();
+    match home_as_tilde(&absolute, home) {
+        // `shown_path` leaves the home folder itself alone, as it has no
+        // `/` behind it.
+        HomeForm::Itself => "~".to_owned(),
+        HomeForm::Inside(shown) | HomeForm::Outside(shown) => shown,
+    }
+}
+
+/// Where an absolute path stands to the home folder.
+enum HomeForm {
+    /// The home folder itself.
+    Itself,
+    /// Inside it, as `~/rest`.
+    Inside(String),
+    /// Not inside it, the path unchanged.
+    Outside(String),
+}
+
+fn home_as_tilde(absolute: &str, home: Option<&Path>) -> HomeForm {
+    let trimmed = home
+        .and_then(Path::to_str)
+        .map(|home| home.trim_end_matches('/'));
+    if trimmed.is_some_and(|home| !home.is_empty() && home == absolute) {
+        return HomeForm::Itself;
+    }
+    let shown = shown_path(absolute, home);
+    match shown.starts_with("~/") {
+        true => HomeForm::Inside(shown),
+        false => HomeForm::Outside(shown),
+    }
+}
+
+/// The word after `--dir` that tells an agent the queue in `dir`, to be
+/// pasted into a shell: the path as `cli::hint` writes one, and with `~/`
+/// in front of the quoted rest where the path is inside the home folder.
+/// The shell expands `~/` only unquoted, so a quote around the whole path
+/// would keep the tilde from expanding.
+pub(crate) fn agent_dir_word(dir: &Path, home: Option<&Path>) -> String {
+    const UNWRITABLE: &str = "<dir>";
+    let absolute = absolute_dir(dir);
+    let Some(text) = absolute.to_str() else {
+        return UNWRITABLE.to_owned();
+    };
+    match home_as_tilde(text, home) {
+        HomeForm::Itself => "~".to_owned(),
+        HomeForm::Inside(shown) => match shell_word(Path::new(&shown["~/".len()..]), UNWRITABLE) {
+            word if word == UNWRITABLE => word,
+            word => format!("~/{word}"),
+        },
+        HomeForm::Outside(_) => shell_word(&absolute, UNWRITABLE),
     }
 }
 
@@ -180,7 +262,11 @@ pub fn switch_queue(
     view: &mut View,
     host: &mut impl Host,
 ) {
-    let (new, old) = (queue_label(target), queue_label(inbox.location()));
+    let home = host.home().map(Path::to_path_buf);
+    let (new, old) = (
+        queue_label(target, home.as_deref()),
+        queue_label(inbox.location(), home.as_deref()),
+    );
     let held = match host.prepare(target) {
         Ok(held) => held,
         Err(refusal) => {
@@ -593,9 +679,148 @@ mod tests {
     #[test]
     fn a_queue_is_named_by_its_name_or_its_directory() {
         assert_eq!(
-            queue_label(&QueueLocation::named(Path::new("/data"), "work")),
+            queue_label(&QueueLocation::named(Path::new("/data"), "work"), None),
             "work"
         );
-        assert_eq!(queue_label(&QueueLocation::at("/tmp/queue")), "/tmp/queue");
+        assert_eq!(
+            queue_label(&QueueLocation::at("/tmp/queue"), None),
+            "/tmp/queue"
+        );
+    }
+
+    // Home folders in these tests are made-up paths: nothing reads the
+    // real one, and none of the paths has to exist.
+    fn shown(dir: &str, home: Option<&str>) -> String {
+        absolute_with_home_as_tilde(Path::new(dir), home.map(Path::new))
+    }
+
+    #[test]
+    fn a_relative_dir_is_named_by_its_absolute_path() {
+        let here = std::env::current_dir().expect("a current directory");
+
+        assert_eq!(
+            queue_label(&QueueLocation::at(".asqr"), None),
+            here.join(".asqr").display().to_string()
+        );
+    }
+
+    #[test]
+    fn a_dir_inside_home_is_named_with_a_tilde() {
+        assert_eq!(
+            queue_label(
+                &QueueLocation::at("/h/me/work/.asqr"),
+                Some(Path::new("/h/me"))
+            ),
+            "~/work/.asqr"
+        );
+    }
+
+    /// `/h/me2` starts with the letters of `/h/me` and is another folder.
+    #[test]
+    fn a_folder_that_only_starts_like_home_keeps_its_path() {
+        assert_eq!(shown("/h/me2/q", Some("/h/me")), "/h/me2/q");
+    }
+
+    #[test]
+    fn a_dir_equal_to_home_is_a_tilde() {
+        assert_eq!(shown("/h/me", Some("/h/me")), "~");
+    }
+
+    #[test]
+    fn without_a_home_the_absolute_path_shows() {
+        assert_eq!(shown("/h/me/q", None), "/h/me/q");
+    }
+
+    #[test]
+    fn a_trailing_slash_is_dropped() {
+        assert_eq!(shown("/h/me/q/", Some("/h/me")), "~/q");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dir_that_is_no_utf_8_shows_with_a_replacement_character() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let latin1 = Path::new(std::ffi::OsStr::from_bytes(b"/h/me/j\xe4"));
+
+        assert_eq!(
+            absolute_with_home_as_tilde(latin1, Some(Path::new("/h/me"))),
+            "~/j\u{fffd}"
+        );
+    }
+
+    fn told(dir: &str, home: Option<&str>) -> String {
+        agent_dir_word(Path::new(dir), home.map(Path::new))
+    }
+
+    #[test]
+    fn a_plain_path_under_home_is_told_with_a_tilde() {
+        assert_eq!(told("/h/me/work/q", Some("/h/me")), "~/work/q");
+    }
+
+    /// The shell expands `~/` only unquoted, so the quotes cover the rest.
+    #[test]
+    fn a_path_with_a_space_under_home_is_told_with_a_tilde() {
+        assert_eq!(told("/h/me/my q", Some("/h/me")), "~/'my q'");
+    }
+
+    #[test]
+    fn a_path_with_a_quote_is_told_quoted() {
+        assert_eq!(told("/h/me/it's", Some("/h/me")), r"~/'it'\''s'");
+    }
+
+    #[test]
+    fn a_path_outside_home_is_told_quoted_and_absolute() {
+        assert_eq!(told("/srv/my q", Some("/h/me")), "'/srv/my q'");
+        assert_eq!(told("/srv/q", None), "/srv/q");
+    }
+
+    #[test]
+    fn home_itself_is_told_as_a_tilde() {
+        assert_eq!(told("/h/me", Some("/h/me")), "~");
+    }
+
+    /// A newline cannot be written into a command a person pastes.
+    #[test]
+    fn a_path_with_a_newline_under_home_is_told_as_a_placeholder() {
+        assert_eq!(told("/h/me/a\nb", Some("/h/me")), "<dir>");
+    }
+
+    /// `std::path::absolute` refuses an empty path, which clap never lets
+    /// through.
+    #[test]
+    fn an_empty_dir_keeps_the_name_it_has() {
+        assert_eq!(shown("", Some("/h/me")), "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_that_is_no_utf_8_is_told_as_a_placeholder() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let latin1 = Path::new(std::ffi::OsStr::from_bytes(b"/h/me/j\xe4"));
+
+        assert_eq!(agent_dir_word(latin1, Some(Path::new("/h/me"))), "<dir>");
+    }
+
+    #[test]
+    fn a_relative_dir_row_is_labelled_absolute() {
+        let name = "no-such-queue-01M660F3";
+        let here = std::env::current_dir().expect("a current directory");
+        let dir = QueueLocation::at(name);
+
+        let choice = queue_choice(
+            None,
+            None,
+            Some(&dir),
+            None,
+            &pairing::testing::Unasked,
+            None,
+        );
+
+        let row = &choice.rows[0];
+        let expected = here.join(name).display().to_string();
+        assert_eq!(row.label, expected);
+        assert_eq!(row.agent_dir.as_deref(), Some(expected.as_str()));
     }
 }

@@ -134,7 +134,7 @@ fn queue_command(name: &str) -> String {
 /// it holds only ASCII letters, digits and `_./-`, otherwise in single
 /// quotes. A path that cannot be written that way, not UTF-8 or holding a
 /// control character such as a newline, shows as `placeholder`.
-pub(super) fn shell_word(path: &Path, placeholder: &str) -> String {
+pub(crate) fn shell_word(path: &Path, placeholder: &str) -> String {
     let Some(text) = path
         .to_str()
         .filter(|text| !text.contains(char::is_control))

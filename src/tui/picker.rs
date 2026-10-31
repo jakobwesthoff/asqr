@@ -83,6 +83,7 @@ mod tests {
         QueueRow {
             location: QueueLocation::named(Path::new("/data/asqr"), name),
             label: name.to_owned(),
+            agent_dir: None,
             waiting: 0,
             watched: false,
         }

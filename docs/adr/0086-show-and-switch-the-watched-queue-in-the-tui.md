@@ -10,6 +10,8 @@ Amends [38. Give notices kinds and confirm a finished session](0038-give-notices
 a notice that names a queue keeps the name and cuts another name before
 it and the text after it first
 
+Amended by [93. Show a `--dir` queue's path absolute, with `~` for home](0093-show-a-dir-queues-path-absolute-with-for-home.md)
+
 ## Context
 
 - One asqr watches one queue (ADR 14), and inside tmux each tmux

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A queue given with `--dir` or `ASQR_DIR` is named by its absolute path,
+  with `~` for the home folder, on the waiting screen, in the title bar,
+  in the terminal title, in the queue switcher and in the status line
+  after a switch. Before, the path showed as typed, so `.asqr` read the
+  same in every project and `--dir .` read "queue ..". The switcher's
+  footer tells agents that path written for a shell, `~/` followed by the
+  rest quoted where it needs quotes, where it told them the path as
+  typed, relative or not.
 - Behind an overlay, Talqi on the empty queue is drawn as his colourless
   outline, and the submit button and a diff's changed lines show as dim
   text in their colour, where colours are on, instead of staying bright.

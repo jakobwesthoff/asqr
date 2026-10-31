@@ -110,6 +110,8 @@ pub trait Host {
     fn elsewhere(&mut self) -> Vec<WaitingQueue>;
     /// The queues for the switcher, looked at now (ADR 86).
     fn queues(&mut self) -> QueueChoice;
+    /// The home folder, shown as `~` in the paths of queues.
+    fn home(&self) -> Option<&Path>;
     /// Takes the lock of `target`, makes its directories and watches its
     /// inbox, for a switch to it (see [`prepare_switch`](super::prepare_switch)).
     fn prepare(&mut self, target: &QueueLocation) -> Result<Held, Refusal>;
@@ -634,6 +636,8 @@ mod tests {
         refuse_pin: bool,
         /// A switch is refused so, when set, as a watcher that fails.
         refuse_switch: Option<Refusal>,
+        /// The home folder, `~` in the paths of queues.
+        home: Option<PathBuf>,
     }
 
     /// A stand-in for the person's editor.
@@ -647,6 +651,10 @@ mod tests {
                 root: None,
                 place: crate::tui::Place::Outside,
             })
+        }
+
+        fn home(&self) -> Option<&Path> {
+            self.home.as_deref()
         }
 
         /// The switch the terminal makes, in the test's directories.
@@ -1577,6 +1585,7 @@ mod tests {
         fs::write(work.inbox().join("b.json"), SESSION).expect("written");
         let row = |location: &QueueLocation, watched| crate::tui::QueueRow {
             label: location.name().expect("named").to_owned(),
+            agent_dir: None,
             location: location.clone(),
             waiting: 1,
             watched,
@@ -1702,6 +1711,28 @@ mod tests {
                 .expect("readable")
                 .is_some(),
             "the new queue is watched"
+        );
+    }
+
+    /// The old queue is named in the notice only while sessions still wait
+    /// in it.
+    #[test]
+    fn the_notice_names_the_old_dir_queue_with_a_tilde_for_home() {
+        let mut harness = two_queues();
+        let home = harness.scratch.path().to_path_buf();
+        harness.location = QueueLocation::at(home.join("dir-queue"));
+        harness.location.create_layout().expect("layout");
+        harness.put("a");
+        harness.host.home = Some(home);
+        let (mut app, mut inbox) = start(harness.location.clone()).expect("started");
+
+        harness
+            .run_started(&mut app, &mut inbox, switch_to_work())
+            .expect("runs");
+
+        assert_eq!(
+            status_line(&harness),
+            "watching work · 1 session waits in ~/dir-queue"
         );
     }
 

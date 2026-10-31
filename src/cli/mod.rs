@@ -10,6 +10,7 @@ mod ask;
 mod exit;
 mod format;
 mod hint;
+pub(crate) use hint::shell_word;
 pub(crate) mod log;
 mod paths;
 mod prune;
