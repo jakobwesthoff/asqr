@@ -1010,3 +1010,34 @@ fn a_kept_file_without_a_recorded_size_still_names_itself() {
         "{text}"
     );
 }
+
+#[test]
+fn an_ansi_and_a_markdown_file_are_named_by_their_title_or_else_by_the_original() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let copy = dir.path().join("copy.txt");
+    std::fs::write(&copy, "x").expect("written");
+    let path = copy.to_str().expect("UTF-8").to_owned();
+    let named = |kind: &str, title: Option<&str>| {
+        let mut file = record("kept");
+        file.original_path = "/work/session.out".to_owned();
+        let mut entry = serde_json::json!({"type": kind, "path": path});
+        if let Some(title) = title {
+            entry["title"] = serde_json::json!(title);
+        }
+        text_of(
+            &app_showing(entry, vec![(path.clone(), file)], None),
+            120,
+            30,
+        )
+    };
+
+    for kind in ["ansi", "markdown"] {
+        let titled = named(kind, Some("Titled"));
+        assert!(
+            titled.contains(" Titled ") && !titled.contains("session.out"),
+            "{kind}: {titled}"
+        );
+        let untitled = named(kind, None);
+        assert!(untitled.contains(" session.out "), "{kind}: {untitled}");
+    }
+}

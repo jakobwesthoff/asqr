@@ -114,6 +114,8 @@ rows, `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` keep their meaning.
   its size, time and fingerprint. The pane's bottom rule says what became
   of the file, and `d` opens a frame with the copy, the original path,
   size, time and SHA-256.
+- A diff names two files, so the cards, the bottom rule's words and `d`
+  do not apply to it; its kept sides show through the normal viewer.
 - The last tab is `Result`. It says how the session ended, lists one line
   per answer and shows the note and, for a rejection, the reason.
 - While sessions wait in the queue, the title bar counts them and the
