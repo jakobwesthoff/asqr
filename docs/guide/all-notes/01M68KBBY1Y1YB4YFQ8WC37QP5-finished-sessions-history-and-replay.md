@@ -61,8 +61,11 @@ in any case.
   that a longer reference can name one. A reference that ends none exits
   with 1 too. One of fewer than 6 or more than 8 characters, or with a
   letter no ULID holds (`I`, `L`, `O`, `U`), is a usage error, exit code 2.
+  These errors start with `error: ` like those of every other command.
 - A session file that does not parse or validate, and a bundle that
-  cannot be read, end the replay with an error and exit code 1.
+  cannot be read, end the replay with an error and exit code 1. Without a
+  terminal the replay in the terminal UI fails as `asqr` does; `--json` and
+  `--extract`, below, need none.
 - The replay takes no lock and writes nothing into the queue, so it runs
   beside the asqr that watches the queue. It rings no bell and sends no
   notification. It counts the sessions waiting in the queue in the title
@@ -150,3 +153,60 @@ A diff shows the card of its first side that has no good copy. `o` opens
 an entry only when every file it names is a kept copy. Which files asqr
 keeps is a setting, described on the page about
 [keeping files](01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md).
+
+## A finished session as data
+
+`asqr replay <REF> --json` prints the session, its result and the state of
+each file it showed as one JSON object on a line of its own. `asqr replay
+<REF> --extract <dir>` writes them into a directory. The two combine. Both
+start no terminal UI, resolve the reference and refuse it as above, and end
+with exit code 0, 1 or 2 only. On exit code 1 or 2 stdout is empty and the
+reason is on stderr, also with `--json`. A bundle that cannot be read gives
+a `warning:` line on stderr, once for each bundle, also for a bundle that
+holds the session's result.
+
+The object `--json` prints holds:
+
+- `ref`, `id`, `finished_at`, `status` and `draft`, as `asqr history
+  --json` gives them for the entry.
+- `queue`, the name of the queue where the session was found, or for a
+  queue given with `--dir` the absolute path of its directory.
+- `session`, the archived session as stored. The `path` of every file it
+  shows is the path the asker wrote.
+- `result`, the result that answers the session. A withdrawn result carries
+  its `draft`. Without a result it is `null` and `status` is `none`.
+- `files`, one object for each distinct pair of original path and SHA-256,
+  with `original_path`, `state`, `sha256`, `size`, `modified`, `kept_size`,
+  `reason`, `problem` and `extracted`. `state` is `kept`, `gone` (missing
+  or unreadable when the session finished, with the recorded text in
+  `reason`), `not_kept` or `not_recorded`. `problem` says why the copy of a
+  kept file cannot be handed out: it is missing from the archive or
+  damaged. `extracted` is the path of the kept copy relative to
+  `extracted_to`, only with `--extract` and a good copy. A value a state
+  does not have is `null`.
+- `extracted_to`, the absolute directory given to `--extract`, else `null`.
+
+`--json` prints no file's bytes.
+
+`--extract <dir>` writes:
+
+- `session.json`, the archived session with the `path` of each kept file
+  turned into `files/<sha256>.<extension>`, which resolves below `<dir>`
+  for a good copy only,
+- `result.json`, the result as `--json` gives it, left out where the
+  session has no result,
+- `files/<sha256>.<extension>`, each good kept copy once, images included.
+
+`<dir>` must be absent or empty, hidden files counting. A symbolic link, a
+path that is no directory, the current directory or one of its parents, and
+a directory inside the data directory, the selected queue's directory or the directory of the queue the session was found in
+are refused with `error: ` and exit code 1. There is no `--force`. asqr
+reads and checks the session and its copies before it writes anything, so a
+session that cannot be shown leaves an absent `<dir>` absent and an empty
+one empty.
+
+Without `--json`, `--extract` lists on stdout `extracted to <dir>`,
+`session.json`, `result.json` or `no result`, the number of files in
+`files/`, and for each shown file without a good copy a line `<original
+path>: <state or problem>`. Such files leave the exit code at 0. With
+`--json`, stdout is the object only.

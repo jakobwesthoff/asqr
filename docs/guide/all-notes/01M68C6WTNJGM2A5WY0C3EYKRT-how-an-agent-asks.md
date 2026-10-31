@@ -30,6 +30,15 @@ only answer in asqr.
 ones, to find a session an agent lost track of. Every command with its
 flags is on the page [Commands](01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md).
 
+An agent reads earlier sessions too. `asqr history --json` lists the
+finished sessions, `asqr replay <ref> --json` prints one with its result and
+the state of each file it showed, and `asqr replay <ref> --extract <dir>`
+writes the session, the result and the kept copies of its files, images
+included, into a new or empty directory. None of the three needs a
+terminal. The skill names all three, and [Finished sessions: history and
+replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
+describes the output.
+
 ## The exit codes
 
 `asqr wait` and `asqr result` exit by the result.
