@@ -117,9 +117,9 @@ fn document(source: Source, quote: QuoteStyle) -> Markdown {
 /// [`document`] shown as plain text above `limit` bytes.
 fn document_within(source: Source, quote: QuoteStyle, limit: usize) -> Markdown {
     let Source { text, cut, size } = source;
-    // A blank text renders to no rows, but patine still takes its time
-    // over it: 500,000 blank lines took 40 s and 418 MB (release build).
-    // Only a cut text gets here blank, and it then shows its notes alone.
+    // Only a cut text gets here blank. It shows the notes of its cut alone:
+    // it has no text to show as plain text, so its size, which counts the
+    // bytes before the cut, does not turn it into a plain-text note.
     let blank = text.trim().is_empty();
     let source = if blank { String::new() } else { text };
     Markdown {
@@ -412,6 +412,23 @@ mod tests {
         assert_eq!(row(&buf, 0), "empty");
     }
 
+    /// A cut text of blank lines whose size is over the limit shows the
+    /// notes of its cut, not a plain-text note for its size.
+    #[test]
+    fn a_cut_blank_text_over_the_limit_shows_its_notes_alone() {
+        let blank = Source {
+            text: "\n\n".to_owned(),
+            cut: Some(Cut::Lines),
+            size: 1000,
+        };
+        let mut viewer = within(blank, 10);
+
+        assert_eq!(viewer.lay_out(40, 2).lines, 2);
+        let buf = drawn(&mut viewer, 40, 2, Offset::default());
+        assert_eq!(row(&buf, 0), "first 500,000 lines shown");
+        assert_eq!(row(&buf, 1), "… the rest is cut after 500,000 lines");
+    }
+
     #[test]
     fn plain_text_wraps_behind_a_marker_and_keeps_its_leading_blanks() {
         let text = "  alpha beta gamma delta\n";
@@ -633,8 +650,8 @@ mod tests {
         assert_eq!(row(&buf, 0), PARSER_NOTE);
     }
 
-    /// Texts `markdown` 1.0.0 panics on, each its own panic. They show as
-    /// plain text, or rendered once a later `markdown` handles them.
+    /// Texts of unclosed fences, definitions and front matter, each an edge
+    /// case of the Markdown grammar. The viewer lays each out.
     fn lays_out(text: &str) {
         let mut viewer = inline(text);
 
@@ -667,6 +684,28 @@ mod tests {
 
         insta::assert_snapshot!("notes_40", shown(&mut viewer, 40, 0));
         insta::assert_snapshot!("notes_24", shown(&mut viewer, 24, 0));
+    }
+
+    /// Reference links show like inline links, a footnote definition comes
+    /// after the text that refers to it, and a task item with no text
+    /// shows its box.
+    const REFERENCES: &str =
+        "[a guide][g] and [^1].\n\n[^1]: The note.\n\n- [ ]\n\n[g]: https://example.com/guide\n";
+
+    #[test]
+    fn references_footnotes_and_empty_tasks_render() {
+        let mut viewer = inline(REFERENCES);
+
+        insta::assert_snapshot!("references_40", shown(&mut viewer, 40, 0));
+    }
+
+    /// Quotes nested past the width stop indenting, so the text under them
+    /// keeps room instead of taking a line for each word.
+    #[test]
+    fn deeply_nested_quotes_leave_room_for_their_text() {
+        let mut viewer = inline(&format!("{}alpha beta gamma delta", "> ".repeat(30)));
+
+        assert_eq!(viewer.lay_out(40, 10).lines, 2);
     }
 
     #[test]

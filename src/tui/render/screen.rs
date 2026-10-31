@@ -786,53 +786,61 @@ mod tests {
             .any(|row| row.contains(text))
     }
 
-    // `markdown` 1.0.0 panics on this text (an unclosed fence in a numbered
-    // item before a bullet). Once a later version handles it, it renders,
-    // and these tests still hold.
-    const PANICKING_MARKDOWN: &str = "1. ~~~\n*";
+    // A numbered item with an unclosed fence, before a bullet. It renders as
+    // Markdown: the fence markers are not shown and the bullet is.
+    const UNCLOSED_FENCE_MARKDOWN: &str = "1. ~~~\n*";
 
     #[test]
-    fn an_intro_the_parser_panics_on_shows_in_the_header() {
+    fn an_intro_with_an_unclosed_fence_renders_in_the_header() {
         let app = app_with_fields(
-            serde_json::json!({"intro": PANICKING_MARKDOWN}),
+            serde_json::json!({"intro": UNCLOSED_FENCE_MARKDOWN}),
             serde_json::json!({}),
             serde_json::json!({}),
         );
 
-        assert!(shows(&screen(&app, 80, 30), "~~~"));
+        let screen = screen(&app, 80, 30);
+        assert!(!shows(&screen, "~~~"));
+        // The header keeps the first lines of an intro, so the bullet is cut.
+        assert!(shows(&screen, "1."));
     }
 
     #[test]
-    fn a_question_text_the_parser_panics_on_shows() {
+    fn a_question_text_with_an_unclosed_fence_renders() {
         let app = app_with_fields(
             serde_json::json!({}),
-            serde_json::json!({"text": PANICKING_MARKDOWN}),
+            serde_json::json!({"text": UNCLOSED_FENCE_MARKDOWN}),
             serde_json::json!({}),
         );
 
-        assert!(shows(&screen(&app, 80, 30), "~~~"));
+        let screen = screen(&app, 80, 30);
+        assert!(!shows(&screen, "~~~"));
+        assert!(shows(&screen, "•"));
     }
 
     #[test]
-    fn an_option_label_the_parser_panics_on_shows() {
+    fn an_option_label_with_an_unclosed_fence_renders() {
         let app = app_with_fields(
             serde_json::json!({}),
             serde_json::json!({}),
-            serde_json::json!({"label": PANICKING_MARKDOWN}),
+            serde_json::json!({"label": UNCLOSED_FENCE_MARKDOWN}),
         );
 
-        assert!(shows(&screen(&app, 80, 30), "~~~"));
+        let screen = screen(&app, 80, 30);
+        assert!(!shows(&screen, "~~~"));
+        assert!(shows(&screen, "•"));
     }
 
     #[test]
-    fn an_option_description_the_parser_panics_on_shows() {
+    fn an_option_description_with_an_unclosed_fence_renders() {
         let app = app_with_fields(
             serde_json::json!({}),
             serde_json::json!({}),
-            serde_json::json!({"description": PANICKING_MARKDOWN}),
+            serde_json::json!({"description": UNCLOSED_FENCE_MARKDOWN}),
         );
 
-        assert!(shows(&screen(&app, 80, 30), "~~~"));
+        let screen = screen(&app, 80, 30);
+        assert!(!shows(&screen, "~~~"));
+        assert!(shows(&screen, "•"));
     }
 
     fn keys(app: &mut App, keys: &str) {

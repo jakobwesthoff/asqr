@@ -286,8 +286,9 @@ mod tests {
         assert!(!log.contains("secret words"), "{log}");
     }
 
-    /// `markdown` 1.0.0 panics on this text. Once a later version handles
-    /// it, it renders; the tests above keep the fallback pinned.
+    /// A numbered item with an unclosed fence, before a bullet, renders as
+    /// Markdown. The tests above pin the fallback with a renderer that
+    /// panics.
     #[test]
     fn an_unclosed_fence_in_a_numbered_item_before_a_bullet_does_not_end_a_field() {
         assert!(!lines("1. ~~~\n*", 40).is_empty());

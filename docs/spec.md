@@ -3079,7 +3079,12 @@ open task and `☑` for a done one, which is dim apart from the items
 nested under it, quotes in the style of the text around them behind a
 blue bar, links underlined with their URL dimmed, tables whose cells
 keep the styles of running text, rules, and code blocks highlighted
-when the fence names a language.
+when the fence names a language. A link written as a reference
+(`[text][ref]`) shows like an inline one. A footnote definition shows at
+the end of the text, in the order the footnotes are referenced, and one
+that nothing references does not show. A task item with no text shows its
+box alone. Quotes and lists nested so deep that a line would keep little
+room for its text stop indenting further.
 
 - Each text renders at the width it gets: a question text at the
   question's width, which stops at the reading width; the intro at the
@@ -3089,10 +3094,10 @@ when the fence names a language.
   description in the columns from where it starts to the end of the
   line, beside its label or below it (section 7.2); a Markdown entry at
   the pane's width.
-- A text that the Markdown parser panics on (ADR 99) shows as written:
-  its lines unstyled, wrapped to the width it gets, with no note. The
-  log gets one warning for the text. A Markdown entry shows as plain
-  text below a note instead (section 8.7).
+- Should the Markdown parser panic on a text (ADR 99), the text shows
+  as written: its lines unstyled, wrapped to the width it gets, with no
+  note. The log gets one warning for the text. A Markdown entry shows as
+  plain text below a note instead (section 8.7).
 - A table that fits the width it gets shows in a box whose columns
   follow the alignment of the delimiter row, a column without one with
   its header centred and its data left-aligned. No word breaks inside
@@ -3489,9 +3494,9 @@ blank lines only shows "empty", or the notes of its cut. An image's
 caption follows the same rule. The warning for such an entry (section
 3.4) says it shows as plain text.
 
-A Markdown text the Markdown parser panics on (ADR 98) shows as plain text
-the same way, below a dim "Markdown failed: shown as plain text", which
-comes before the notes of a cut as well. The panic does not end asqr and
+Should the Markdown parser panic on a Markdown text (ADR 98), the text
+shows as plain text the same way, below a dim "Markdown failed: shown
+as plain text", which comes before the notes of a cut as well. The panic does not end asqr and
 reaches neither the terminal nor the screen; the log gets a warning. An
 image's caption follows the same rule. `ask` and `validate` give no
 warning for it.

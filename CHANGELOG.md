@@ -151,6 +151,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   new `ask` of its id. `asqr result <id>` still prints it from the
   archive until a new session of that id is asked, and then reports that
   session as waiting.
+- Markdown in Markdown entries, captions and text fields renders with
+  patine 2. A link written as a reference (`[text][ref]`) shows like an
+  inline one, underlined with its URL dimmed. A footnote definition shows
+  at the end of the text, and one that nothing references does not show.
+  A task item with no text shows its box alone. Deeply nested quotes and
+  lists stop indenting so a line keeps room for its text. Text that the
+  old parser panicked on, which asqr showed as plain text under a note,
+  renders as Markdown.
 
 ### Removed
 
@@ -166,8 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of answers. The error of a draft that cannot be read names the line
   and column instead of quoting the value. Logs written by earlier
   versions may still hold such text.
-- A Markdown entry or an image caption that the Markdown parser panics on,
-  such as an unclosed code fence in a numbered item followed by a bullet,
+- A Markdown entry or an image caption that the Markdown parser panics on
   shows as plain text below a dim "Markdown failed: shown as plain text".
   Before, it ended asqr and you lost the screen.
 - The intro, a question text, an option label or description that the

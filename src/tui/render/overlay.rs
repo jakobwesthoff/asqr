@@ -262,16 +262,17 @@ mod tests {
         assert_eq!(row(&buf, 1), "  │ ❯ batch  (0/1 answered)          │");
     }
 
-    /// `markdown` 1.0.0 panics on this text (an unclosed fence in a numbered
-    /// item before a bullet). Once a later version handles it, it renders.
+    /// A numbered item with an unclosed fence, before a bullet, renders as
+    /// Markdown: the fence markers are not shown and the bullet is.
     #[test]
-    fn an_intro_the_parser_panics_on_shows_in_the_frame() {
+    fn an_intro_with_an_unclosed_fence_renders_in_the_frame() {
         let area = Rect::new(0, 0, 30, 7);
         let mut buf = Buffer::empty(area);
 
         draw_intro(area, &mut buf, "1. ~~~\n*", 0, quote_style(false));
 
-        assert!(rows(&buf).iter().any(|row| row.contains("~~~")));
+        assert!(!rows(&buf).iter().any(|row| row.contains("~~~")));
+        assert!(rows(&buf).iter().any(|row| row.contains('•')));
     }
 
     #[test]

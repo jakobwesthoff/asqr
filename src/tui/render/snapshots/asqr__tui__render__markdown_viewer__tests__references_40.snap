@@ -1,0 +1,10 @@
+---
+source: src/tui/render/markdown_viewer.rs
+expression: "shown(&mut viewer, 40, 0)"
+---
+"a guide (https://example.com/guide) and "
+".                                       "
+"                                        "
+"☐                                       "
+"                                        "
+"The note.                               "
