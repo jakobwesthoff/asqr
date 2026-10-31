@@ -1,0 +1,7 @@
+caption = "A single choice with the second option picked, after going back to the question"
+columns = 80
+rows = 24
+keys = ["j", "enter", "h"]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"

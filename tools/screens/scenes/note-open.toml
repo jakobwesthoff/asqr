@@ -1,0 +1,7 @@
+caption = "A note typed on a question"
+columns = 80
+rows = 24
+keys = ["n", { text = "Ask me again after the weekend." }]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"

@@ -1,0 +1,18 @@
+caption = "The start picker, which asks which queue to watch before asqr starts"
+columns = 80
+rows = 24
+start_picker = true
+
+[switcher]
+root = "/data/asqr"
+
+[[switcher.queues]]
+name = "asqr-todos"
+waiting = 2
+
+[[switcher.queues]]
+name = "default"
+waiting = 1
+
+[[switcher.queues]]
+name = "ntropy"

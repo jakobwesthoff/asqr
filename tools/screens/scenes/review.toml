@@ -1,0 +1,7 @@
+caption = "The review tab of an answered session: every answer on a line, the counts and the submit button"
+columns = 80
+rows = 24
+keys = ["enter", "enter", { text = "Startup is twice as fast." }, "enter"]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"

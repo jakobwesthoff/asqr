@@ -1,0 +1,14 @@
+caption = "The dialog of a session file asqr answered with an error"
+columns = 80
+rows = 24
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+[[invalid]]
+id = "pick-the-logo"
+errors = [
+  "questions[0].options: a single question needs at least one option",
+  "questions[1].id: duplicate id \"logo\"",
+  "questions[1].min: min 3 is greater than max 2",
+]

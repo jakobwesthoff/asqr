@@ -1,0 +1,7 @@
+caption = "The help of the full-screen view"
+columns = 120
+rows = 30
+keys = ["z", "?"]
+
+[[sessions]]
+file = "../../../examples/sessions/retry-review.json"

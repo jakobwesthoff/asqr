@@ -1,0 +1,68 @@
+{
+  "asqr": 2,
+  "title": "Review of the upload handler",
+  "intro": "Three findings. Each shows the fix as a diff. Post a finding as a review comment, fix it yourself, or drop it.",
+  "from": "code review",
+  "questions": [
+    {
+      "id": "size-check",
+      "header": "Size",
+      "kind": "single",
+      "text": "**Before:** the handler reads the whole body into memory, then checks its size. **After:** it checks the `Content-Length` header first and refuses a body over 10 MB before it reads a byte.\n\nRisk: a client can send 2 GB and take the process down.",
+      "context": [
+        {
+          "type": "diff",
+          "name": "upload.rs",
+          "language": "rust",
+          "old": { "content": "let body = request.read_to_end()?;\nif body.len() > MAX_BODY {\n    return Err(Refused::TooLarge);\n}\n" },
+          "new": { "content": "if request.content_length().is_some_and(|length| length > MAX_BODY) {\n    return Err(Refused::TooLarge);\n}\nlet body = request.read_to_end()?;\n" }
+        }
+      ],
+      "options": [
+        { "id": "post", "label": "Post as a review comment", "default": true },
+        { "id": "fix", "label": "Fix it", "description": "Push the change to the branch." },
+        { "id": "drop", "label": "Drop" }
+      ]
+    },
+    {
+      "id": "file-name",
+      "header": "Name",
+      "kind": "single",
+      "text": "**Before:** the file is stored under the name the client sent. **After:** it is stored under a generated id.\n\nRisk: a name such as `../../etc/cron.d/x` writes outside the upload folder.",
+      "context": [
+        {
+          "type": "diff",
+          "name": "store.rs",
+          "language": "rust",
+          "old": { "content": "let path = UPLOADS.join(&upload.file_name);\nfs::write(path, upload.bytes)?;\n" },
+          "new": { "content": "let path = UPLOADS.join(Ulid::new().to_string());\nfs::write(path, upload.bytes)?;\n" }
+        }
+      ],
+      "options": [
+        { "id": "post", "label": "Post as a review comment", "default": true },
+        { "id": "fix", "label": "Fix it" },
+        { "id": "drop", "label": "Drop" }
+      ]
+    },
+    {
+      "id": "log-line",
+      "header": "Log",
+      "kind": "single",
+      "text": "**Before:** a refused upload logs the whole request, headers included. **After:** it logs the path and the reason.\n\nRisk: low. The headers carry a session token.",
+      "context": [
+        {
+          "type": "diff",
+          "name": "upload.rs",
+          "language": "rust",
+          "old": { "content": "warn!(\"refused: {request:?}\");\n" },
+          "new": { "content": "warn!(path = %request.path(), reason = %refusal, \"refused an upload\");\n" }
+        }
+      ],
+      "options": [
+        { "id": "post", "label": "Post as a review comment" },
+        { "id": "fix", "label": "Fix it", "default": true },
+        { "id": "drop", "label": "Drop" }
+      ]
+    }
+  ]
+}

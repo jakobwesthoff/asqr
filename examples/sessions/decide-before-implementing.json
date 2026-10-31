@@ -1,0 +1,70 @@
+{
+  "asqr": 2,
+  "title": "Cache for the thumbnail service",
+  "intro": "Two open points before the cache is built. The recommended option comes first and is preselected.",
+  "from": "planning",
+  "questions": [
+    {
+      "id": "settled",
+      "header": "Settled",
+      "kind": "info",
+      "text": "Settled and not up for decision here:\n\n- thumbnails stay PNG\n- the cache lives in the service's own process\n- no new dependency"
+    },
+    {
+      "id": "eviction",
+      "header": "Eviction",
+      "kind": "single",
+      "text": "How does the cache drop thumbnails once it is full?",
+      "options": [
+        {
+          "id": "lru",
+          "label": "Least recently used",
+          "description": "Keeps the thumbnails people open again. One more list to keep in step with the map.",
+          "default": true,
+          "context": [
+            {
+              "type": "diff",
+              "name": "cache.rs",
+              "language": "rust",
+              "old": { "content": "pub struct Cache {\n    map: HashMap<Key, Thumbnail>,\n}\n" },
+              "new": { "content": "pub struct Cache {\n    map: HashMap<Key, Thumbnail>,\n    recent: VecDeque<Key>,\n}\n\nimpl Cache {\n    fn touch(&mut self, key: &Key) {\n        self.recent.retain(|other| other != key);\n        self.recent.push_back(key.clone());\n    }\n}\n" }
+            }
+          ]
+        },
+        {
+          "id": "oldest",
+          "label": "Oldest first",
+          "description": "The simplest to write. It drops thumbnails that are still opened often.",
+          "context": [
+            {
+              "type": "diff",
+              "name": "cache.rs",
+              "language": "rust",
+              "old": { "content": "pub struct Cache {\n    map: HashMap<Key, Thumbnail>,\n}\n" },
+              "new": { "content": "pub struct Cache {\n    map: IndexMap<Key, Thumbnail>,\n}\n\nimpl Cache {\n    fn drop_oldest(&mut self) {\n        self.map.shift_remove_index(0);\n    }\n}\n" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "size",
+      "header": "Size",
+      "kind": "single",
+      "text": "How much memory may the cache take?\n\nThe service runs in a container with 2 GB.",
+      "context": [
+        {
+          "type": "markdown",
+          "title": "Memory today",
+          "content": "| Part | Memory |\n|:--|--:|\n| the service, idle | 180 MB |\n| one resize in flight | 60 MB |\n| at most 8 resizes | 480 MB |\n"
+        }
+      ],
+      "options": [
+        { "id": "256", "label": "256 MB", "description": "Holds about 4000 thumbnails, which covers the front page.", "default": true },
+        { "id": "1024", "label": "1 GB", "description": "Holds about 16000 thumbnails and leaves 364 MB of the 2 GB." },
+        { "id": "none", "label": "No limit", "description": "Grows until the container is killed." }
+      ],
+      "custom": { "label": "Another size" }
+    }
+  ]
+}

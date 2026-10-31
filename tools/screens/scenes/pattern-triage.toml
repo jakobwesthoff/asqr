@@ -1,0 +1,6 @@
+caption = "Triage of a backlog item with its evidence beside the question"
+columns = 120
+rows = 30
+
+[[sessions]]
+file = "../../../examples/sessions/triage-backlog.json"

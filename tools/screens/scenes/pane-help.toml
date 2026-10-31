@@ -1,0 +1,7 @@
+caption = "The help of the focused context pane"
+columns = 120
+rows = 30
+keys = ["tab", "?"]
+
+[[sessions]]
+file = "../../../examples/sessions/retry-review.json"

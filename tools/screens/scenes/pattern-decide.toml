@@ -1,0 +1,7 @@
+caption = "A decision before implementing: each option shows its own diff"
+columns = 120
+rows = 30
+keys = ["l"]
+
+[[sessions]]
+file = "../../../examples/sessions/decide-before-implementing.json"

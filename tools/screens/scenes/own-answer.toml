@@ -1,0 +1,7 @@
+caption = "Typing an own answer on the last row of a multiple choice"
+columns = 80
+rows = 24
+keys = ["enter", "j", "j", "j", { text = "Mastodon" }]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"

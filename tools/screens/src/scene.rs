@@ -30,6 +30,10 @@ pub struct Scene {
     pub emblem: Emblem,
     /// The queue asqr watches, by name; the default queue without one.
     pub queue: Option<String>,
+    /// The person's home folder, which asqr names `~` where a path lies
+    /// below it. Without one nothing is named `~`, so a picture does not
+    /// depend on the machine that draws it.
+    pub home: Option<PathBuf>,
     #[serde(default)]
     pub keys: Vec<Key>,
     #[serde(default)]
@@ -99,10 +103,10 @@ pub struct InvalidSession {
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SettingsFile {
-    /// The path the frame's bottom edge names, as written there. The tool
-    /// reads the file at that path if there is one, so a path starting with
-    /// `~/`, which names a folder that is not there, keeps a picture from
-    /// depending on the machine that draws it.
+    /// The path the frame's bottom edge names. The tool reads the file at
+    /// that path if there is one, so a path in a folder that exists on no
+    /// machine, such as `/home/someone/.config/asqr/settings.toml`, keeps a
+    /// picture from depending on the machine that draws it.
     pub path: Option<PathBuf>,
     /// What holds `Context` at the scene's `layout`, as `--layout` or
     /// `ASQR_LAYOUT` does in asqr.

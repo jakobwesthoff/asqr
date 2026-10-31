@@ -93,7 +93,8 @@ tmux_session = "ntropy"
 | `[[switcher.taken]]` `name`, `tmux_session` | A queue another asqr watches, and the tmux session it runs in. |
 | `start_picker` | `true` draws asqr's start picker (spec 7.1) over the `[switcher]`'s queues instead of asqr's screen; the keys go to the picker. Needs a `[switcher]`. Default `false`. |
 | `[[invalid]]` `id`, `errors` | A session file asqr answered with an error, and each problem it had, as the dialog shows them. |
-| `[settings]` `path` | The settings file's path, as the frame of the settings pane names it at its bottom edge. The tool reads the file at that path if there is one: a path starting with `~/` names a folder that is not there, so the picture does not depend on the machine. |
+| `home` | The person's home folder, which asqr names `~` where a path lies below it. Without one nothing is named `~`. |
+| `[settings]` `path` | The settings file's path, as the frame of the settings pane names it at its bottom edge. The tool reads the file at that path if there is one: a path in a folder that exists on no machine, such as `/home/someone/.config/asqr/settings.toml`, keeps the picture independent of the machine. |
 | `[settings]` `context_held_by` | `flag` or `variable`: `Context` is held at the scene's `layout` as `--layout` or `ASQR_LAYOUT` holds it, which locks the row in the pane. |
 
 The switcher shows its rows in the order the scene lists them; asqr lists

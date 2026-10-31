@@ -1,0 +1,96 @@
+{
+  "asqr": 2,
+  "title": "Tune the fetcher",
+  "intro": "Five decisions about the fetcher, taken from last week's review.\n\nWhat changed since the last round:\n\n- a failed request is tried again, up to three times\n- the wait between tries doubles each time, starting at 100 ms\n- a request that still fails returns the error of its last try\n\nWhat the review found:\n\n1. The retry count is a constant in `fetch.rs`.\n2. The wait is not covered by a test.\n3. The migration note is missing.\n4. The test run below failed once, on a slow machine.\n5. The flag that sets the count has no name yet.\n\nSkip what you cannot decide yet. A skipped question comes back to the\nreviewer as skipped, with the note you wrote on it.\n\nRead the code first, then the note, then the failing run.",
+  "from": "code review",
+  "questions": [
+    {
+      "id": "count",
+      "header": "Count",
+      "text": "How often should a failed request be tried again?",
+      "kind": "single",
+      "context": [
+        {
+          "type": "code",
+          "title": "fetch.rs",
+          "language": "rust",
+          "content": "use std::time::Duration;\n\n/// How often a failed request is tried again before its error is returned.\nconst MAX_TRIES: u32 = 3;\n\n/// The wait before the first retry. Each further retry waits twice as long.\nconst FIRST_WAIT: Duration = Duration::from_millis(100);\n\npub fn fetch(url: &str) -> Result<Response, FetchError> {\n    let mut wait = FIRST_WAIT;\n    let mut last = None;\n    for _ in 0..MAX_TRIES {\n        match get(url) {\n            Ok(response) => return Ok(response),\n            Err(error) if error.is_temporary() => {\n                std::thread::sleep(wait);\n                wait *= 2;\n                last = Some(error);\n            }\n            Err(error) => return Err(error),\n        }\n    }\n    Err(last.expect(\"the loop ran at least once\"))\n}\n"
+        }
+      ],
+      "options": [
+        {
+          "id": "three",
+          "label": "Three times",
+          "description": "As it is now.",
+          "default": true
+        },
+        {
+          "id": "five",
+          "label": "Five times",
+          "description": "Waits for more than three seconds before the last try."
+        }
+      ]
+    },
+    {
+      "id": "note",
+      "header": "Note",
+      "text": "Is this migration note enough for the callers?",
+      "kind": "single",
+      "context": [
+        {
+          "type": "markdown",
+          "title": "MIGRATION.md",
+          "content": "## Migration\n\nThe fetcher keeps its signature. What changes is what it does when a\nrequest fails.\n\n### Before\n\nA failed request returned its error at once. Callers that wanted a retry\nwrapped `fetch` in a loop of their own.\n\n### Now\n\n`fetch` retries a temporary error up to three times and waits longer\nbefore each try. An error that is not temporary, such as a 404, is\nreturned at once.\n\n### What callers do\n\n- Remove their own retry loops.\n- Keep their timeouts: the wait between tries counts towards them.\n- Read `FetchError::tries` when they want to log how often a request ran.\n\n### Limits\n\n- The wait doubles without a ceiling, so a count above 5 waits for more\n  than three seconds before the last try.\n- The tries are not spread over several hosts.\n\n### Rollout\n\n1. Merge the change behind the flag.\n2. Run it in staging for a day.\n3. Remove the flag.\n"
+        }
+      ],
+      "options": [
+        {
+          "id": "yes",
+          "label": "Yes"
+        },
+        {
+          "id": "more",
+          "label": "It needs more",
+          "description": "Say what is missing in a note."
+        }
+      ]
+    },
+    {
+      "id": "failure",
+      "header": "Failure",
+      "text": "Is this the failure you saw on the slow machine?",
+      "kind": "single",
+      "context": [
+        {
+          "type": "ansi",
+          "title": "cargo test fetch",
+          "content": "\u001b[1m$ cargo test fetch\u001b[0m\n   \u001b[1;32mCompiling\u001b[0m fetcher v0.4.0 (/work/fetcher)\n    \u001b[1;32mFinished\u001b[0m `test` profile [unoptimized + debuginfo] target(s) in 2.41s\n     \u001b[1;32mRunning\u001b[0m unittests src/lib.rs\n\nrunning 4 tests\ntest fetch::gets_the_page ... \u001b[32mok\u001b[0m\ntest fetch::returns_a_404_at_once ... \u001b[32mok\u001b[0m\ntest fetch::waits_twice_as_long ... \u001b[32mok\u001b[0m\ntest fetch::retries_a_timeout ... \u001b[1;31mFAILED\u001b[0m\n\nfailures:\n\n---- fetch::retries_a_timeout stdout ----\nthread 'fetch::retries_a_timeout' panicked at src/fetch.rs:88:9:\nassertion `left == right` failed: the second try came after \u001b[33m180 ms\u001b[0m\n  \u001b[31mleft: 3\u001b[0m\n \u001b[32mright: 2\u001b[0m\n\ntest result: \u001b[1;31mFAILED\u001b[0m. 3 passed; 1 failed; 0 ignored\n"
+        }
+      ],
+      "options": [
+        {
+          "id": "yes",
+          "label": "Yes, the same"
+        },
+        {
+          "id": "no",
+          "label": "No, another one"
+        }
+      ]
+    },
+    {
+      "id": "flag",
+      "header": "Flag",
+      "text": "What should the flag for the retry count be called?",
+      "kind": "text",
+      "context": [
+        {
+          "type": "code",
+          "title": "options.rs",
+          "language": "rust",
+          "content": "/// The options of the fetcher, read from the command line.\n#[derive(Debug, Parser)]\npub struct Options {\n    /// The address to fetch.\n    pub url: String,\n\n    /// How long a single try may take, in seconds.\n    #[arg(long, default_value_t = 10)]\n    pub timeout: u64,\n\n    /// Where the response body is written; standard output without it.\n    #[arg(long)]\n    pub output: Option<PathBuf>,\n\n    /// Follow redirects, up to this many.\n    #[arg(long, default_value_t = 5)]\n    pub redirects: u32,\n\n    /// Headers to send, as `Name: value`, one flag for each.\n    #[arg(long = \"header\")]\n    pub headers: Vec<String>,\n\n    /// Print the status line and the headers before the body.\n    #[arg(long)]\n    pub include: bool,\n\n    /// Print nothing but the body.\n    #[arg(long, conflicts_with = \"include\")]\n    pub silent: bool,\n\n    /// The proxy to send the request through.\n    #[arg(long)]\n    pub proxy: Option<String>,\n\n    /// Accept certificates that do not verify.\n    #[arg(long)]\n    pub insecure: bool,\n\n    /// How many times a failed request is tried again.\n    /// TODO: the flag has no name yet.\n    pub tries: u32,\n}\n\nimpl Options {\n    pub fn timeout(&self) -> Duration {\n        Duration::from_secs(self.timeout)\n    }\n\n    pub fn headers(&self) -> Result<Vec<(String, String)>, OptionsError> {\n        self.headers\n            .iter()\n            .map(|header| {\n                header\n                    .split_once(':')\n                    .map(|(name, value)| (name.trim().to_owned(), value.trim().to_owned()))\n                    .ok_or_else(|| OptionsError::Header(header.clone()))\n            })\n            .collect()\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}
