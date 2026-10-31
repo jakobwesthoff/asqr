@@ -19,7 +19,7 @@ Every asqr command. `asqr --help` lists them too, and `asqr <command>
 | `asqr wait <id> [--timeout <secs>]` | Waits for the result and prints it. Without `--timeout` it blocks. |
 | `asqr result <id>` | Prints the result if it is there, like `wait --timeout 0`. |
 | `asqr withdraw <id> [--force]` | Takes a waiting session back and prints its result, with the status `withdrawn`. `--force` takes one that you started answering. |
-| `asqr status [--json] [--limit <count>\|--all] [--since <age>]` | Lists the waiting sessions, with or without a draft answer, the answered sessions and the asqr that watches the queue. `--since` keeps the sessions answered within an age such as `2h`, `--limit` lists at most that many, 10 by default. |
+| `asqr status [--json] [--limit <count>\|--all] [--since <age>]` | Lists the waiting sessions, with or without a draft answer, the answered sessions and the asqr that watches the queue. A waiting session whose draft has answers reads `(draft with answers)` after its id. `--since` keeps the sessions answered within an age such as `2h`, `--limit` lists at most that many, 10 by default. |
 | `asqr history [--json] [--all] [--limit <count>] [--since <age>]` | Lists the finished sessions of the queue, newest first, each with the reference `asqr replay` takes. `--all` lists every queue under the data directory, `--limit` at most that many sessions for each queue, 10 by default, and `--since` the sessions archived within an age such as `2d`. |
 | `asqr replay <ref> [--json] [--extract <dir>]` | Opens a finished session read-only in the terminal UI, with your answers filled in and the files it showed. With `--json` it prints the session, its result and the state of each file as one JSON object, and with `--extract` it writes them into a new or empty directory. Neither needs a terminal. |
 | `asqr queues [--json]` | Lists every named queue with its waiting sessions, its results and the asqr that watches it. |
@@ -38,6 +38,21 @@ only ways asqr deletes sessions and results.
 explains `history` and `replay`, and [Keeping files, compact and
 prune](01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md) explains
 `compact` and `prune`.
+
+## Messages
+
+An error starts with `error: `, a warning with `warning: ` and a hint with
+`hint: `. `asqr` without a terminal on stdin and stdout prints `error: asqr
+needs a terminal; run it in a terminal of its own` and exits with 1. Where
+another asqr already watches the queue it prints `error: another asqr is
+watching this queue (pid <pid> on <host>)`, with the tmux session where
+there is one, and exits with 1.
+
+The refusals of `ask` for a session you are answering, and of `withdraw` and
+`ask --replaces` for an answered session or an unread result, name the
+command that reaches the queue, such as `asqr --dir <path> result <id>`.
+Plain `asqr result <id>` does not reach a queue chosen by `--queue`,
+`--dir` or a variable.
 
 ## Flags every command takes
 

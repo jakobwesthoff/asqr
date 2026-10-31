@@ -34,12 +34,18 @@ Open one with: asqr replay <REF>
   result carries an unsent draft of your answers.
 - `FILES` counts the files the session recorded: `3 kept`, `1 of 2 gone`
   for files that were missing or unreadable when you finished the session,
-  `2 not kept`, and `-` for a session that shows or records none.
+  `2 not kept`, `1 of 3 not kept` where some files were kept and some not,
+  and `-` for a session that shows or records none. A gone file takes
+  precedence over a file not kept.
 - `TITLE` is the session's title, or its id without one. A control
   character in a title is printed as U+FFFD, so a title cannot move the
   cursor or change the terminal.
 
-`--limit <count>` lists at most that many sessions, 10 by default. `--since
+`--limit <count>` lists at most that many sessions, 10 by default, and the
+header reads `finished (10 of 52):` where the limit cut the list. With
+`--since` it reads `finished (4 in 3d):`, and with both `finished (10 of 52
+in 3d):`. The age shows in the largest unit that holds it exactly, so
+`--since 24h` reads `1d`. `--since
 <age>` keeps the sessions archived within an age such as `2d` or `3w`.
 `--all` lists the finished sessions of every queue under the data
 directory, one block for each queue, and `--limit` and `--since` then

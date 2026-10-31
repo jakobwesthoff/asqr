@@ -24,6 +24,14 @@ The default queue lives in the platform's data directory, in
   with `inbox/` inside.
 - A flag wins over a variable, and a variable wins over the tmux session
   and the default.
+- An empty variable counts as unset, and so does one whose value is not
+  UTF-8.
+
+A queue given by `--dir` or `ASQR_DIR` is named by its absolute path, with
+`~` for your home folder: on the waiting screen, in the title bar, in the
+terminal title, in the queue switcher and in the status line after a
+switch. The switcher's footer tells your agents that path written for a
+shell.
 
 `asqr ask`, `asqr wait` and the other commands take the same flags and
 variables.
@@ -90,6 +98,14 @@ Outside tmux, when no flag or variable chose a queue, and when there is a
 queue besides `default` that no other asqr watches, asqr asks which queue
 to watch before it starts. The picker is the switcher's list under a title
 line that reads `asqr`. `↑`/`↓` move, `enter` watches the queue under the
-cursor and `q` quits.
+cursor and `q` quits. While the new-queue row has the keys, the key bar reads
+`enter  create   esc  stop typing`. A queue that another asqr took in the
+meantime, or one asqr cannot watch or read, leaves the picker open with the
+notice of a failed switch in its status line. The first-start screen, where
+it shows, comes before the picker.
+
+On a terminal smaller than 60 columns by 15 rows the picker shows the
+message that asqr needs at least that size, as the session screen does.
+Under `NO_COLOR` it draws without colours and keeps bold and dim.
 
 ![The start picker, which asks which queue to watch before asqr starts](../pictures/start-picker.png)

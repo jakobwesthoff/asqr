@@ -32,7 +32,11 @@ Terminal as a ring on the tab, and kitty from 0.39.0 inside tmux as a
 percentage in the tab's title. The share is the percentage of the
 questions that have an answer, rounded down. An untouched default counts
 as answered, and info items count neither way. Every other terminal gets
-nothing, as several show any OSC 9 as a desktop notification.
+nothing, as several show any OSC 9 as a desktop notification. GNU screen (a
+`TERM` starting with `screen`) and Zellij get nothing either, whatever else
+is set. A terminal that sets `TERM_PROGRAM` is judged by it alone. Where it is
+unset, `LC_TERMINAL=iTerm2` counts as iTerm2 with the version in
+`LC_TERMINAL_VERSION`, and `WT_SESSION` counts as Windows Terminal.
 
 ## Inside tmux
 
