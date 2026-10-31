@@ -9,6 +9,9 @@ Accepted
 Amends [9. Crate choices](0009-crate-choices.md):
 `libwebp-sys` encodes the images asqr keeps, and builds libwebp from C
 
+Amends [92. Keep settings in a file](0092-keep-settings-in-a-file.md):
+`keep_files` is a fourth setting, and `ASQR_KEEP_FILES` holds it
+
 Amends [96. Bundle finished sessions and results per month in a zip](0096-bundle-finished-sessions-and-results-per-month-in-a-zip.md):
 the `files/` prefix holds kept files, and the compaction moves them with
 the sessions that show them
@@ -148,6 +151,20 @@ After the lock is let go of they read the files and record each as
 does. A session completed by recovery gets a job whose files the worker
 reads, as they may be gone. A session rejected as invalid is archived as
 it is.
+
+### Setting and variable
+
+`keep_files` (`compact`, `exact` or `off`, default `compact`) is the
+fourth setting of the settings file and the fourth row of the settings
+pane, `Keep files`, with the values `compact copies`, `exact copies` and
+`no copies`. A change applies to the next session the person finishes.
+`ASQR_KEEP_FILES` sets it for the run and wins over the file, as
+`ASQR_LAYOUT` does for `context`; the pane shows the row locked, dim and
+marked `set by ASQR_KEEP_FILES`. An empty value counts as unset, and any
+other value than the three is a usage error when asqr watches, as with
+`ASQR_LAYOUT`. The other commands ignore the variable and the file.
+Only the asqr that shows a queue reads the setting, which is why
+`asqr withdraw` keeps no copies (above).
 
 ### Bundles and compaction
 

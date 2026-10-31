@@ -12,6 +12,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use clap::ValueEnum;
 
+use crate::keep::KeepFiles;
 use crate::settings::{Direction, Lock, Setting, Settings};
 use crate::tui::render::PaneLayout;
 
@@ -85,6 +86,7 @@ pub fn label(setting: Setting) -> &'static str {
         Setting::DiffLayout => "Diffs open as",
         Setting::MaxQuestionWidth => "Max question width",
         Setting::Context => "Context",
+        Setting::KeepFiles => "Keep files",
     }
 }
 
@@ -134,6 +136,20 @@ fn values(setting: Setting) -> &'static [(&'static str, &'static str)] {
                 "Always below: under the question whenever it fits, even on a wide terminal.",
             ),
         ],
+        Setting::KeepFiles => &[
+            (
+                "compact copies",
+                "Compact copies: images are kept as WebP copies, about a fifth of their size; every other file is kept as it is.",
+            ),
+            (
+                "exact copies",
+                "Exact copies: every file is kept byte for byte, images included.",
+            ),
+            (
+                "no copies",
+                "No copies: no file is kept. asqr still records each file's size and checksum, so a replay can tell the file is gone.",
+            ),
+        ],
     }
 }
 
@@ -157,6 +173,9 @@ pub fn about(setting: Setting) -> &'static str {
             "The widest a question's text may get; on a narrower terminal it gets narrower."
         }
         Setting::Context => "Where the files, images and diffs that come with a question show.",
+        Setting::KeepFiles => {
+            "Whether asqr copies the files a session showed into its archive when you finish it, so asqr replay can show them later."
+        }
     }
 }
 
@@ -211,6 +230,28 @@ pub fn lock_text(lock: Lock, layout: PaneLayout) -> String {
     }
 }
 
+/// What the footer says of `setting` as `lock` holds it, with the values
+/// in effect in `settings`.
+pub fn lock_text_of(setting: Setting, lock: Lock, settings: &Settings) -> String {
+    match setting {
+        Setting::KeepFiles => {
+            let (Lock::Variable(name) | Lock::Flag(name)) = lock;
+            let effect = match settings.keep_files {
+                KeepFiles::Compact => "keeps images as WebP copies and every other file as it is",
+                KeepFiles::Exact => "keeps every file byte for byte",
+                KeepFiles::Off => "keeps no files",
+            };
+            format!(
+                "Your shell sets {name}={}, so asqr {effect}, whatever you choose here. To choose here, remove {name} from your shell setup (for example ~/.zshrc) and start asqr again.",
+                settings.keep_files
+            )
+        }
+        Setting::DiffLayout | Setting::MaxQuestionWidth | Setting::Context => {
+            lock_text(lock, settings.context)
+        }
+    }
+}
+
 /// The status line's news of a saved change.
 pub fn saved_text(setting: Setting, choice: usize) -> String {
     format!(
@@ -242,9 +283,11 @@ mod tests {
         for (code, cursor) in [
             (KeyCode::Down, 1),
             (KeyCode::Char('j'), 2),
-            (KeyCode::Down, 2),
-            (KeyCode::Up, 1),
-            (KeyCode::Char('k'), 0),
+            (KeyCode::Down, 3),
+            (KeyCode::Down, 3),
+            (KeyCode::Up, 2),
+            (KeyCode::Char('k'), 1),
+            (KeyCode::Up, 0),
         ] {
             assert_eq!(pane.handle(key(code), false), SettingsKey::Stay);
             assert_eq!(pane.cursor(), cursor, "{code:?}");
@@ -462,6 +505,78 @@ mod tests {
         assert_eq!(
             saved_text(Setting::Context, 2),
             "✔ saved context: always below"
+        );
+    }
+
+    #[test]
+    fn the_keep_files_row_is_named_and_explained_as_agreed() {
+        let names: Vec<_> = (0..Setting::KeepFiles.choices())
+            .map(|choice| value_name(Setting::KeepFiles, choice))
+            .collect();
+        let meanings: Vec<_> = (0..Setting::KeepFiles.choices())
+            .map(|choice| meaning(Setting::KeepFiles, choice))
+            .collect();
+
+        assert_eq!(label(Setting::KeepFiles), "Keep files");
+        assert_eq!(names, ["compact copies", "exact copies", "no copies"]);
+        assert_eq!(
+            about(Setting::KeepFiles),
+            "Whether asqr copies the files a session showed into its archive when you finish it, so asqr replay can show them later."
+        );
+        assert_eq!(
+            meanings,
+            [
+                "Compact copies: images are kept as WebP copies, about a fifth of their size; every other file is kept as it is. (default)",
+                "Exact copies: every file is kept byte for byte, images included.",
+                "No copies: no file is kept. asqr still records each file's size and checksum, so a replay can tell the file is gone.",
+            ]
+        );
+        assert_eq!(
+            saved_text(Setting::KeepFiles, 0),
+            "✔ saved keep files: compact copies"
+        );
+    }
+
+    #[test]
+    fn the_footer_of_a_held_keep_files_row_explains_what_holds_and_what_to_do() {
+        let variable = Lock::Variable("ASQR_KEEP_FILES");
+        let cases = [
+            (
+                KeepFiles::Compact,
+                "Your shell sets ASQR_KEEP_FILES=compact, so asqr keeps images as WebP copies and every other file as it is, whatever you choose here. To choose here, remove ASQR_KEEP_FILES from your shell setup (for example ~/.zshrc) and start asqr again.",
+            ),
+            (
+                KeepFiles::Exact,
+                "Your shell sets ASQR_KEEP_FILES=exact, so asqr keeps every file byte for byte, whatever you choose here. To choose here, remove ASQR_KEEP_FILES from your shell setup (for example ~/.zshrc) and start asqr again.",
+            ),
+            (
+                KeepFiles::Off,
+                "Your shell sets ASQR_KEEP_FILES=off, so asqr keeps no files, whatever you choose here. To choose here, remove ASQR_KEEP_FILES from your shell setup (for example ~/.zshrc) and start asqr again.",
+            ),
+        ];
+        for (mode, text) in cases {
+            let settings = Settings {
+                keep_files: mode,
+                ..Settings::default()
+            };
+            assert_eq!(
+                lock_text_of(Setting::KeepFiles, variable, &settings),
+                text,
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_held_context_row_keeps_its_own_footer() {
+        let settings = Settings {
+            context: PaneLayout::Below,
+            ..Settings::default()
+        };
+
+        assert_eq!(
+            lock_text_of(Setting::Context, Lock::Variable("ASQR_LAYOUT"), &settings),
+            lock_text(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Below)
         );
     }
 }

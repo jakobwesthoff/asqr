@@ -35,13 +35,16 @@ pub enum Setting {
     MaxQuestionWidth,
     /// Where the context of a question goes.
     Context,
+    /// What asqr keeps of the files a finished session showed.
+    KeepFiles,
 }
 
 impl Setting {
-    pub const ALL: [Setting; 3] = [
+    pub const ALL: [Setting; 4] = [
         Setting::DiffLayout,
         Setting::MaxQuestionWidth,
         Setting::Context,
+        Setting::KeepFiles,
     ];
 
     /// The key of the setting in the settings file.
@@ -50,6 +53,7 @@ impl Setting {
             Setting::DiffLayout => "diff_layout",
             Setting::MaxQuestionWidth => "max_question_width",
             Setting::Context => "context",
+            Setting::KeepFiles => "keep_files",
         }
     }
 
@@ -60,6 +64,7 @@ impl Setting {
             Setting::DiffLayout => "unified or side-by-side",
             Setting::MaxQuestionWidth => "80, 100, 120 or \"full\"",
             Setting::Context => "auto, beside or below",
+            Setting::KeepFiles => "compact, exact or off",
         }
     }
 
@@ -69,6 +74,7 @@ impl Setting {
             Setting::DiffLayout => DIFF_LAYOUTS.len(),
             Setting::MaxQuestionWidth => READING_WIDTHS.len(),
             Setting::Context => CONTEXTS.len(),
+            Setting::KeepFiles => KEEP_FILES.len(),
         }
     }
 }
@@ -82,6 +88,7 @@ const READING_WIDTHS: [ReadingWidth; 4] = [
     ReadingWidth::Full,
 ];
 const CONTEXTS: [PaneLayout; 3] = [PaneLayout::Auto, PaneLayout::Beside, PaneLayout::Below];
+const KEEP_FILES: [KeepFiles; 3] = [KeepFiles::Compact, KeepFiles::Exact, KeepFiles::Off];
 
 /// The values of the settings. The default is every setting's own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -104,6 +111,9 @@ impl Settings {
                 .iter()
                 .position(|value| *value == self.max_question_width),
             Setting::Context => CONTEXTS.iter().position(|value| *value == self.context),
+            Setting::KeepFiles => KEEP_FILES
+                .iter()
+                .position(|value| *value == self.keep_files),
         };
         found.expect("every value of a setting is among its choices")
     }
@@ -121,6 +131,10 @@ impl Settings {
             },
             Setting::Context => Settings {
                 context: CONTEXTS[choice],
+                ..self
+            },
+            Setting::KeepFiles => Settings {
+                keep_files: KEEP_FILES[choice],
                 ..self
             },
         }
@@ -146,6 +160,7 @@ impl Settings {
                     .get_name()
                     .to_owned(),
             ),
+            Setting::KeepFiles => Value::from(self.keep_files.to_string()),
         }
     }
 }
@@ -166,7 +181,15 @@ pub enum Lock {
 pub struct SettingsStore {
     path: Option<PathBuf>,
     values: Settings,
-    context_lock: Option<(PaneLayout, Lock)>,
+    locks: Locks,
+}
+
+/// The settings a flag or a variable fixes for a run, each with the value
+/// it fixes and what fixes it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Locks {
+    pub context: Option<(PaneLayout, Lock)>,
+    pub keep_files: Option<(KeepFiles, Lock)>,
 }
 
 /// Which way a change of a setting goes through its values.
@@ -201,11 +224,11 @@ pub struct Loaded {
 }
 
 impl SettingsStore {
-    /// Reads the file at `path`, where there is one, and holds the context
-    /// placement at `context_lock` where a flag or a variable gave one.
-    /// What is wrong with the file never fails the read: every setting
-    /// the file cannot give takes its default, and `warnings` says why.
-    pub fn load(path: Option<PathBuf>, context_lock: Option<(PaneLayout, Lock)>) -> Loaded {
+    /// Reads the file at `path`, where there is one, and holds the settings
+    /// in `locks` at the values a flag or a variable gave them. What is
+    /// wrong with the file never fails the read: every setting the file
+    /// cannot give takes its default, and `warnings` says why.
+    pub fn load(path: Option<PathBuf>, locks: Locks) -> Loaded {
         let (values, warnings) = match path.as_deref() {
             Some(path) => read_file(path),
             None => (Settings::default(), Vec::new()),
@@ -214,19 +237,24 @@ impl SettingsStore {
             store: SettingsStore {
                 path,
                 values,
-                context_lock,
+                locks,
             },
             warnings,
         }
     }
 
-    /// The settings as this run has them: the file's, with the context
-    /// placement a flag or a variable holds.
+    /// The settings as this run has them: the file's, with the values a
+    /// flag or a variable holds.
     pub fn effective(&self) -> Settings {
         Settings {
             context: self
-                .context_lock
+                .locks
+                .context
                 .map_or(self.values.context, |(layout, _)| layout),
+            keep_files: self
+                .locks
+                .keep_files
+                .map_or(self.values.keep_files, |(mode, _)| mode),
             ..self.values
         }
     }
@@ -234,7 +262,8 @@ impl SettingsStore {
     /// What holds `setting` for this run, if anything does.
     pub fn lock(&self, setting: Setting) -> Option<Lock> {
         match setting {
-            Setting::Context => self.context_lock.map(|(_, lock)| lock),
+            Setting::Context => self.locks.context.map(|(_, lock)| lock),
+            Setting::KeepFiles => self.locks.keep_files.map(|(_, lock)| lock),
             Setting::DiffLayout | Setting::MaxQuestionWidth => None,
         }
     }
@@ -471,7 +500,16 @@ fn parse(text: &str) -> (Settings, Vec<String>) {
             },
             &mut warnings,
         ),
-        keep_files: defaults.keep_files,
+        keep_files: read_key(
+            &document,
+            &KeyReading {
+                key: Setting::KeepFiles.key(),
+                allowed: Setting::KeepFiles.allowed(),
+                default: (defaults.keep_files, "compact"),
+                from: keep_files_from,
+            },
+            &mut warnings,
+        ),
     };
     (settings, warnings)
 }
@@ -536,6 +574,10 @@ fn context_from(value: &Value) -> Option<PaneLayout> {
     PaneLayout::from_str(value.as_str()?, false).ok()
 }
 
+fn keep_files_from(value: &Value) -> Option<KeepFiles> {
+    value.as_str()?.parse().ok()
+}
+
 /// The line, counted from 1, that byte `span` starts in; `None` where the
 /// parser gave no place.
 fn line_of(text: &str, span: Option<Range<usize>>) -> Option<usize> {
@@ -554,7 +596,7 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let path = scratch.path().join(FILE_NAME);
         std::fs::write(&path, text).expect("written");
-        (SettingsStore::load(Some(path), None), scratch)
+        (SettingsStore::load(Some(path), Locks::default()), scratch)
     }
 
     fn defaults() -> Settings {
@@ -588,12 +630,12 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let missing = scratch.path().join("asqr").join(FILE_NAME);
 
-        let loaded = SettingsStore::load(Some(missing.clone()), None);
+        let loaded = SettingsStore::load(Some(missing.clone()), Locks::default());
 
         assert_eq!(loaded.store.effective(), defaults());
         assert_eq!(loaded.store.path(), Some(missing.as_path()));
         assert_eq!(loaded.warnings, Vec::<String>::new());
-        let nowhere = SettingsStore::load(None, None);
+        let nowhere = SettingsStore::load(None, Locks::default());
         assert_eq!(nowhere.store.effective(), defaults());
         assert_eq!(nowhere.store.path(), None);
         assert_eq!(nowhere.warnings, Vec::<String>::new());
@@ -828,7 +870,7 @@ mod tests {
         std::fs::write(&path, "context = \"below\"\n").expect("written");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
 
-        let loaded = SettingsStore::load(Some(path), None);
+        let loaded = SettingsStore::load(Some(path), Locks::default());
 
         assert_eq!(loaded.store.effective(), defaults());
         assert_eq!(loaded.warnings.len(), 1);
@@ -849,19 +891,32 @@ mod tests {
         )
         .expect("written");
 
-        let free = SettingsStore::load(Some(path.clone()), None).store;
+        let free = SettingsStore::load(Some(path.clone()), Locks::default()).store;
         assert_eq!(free.effective().context, PaneLayout::Below);
         assert_eq!(free.lock(Setting::Context), None);
 
         let variable = Lock::Variable("ASQR_LAYOUT");
-        let by_variable =
-            SettingsStore::load(Some(path.clone()), Some((PaneLayout::Beside, variable))).store;
+        let by_variable = SettingsStore::load(
+            Some(path.clone()),
+            Locks {
+                context: Some((PaneLayout::Beside, variable)),
+                ..Locks::default()
+            },
+        )
+        .store;
         assert_eq!(by_variable.effective().context, PaneLayout::Beside);
         assert_eq!(by_variable.lock(Setting::Context), Some(variable));
 
         // `auto` holds the setting too: the person asked for it.
         let flag = Lock::Flag("--layout");
-        let by_flag = SettingsStore::load(Some(path), Some((PaneLayout::Auto, flag))).store;
+        let by_flag = SettingsStore::load(
+            Some(path),
+            Locks {
+                context: Some((PaneLayout::Auto, flag)),
+                ..Locks::default()
+            },
+        )
+        .store;
         assert_eq!(by_flag.effective().context, PaneLayout::Auto);
         assert_eq!(by_flag.lock(Setting::Context), Some(flag));
 
@@ -882,7 +937,7 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let path = scratch.path().join(FILE_NAME);
         std::fs::write(&path, text).expect("written");
-        let store = SettingsStore::load(Some(path.clone()), None).store;
+        let store = SettingsStore::load(Some(path.clone()), Locks::default()).store;
         (store, path, scratch)
     }
 
@@ -932,7 +987,10 @@ mod tests {
     fn a_setting_a_flag_or_a_variable_holds_does_not_change() {
         let mut store = SettingsStore::load(
             None,
-            Some((PaneLayout::Below, Lock::Variable("ASQR_LAYOUT"))),
+            Locks {
+                context: Some((PaneLayout::Below, Lock::Variable("ASQR_LAYOUT"))),
+                ..Locks::default()
+            },
         )
         .store;
 
@@ -948,10 +1006,121 @@ mod tests {
     }
 
     #[test]
+    fn keep_files_reads_its_three_words() {
+        for (word, mode) in [
+            ("compact", KeepFiles::Compact),
+            ("exact", KeepFiles::Exact),
+            ("off", KeepFiles::Off),
+        ] {
+            let (loaded, _scratch) = loaded(format!("keep_files = \"{word}\"\n").as_bytes());
+
+            assert_eq!(loaded.warnings, Vec::<String>::new(), "{word}");
+            assert_eq!(loaded.store.effective().keep_files, mode, "{word}");
+        }
+        assert_eq!(Setting::ALL.len(), 4);
+        assert_eq!(Setting::KeepFiles.key(), "keep_files");
+    }
+
+    #[test]
+    fn a_wrong_keep_files_value_gives_the_default_and_a_warning() {
+        let cases = [
+            ("keep_files = \"tiny\"", "\"tiny\""),
+            ("keep_files = \"Exact\"", "\"Exact\""),
+            ("keep_files = true", "true"),
+        ];
+        for (line, shown) in cases {
+            let (loaded, _scratch) = loaded(line.as_bytes());
+
+            assert_eq!(loaded.store.effective(), defaults(), "{line}");
+            assert_eq!(
+                loaded.warnings,
+                [format!(
+                    "settings.toml: keep_files = {shown} is not compact, exact or off; compact applies"
+                )],
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn keep_files_goes_through_compact_exact_and_off() {
+        let mut store = SettingsStore::default();
+        let mut seen = |direction| {
+            store.step(Setting::KeepFiles, direction);
+            store.effective().keep_files
+        };
+
+        assert_eq!(seen(Direction::Next), KeepFiles::Exact);
+        assert_eq!(seen(Direction::Next), KeepFiles::Off);
+        assert_eq!(seen(Direction::Next), KeepFiles::Compact);
+        assert_eq!(seen(Direction::Previous), KeepFiles::Off);
+    }
+
+    #[test]
+    fn the_variable_holds_keep_files_over_the_file() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let path = scratch.path().join(FILE_NAME);
+        std::fs::write(&path, "keep_files = \"exact\"\n").expect("written");
+        let variable = Lock::Variable("ASQR_KEEP_FILES");
+
+        let free = SettingsStore::load(Some(path.clone()), Locks::default()).store;
+        assert_eq!(free.lock(Setting::KeepFiles), None);
+        assert_eq!(free.effective().keep_files, KeepFiles::Exact);
+
+        let held = SettingsStore::load(
+            Some(path),
+            Locks {
+                keep_files: Some((KeepFiles::Off, variable)),
+                ..Locks::default()
+            },
+        )
+        .store;
+        assert_eq!(held.lock(Setting::KeepFiles), Some(variable));
+        assert_eq!(held.effective().keep_files, KeepFiles::Off);
+        assert_eq!(held.choice(Setting::KeepFiles), 2, "the value in effect");
+        assert_eq!(held.lock(Setting::Context), None, "the others stay free");
+    }
+
+    #[test]
+    fn step_refuses_a_held_keep_files() {
+        let mut store = SettingsStore::load(
+            None,
+            Locks {
+                keep_files: Some((KeepFiles::Off, Lock::Variable("ASQR_KEEP_FILES"))),
+                ..Locks::default()
+            },
+        )
+        .store;
+
+        assert!(!store.step(Setting::KeepFiles, Direction::Next));
+        assert!(!store.step(Setting::KeepFiles, Direction::Previous));
+
+        assert_eq!(store.effective().keep_files, KeepFiles::Off);
+        assert!(store.step(Setting::Context, Direction::Next), "others move");
+    }
+
+    #[test]
+    fn save_writes_the_key_and_keeps_the_others() {
+        let (mut store, path, _scratch) = store_over("# mine\ndiff_layout = \"side-by-side\"\n");
+
+        store.step(Setting::KeepFiles, Direction::Next);
+        store.save(Setting::KeepFiles).expect("saved");
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("written"),
+            "# mine\ndiff_layout = \"side-by-side\"\nkeep_files = \"exact\"  # compact, exact or off\n"
+        );
+        let read = SettingsStore::load(Some(path), Locks::default());
+        assert_eq!(read.warnings, Vec::<String>::new());
+        assert_eq!(read.store.effective().keep_files, KeepFiles::Exact);
+        assert_eq!(read.store.effective().diff_layout, DiffLayout::SideBySide);
+    }
+
+    #[test]
     fn a_new_file_gets_a_header_and_the_key_that_changed_with_its_values() {
         let scratch = tempfile::tempdir().expect("temp dir");
         let path = scratch.path().join("asqr").join(FILE_NAME);
-        let mut store = SettingsStore::load(Some(path.clone()), None).store;
+        let mut store = SettingsStore::load(Some(path.clone()), Locks::default()).store;
 
         store.step(Setting::MaxQuestionWidth, Direction::Next);
         store.save(Setting::MaxQuestionWidth).expect("saved");
@@ -961,7 +1130,7 @@ mod tests {
             "# asqr settings, written by the settings pane (`,` in asqr) and fine to edit by hand.\n\
              max_question_width = 120  # 80, 100, 120 or \"full\"\n"
         );
-        let read = SettingsStore::load(Some(path), None);
+        let read = SettingsStore::load(Some(path), Locks::default());
         assert_eq!(read.warnings, Vec::<String>::new());
         assert_eq!(
             read.store.effective().max_question_width,
@@ -1129,7 +1298,7 @@ mod tests {
         let link = scratch.path().join("config").join(FILE_NAME);
         std::fs::create_dir_all(link.parent().expect("parent")).expect("dir");
         std::os::unix::fs::symlink(&target, &link).expect("linked");
-        let mut store = SettingsStore::load(Some(link.clone()), None).store;
+        let mut store = SettingsStore::load(Some(link.clone()), Locks::default()).store;
 
         store.step(Setting::DiffLayout, Direction::Next);
         store.save(Setting::DiffLayout).expect("saved");
@@ -1149,7 +1318,7 @@ mod tests {
         // A relative target, resolved from the link's directory, in a
         // directory that does not exist either.
         std::os::unix::fs::symlink("../dotfiles/deep/asqr.toml", &link).expect("linked");
-        let mut store = SettingsStore::load(Some(link.clone()), None).store;
+        let mut store = SettingsStore::load(Some(link.clone()), Locks::default()).store;
 
         store.step(Setting::DiffLayout, Direction::Next);
         let result = store.save(Setting::DiffLayout);
@@ -1173,7 +1342,7 @@ mod tests {
         let link = scratch.path().join(FILE_NAME);
         std::os::unix::fs::symlink(&end, &middle).expect("linked");
         std::os::unix::fs::symlink(&middle, &link).expect("linked");
-        let mut store = SettingsStore::load(Some(link.clone()), None).store;
+        let mut store = SettingsStore::load(Some(link.clone()), Locks::default()).store;
 
         store.step(Setting::Context, Direction::Next);
         store.save(Setting::Context).expect("saved");
@@ -1193,7 +1362,7 @@ mod tests {
         let other = scratch.path().join("other.toml");
         std::os::unix::fs::symlink(&other, &link).expect("linked");
         std::os::unix::fs::symlink(&link, &other).expect("linked");
-        let mut store = SettingsStore::load(Some(link.clone()), None).store;
+        let mut store = SettingsStore::load(Some(link.clone()), Locks::default()).store;
 
         store.step(Setting::DiffLayout, Direction::Next);
         let result = store.save(Setting::DiffLayout);
@@ -1239,7 +1408,7 @@ mod tests {
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o444)).expect("chmod");
         let link = scratch.path().join(FILE_NAME);
         std::os::unix::fs::symlink(&target, &link).expect("linked");
-        let mut store = SettingsStore::load(Some(link), None).store;
+        let mut store = SettingsStore::load(Some(link), Locks::default()).store;
 
         store.step(Setting::DiffLayout, Direction::Next);
 
@@ -1275,7 +1444,7 @@ mod tests {
         let dir = scratch.path().join("locked");
         std::fs::create_dir(&dir).expect("dir");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).expect("chmod");
-        let mut store = SettingsStore::load(Some(dir.join(FILE_NAME)), None).store;
+        let mut store = SettingsStore::load(Some(dir.join(FILE_NAME)), Locks::default()).store;
 
         store.step(Setting::DiffLayout, Direction::Next);
         let result = store.save(Setting::DiffLayout);
@@ -1292,14 +1461,14 @@ mod tests {
             for choice in 0..setting.choices() {
                 let scratch = tempfile::tempdir().expect("temp dir");
                 let path = scratch.path().join(FILE_NAME);
-                let mut store = SettingsStore::load(Some(path.clone()), None).store;
+                let mut store = SettingsStore::load(Some(path.clone()), Locks::default()).store;
                 while store.choice(setting) != choice {
                     store.step(setting, Direction::Next);
                 }
 
                 store.save(setting).expect("saved");
 
-                let read = SettingsStore::load(Some(path), None);
+                let read = SettingsStore::load(Some(path), Locks::default());
                 assert_eq!(read.warnings, Vec::<String>::new(), "{setting:?} {choice}");
                 assert_eq!(read.store.choice(setting), choice, "{setting:?} {choice}");
             }
@@ -1309,7 +1478,8 @@ mod tests {
     #[test]
     fn a_directory_where_the_file_belongs_is_an_error_naming_what_failed() {
         let scratch = tempfile::tempdir().expect("temp dir");
-        let mut store = SettingsStore::load(Some(scratch.path().to_path_buf()), None).store;
+        let mut store =
+            SettingsStore::load(Some(scratch.path().to_path_buf()), Locks::default()).store;
         store.step(Setting::DiffLayout, Direction::Next);
         let unreadable = store.save(Setting::DiffLayout);
         assert!(
@@ -1331,7 +1501,8 @@ mod tests {
         let locked = scratch.path().join("locked");
         std::fs::create_dir(&locked).expect("dir");
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).expect("chmod");
-        let mut store = SettingsStore::load(Some(locked.join("asqr").join(FILE_NAME)), None).store;
+        let mut store =
+            SettingsStore::load(Some(locked.join("asqr").join(FILE_NAME)), Locks::default()).store;
         store.step(Setting::DiffLayout, Direction::Next);
 
         let result = store.save(Setting::DiffLayout);

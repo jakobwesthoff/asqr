@@ -686,6 +686,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::graphics::{Graphics, Images, Protocol};
+    use crate::settings::Locks;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -738,7 +739,7 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let config = scratch.path().join("settings.toml");
         std::fs::write(&config, "diff_layout = \"side-by-side\"\n").expect("written");
-        let settings = SettingsStore::load(Some(config), None).store;
+        let settings = SettingsStore::load(Some(config), Locks::default()).store;
         let mut app = App::with_settings(settings.clone());
 
         app.add(diff_state("first"));
@@ -905,10 +906,13 @@ mod tests {
     fn a_row_a_flag_or_a_variable_holds_changes_nothing() {
         let settings = SettingsStore::load(
             None,
-            Some((
-                crate::tui::render::PaneLayout::Below,
-                crate::settings::Lock::Variable("ASQR_LAYOUT"),
-            )),
+            Locks {
+                context: Some((
+                    crate::tui::render::PaneLayout::Below,
+                    crate::settings::Lock::Variable("ASQR_LAYOUT"),
+                )),
+                ..Locks::default()
+            },
         )
         .store;
         let mut app = with_settings(settings.clone());

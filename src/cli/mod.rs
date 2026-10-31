@@ -33,9 +33,10 @@ pub use exit::Exit;
 pub use skill_age::override_variables as skill_override_variables;
 pub use watch::{Pin, Watch};
 
+use crate::keep::KeepFiles;
 use crate::pairing::{self, Multiplexer, SystemTmux, Tmux, TmuxFailure};
 use crate::queue::{Origin, Paired, QueueLocation, Selection, platform_data_dir};
-use crate::settings::{Lock, SettingsStore, settings_file};
+use crate::settings::{Lock, Locks, SettingsStore, settings_file};
 use crate::tui::render::PaneLayout;
 
 /// The line `asqr --help` and `asqr ask --help` show agents, below the
@@ -254,6 +255,9 @@ pub struct Environment {
     /// `ASQR_LAYOUT` as it is set. It is checked only when asqr watches,
     /// so a bad value never stands in the way of the other commands.
     pub layout: Option<String>,
+    /// `ASQR_KEEP_FILES` as it is set. It is checked only when asqr
+    /// watches, as `layout` is.
+    pub keep_files: Option<String>,
     /// `ASQR_LOG`: which events reach the log (ADR 83).
     pub log: Option<String>,
     /// `NO_COLOR` (<https://no-color.org>): the TUI draws without colours.
@@ -287,6 +291,7 @@ fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
             dir: variable("ASQR_DIR").map(PathBuf::from),
         },
         layout: variable("ASQR_LAYOUT"),
+        keep_files: variable("ASQR_KEEP_FILES"),
         log: variable("ASQR_LOG"),
         // no-color.org asks only that the variable is present and not
         // empty, so any value counts, also one that is not UTF-8.
@@ -413,6 +418,21 @@ fn dispatch(
                     return Exit::Usage;
                 }
             };
+            let keep_files = match environment
+                .keep_files
+                .as_deref()
+                .map(str::parse::<KeepFiles>)
+            {
+                None => None,
+                Some(Ok(mode)) => Some((mode, Lock::Variable("ASQR_KEEP_FILES"))),
+                Some(Err(_)) => {
+                    eprintln!(
+                        "error: ASQR_KEEP_FILES must be compact, exact or off, not {:?}",
+                        environment.keep_files.unwrap_or_default()
+                    );
+                    return Exit::Usage;
+                }
+            };
             let flag = after.layout.or(before.layout);
             let context_lock = match (flag, variable) {
                 (Some(layout), _) => Some((layout, Lock::Flag("--layout"))),
@@ -421,7 +441,13 @@ fn dispatch(
             };
             // Only the TUI reads the file, so a broken one never reaches
             // another command.
-            let settings = SettingsStore::load(config, context_lock);
+            let settings = SettingsStore::load(
+                config,
+                Locks {
+                    context: context_lock,
+                    keep_files,
+                },
+            );
             for warning in &settings.warnings {
                 tracing::warn!("{warning}");
             }
@@ -669,6 +695,8 @@ mod tests {
         reading: ReadingWidth,
         diffs: DiffLayout,
         lock: Option<Lock>,
+        keep_files: KeepFiles,
+        keep_files_lock: Option<Lock>,
         warnings: Vec<String>,
     }
 
@@ -689,6 +717,8 @@ mod tests {
                 reading: watch.reading_width(),
                 diffs: watch.settings().effective().diff_layout,
                 lock: watch.settings().lock(Setting::Context),
+                keep_files: watch.settings().effective().keep_files,
+                keep_files_lock: watch.settings().lock(Setting::KeepFiles),
                 warnings: watch.settings_warnings().to_vec(),
             });
             Exit::Success
@@ -696,8 +726,7 @@ mod tests {
         (exit, started)
     }
 
-    const FILE: &str =
-        "diff_layout = \"side-by-side\"\nmax_question_width = 120\ncontext = \"beside\"\n";
+    const FILE: &str = "diff_layout = \"side-by-side\"\nmax_question_width = 120\ncontext = \"beside\"\nkeep_files = \"exact\"\n";
 
     #[test]
     fn watching_starts_with_what_the_settings_file_holds() {
@@ -711,9 +740,79 @@ mod tests {
                 reading: ReadingWidth::Columns120,
                 diffs: DiffLayout::SideBySide,
                 lock: None,
+                keep_files: KeepFiles::Exact,
+                keep_files_lock: None,
                 warnings: Vec::new(),
             })
         );
+    }
+
+    #[test]
+    fn the_keep_files_variable_wins_over_the_settings_file_and_holds_the_row() {
+        let (exit, started) = from_file(
+            &[],
+            Environment {
+                keep_files: Some("off".into()),
+                ..Environment::default()
+            },
+            FILE,
+        );
+
+        assert_eq!(exit, Exit::Success);
+        let started = started.expect("started");
+        assert_eq!(started.keep_files, KeepFiles::Off);
+        assert_eq!(
+            started.keep_files_lock,
+            Some(Lock::Variable("ASQR_KEEP_FILES"))
+        );
+        assert_eq!(started.reading, ReadingWidth::Columns120, "the file's");
+    }
+
+    #[test]
+    fn a_bad_keep_files_variable_is_a_usage_error_when_watching() {
+        let (exit, started) = from_file(
+            &[],
+            Environment {
+                keep_files: Some("sometimes".into()),
+                ..Environment::default()
+            },
+            FILE,
+        );
+
+        assert_eq!((exit, started), (Exit::Usage, None));
+    }
+
+    #[test]
+    fn the_keep_files_variable_only_matters_to_watching() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let cli = Cli::try_parse_from([
+            "asqr",
+            "--dir",
+            scratch.path().to_str().expect("UTF-8 temp path"),
+            "paths",
+        ])
+        .expect("parses");
+        let environment = Environment {
+            keep_files: Some("sometimes".into()),
+            ..Environment::default()
+        };
+
+        assert_eq!(
+            dispatch(cli, environment, &Unasked, None, None, |_| unreachable!(
+                "no TUI for paths"
+            )),
+            Exit::Success
+        );
+    }
+
+    #[test]
+    fn the_environment_reads_asqr_keep_files_and_skips_an_empty_one() {
+        let keep_files =
+            |value: &str| environment_of(&[("ASQR_KEEP_FILES", OsStr::new(value))]).keep_files;
+
+        assert_eq!(keep_files("exact").as_deref(), Some("exact"));
+        assert_eq!(keep_files(""), None, "empty counts as unset");
+        assert_eq!(environment_of(&[]).keep_files, None, "unset");
     }
 
     #[test]

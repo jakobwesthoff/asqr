@@ -150,6 +150,7 @@ impl Tui {
         );
         command.env_remove("ASQR_QUEUE");
         command.env_remove("ASQR_LAYOUT");
+        command.env_remove("ASQR_KEEP_FILES");
         command.env_remove("ASQR_DIR");
         command.env_remove("ASQR_LOG");
         command.env_remove("NO_COLOR");

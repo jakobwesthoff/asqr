@@ -8,107 +8,30 @@ tags: [ux]
 # Keep the files a finished session showed, and replay finished sessions
 
 A session shows files by path: images, Markdown, code, ANSI and diff
-sides. The archive keeps the session file but not those files, and many
-of them live in temporary folders. An archived answer such as "B" or
-"the second mockup" means nothing once the picture is gone. Requested by
+sides. The archive kept the session file but not those files, and many
+of them lived in temporary folders, so an archived answer such as "B" or
+"the second mockup" meant nothing once the picture was gone. Requested by
 Jakob on 2026-10-30 ("with AI sessions, more knowledge and history is
 most of the times better than less"): copy the files into the archive
 when a session finishes, point the archived session at the copies, and
 give the archive a read-only viewer so it can be looked at.
 
-## Measured (default queue, 2026-10-30, sessions since 2026-10-03)
+## What is done and what remains
 
-- 267 archived sessions refer to files 541 times: 278 images, 211
-  Markdown, 28 code, 13 ANSI. 229 of the 541 (42%) were already gone;
-  235 pointed into `/tmp` or agents' scratchpads.
-- The 245 files still there hold 182 MB, no two alike: 120 images (73
-  PNG, 47 JPEG) of 181 MB, the rest text.
-- The 120 images as other formats (cwebp, avifenc and ImageMagick on
-  the lead's machine; long side at most 2048 px, which barely changed
-  them): lossless WebP 57% of the originals, WebP quality 90 15%, AVIF
-  quality 80 12%, JPEG quality 90 23%. Text compresses well with zstd
-  (the log: 694 KB to 75 KB).
+Keeping the files is done on the branch that carries this todo: the
+processors and modes, the archived session that records each shown file,
+the worker that keeps files after a finish, the month bundles that take
+the kept files, and the `keep_files` setting with `ASQR_KEEP_FILES`.
+Spec sections 5.1, 5.2, 5.7 and 5.9 and ADR 100 describe it.
 
-## Decisions (Jakob, 2026-10-30, in the chat)
+What remains is the viewer: `asqr history`, `asqr replay <ref>`, the
+read-only state of the TUI behind it, and `asqr prune --session <ref>`,
+which also removes the loose kept files of the sessions that
+`prune --older-than` deletes. This part must land before the next
+release: keeping files without a viewer was rejected, and a build with
+the first part alone would copy files nobody can look at.
 
-- **Scope:** one piece of work: a read-only replay of finished sessions
-  in the TUI, with their answers, notes and the kept files, keeping the
-  files, and a fingerprint of every shown file
-  recorded in the archived session whether files are kept or not. An
-  export of a finished session (`asqr export <id>` to Markdown or HTML
-  with its images) is a separate, later todo. Rejected: keeping files
-  without a viewer; export in the same todo.
-- **On by default.** Keeping files is on unless switched off; the
-  switch should be easy to find, possibly asked on first start (todo
-  01M623QGQXR4ERM34GYV8H6DVR).
-- **Copied when the session finishes,** by the asqr that shows the
-  queue, as it moves the session to the archive: the files the person
-  saw, while agents' temporary files still exist. Rejected: at
-  `asqr ask`; at the monthly bundling (42% gone after four weeks).
-- **Images as WebP at quality 90 through libwebp**, the original kept
-  where it is smaller. libwebp is C: Jakob chose it on purpose as an
-  exception to the rule of no dependency that is not Rust, because no
-  pure-Rust lossy WebP encoder has a usable licence (`image-webp`, in
-  the build, encodes lossless only; `zenwebp` is AGPL-3.0 or
-  commercial; checked 2026-10-30). WebP keeps transparency. Rejected:
-  JPEG quality 90 for opaque and lossless WebP for transparent images
-  (about 25%, pure Rust); AVIF (12%, but `image` decodes it only through
-  dav1d, C); lossless WebP alone (57%). Text files are kept as they are
-  and compress in the month bundle.
-- **Pure-Rust WebP encoders re-checked at pickup.** Research on
-  2026-10-30 (conductor logbook,
-  `plans/next-todos/webp-encoder-research.md`) found pure-Rust lossy
-  encoders, all first released in 2026: `libwebpop` 0.1.0 (BSD-3, a
-  libwebp port, output within 0.1% of `cwebp -q 90` on 101 PNGs, but
-  released 2026-10-25, LLM-written, and its README unsure of its
-  licence), `otf-pixels-codec-webp` 0.5.0 (Apache-2.0, 3% larger opaque,
-  13.5% with alpha), and a lossy encoder on `image-webp`'s unreleased
-  `main` (basic, an open silent-corruption issue, image-rs/image-webp
-  #191). Jakob, 2026-10-30: plan with libwebp; the encoder sits behind a
-  small seam, and the agent that picks this up re-checks `libwebpop` and
-  an `image-webp` release and switches if one is mature and clearly
-  licensed. Rejected for now: `libwebpop` pinned; waiting for
-  `image-webp`.
-- **libwebp stays for the first version** (Jakob, 2026-10-31, after a
-  second research round, conductor logbook
-  `plans/image-format-research/findings.md`): unless that research turns
-  up something new and clearly better, asqr builds on libwebp now, so
-  the pickup re-check above is done. On 127 session images at quality
-  90, measured at the mean SSIM `cwebp -q 90` reaches (0.9857, 18.96%
-  of the originals): `libwebpop` 0.1.0 18.97% (BSD-3, released
-  2026-10-25, 15 downloads, its licence statement unsure);
-  `otf-pixels-codec-webp` 20.4%; `tola-webp` 0.8.1 20.6% (MIT, five
-  times faster than cwebp); JPEG XL through `jixel` 17.9% at its slow
-  setting, 20 times slower, and jxl-oxide decodes 9 of 127 of those
-  files wrongly; AVIF through `ravif` 25% smaller on a 42-image subset,
-  13 times slower, and `image` decodes it only through dav1d (C).
-  Nothing was clearly better, so libwebp stays (lead, 2026-10-31, under
-  the owner's standing answer). `libwebpop` is the first candidate to
-  swap in behind the processor trait once it has matured.
-- **Every kept file passes through a processing step behind a trait**
-  (Jakob, 2026-10-31): before a shown file goes into the archive, a
-  processor chosen by the entry's kind (image, Markdown, code, ANSI,
-  diff side, as the viewers know them) turns its bytes into what is
-  kept. For images with `compact` on, that is the WebP re-encoding;
-  for every other kind, and under `exact`, it keeps the bytes as they
-  are. The trait lets a later decision swap the encoder or the format
-  (another WebP encoder, JPEG XL) or add processing for another kind
-  without touching the archiving around it. Rejected: the WebP call
-  inlined in the archiving code.
-- **`ASQR_KEEP_FILES=compact|exact|off`** until asqr has user settings:
-  `compact` (the default) re-encodes images as above, `exact` keeps
-  every file byte for byte, `off` keeps no files but still records the
-  fingerprints. Rejected: two variables.
-- **SHA-256** names the kept files and fingerprints every shown file.
-  asqr already uses it (`sha2`, `session_sha256` in results, ADR 28,
-  which records no reason for it), and `shasum -a 256` checks it on any
-  machine. Rejected: BLAKE3 for the files, with or without moving
-  `session_sha256` to it in format version 3.
-- **One finished session can be removed on purpose:**
-  `asqr prune --session <id>`, a dry run unless `--yes` like every
-  delete, rewrites its month's bundle without it and drops kept files
-  no other session uses. Part of this todo. Rejected: a separate todo;
-  whole months only.
+## Decisions for what remains (Jakob, 2026-10-30, in the chat)
 
 - **The replay is reached through the CLI first** (Jakob, 2026-10-30):
   how a replayed session looks and how one gets to it are two
@@ -168,21 +91,20 @@ give the archive a read-only viewer so it can be looked at.
   under `--all`; an entry whose month bundle cannot be read ends the
   replay with an error naming the bundle and a non-zero exit. `--json`
   on `history` is in if cheap; search and the in-TUI history wait.
+- **`asqr prune --session <ref>` removes one finished session on
+  purpose** (Jakob, 2026-10-30; lead, 2026-10-31): a dry run unless
+  `--yes` like every delete, it rewrites its month's bundle without the
+  session and drops kept files no other session shows. It takes the REF
+  that `history` prints and `replay` takes, never a session id, because
+  ids repeat and a delete must hit exactly one entry. Rejected: a
+  separate todo; whole months only.
 
 ## Technical notes (lead, 2026-10-30)
 
 - The archived session points at each copy: its `path` names the copy
-  inside the archive, and the original path stays beside it in a field
-  of its own, so the replay shows the copy and the person sees where it
-  came from.
-- Copies are stored under their hash, so a file shown by several
-  sessions is kept once, and go into the month bundle as
-  `files/<sha256>.<ext>`: that prefix is reserved in the bundle layout
-  (spec 5.1, ADR 96), and adding entries needs no change to the
-  existing ones.
-- asqr reads a shown file within its usual limits (images up to 64 MiB,
-  text up to 8 MiB); a file it cannot read is recorded as missing in the
-  archived session, not an error.
+  inside the archive, and the original path stays beside it in
+  `shown.original_path`, so the replay shows the copy and the person sees
+  where it came from. Spec 5.1 has the format.
 - The replay reads the month bundles directly, through the module
   `queue::bundle` (`list_entries`, `read_entry`, `newest_session`), which
   `status`, `result` and `withdraw` use too. A bundle is rewritten as
@@ -191,7 +113,8 @@ give the archive a read-only viewer so it can be looked at.
   a bundle the same way.
 - A result lies in the month it was finished in and its session in the
   month it was archived, which can be a later one, so the replay pairs a
-  session with its result across bundles by `session_sha256`, not by
-  assuming one bundle holds both.
-- Every re-encoded image is decoded back (`image` decodes WebP); when
-  that fails, the original is kept instead.
+  session with its result across bundles by `session_sha256` (the
+  archived session's `archived.session_sha256`, or the hash of its own
+  bytes), not by assuming one bundle holds both.
+- A kept file is verified against its name (the SHA-256 of the kept
+  bytes) before it is shown; a copy that does not match shows a red card.

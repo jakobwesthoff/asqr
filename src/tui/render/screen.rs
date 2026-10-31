@@ -6383,15 +6383,21 @@ mod tests {
     /// saved change, a failed one, a row a variable or a flag holds, the
     /// pane over a session, and without a place for the file.
     fn settings_screen(state: &str, width: u16, height: u16) -> TestBackend {
-        use crate::settings::{Lock, SettingsStore};
+        use crate::settings::{Lock, Locks, SettingsStore};
 
-        let lock = |lock, layout| Some((layout, lock));
+        let held = |lock, layout| {
+            Some(Locks {
+                context: Some((layout, lock)),
+                ..Locks::default()
+            })
+        };
+        let free = Some(Locks::default());
         let (settings, session, keys_pressed, notice) = match state {
-            "default" => (Some(None), false, ",", None),
-            "width" => (Some(None), false, ",j", None),
-            "context" => (Some(None), false, ",jj", None),
+            "default" => (free, false, ",", None),
+            "width" => (free, false, ",j", None),
+            "context" => (free, false, ",jj", None),
             "changed" => (
-                Some(None),
+                free,
                 false,
                 ",l",
                 Some(Notice::new(
@@ -6399,33 +6405,33 @@ mod tests {
                     "✔ saved diffs open as: side by side",
                 )),
             ),
-            "over_a_session" => (Some(None), true, ",", None),
+            "over_a_session" => (free, true, ",", None),
             "locked_variable" => (
-                Some(lock(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Below)),
+                held(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Below),
                 false,
                 ",jj",
                 None,
             ),
             "locked_variable_beside" => (
-                Some(lock(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Beside)),
+                held(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Beside),
                 false,
                 ",jj",
                 None,
             ),
             "locked_variable_auto" => (
-                Some(lock(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Auto)),
+                held(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Auto),
                 false,
                 ",jj",
                 None,
             ),
             "locked_flag" => (
-                Some(lock(Lock::Flag("--layout"), PaneLayout::Below)),
+                held(Lock::Flag("--layout"), PaneLayout::Below),
                 false,
                 ",jj",
                 None,
             ),
             "failed" => (
-                Some(None),
+                free,
                 false,
                 ",l",
                 Some(Notice::new(
@@ -6433,11 +6439,24 @@ mod tests {
                     "cannot save the setting: settings.toml does not parse (line 1), so it is left as it is; the choice holds until asqr quits",
                 )),
             ),
+            "keep_files" => (free, false, ",jjj", None),
+            "keep_files_locked" => (
+                Some(Locks {
+                    keep_files: Some((
+                        crate::keep::KeepFiles::Exact,
+                        Lock::Variable("ASQR_KEEP_FILES"),
+                    )),
+                    ..Locks::default()
+                }),
+                false,
+                ",jjj",
+                None,
+            ),
             "no_file" => (None, false, ",", None),
             other => panic!("no state {other}"),
         };
         let store = match settings {
-            Some(lock) => SettingsStore::load(Some(PathBuf::from(CONFIG)), lock).store,
+            Some(locks) => SettingsStore::load(Some(PathBuf::from(CONFIG)), locks).store,
             None => SettingsStore::default(),
         };
         let mut app = App::with_settings(store);
@@ -6487,6 +6506,10 @@ mod tests {
         settings_locked_flag_120x40: "locked_flag", 120 x 40;
         settings_failed_80x24: "failed", 80 x 24;
         settings_failed_120x40: "failed", 120 x 40;
+        settings_keep_files_80x24: "keep_files", 80 x 24;
+        settings_keep_files_120x40: "keep_files", 120 x 40;
+        settings_keep_files_locked_80x24: "keep_files_locked", 80 x 24;
+        settings_keep_files_locked_120x40: "keep_files_locked", 120 x 40;
         settings_no_file_80x24: "no_file", 80 x 24;
         settings_no_file_120x40: "no_file", 120 x 40;
         settings_locked_variable_60x15: "locked_variable", 60 x 15;

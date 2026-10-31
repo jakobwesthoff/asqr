@@ -12,6 +12,8 @@ settings may also come from a file
 Amends [30. Cap the question at a reading width and place context by the terminal's shape](0030-cap-the-question-at-a-reading-width-and-place-context-by-the-terminals-shape.md):
 the reading width is a setting
 
+Amended by [100. Keep the files a finished session showed](0100-keep-the-files-a-finished-session-showed.md)
+
 ## Context
 
 - ADR 15 has settings come from flags and environment variables only,

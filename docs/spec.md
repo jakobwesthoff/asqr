@@ -756,17 +756,19 @@ directory (ADR 92): `~/Library/Application Support/asqr/settings.toml`
 on macOS, `$XDG_CONFIG_HOME/asqr/settings.toml` (usually
 `~/.config/asqr/settings.toml`) on Linux. Only `asqr` and `asqr watch`
 read it; every other command leaves it alone. It is a TOML file with
-three keys, each of which may be left out:
+four keys, each of which may be left out:
 
 | Key | Values | Default | Setting |
 | :- | :- | :- | :- |
 | `diff_layout` | `"unified"`, `"side-by-side"` | `"unified"` | how a diff shows when it comes into view (section 8.5) |
 | `max_question_width` | `80`, `100`, `120`, `"full"` | `100` | the widest a question's text gets (section 7.4) |
 | `context` | `"auto"`, `"beside"`, `"below"` | `"auto"` | where the context goes (section 7.4) |
+| `keep_files` | `"compact"`, `"exact"`, `"off"` | `"compact"` | what asqr keeps of the files a finished session showed (section 5.1) |
 
 - A flag wins over an environment variable, an environment variable over
-  the file, and the file over the default. Only `context` has a flag and
-  a variable, `--layout` and `ASQR_LAYOUT` (section 6.2).
+  the file, and the file over the default. `context` has a flag and a
+  variable, `--layout` and `ASQR_LAYOUT`; `keep_files` has a variable,
+  `ASQR_KEEP_FILES` (section 6.2).
 - The settings pane (section 7.6) writes only the key it changes. It
   reads the file again before each write, so what the person or another
   asqr changed meanwhile stays, and the file keeps every comment, every
@@ -1299,8 +1301,15 @@ the settings file does (section 5.2), and without that it is `auto`. A
 `--layout` after `watch` wins over one before it. An empty
 `ASQR_LAYOUT` counts as unset. Any other value than `auto`, `beside` or
 `below` is a usage error when asqr watches the queue; the other
-commands ignore the variable. The other two settings, `diff_layout` and
-`max_question_width`, have no flag and no variable.
+commands ignore the variable. The settings `diff_layout` and
+`max_question_width` have no flag and no variable.
+
+`ASQR_KEEP_FILES` sets the `keep_files` setting (section 5.2) to
+`compact`, `exact` or `off`, and wins over the settings file. An empty
+`ASQR_KEEP_FILES` counts as unset. Any other value is a usage error when
+asqr watches the queue, printed as `error: ASQR_KEEP_FILES must be
+compact, exact or off, not "<value>"`; the other commands ignore the
+variable.
 
 `NO_COLOR` (<https://no-color.org>) set to any value but the empty one
 makes the TUI draw without colours (section 7.3), a value that is not
@@ -1314,7 +1323,7 @@ paths then show whole.
 Every variable asqr reads:
 
 - `ASQR_QUEUE`, `ASQR_DIR` and `ASQR_LOG` (section 5.2), and
-  `ASQR_LAYOUT` (above). The tmux session variable `ASQR_SESSION_QUEUE`
+  `ASQR_LAYOUT` and `ASQR_KEEP_FILES` (above). The tmux session variable `ASQR_SESSION_QUEUE`
   is read through tmux (section 5.2).
 - `NO_COLOR` and `HOME` (above).
 - `TMUX` and `TMUX_PANE` (sections 5.2 and 8.9), `TERM` (sections 7.9
@@ -2214,8 +2223,9 @@ Overlays and dialogs:
   the edge names none.
   - One row per setting: `Diffs open as` with `one column` or `side by
     side`, `Max question width` with `80 columns`, `100 columns`, `120
-    columns` or `full width`, and `Context` with `beside or below`,
-    `always beside` or `always below`. The row under the cursor has a
+    columns` or `full width`, `Context` with `beside or below`,
+    `always beside` or `always below`, and `Keep files` with `compact
+    copies`, `exact copies` or `no copies`. The row under the cursor has a
     pointer, the focus fill and its value between `‹` and `›`; the other
     rows show their value in bold.
   - `↑`/`↓` and `k`/`j` move, `←`/`→` and `h`/`l` change the value of
@@ -2233,12 +2243,14 @@ Overlays and dialogs:
     | `Diffs open as` | How a diff shows when you come to it. The s key still switches the diff you look at. | `One column: removed and added lines one below the other.` (default); `Side by side: the old version on the left, the new one on the right.` |
     | `Max question width` | The widest a question's text may get; on a narrower terminal it gets narrower. | `80 columns: lines wrap after at most 80 characters.`, the same for 100 (default) and 120; `Full width: lines use the whole width of the terminal.` |
     | `Context` | Where the files, images and diffs that come with a question show. | `Beside or below: beside the question when the terminal is wide enough, otherwise below it.` (default); `Always beside: next to the question whenever it fits, even on a tall terminal.`; `Always below: under the question whenever it fits, even on a wide terminal.` |
+    | `Keep files` | Whether asqr copies the files a session showed into its archive when you finish it, so asqr replay can show them later. | `Compact copies: images are kept as WebP copies, about a fifth of their size; every other file is kept as it is.` (default); `Exact copies: every file is kept byte for byte, images included.`; `No copies: no file is kept. asqr still records each file's size and checksum, so a replay can tell the file is gone.` |
 
     The frame is as tall as the tallest footer any row can show in this
     run, so it keeps its height as the cursor moves.
-  - A setting a flag or a variable holds is locked. Only `Context` can
-    be: `--layout` and `ASQR_LAYOUT` hold it (section 6.2), the flag
-    first. Its row shows the value in effect dim, without `‹ ›`, and
+  - A setting a flag or a variable holds is locked. Only `Context` and
+    `Keep files` can be. `--layout` and `ASQR_LAYOUT` hold `Context`
+    (section 6.2), the flag first; `ASQR_KEEP_FILES` holds `Keep files`.
+    A locked row shows the value in effect dim, without `‹ ›`, and
     beside it, dim, `set by --layout` or `set by ASQR_LAYOUT`. `←`/`→`
     do nothing there and no notice shows, and the key bar leaves out
     `←/→  change`. The footer says what holds the row and what to do. For
@@ -2252,11 +2264,18 @@ Overlays and dialogs:
     beside the question when it fits` and `this run shows context beside
     the question when it fits`, with `auto` `asqr picks beside or below
     by the terminal's shape` and `this run picks beside or below by the
-    terminal's shape`.
+    terminal's shape`. For `ASQR_KEEP_FILES=exact`: `Your shell sets
+    ASQR_KEEP_FILES=exact, so asqr keeps every file byte for byte,
+    whatever you choose here. To choose here, remove ASQR_KEEP_FILES from
+    your shell setup (for example ~/.zshrc) and start asqr again.` With
+    `compact` the middle reads `asqr keeps images as WebP copies and
+    every other file as it is`, with `off` `asqr keeps no files`.
   - A change applies at once: the question's width and the place of the
     context from the next draw, and the layout diffs open in for every
     session, the one shown included, except a diff switched with `s`,
-    which keeps its layout (section 8.5).
+    which keeps its layout (section 8.5). A change of `Keep files`
+    applies to the next session the person finishes. The saved notice
+    reads `✔ saved keep files: compact copies`.
 - A key pressed while the dialog of an invalid session shows (section
   7.9) closes it and does nothing else. While it shows, the key bar says
   `any key  close`.

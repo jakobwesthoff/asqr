@@ -598,6 +598,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::settings::Locks;
     use std::cell::RefCell;
     use std::collections::BTreeSet;
     use std::fs;
@@ -1874,7 +1875,7 @@ mod tests {
         let mut harness = two_queues();
         let config = harness.scratch.path().join("settings.toml");
         fs::write(&config, "diff_layout = \"side-by-side\"\n").expect("written");
-        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let settings = SettingsStore::load(Some(config.clone()), Locks::default()).store;
         let (mut app, mut inbox) =
             start(harness.location.clone(), settings.clone()).expect("started");
 
@@ -1905,7 +1906,7 @@ mod tests {
     fn a_setting_changed_in_the_pane_is_saved_and_said_in_the_status_line() {
         let mut harness = two_queues();
         let config = harness.scratch.path().join("settings.toml");
-        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let settings = SettingsStore::load(Some(config.clone()), Locks::default()).store;
         let (mut app, mut inbox) = start(harness.location.clone(), settings).expect("started");
         let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
 

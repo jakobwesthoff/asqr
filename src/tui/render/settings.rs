@@ -22,7 +22,7 @@ use super::theme;
 use super::wrap::wrap;
 use crate::settings::{Setting, SettingsStore};
 use crate::tui::{
-    SettingsPane, about, absolute_with_home_as_tilde, label, lock_label, lock_text, meaning,
+    SettingsPane, about, absolute_with_home_as_tilde, label, lock_label, lock_text_of, meaning,
     value_name,
 };
 
@@ -133,7 +133,7 @@ fn row(setting: Setting, current: bool, store: &SettingsStore, inner: usize) -> 
 fn footer(setting: Setting, store: &SettingsStore, inner: usize) -> Vec<Line<'static>> {
     let paragraph = |text: String| wrap(Line::from(text), inner, 0, 0);
     if let Some(lock) = store.lock(setting) {
-        return paragraph(lock_text(lock, store.effective().context));
+        return paragraph(lock_text_of(setting, lock, &store.effective()));
     }
     let mut lines = paragraph(about(setting).to_owned());
     lines.push(Line::default());
@@ -175,13 +175,21 @@ mod tests {
     use super::super::panes::PaneLayout;
     use super::super::test_support::{find, row, rows};
     use super::*;
-    use crate::settings::Lock;
+    use crate::keep::KeepFiles;
+    use crate::settings::{Lock, Locks};
 
     const CONFIG: &str = "/home/me/Library/Application Support/asqr/settings.toml";
 
     fn store(lock: Option<Lock>) -> SettingsStore {
-        let lock = lock.map(|lock| (PaneLayout::Below, lock));
-        SettingsStore::load(Some(PathBuf::from(CONFIG)), lock).store
+        let context = lock.map(|lock| (PaneLayout::Below, lock));
+        SettingsStore::load(
+            Some(PathBuf::from(CONFIG)),
+            Locks {
+                context,
+                ..Locks::default()
+            },
+        )
+        .store
     }
 
     fn pane_at(rows_down: usize) -> SettingsPane {
@@ -229,15 +237,19 @@ mod tests {
             frame[3].trim_end_matches(['│', ' ']),
             "│   Context             beside or below"
         );
+        assert_eq!(
+            frame[4].trim_end_matches(['│', ' ']),
+            "│   Keep files          compact copies"
+        );
     }
 
     #[test]
     fn a_dotted_rule_and_the_footer_for_the_row_under_the_cursor_follow() {
         let frame = frame(&drawn(0, &store(None)));
 
-        assert!(frame[4].starts_with("│ ┄┄┄"), "{frame:#?}");
-        assert!(frame[4].trim_end_matches(['│', ' ']).ends_with('┄'));
-        let footer = frame[5..frame.len() - 1].join("\n");
+        assert!(frame[5].starts_with("│ ┄┄┄"), "{frame:#?}");
+        assert!(frame[5].trim_end_matches(['│', ' ']).ends_with('┄'));
+        let footer = frame[6..frame.len() - 1].join("\n");
         assert!(
             footer.contains("How a diff shows when you come to it."),
             "{footer}"
@@ -269,7 +281,7 @@ mod tests {
         assert!(row.contains("❯ Context"), "{row}");
         assert!(row.contains("always below   set by ASQR_LAYOUT"), "{row}");
         assert!(!row.contains('‹') && !row.contains('›'), "{row}");
-        let footer = frame[5..frame.len() - 1].join(" ");
+        let footer = frame[6..frame.len() - 1].join(" ");
         assert!(
             footer.contains("Your shell sets ASQR_LAYOUT=below"),
             "{footer}"
@@ -298,6 +310,36 @@ mod tests {
             flagged.contains("You started asqr with --layout below"),
             "{flagged}"
         );
+    }
+
+    #[test]
+    fn a_held_keep_files_row_shows_its_value_dimmed_with_what_sets_it() {
+        let held = SettingsStore::load(
+            Some(PathBuf::from(CONFIG)),
+            Locks {
+                keep_files: Some((KeepFiles::Off, Lock::Variable("ASQR_KEEP_FILES"))),
+                ..Locks::default()
+            },
+        )
+        .store;
+        let buf = drawn(3, &held);
+        let frame = frame(&buf);
+
+        let row = &frame[4];
+        assert!(row.contains("❯ Keep files"), "{row}");
+        assert!(row.contains("no copies   set by ASQR_KEEP_FILES"), "{row}");
+        assert!(!row.contains('‹') && !row.contains('›'), "{row}");
+        let footer = frame[6..frame.len() - 1].join(" ");
+        assert!(
+            footer.contains("Your shell sets ASQR_KEEP_FILES=off, so asqr keeps no files"),
+            "{footer}"
+        );
+        for text in ["no copies", "set by ASQR_KEEP_FILES"] {
+            assert!(
+                buf[find(&buf, text)].modifier.contains(Modifier::DIM),
+                "{text}"
+            );
+        }
     }
 
     fn frame_of_flag() -> String {
@@ -332,11 +374,12 @@ mod tests {
             Some(Lock::Flag("--layout")),
         ] {
             let store = store(lock);
-            let heights: Vec<_> = (0..3)
+            let heights: Vec<_> = (0..4)
                 .map(|down| frame(&drawn(down, &store)).len())
                 .collect();
             assert_eq!(heights[0], heights[1], "{lock:?}");
             assert_eq!(heights[1], heights[2], "{lock:?}");
+            assert_eq!(heights[2], heights[3], "{lock:?}");
         }
         let unlocked = frame(&drawn(0, &store(None))).len();
         let locked = frame(&drawn(0, &store(Some(Lock::Variable("ASQR_LAYOUT"))))).len();
@@ -369,7 +412,7 @@ mod tests {
     #[test]
     fn a_path_too_long_for_the_frame_widens_it_and_then_loses_its_start() {
         let long = PathBuf::from(format!("/home/me/{}settings.toml", "folder/".repeat(12)));
-        let long_store = SettingsStore::load(Some(long), None).store;
+        let long_store = SettingsStore::load(Some(long), Locks::default()).store;
 
         let wide = frame(&drawn_in(120, 30, &pane_at(0), &long_store));
         assert!(wide.last().expect("edge").contains("folder/settings.toml"));

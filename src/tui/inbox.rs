@@ -657,7 +657,7 @@ mod tests {
     use crate::queue::{
         Archived, Withdrawn, archive_name, drop_session, parse_archive_name, save_draft,
     };
-    use crate::settings::SettingsStore;
+    use crate::settings::{Locks, SettingsStore};
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
@@ -725,7 +725,7 @@ mod tests {
     fn a_changed_setting_is_written_and_says_so_in_green() {
         let (scratch, location) = queue();
         let config = scratch.path().join("settings.toml");
-        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let settings = SettingsStore::load(Some(config.clone()), Locks::default()).store;
         let (mut inbox, mut app) = (Inbox::new(location), App::with_settings(settings));
         let effect = changed(&mut app, 0);
 
@@ -749,7 +749,7 @@ mod tests {
         let (scratch, location) = queue();
         let config = scratch.path().join("settings.toml");
         fs::write(&config, "context =\n").expect("written");
-        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let settings = SettingsStore::load(Some(config.clone()), Locks::default()).store;
         let (mut inbox, mut app) = (Inbox::new(location), App::with_settings(settings));
         let effect = changed(&mut app, 1);
 
@@ -776,7 +776,7 @@ mod tests {
         let config = scratch.path().join("settings.toml");
         fs::write(&config, "# mine\n").expect("written");
         fs::set_permissions(&config, fs::Permissions::from_mode(0o444)).expect("chmod");
-        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let settings = SettingsStore::load(Some(config.clone()), Locks::default()).store;
         let (mut inbox, mut app) = (Inbox::new(location), App::with_settings(settings));
         let effect = changed(&mut app, 0);
 
@@ -2626,6 +2626,28 @@ mod tests {
             assert!(job.archived.path.starts_with(location.archive()));
             assert_eq!(job.archived.bytes, bytes);
             assert!(matches!(job.snapshot.places[0].seen, Seen::Read(_)));
+        }
+
+        #[test]
+        fn a_change_of_the_row_takes_effect_for_the_next_finish() {
+            let (scratch, location, _picture) = showing_a_picture();
+            let (worker, jobs) = collecting();
+            let settings =
+                SettingsStore::load(Some(scratch.path().join("settings.toml")), Locks::default())
+                    .store;
+            let (mut inbox, mut app) = (Inbox::new(location), App::with_settings(settings));
+            inbox.set_keeper(worker);
+            // The Keep files row is the fourth; `→` moves it from compact
+            // copies to exact copies. The pane opens before the session
+            // arrives, as `,` would type into its text field otherwise.
+            let effect = changed(&mut app, 3);
+            inbox.apply(&mut app, effect);
+            inbox.sync(&mut app).expect("synced");
+
+            inbox.apply(&mut app, submit("hero"));
+
+            let job = jobs.recv_timeout(Duration::from_secs(30)).expect("a job");
+            assert_eq!(job.mode, crate::keep::KeepFiles::Exact);
         }
 
         #[test]

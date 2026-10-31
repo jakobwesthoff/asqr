@@ -7,6 +7,7 @@ This part holds:
 - the entry types `image`, `code`, `markdown`, `ansi` and `diff`
 - how asqr shows a diff, a code entry and a Markdown entry
 - the size limits of an entry
+- how long a file an entry shows must exist
 - the `image` field questions and options no longer have
 
 Every entry has a `type` and an optional `title`:
@@ -136,6 +137,10 @@ Every entry has a `type` and an optional `title`:
   lines of each text, each side of a diff on its own, with a note where
   it cuts, and `validate` and `ask` warn about more lines. Show an excerpt instead
   of a whole large file.
+- The files an entry shows by path must exist until `asqr wait` returns.
+  asqr reads them when the person finishes the session and copies them
+  into its archive, so a temporary file may go after that. A file that
+  is gone by then is recorded as gone.
 - Questions and options have no `image` field. A file that still uses
   one gets a warning, and the image does not show.
 

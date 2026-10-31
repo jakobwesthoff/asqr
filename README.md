@@ -97,9 +97,12 @@ asqr reads its settings from `settings.toml` in the platform's config
 directory (`~/Library/Application Support/asqr/` on macOS,
 `$XDG_CONFIG_HOME/asqr/` on Linux): `diff_layout` (`"unified"` or
 `"side-by-side"`) for how a diff shows first, `max_question_width` (`80`,
-`100`, `120` or `"full"`) for the widest a question gets, and `context`
-(`"auto"`, `"beside"` or `"below"`) for where the context goes. A flag or
-an environment variable wins over the file, and a file asqr cannot read
+`100`, `120` or `"full"`) for the widest a question gets, `context`
+(`"auto"`, `"beside"` or `"below"`) for where the context goes, and
+`keep_files` (`"compact"`, `"exact"` or `"off"`) for what asqr copies of
+the files a session showed when you finish it. `ASQR_KEEP_FILES` sets the
+last one from the environment. A flag or an environment variable wins
+over the file, and a file asqr cannot read
 only costs the settings it holds: the defaults apply, with a warning.
 `,` opens a settings pane that changes them with `←`/`→`, saves each
 change at once and explains the row under the cursor; a setting a flag or

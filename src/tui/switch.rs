@@ -360,6 +360,7 @@ mod tests {
 
     use super::*;
     use crate::queue::lock_holder;
+    use crate::settings::Locks;
 
     /// A tmux that names the session of asqr's pane `asqr` and has pane
     /// `%7` in session `ntropy`, and keeps the calls.
@@ -684,7 +685,7 @@ mod tests {
         let target = QueueLocation::named(scratch.path(), "work");
         let config = scratch.path().join("settings.toml");
         std::fs::write(&config, "context = \"below\"\n").expect("written");
-        let settings = SettingsStore::load(Some(config), None).store;
+        let settings = SettingsStore::load(Some(config), Locks::default()).store;
 
         let taken = take_picked(&target, &settings, || {}).expect("taken");
 
