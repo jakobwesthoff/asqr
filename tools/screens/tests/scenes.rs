@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use assert_cmd::Command;
 use image::codecs::png::CompressionType;
 use screens::fonts::{CELL_HEIGHT, CELL_WIDTH};
-use screens::raster::{PADDING, encode_png, rasterize};
+use screens::raster::{PADDING, encode_png};
 use screens::scene::read_scene;
 use screens::{LOAD_CAP, scenes_dir};
 
@@ -29,8 +29,7 @@ fn scene_files() -> Vec<PathBuf> {
 /// The picture of the scene in `file`, as PNG bytes.
 fn picture(file: &Path) -> Vec<u8> {
     let scene = read_scene(file).expect("the scene parses");
-    let buf = screens::play::play(&scene, file, LOAD_CAP).expect("the scene plays");
-    let image = rasterize(&buf).expect("the fonts have every glyph");
+    let image = screens::draw(&scene, file, LOAD_CAP).expect("the scene draws");
     encode_png(&image, CompressionType::Fast)
 }
 

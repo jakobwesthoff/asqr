@@ -11,15 +11,17 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use image::RgbImage;
 use image::codecs::png::CompressionType;
 
 use crate::play::play;
 use crate::raster::{encode_png, rasterize};
-use crate::scene::read_scene;
+use crate::scene::{Scene, image_file, read_scene};
 
 pub mod fonts;
 pub mod paint;
 pub mod palette;
+pub mod picture;
 pub mod play;
 pub mod raster;
 pub mod scene;
@@ -92,6 +94,26 @@ pub fn scene_files(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     Ok(scenes)
 }
 
+/// The picture of `scene`, read from `scene_file`, waiting at most `cap`
+/// for each context entry to load. A scene with an `image` gets that
+/// picture painted where the screen shows the image ([`picture`]).
+pub fn draw(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<RgbImage> {
+    let image = image_file(scene, scene_file)?
+        .map(|file| {
+            image::open(&file).with_context(|| format!("reading the image {}", file.display()))
+        })
+        .transpose()?;
+    let mut buffer = play(scene, scene_file, cap)?;
+    let Some(image) = image else {
+        return Ok(rasterize(&buffer)?);
+    };
+    let cells = picture::image_cells(&buffer)?;
+    picture::clear_cells(&mut buffer, cells);
+    let mut drawn = rasterize(&buffer)?;
+    picture::paint(&mut drawn, cells, &image);
+    Ok(drawn)
+}
+
 /// Draws each scene file of `scenes` into `out`, as `<name>.png`, and
 /// writes `index.md` there, which shows every picture under its caption.
 /// Returns the files it wrote.
@@ -106,8 +128,7 @@ pub fn draw_scenes(
     let mut index = String::new();
     for file in scenes {
         let scene = read_scene(file)?;
-        let picture = play(&scene, file, LOAD_CAP)
-            .and_then(|buffer| Ok(rasterize(&buffer)?))
+        let picture = draw(&scene, file, LOAD_CAP)
             .with_context(|| format!("drawing the scene {}", file.display()))?;
         let name = file
             .file_stem()
@@ -264,5 +285,75 @@ mod tests {
                 .contains("![The help over a session, with the screen behind it dimmed](help.png)"),
             "{index}"
         );
+    }
+
+    // =================================================================
+    // A picture painted where the image shows
+    // =================================================================
+
+    const RED: [u8; 3] = [220, 30, 30];
+
+    /// A scene in `dir` whose one question shows `picture.png` at its
+    /// natural size, with `image` naming that picture, and the scene file.
+    /// The picture is 37 by 39 pixels: red in its first 20 columns and
+    /// transparent in the rest, so its edge falls inside its second cell.
+    fn picture_scene(dir: &Path) -> PathBuf {
+        let picture = image::RgbaImage::from_fn(37, 39, |x, _| {
+            if x < 20 {
+                image::Rgba([RED[0], RED[1], RED[2], 255])
+            } else {
+                image::Rgba([0, 0, 0, 0])
+            }
+        });
+        picture
+            .save(dir.join("picture.png"))
+            .expect("the picture is written");
+        std::fs::write(
+            dir.join("session.json"),
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text",
+                "context": [{"type": "image", "path": "picture.png", "enlarge": false}]}]}"#,
+        )
+        .expect("the session is written");
+        let scene_file = dir.join("scene.toml");
+        std::fs::write(
+            &scene_file,
+            "caption = \"c\"\ncolumns = 120\nrows = 30\nimage = \"picture.png\"\n\
+             [[sessions]]\nfile = \"session.json\"\n",
+        )
+        .expect("the scene is written");
+        scene_file
+    }
+
+    /// The top left cell of the cells half blocks drew the image into: those
+    /// with an RGB background, which asqr's own drawing never has.
+    fn image_origin(buffer: &ratatui::buffer::Buffer) -> (u32, u32) {
+        let area = buffer.area;
+        (0..area.height)
+            .flat_map(|y| (0..area.width).map(move |x| (x, y)))
+            .find(|&(x, y)| matches!(buffer[(x, y)].bg, ratatui::style::Color::Rgb(..)))
+            .map(|(x, y)| {
+                (
+                    raster::PADDING + u32::from(x) * fonts::CELL_WIDTH,
+                    raster::PADDING + u32::from(y) * fonts::CELL_HEIGHT,
+                )
+            })
+            .expect("the image shows in half blocks")
+    }
+
+    #[test]
+    fn the_scene_s_picture_is_painted_into_the_image_s_cells_over_the_background() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let scene_file = picture_scene(dir.path());
+        let scene = read_scene(&scene_file).expect("the scene parses");
+        let (left, top) = image_origin(&play(&scene, &scene_file, LOAD_CAP).expect("plays"));
+
+        let picture = draw(&scene, &scene_file, LOAD_CAP).expect("draws");
+
+        let at = |x: u32| picture.get_pixel(left + x, top + 10).0;
+        // Pixels 16 and 25 lie in the image's second cell, which a half
+        // block can only fill in one colour from side to side.
+        assert_eq!(at(16), RED, "an opaque pixel of the picture");
+        assert_eq!(at(25), palette::BACKGROUND, "a transparent pixel");
+        assert_eq!(at(40), palette::BACKGROUND, "the padding after the picture");
     }
 }
