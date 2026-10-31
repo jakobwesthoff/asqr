@@ -23,13 +23,17 @@ use crate::keep::record::is_kept_name;
 use crate::keep::sha256_hex;
 use crate::regular_file;
 
+/// The state of a file whose path the archived session names without any
+/// record of what it showed there.
+pub const NOT_RECORDED: &str = "not_recorded";
+
 /// What the archived session recorded about one file it showed, and what
 /// became of the copy on load.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplayFile {
     /// Where the file lay when the session was finished.
     pub original_path: String,
-    /// `kept`, `not_kept`, `missing` or `unreadable`.
+    /// `kept`, `not_kept`, `missing`, `unreadable` or [`NOT_RECORDED`].
     pub state: String,
     pub sha256: Option<String>,
     pub size: Option<u64>,
@@ -43,6 +47,14 @@ pub struct ReplayFile {
     /// Why a kept file cannot be shown: its copy is gone or does not hash
     /// to its name.
     pub damaged: Option<String>,
+}
+
+impl ReplayFile {
+    /// Whether a good copy of the file was written out on load, so that the
+    /// path the session names it at holds what the session showed.
+    pub fn is_shown(&self) -> bool {
+        self.state == "kept" && self.damaged.is_none()
+    }
 }
 
 /// A finished session ready to be shown.
@@ -92,7 +104,24 @@ pub fn load_replay(
 
     let mut files = HashMap::new();
     for (_, object) in places_mut(&mut raw) {
+        // A path without a record names a file asqr did not keep: showing
+        // what lies there now would show something the session never did.
         let Some(shown) = object.get("shown").cloned() else {
+            let path = object["path"].as_str().unwrap_or_default().to_owned();
+            files.insert(
+                path.clone(),
+                ReplayFile {
+                    original_path: path,
+                    state: NOT_RECORDED.to_owned(),
+                    sha256: None,
+                    size: None,
+                    modified: None,
+                    kept_size: None,
+                    reason: None,
+                    copy: None,
+                    damaged: None,
+                },
+            );
             continue;
         };
         let original = shown_text(&shown, "original_path")

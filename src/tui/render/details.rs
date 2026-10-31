@@ -16,12 +16,12 @@ use ratatui::widgets::{Paragraph, Widget, Wrap};
 use super::overlay::{overlay_block, popup};
 use super::problem::{Card, Severity};
 use super::theme;
-use crate::queue::ReplayFile;
+use crate::queue::{NOT_RECORDED, ReplayFile};
 use crate::tui::{ReplayInfo, human_size, modified_text, short_sha};
 
 /// The card that stands in place of a file the replay cannot show: one
-/// the archive could not read, one it did not keep and one whose copy is
-/// gone or damaged. `None` for a kept file, which shows as itself.
+/// the archive could not read, one it did not keep, one it has no record
+/// of and one whose copy is gone or damaged. `None` for a kept file, which shows as itself.
 pub(super) fn card_for(file: &ReplayFile, info: &ReplayInfo) -> Option<Card> {
     if let Some(damaged) = &file.damaged {
         let mut headline = damaged.clone();
@@ -36,6 +36,11 @@ pub(super) fn card_for(file: &ReplayFile, info: &ReplayInfo) -> Option<Card> {
     }
     let reason = |default: &str| file.reason.clone().unwrap_or_else(|| default.to_owned());
     match file.state.as_str() {
+        NOT_RECORDED => Some(Card::told(
+            Severity::Warning,
+            "Not recorded: this session was archived without its files",
+            vec![file.original_path.clone()],
+        )),
         "missing" => Some(Card::told(
             Severity::Error,
             "Missing when the session finished",

@@ -1041,3 +1041,128 @@ fn an_ansi_and_a_markdown_file_are_named_by_their_title_or_else_by_the_original(
         assert!(untitled.contains(" session.out "), "{kind}: {untitled}");
     }
 }
+
+// =========================================================
+// Files the archive has no record of
+// =========================================================
+
+const LIVE_TEXT: &str = "LIVE_ON_DISK_NOW";
+
+/// A file of `dir` that holds text no archived session ever showed.
+fn live_file(dir: &std::path::Path, name: &str) -> String {
+    let path = dir.join(name);
+    std::fs::write(&path, format!("{LIVE_TEXT}\n")).expect("written");
+    path.to_str().expect("UTF-8").to_owned()
+}
+
+fn unrecorded(path: &str) -> ReplayFile {
+    ReplayFile {
+        original_path: path.to_owned(),
+        ..record("not_recorded")
+    }
+}
+
+#[test]
+fn a_file_without_a_record_gets_the_card_and_never_shows_what_lies_there_now() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = live_file(dir.path(), "notes.txt");
+    let app = app_showing(
+        serde_json::json!({"type": "code", "path": path}),
+        vec![(path.clone(), unrecorded(&path))],
+        None,
+    );
+
+    let backend = screen(&app, 120, 30);
+    let text = rows(backend.buffer()).join("\n");
+
+    // The card wraps its headline at its own width.
+    assert!(
+        text.contains("! Not recorded: this session was archived without"),
+        "{text}"
+    );
+    assert!(text.contains("its files"), "{text}");
+    assert!(!text.contains(LIVE_TEXT), "{text}");
+    assert_eq!(
+        style_at(backend.buffer(), "! Not recorded").fg,
+        theme::warning().fg
+    );
+}
+
+#[test]
+fn a_diff_with_a_side_without_a_record_gets_the_card_and_never_shows_the_files_on_disk() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let old = live_file(dir.path(), "old.rs");
+    let new = live_file(dir.path(), "new.rs");
+    let app = app_showing(
+        serde_json::json!({"type": "diff", "old": {"path": old}, "new": {"path": new}}),
+        vec![
+            (old.clone(), unrecorded(&old)),
+            (new.clone(), unrecorded(&new)),
+        ],
+        None,
+    );
+
+    let text = text_of(&app, 120, 30);
+
+    assert!(text.contains("! Not recorded: this session"), "{text}");
+    assert!(!text.contains(LIVE_TEXT), "{text}");
+}
+
+#[test]
+fn a_diff_with_one_kept_side_and_one_side_without_a_record_shows_the_card_and_no_half() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let kept = live_file(dir.path(), "kept.rs");
+    let gone = live_file(dir.path(), "gone.rs");
+    let mut kept_file = record("kept");
+    kept_file.original_path = "/work/old.rs".to_owned();
+    kept_file.copy = Some(format!("files/{SHA}.dat"));
+    let app = app_showing(
+        serde_json::json!({"type": "diff", "old": {"path": kept}, "new": {"path": gone}}),
+        vec![(kept.clone(), kept_file), (gone.clone(), unrecorded(&gone))],
+        None,
+    );
+
+    let text = text_of(&app, 120, 30);
+
+    assert!(text.contains("! Not recorded: this session"), "{text}");
+    assert!(!text.contains(LIVE_TEXT), "{text}");
+}
+
+#[test]
+fn a_diff_with_a_missing_side_gets_that_sides_card() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let old = live_file(dir.path(), "old.rs");
+    let new = live_file(dir.path(), "new.rs");
+    let app = app_showing(
+        serde_json::json!({"type": "diff", "old": {"path": old}, "new": {"path": new}}),
+        vec![
+            (old.clone(), record("missing")),
+            (new.clone(), record("missing")),
+        ],
+        None,
+    );
+
+    let text = text_of(&app, 120, 30);
+
+    assert!(
+        text.contains("✗ Missing when the session finished"),
+        "{text}"
+    );
+    assert!(!text.contains(LIVE_TEXT), "{text}");
+}
+
+#[test]
+fn replay_not_recorded_screens() {
+    let path = "/tmp/claude-501/ci-run-8841/build.log".to_owned();
+    for (width, height) in [(80, 24), (120, 30)] {
+        let app = app_showing(
+            serde_json::json!({"type": "code", "path": path}),
+            vec![(path.clone(), unrecorded(&path))],
+            None,
+        );
+        insta::assert_snapshot!(
+            format!("replay_not_recorded_{width}x{height}"),
+            screen(&app, width, height)
+        );
+    }
+}

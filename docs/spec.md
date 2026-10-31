@@ -2917,8 +2917,14 @@ live session has `Review`.
   a file that was missing or unreadable when the session finished (`no
   copy, no fingerprint`, or the reason), a warning card for a file that
   was not kept (size, modification time and the first and last digits of
-  the SHA-256, and why where it was too large), and a red card for a kept
-  copy that is gone from the archive or does not hash to its name.
+  the SHA-256, and why where it was too large), a warning card for a path
+  the archived session names without any record (`Not recorded: this
+  session was archived without its files`), and a red card for a kept
+  copy that is gone from the archive or does not hash to its name. A
+  replay never draws the file at the original path in place of these.
+  A diff shows the card of its first side that has no good copy.
+  `o` opens an entry only when every file it names is a kept copy;
+  otherwise it says that the archive kept no copy.
 - The pane's bottom rule says what became of the file after the lines
   shown: `kept copy · 213 KB · d details`, `no copy · d details`,
   `fingerprint only · d details` or `damaged copy · d details`.
@@ -2926,8 +2932,9 @@ live session has `Review`.
   kept copy lies and the bundle it is stored in, the original path, the
   size of the original and of the copy in bytes, the modification time and
   the SHA-256 of the original and of the copy. Any key closes it. It opens
-  only for an entry that names a file the archive recorded; a diff names
-  two and has none.
+  only for an entry that names a file the archive recorded; for a diff it
+  describes the first side that has no good copy and does not open when
+  both sides are kept.
 - The key bar names `↑/↓ move`, `←/→ question`, `d details` where the entry
   shown has a recorded file, `tab context` where a pane shows, `? help` and
   `q quit`. The help lists the keys of a replay.

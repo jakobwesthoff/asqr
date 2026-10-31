@@ -326,3 +326,146 @@ fn enter_on_a_question_of_the_result_tab_goes_to_that_question() {
     assert_eq!(effect, Effect::None);
     assert_eq!(state.tab(), 0);
 }
+
+// =========================================================
+// `o` opens only what the archive kept
+// =========================================================
+
+fn file_in_archive(state: &str, damaged: Option<&str>) -> crate::queue::ReplayFile {
+    crate::queue::ReplayFile {
+        original_path: "/work/build.log".to_owned(),
+        state: state.to_owned(),
+        sha256: None,
+        size: None,
+        modified: None,
+        kept_size: None,
+        reason: None,
+        copy: None,
+        damaged: damaged.map(str::to_owned),
+    }
+}
+
+/// A replay whose one question shows `entry`, with `files` as what the
+/// archive recorded.
+fn replay_showing(
+    entry: serde_json::Value,
+    files: Vec<(&str, crate::queue::ReplayFile)>,
+) -> SessionState {
+    let session = serde_json::from_value(serde_json::json!({"asqr": 2, "title": "T",
+        "questions": [{"id": "q", "text": "?", "kind": "single",
+            "options": [{"id": "a", "label": "A"}], "context": [entry]}]}))
+    .expect("parses");
+    let info = ReplayInfo {
+        reference: "7C3FA19K".to_owned(),
+        outcome: crate::queue::HistoryOutcome::Sent,
+        finished: "Thu 29 Oct 16:41".to_owned(),
+        files: files
+            .into_iter()
+            .map(|(path, file)| (path.to_owned(), file))
+            .collect(),
+        bundle: None,
+        zone: jiff::tz::TimeZone::UTC,
+    };
+    SessionState::replay("t", session, None).with_replay_info(info)
+}
+
+fn refused(state: &mut SessionState) -> bool {
+    let effect = state.handle(typed('o'));
+    effect == Effect::None
+        && state
+            .message()
+            .is_some_and(|notice| notice.text.contains("kept no copy"))
+}
+
+fn code_at(path: &str) -> serde_json::Value {
+    serde_json::json!({"type": "code", "path": path})
+}
+
+#[test]
+fn o_is_refused_on_a_file_without_a_record() {
+    let mut state = replay_showing(
+        code_at("/work/build.log"),
+        vec![("/work/build.log", file_in_archive("not_recorded", None))],
+    );
+
+    assert!(refused(&mut state));
+}
+
+#[test]
+fn o_is_refused_on_a_file_that_was_missing() {
+    let mut state = replay_showing(
+        code_at("/work/build.log"),
+        vec![("/work/build.log", file_in_archive("missing", None))],
+    );
+
+    assert!(refused(&mut state));
+}
+
+#[test]
+fn o_is_refused_on_a_file_that_was_not_kept() {
+    let mut state = replay_showing(
+        code_at("/work/build.log"),
+        vec![("/work/build.log", file_in_archive("not_kept", None))],
+    );
+
+    assert!(refused(&mut state));
+}
+
+#[test]
+fn o_is_refused_on_a_file_that_could_not_be_read() {
+    let mut state = replay_showing(
+        code_at("/work/build.log"),
+        vec![("/work/build.log", file_in_archive("unreadable", None))],
+    );
+
+    assert!(refused(&mut state));
+}
+
+#[test]
+fn o_is_refused_on_a_damaged_copy_whose_path_is_relative() {
+    let mut state = replay_showing(
+        code_at("files/abc.dat"),
+        vec![(
+            "files/abc.dat",
+            file_in_archive("kept", Some("the kept copy is damaged")),
+        )],
+    );
+
+    assert!(refused(&mut state));
+}
+
+#[test]
+fn o_is_refused_on_a_diff_when_one_side_was_not_kept() {
+    let mut state = replay_showing(
+        serde_json::json!({"type": "diff",
+            "old": {"path": "/scratch/1/old.rs"}, "new": {"path": "/work/new.rs"}}),
+        vec![
+            ("/scratch/1/old.rs", file_in_archive("kept", None)),
+            ("/work/new.rs", file_in_archive("not_recorded", None)),
+        ],
+    );
+
+    assert!(refused(&mut state));
+}
+
+#[test]
+fn o_opens_a_kept_file_and_a_diff_of_two_kept_files() {
+    let mut file = state_of(code_at("/scratch/1/a.rs"), &["/scratch/1/a.rs"]);
+    let mut diff = state_of(
+        serde_json::json!({"type": "diff",
+            "old": {"path": "/scratch/1/old.rs"}, "new": {"path": "/scratch/2/new.rs"}}),
+        &["/scratch/1/old.rs", "/scratch/2/new.rs"],
+    );
+
+    assert!(matches!(file.handle(typed('o')), Effect::Open(_)));
+    assert!(matches!(diff.handle(typed('o')), Effect::Open(_)));
+}
+
+fn state_of(entry: serde_json::Value, kept: &[&str]) -> SessionState {
+    replay_showing(
+        entry,
+        kept.iter()
+            .map(|path| (*path, file_in_archive("kept", None)))
+            .collect(),
+    )
+}

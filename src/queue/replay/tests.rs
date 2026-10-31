@@ -498,15 +498,66 @@ fn walk(dir: &Path) -> Vec<String> {
 // =========================================================
 
 #[test]
-fn an_entry_without_a_record_of_its_files_is_left_as_it_is() {
+fn a_file_without_a_record_is_recorded_as_not_recorded_and_never_read_from_disk() {
     let scene = scene();
     let session = session_json(json!({"type": "image", "path": "/tmp/old.png"}));
     let entry = finish_loose(&scene, &session, &[], None);
 
     let loaded = load(&scene, &entry).expect("loaded");
 
-    assert_eq!(first_image_path(&loaded), "/tmp/old.png");
-    assert!(loaded.files.is_empty());
+    let file = &loaded.files["/tmp/old.png"];
+    assert_eq!(
+        (file.state.as_str(), file.original_path.as_str()),
+        ("not_recorded", "/tmp/old.png")
+    );
+    assert_eq!(file.copy, None);
+}
+
+#[test]
+fn both_sides_of_a_diff_without_a_record_are_recorded_as_not_recorded() {
+    let scene = scene();
+    let session = session_json(json!({"type": "diff",
+        "old": {"path": "/work/old.rs"}, "new": {"path": "/work/new.rs"}}));
+    let entry = finish_loose(&scene, &session, &[], None);
+
+    let loaded = load(&scene, &entry).expect("loaded");
+
+    let mut states: Vec<_> = loaded
+        .files
+        .iter()
+        .map(|(path, file)| (path.as_str(), file.state.as_str()))
+        .collect();
+    states.sort_unstable();
+    assert_eq!(
+        states,
+        [
+            ("/work/new.rs", "not_recorded"),
+            ("/work/old.rs", "not_recorded")
+        ]
+    );
+}
+
+#[test]
+fn a_path_without_a_record_next_to_a_kept_one_is_recorded_on_its_own() {
+    let scene = scene();
+    let (name, bytes) = copy(b"png", "webp");
+    let session = session_json(json!({"type": "diff",
+        "old": {"path": format!("files/{name}"), "shown": {
+            "original_path": "/work/old.rs", "state": "kept", "kept_size": 3}},
+        "new": {"path": "/work/new.rs"}}));
+    let entry = finish_loose(&scene, &session, &[(name, bytes)], None);
+
+    let loaded = load(&scene, &entry).expect("loaded");
+
+    assert_eq!(loaded.files["/work/new.rs"].state, "not_recorded");
+    assert_eq!(
+        loaded
+            .files
+            .values()
+            .filter(|file| file.state == "kept")
+            .count(),
+        1
+    );
 }
 
 #[test]

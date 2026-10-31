@@ -38,17 +38,28 @@ impl ReplayInfo {
     pub fn file_at(&self, path: &str) -> Option<&ReplayFile> {
         self.files.get(path)
     }
+
+    /// Whether `path` holds what the session showed: the archive kept the
+    /// file and its copy was written out there. Any other path names a
+    /// file on disk that may be something else by now, or nothing.
+    pub fn shows_copy_at(&self, path: &str) -> bool {
+        self.file_at(path).is_some_and(ReplayFile::is_shown)
+    }
 }
 
-/// The path of the file a context entry shows, where it shows one. A diff
-/// shows two and names none.
-pub fn entry_path(entry: &ContextEntry) -> Option<&str> {
+/// The paths of the files a context entry shows: none for an entry with
+/// inline content, one for most, up to two for a diff.
+pub fn entry_paths(entry: &ContextEntry) -> Vec<&str> {
     match entry {
-        ContextEntry::Image(image) => Some(&image.path),
-        ContextEntry::Code(code) => code.path.as_deref(),
-        ContextEntry::Markdown(markdown) => markdown.path.as_deref(),
-        ContextEntry::Ansi(ansi) => ansi.path.as_deref(),
-        ContextEntry::Diff(_) => None,
+        ContextEntry::Image(image) => vec![image.path.as_str()],
+        ContextEntry::Code(code) => code.path.as_deref().into_iter().collect(),
+        ContextEntry::Markdown(markdown) => markdown.path.as_deref().into_iter().collect(),
+        ContextEntry::Ansi(ansi) => ansi.path.as_deref().into_iter().collect(),
+        ContextEntry::Diff(diff) => [&diff.old, &diff.new]
+            .into_iter()
+            .flatten()
+            .filter_map(|side| side.path.as_deref())
+            .collect(),
     }
 }
 

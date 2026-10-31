@@ -144,14 +144,20 @@ rows, `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` keep their meaning.
   colour. The cursor still browses every option, since the option under it
   shows its own context. A withdrawn session's draft shows dim, with
   `◀ draft` on the option it picked.
-- A file the archive could not read, did not keep or no longer holds a
-  good copy of shows a card with the original path: red for a missing,
-  unreadable or damaged file, a warning for a file that was not kept, with
-  its size, time and fingerprint. The pane's bottom rule says what became
-  of the file, and `d` opens a frame with the copy, the original path,
-  size, time and SHA-256.
-- A diff names two files, so the cards, the bottom rule's words and `d`
-  do not apply to it; its kept sides show through the normal viewer.
+- A file the archive could not read, did not keep, has no record of or no
+  longer holds a good copy of shows a card with the original path: red for
+  a missing, unreadable or damaged file, a warning for a file that was not
+  kept, with its size, time and fingerprint, and a warning for a path the
+  archived session names without any record (`Not recorded: this session
+  was archived without its files`). A replay never draws a file from disk
+  in place of what the session showed, since the file at the original
+  path may have changed or gone.
+- A diff shows the card of its first side that has no good copy, never
+  one side next to a file from disk. The bottom rule's words and `d`
+  describe that side. A diff whose sides are both kept shows through the
+  normal viewer and has neither.
+- `o` opens an entry only when every file it names was written out from a
+  good copy. For any other file it says that the archive kept no copy.
 - The last tab is `Result`. It says how the session ended, lists one line
   per answer and shows the note and, for a rejection, the reason.
 - While sessions wait in the queue, the title bar counts them and the

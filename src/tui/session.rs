@@ -438,11 +438,20 @@ impl SessionState {
     }
 
     /// What the archive recorded about the file the entry shown names, in
-    /// a replay.
+    /// a replay. For a diff it is the first side that the replay cannot
+    /// show, so a diff never shows one side next to a file from disk, and
+    /// `None` where both sides are shown.
     pub fn shown_file(&self) -> Option<&crate::queue::ReplayFile> {
         let (_, entry) = self.shown_entry()?;
-        let path = super::entry_path(entry)?;
-        self.replay_info.as_ref()?.file_at(path)
+        let info = self.replay_info.as_ref()?;
+        let mut files = super::entry_paths(entry)
+            .into_iter()
+            .filter_map(|path| info.file_at(path));
+        if matches!(entry, ContextEntry::Diff(_)) {
+            files.find(|file| !file.is_shown())
+        } else {
+            files.next()
+        }
     }
 
     /// Whether the details of the file shown are open.
@@ -1263,6 +1272,18 @@ impl SessionState {
     /// `o`: opens the entry shown, or says why it cannot. Outside the
     /// full-screen view it points to `z`, which shows any entry whole.
     fn open(&mut self) -> Effect {
+        if let Some(info) = &self.replay_info
+            && let Some(entry) = self.shown_context()
+            && !super::entry_paths(entry)
+                .into_iter()
+                .all(|path| info.shows_copy_at(path))
+        {
+            self.message = Some(Notice::new(
+                Tone::Warning,
+                "nothing to open: the archive kept no copy of this file",
+            ));
+            return Effect::None;
+        }
         match self.shown_context() {
             Some(entry) if entry.opens() => Effect::Open(entry.clone()),
             Some(_) => {
