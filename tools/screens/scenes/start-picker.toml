@@ -1,5 +1,5 @@
 caption = "The start picker, which asks which queue to watch before asqr starts"
-columns = 80
+columns = 94
 rows = 24
 start_picker = true
 

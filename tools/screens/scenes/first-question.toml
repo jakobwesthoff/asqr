@@ -1,5 +1,5 @@
 caption = "The first question of a session: title bar, header, tabs, options and key bar"
-columns = 80
+columns = 94
 rows = 24
 
 [[sessions]]

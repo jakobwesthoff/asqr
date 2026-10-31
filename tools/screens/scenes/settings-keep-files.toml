@@ -1,5 +1,5 @@
 caption = "The settings pane on its Keep files row"
-columns = 100
+columns = 116
 rows = 24
 home = "/home/someone"
 keys = [",", "j", "j", "j"]

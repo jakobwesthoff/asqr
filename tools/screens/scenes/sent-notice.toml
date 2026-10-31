@@ -1,5 +1,5 @@
 caption = "The notice after submitting a session, over the session that comes next"
-columns = 100
+columns = 116
 rows = 30
 keys = ["enter", "enter", { text = "Startup is twice as fast." }, "enter", "enter"]
 

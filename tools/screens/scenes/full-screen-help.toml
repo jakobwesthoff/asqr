@@ -1,5 +1,5 @@
 caption = "The help of the full-screen view"
-columns = 120
+columns = 140
 rows = 30
 keys = ["z", "?"]
 

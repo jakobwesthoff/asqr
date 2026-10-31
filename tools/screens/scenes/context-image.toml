@@ -1,0 +1,9 @@
+caption = "An image entry with its caption beside the question, as a terminal with graphics shows it"
+columns = 140
+rows = 30
+# What a terminal with graphics shows in the cells asqr gives the image of
+# the first option, which the cursor stands on.
+image = "../../../assets/talqi-512.webp"
+
+[[sessions]]
+file = "../../../examples/sessions/mascot-poses.json"

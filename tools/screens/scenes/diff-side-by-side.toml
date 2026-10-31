@@ -1,5 +1,5 @@
 caption = "A diff shown side by side after s"
-columns = 120
+columns = 140
 rows = 30
 keys = ["s"]
 

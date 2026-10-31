@@ -556,7 +556,7 @@ mod tests {
             scene.caption,
             "The queue switcher over a session, inside tmux"
         );
-        assert_eq!((scene.columns, scene.rows), (80, 24));
+        assert_eq!((scene.columns, scene.rows), (94, 24));
         assert_eq!(
             (scene.layout, scene.emblem),
             (Layout::Auto, Emblem::Sextant)

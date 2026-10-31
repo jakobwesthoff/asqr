@@ -1,5 +1,5 @@
 caption = "The status line says two sessions wait in another queue"
-columns = 80
+columns = 94
 rows = 24
 
 [[sessions]]

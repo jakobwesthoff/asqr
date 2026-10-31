@@ -1,5 +1,5 @@
 caption = "A file the archive did not keep shows a card with what it recorded"
-columns = 120
+columns = 140
 rows = 30
 keys = ["right"]
 

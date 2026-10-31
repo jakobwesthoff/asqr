@@ -10,9 +10,9 @@
       "text": "Which picture of Talqi goes onto the release page?",
       "kind": "single",
       "options": [
-        { "id": "branch", "label": "On the branch", "description": "Talqi sits on its branch and looks at you.", "context": [{ "type": "image", "path": "../../assets/mascot-1536.png" }] },
-        { "id": "asleep", "label": "Asleep", "description": "Talqi sleeps once every question is answered.", "context": [{ "type": "image", "path": "../../assets/mascot-variants/mascot-sleeping-no-moon.png" }] },
-        { "id": "tongue", "label": "Catching a question", "description": "Talqi catches a question mark with its tongue.", "context": [{ "type": "image", "path": "../../assets/mascot-variants/mascot-tongue.png" }] }
+        { "id": "branch", "label": "On the branch", "description": "Talqi sits on its branch and looks at you.", "context": [{ "type": "image", "path": "../../assets/talqi-512.webp", "caption": "On its branch, looking at you" }] },
+        { "id": "asleep", "label": "Asleep", "description": "Talqi sleeps once every question is answered.", "context": [{ "type": "image", "path": "../../assets/mascot-variants/mascot-sleeping-no-moon.png", "caption": "Asleep, with nothing left to answer" }] },
+        { "id": "tongue", "label": "Catching a question", "description": "Talqi catches a question mark with its tongue.", "context": [{ "type": "image", "path": "../../assets/mascot-variants/mascot-tongue.png", "caption": "Catching a question mark with its tongue" }] }
       ],
       "custom": { "label": "None of them, because" }
     }

@@ -1,5 +1,5 @@
 caption = "The settings pane with the Context row held by --layout"
-columns = 100
+columns = 116
 rows = 24
 layout = "below"
 home = "/home/someone"

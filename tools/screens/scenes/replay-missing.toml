@@ -1,5 +1,5 @@
 caption = "A file that was missing when the session finished"
-columns = 120
+columns = 140
 rows = 30
 keys = ["right", "right"]
 

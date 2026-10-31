@@ -1,6 +1,6 @@
 caption = "The empty queue with Talqi, and sessions waiting in another queue"
 # Talqi shows where the screen has room for all of it: 32 rows at least.
-columns = 80
+columns = 94
 rows = 32
 
 [[elsewhere]]

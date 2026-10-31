@@ -1,5 +1,5 @@
 caption = "ctrl-d pages the context pane while the text field has the keys"
-columns = 120
+columns = 140
 rows = 30
 keys = ["l", "l", "l", { text = "--max-tries" }, "ctrl-d"]
 

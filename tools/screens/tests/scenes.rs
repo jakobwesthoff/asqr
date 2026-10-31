@@ -76,7 +76,7 @@ fn the_binary_writes_a_picture_per_scene_and_the_index() {
     let size = image::open(&picture)
         .map(|image| (image.width(), image.height()))
         .ok();
-    assert_eq!(size, Some((80 * 15 + 20, 24 * 39 + 20)));
+    assert_eq!(size, Some((94 * 15 + 20, 24 * 39 + 20)));
     let index = std::fs::read_to_string(out.path().join("index.md")).unwrap_or_default();
     assert!(index.contains("(help.png)"), "{index}");
 }
