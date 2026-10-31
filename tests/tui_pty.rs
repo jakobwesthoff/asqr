@@ -324,6 +324,23 @@ impl Tui {
         self.send(answer);
     }
 
+    /// Answers the terminal query with `answer` if asqr asks it, or
+    /// returns once asqr has exited without asking.
+    fn answer_the_query_unless_it_exits(&mut self, answer: &str) {
+        let start = Instant::now();
+        while !self.output().contains("[5n") {
+            if self.child.try_wait().expect("status").is_some() {
+                return;
+            }
+            assert!(
+                start.elapsed() < PATIENCE,
+                "asqr neither queried the terminal nor exited"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        self.send(answer);
+    }
+
     fn resize(&mut self, rows: u16, cols: u16) {
         self._master
             .resize(PtySize {
@@ -633,7 +650,11 @@ fn a_failed_first_read_of_the_inbox_leaves_the_pin_as_it_was() {
         PASSTHROUGH_ON,
         &[("TMUX_PANE", "%7")],
     );
-    tui.answer_the_query(NO_GRAPHICS);
+    // Where the watch on an unreadable inbox fails (inotify on Linux),
+    // asqr ends before it queries the terminal; where the watch succeeds,
+    // the first read of the inbox fails after the query. The pin stays
+    // as it was either way.
+    tui.answer_the_query_unless_it_exits(NO_GRAPHICS);
 
     let exit = tui.wait_for_exit();
 
