@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of being rendered. Rendering 8 MiB of Markdown took 13.6 s and
   693 MB, and the plain text of 8 MiB takes 0.24 s and 89 MB. `asqr validate` and
   `asqr ask` say in their warning that such an entry shows as plain text.
+- A code entry and the unchanged lines of a diff are highlighted for the
+  first 50,000 lines only. The lines after them show plain, with a dim
+  "no highlighting after line 50,000" where highlighting stops. Highlighting
+  500,000 short lines took 4.9 s, and 50,000 take 0.5 s.
 
 ### Fixed
 

@@ -1,0 +1,9 @@
+---
+source: src/tui/render/code.rs
+expression: "shown(&mut viewer, 40, 0)"
+---
+"1 fn main() {}                          "
+"2 let x = 1;                            "
+"3 // done                               "
+"no highlighting after line 50,000       "
+"4 fn tail() {}                          "

@@ -2663,7 +2663,12 @@ Code entries, ANSI entries and diffs show lines of source:
   on, so a hunk that starts inside a comment or a string shows it as
   one. A new or deleted file, all of whose lines are changed, shows no
   syntax colours. A diff whose two sides together are longer than 1 MiB
-  shows without highlighting.
+  shows without highlighting. Highlighting covers the first 50,000 lines
+  of the new text (ADR 95): an unchanged line after line 50,000 shows
+  plain, and a dim "no highlighting after line 50,000" stands before the
+  first such line. The note shows only when highlighting coloured lines
+  before the limit, and it never comes between the removed and the added
+  lines of a change.
 - `s` shows the diff in the other layout than the one it shows: side by
   side where it shows unified, unified where it shows side by side (ADR
   70). It works in the focused pane, in the full-screen view and on the
@@ -2729,7 +2734,10 @@ Code entries, ANSI entries and diffs show lines of source:
   does not know, the text is plain. A file name without an extension,
   such as `Makefile`, counts as a whole, and a `.md` file shows its
   source. A code entry longer than 1 MiB shows plain, without
-  highlighting.
+  highlighting. Highlighting covers the first 50,000 lines (ADR 95): a
+  dim "no highlighting after line 50,000" follows line 50,000 and the
+  lines after it show plain, where highlighting coloured lines before the
+  limit. A line ends at `\n`, `\r\n` or a lone `\r`.
 - A dim gutter holds each line's number.
 
 ### 8.7 Markdown entries

@@ -13,12 +13,12 @@ use ratatui::layout::Rect;
 use ratatui::text::Line;
 use ratatui::widgets::Widget;
 
-use super::patine_adapter::source_line;
+use super::patine_adapter::{is_coloured, source_line};
 use super::source_file::{Cut, LineBreaks, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
 use super::viewer::{Content, ContentSize, Placeholder, Viewer};
-use crate::format::CodeEntry;
+use crate::format::{CodeEntry, LARGE_ENTRY_BYTES, line_cut};
 use crate::graphics::PlacedImage;
 use crate::tui::Offset;
 
@@ -42,33 +42,74 @@ fn content_of(
     source: Result<Source, Unreadable>,
     home: Option<&Path>,
 ) -> Content<Lines> {
+    content_within(entry, source, home, HIGHLIGHT_LINES)
+}
+
+/// [`content_of`] with highlighting that stops after `highlight_lines`
+/// lines.
+fn content_within(
+    entry: &CodeEntry,
+    source: Result<Source, Unreadable>,
+    home: Option<&Path>,
+    highlight_lines: usize,
+) -> Content<Lines> {
     match source {
         Err(unreadable) => Content::Problem(unreadable.card(home)),
         Ok(Source { text, cut, .. }) => {
-            let lines: Vec<SourceLine> =
-                patine::highlight(&text, language_for(entry, &text).as_deref())
-                    .iter()
-                    .map(source_line)
-                    .collect();
+            let language = language_for(entry, &text);
+            let (lines, stopped_at) = highlighted(&text, language.as_deref(), highlight_lines);
             if lines.is_empty() {
                 Content::Note(Placeholder::note("empty"))
             } else {
-                Content::Body(Lines::new(lines, cut))
+                Content::Body(Lines::new(lines, cut, stopped_at))
             }
         }
     }
 }
 
-/// How long a text may be and still be highlighted. A code entry shows
-/// only once it is highlighted, so past this it shows plain at once.
+/// The lines of `text` highlighted in `language`, the first `limit` of them
+/// and no more, and the number of lines highlighted when later lines were
+/// left plain although highlighting got colours onto the first ones. A text
+/// without a language, or in one that patine does not know, is plain from
+/// its first line and gets no such number.
 ///
-/// patine 1.7.1's command line (release build, a log in a fence, width
-/// 200) took 0.75 s to render a log of 1,045,937 bytes and 14,154 lines,
-/// and 6.5 s for one of 8,867,621 bytes and 120,000 lines: about 54 µs a
-/// line. The limit is 1 MiB: a log under 1 MiB is highlighted in under a
-/// second, larger files stay unhighlighted and cost neither seconds nor
-/// hundreds of MB, and other grammars can be slow too.
-pub(super) const HIGHLIGHT_LIMIT: usize = 1024 * 1024;
+/// patine highlights a whole text at once and cannot be stopped, so the
+/// text is cut after its `limit`th line, where [`line_cut`] ends it, and
+/// the rest goes through patine without a language.
+fn highlighted(
+    text: &str,
+    language: Option<&str>,
+    limit: usize,
+) -> (Vec<SourceLine>, Option<usize>) {
+    let end = language.and_then(|_| line_cut(text.as_bytes(), limit, LineBreaks::Any));
+    let (head, tail) = text.split_at(end.unwrap_or(text.len()));
+    let head = patine::highlight(head, language);
+    let stopped_at = end.and(is_coloured(&head).then_some(head.len()));
+    let tail = patine::highlight(tail, None);
+    let lines = head.iter().chain(&tail).map(source_line).collect();
+    (lines, stopped_at)
+}
+
+/// What stands where highlighting stops in a text of more lines.
+pub(super) const STOPPED_NOTE: Note = Note::new("no highlighting after line 50,000");
+
+/// How many lines of a text are highlighted; the lines after them show
+/// plain. patine highlights a whole text at once, and the time it takes
+/// follows the lines: patine 1.9.0 (release build) took 0.50 s for 50,000
+/// lines of `x` as Rust, 0.56 s for 50,000 short lines of a log and 4.92 s
+/// for 500,000 lines of `x`. Code of ordinary line lengths reaches 1 MiB
+/// in fewer lines, so this cuts only text of very short lines.
+pub(super) const HIGHLIGHT_LINES: usize = 50_000;
+
+/// How long a text may be and still be highlighted: 1 MiB, the size the
+/// warning about a large entry uses. A code entry shows only once it is
+/// highlighted, so past this it shows plain at once.
+///
+/// patine 1.9.0 (release build) highlighted 1 MiB of Rust, 28,249 lines,
+/// in 1.65 s and 1 MiB of a log, 7,612 lines, in 0.63 s. Larger files stay
+/// unhighlighted and cost neither seconds nor hundreds of MB, and other
+/// grammars can be slow too.
+pub(super) const HIGHLIGHT_LIMIT: usize = LARGE_ENTRY_BYTES as usize;
 
 /// The language to highlight `text`, the text of `entry`, in: none for a
 /// text longer than [`HIGHLIGHT_LIMIT`], else the entry's [`language`].
@@ -117,14 +158,19 @@ enum Row {
 
 impl Lines {
     /// `lines`, the whole text or the start of a longer one that the limit
-    /// `cut` ended.
-    fn new(lines: Vec<SourceLine>, cut: Option<Cut>) -> Self {
+    /// `cut` ended, with [`STOPPED_NOTE`] after the first `stopped_at`
+    /// of them.
+    fn new(lines: Vec<SourceLine>, cut: Option<Cut>, stopped_at: Option<usize>) -> Self {
         let digits = lines.len().to_string().len();
-        let numbered = (1..)
+        let mut body: Vec<Row> = (1..)
             .zip(lines)
-            .map(|(number, text)| Row::Line { number, text });
+            .map(|(number, text)| Row::Line { number, text })
+            .collect();
+        if let Some(at) = stopped_at {
+            body.insert(at, Row::Note(STOPPED_NOTE));
+        }
         Lines {
-            rows: between_cut_notes(cut, numbered, Row::Note).collect(),
+            rows: between_cut_notes(cut, body, Row::Note).collect(),
             digits,
         }
     }
@@ -346,6 +392,198 @@ mod tests {
 
         assert!(row(&buf, 0).ends_with("fn main() {}"), "{:?}", row(&buf, 0));
         assert_eq!(style_at(&buf, "fn").fg, Some(Color::Reset));
+    }
+
+    // -----------------------------------------------------------------
+    // Highlighting that stops after a number of lines
+    // -----------------------------------------------------------------
+
+    const STOP_NOTE: &str = "no highlighting after line 50,000";
+    const RUST: &str = r#"{"type": "code", "language": "rust"}"#;
+
+    /// The viewer of `text` as the entry `json` says, whose highlighting
+    /// stops after `lines` lines.
+    fn stopping_after(lines: usize, json: &str, text: &str) -> Content<Lines> {
+        let source = Source {
+            text: text.to_owned(),
+            cut: None,
+            size: text.len(),
+        };
+        content_within(&entry(json), Ok(source), None, lines)
+    }
+
+    #[test]
+    fn a_text_of_the_highlight_limit_in_lines_has_no_note() {
+        let mut viewer = stopping_after(3, RUST, &"fn main() {}\n".repeat(3));
+
+        let buf = drawn(&mut viewer, 40, 4, Offset::default());
+
+        assert_eq!(style_at(&buf, "fn").fg, Some(Color::Indexed(5)));
+        assert_eq!(row(&buf, 2), "3 fn main() {}");
+        assert_eq!(row(&buf, 3), "");
+        assert_eq!(viewer.lay_out(40, 4).lines, 3);
+    }
+
+    #[test]
+    fn a_line_past_the_highlight_limit_shows_plain_below_a_dim_note() {
+        let mut viewer = stopping_after(3, RUST, &"fn main() {}\n".repeat(4));
+
+        let buf = drawn(&mut viewer, 40, 5, Offset::default());
+
+        assert_eq!(row(&buf, 2), "3 fn main() {}");
+        assert_eq!(
+            buf[(2, 2)].fg,
+            Color::Indexed(5),
+            "the last line of the limit"
+        );
+        assert_eq!(row(&buf, 3), STOP_NOTE);
+        assert!(buf[(0, 3)].modifier.contains(Modifier::DIM));
+        assert_eq!(row(&buf, 4), "4 fn main() {}");
+        assert_eq!(buf[(2, 4)].fg, Color::Reset, "plain after the note");
+    }
+
+    #[test]
+    fn the_note_takes_a_row_and_the_lines_keep_their_numbers() {
+        let mut viewer = stopping_after(3, RUST, &"fn main() {}\n".repeat(5));
+
+        assert_eq!(
+            viewer.lay_out(80, 10),
+            ContentSize {
+                lines: 6,
+                columns: 33
+            },
+            "five lines and the note, which is the widest row"
+        );
+        let buf = drawn(&mut viewer, 40, 1, Offset { top: 5, left: 0 });
+        assert_eq!(row(&buf, 0), "5 fn main() {}");
+    }
+
+    #[test]
+    fn the_note_is_cut_at_a_narrow_body_without_scrolling() {
+        let mut viewer = stopping_after(3, RUST, &"fn main() {}\n".repeat(4));
+
+        assert_eq!(viewer.lay_out(20, 5).columns, 20);
+        let buf = drawn(&mut viewer, 20, 1, Offset { top: 3, left: 5 });
+        assert_eq!(row(&buf, 0), "no highlighting afte");
+    }
+
+    #[test]
+    fn the_note_fits_the_narrowest_context_pane() {
+        let mut viewer = stopping_after(3, RUST, &"fn main() {}\n".repeat(4));
+
+        let buf = drawn(&mut viewer, 40, 4, Offset::default());
+
+        assert_eq!(row(&buf, 3), STOP_NOTE);
+    }
+
+    #[test]
+    fn windows_line_ends_count_as_lines_for_the_highlight_limit() {
+        let mut viewer = stopping_after(3, RUST, &"fn a() {}\r\n".repeat(4));
+
+        let buf = drawn(&mut viewer, 40, 5, Offset::default());
+
+        assert_eq!(row(&buf, 3), STOP_NOTE);
+        assert_eq!(row(&buf, 4), "4 fn a() {}");
+    }
+
+    #[test]
+    fn a_lone_cr_counts_as_a_line_end_for_the_highlight_limit() {
+        let mut viewer = stopping_after(3, RUST, &"fn a() {}\r".repeat(4));
+
+        let buf = drawn(&mut viewer, 40, 5, Offset::default());
+
+        assert_eq!(row(&buf, 3), STOP_NOTE);
+        assert_eq!(row(&buf, 4), "4 fn a() {}");
+    }
+
+    #[test]
+    fn a_last_line_without_a_line_end_past_the_limit_is_plain() {
+        let text = format!("{}fn b() {{}}", "fn a() {}\n".repeat(3));
+        let mut viewer = stopping_after(3, RUST, &text);
+
+        let buf = drawn(&mut viewer, 40, 5, Offset::default());
+
+        assert_eq!(row(&buf, 3), STOP_NOTE);
+        assert_eq!(row(&buf, 4), "4 fn b() {}");
+        assert_eq!(buf[(2, 4)].fg, Color::Reset);
+    }
+
+    #[test]
+    fn a_text_without_a_language_gets_no_note() {
+        let mut viewer = stopping_after(3, r#"{"type": "code"}"#, &"fn a() {}\n".repeat(5));
+
+        let buf = drawn(&mut viewer, 40, 5, Offset::default());
+
+        assert_eq!(row(&buf, 3), "4 fn a() {}");
+        assert_eq!(viewer.lay_out(40, 5).lines, 5);
+    }
+
+    #[test]
+    fn a_language_patine_does_not_know_gets_no_note() {
+        let json = r#"{"type": "code", "language": "no-such-language"}"#;
+        let mut viewer = stopping_after(3, json, &"fn a() {}\n".repeat(5));
+
+        let buf = drawn(&mut viewer, 40, 5, Offset::default());
+
+        assert_eq!(row(&buf, 3), "4 fn a() {}");
+        assert_eq!(viewer.lay_out(40, 5).lines, 5);
+    }
+
+    #[test]
+    fn the_note_sits_between_the_notes_of_a_cut() {
+        let text = "fn a() {}\n".repeat(4);
+        let source = Source {
+            text: text.clone(),
+            cut: Some(Cut::Lines),
+            size: text.len(),
+        };
+        let mut viewer = content_within(&entry(RUST), Ok(source), None, 3);
+
+        let buf = drawn(&mut viewer, 40, 7, Offset::default());
+
+        assert_eq!(row(&buf, 0), "first 500,000 lines shown");
+        assert_eq!(row(&buf, 4), STOP_NOTE);
+        assert_eq!(row(&buf, 5), "4 fn a() {}");
+        assert_eq!(row(&buf, 6), "… the rest is cut after 500,000 lines");
+    }
+
+    #[test]
+    fn a_code_entry_cut_after_a_few_highlighted_lines() {
+        let mut viewer =
+            stopping_after(3, RUST, "fn main() {}\nlet x = 1;\n// done\nfn tail() {}\n");
+
+        insta::assert_snapshot!("rust_stops_after_3_lines", shown(&mut viewer, 40, 0));
+    }
+
+    #[test]
+    fn a_code_entry_highlights_fifty_thousand_lines_and_shows_the_rest_plain() {
+        let text = format!(
+            "fn main() {{}}\n{}fn tail() {{}}\n",
+            "\n".repeat(HIGHLIGHT_LINES - 1)
+        );
+        let json = serde_json::json!({"type": "code", "language": "rust", "content": text});
+        let mut viewer = built(&json.to_string());
+
+        let first = drawn(&mut viewer, 40, 1, Offset::default());
+        let last = drawn(
+            &mut viewer,
+            40,
+            3,
+            Offset {
+                top: HIGHLIGHT_LINES - 1,
+                left: 0,
+            },
+        );
+
+        assert_eq!(style_at(&first, "fn").fg, Some(Color::Indexed(5)));
+        assert_eq!(row(&last, 1), STOP_NOTE);
+        assert_eq!(row(&last, 2), "50001 fn tail() {}");
+        assert_eq!(last[(6, 2)].fg, Color::Reset, "the line past the limit");
+    }
+
+    #[test]
+    fn the_highlight_limit_is_fifty_thousand_lines() {
+        assert_eq!(HIGHLIGHT_LINES, 50_000);
     }
 
     #[test]

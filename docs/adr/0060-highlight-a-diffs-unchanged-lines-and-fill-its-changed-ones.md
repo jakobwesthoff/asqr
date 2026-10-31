@@ -19,6 +19,8 @@ and removed diff lines
 Amended by [70. Show a diff side by side on a key](0070-show-a-diff-side-by-side-on-a-key.md):
 side by side, a changed line fills its column
 
+Amended by [95. Highlight the first 50,000 lines of a code entry and a diff](0095-highlight-the-first-50000-lines-of-a-code-entry-and-a-diff.md)
+
 ## Context
 
 Code entries are highlighted in their language (ADR 34); diffs show

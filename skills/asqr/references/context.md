@@ -109,11 +109,13 @@ Every entry has a `type` and an optional `title`:
   keeps its own line numbers, removed and added lines keep their red
   and green fill within their column, and unchanged lines their
   highlighting. A diff whose two versions
-  together exceed 1 MiB shows without highlighting. A long line does
+  together exceed 1 MiB shows without highlighting, and highlighting
+  stops after line 50,000 of the new version. A long line does
   not wrap; the person scrolls sideways. Identical versions show "no
   changes".
-- asqr shows a code entry highlighted, with line numbers in a gutter.
-  Long lines do not wrap; the person scrolls sideways. A Markdown entry
+- asqr shows a code entry highlighted, with line numbers in a gutter;
+  highlighting stops after line 50,000, and the lines after it show plain
+  below a dim note. Long lines do not wrap; the person scrolls sideways. A Markdown entry
   is rendered and wrapped to the pane: headings, emphasis, lists, task
   lists, quotes, tables and highlighted code blocks. A table too wide
   for the pane, or one that would have to break a word to fit, shows as

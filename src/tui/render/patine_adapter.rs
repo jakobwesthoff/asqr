@@ -75,6 +75,16 @@ fn style(style: TextStyle) -> Style {
     }
 }
 
+/// Whether any of `lines` has a span with a style, which tells highlighted
+/// code from lines patine left plain, as it does for a language it does not
+/// know.
+pub(super) fn is_coloured(lines: &[StyledLine]) -> bool {
+    lines
+        .iter()
+        .flat_map(|line| &line.spans)
+        .any(|span| span.style != TextStyle::default())
+}
+
 /// A patine line as a [`SourceLine`], which expands its tabs, shows its
 /// control characters and measures it in columns (ADR 33).
 pub(super) fn source_line(line: &StyledLine) -> SourceLine {

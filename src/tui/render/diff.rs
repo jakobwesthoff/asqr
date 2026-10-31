@@ -19,8 +19,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 use similar::{Algorithm, Change, ChangeTag, DiffOp, DiffTag, TextDiff};
 
-use super::code::{HIGHLIGHT_LIMIT, kind_of_file};
-use super::patine_adapter::source_line;
+use super::code::{HIGHLIGHT_LIMIT, HIGHLIGHT_LINES, STOPPED_NOTE, kind_of_file};
+use super::patine_adapter::{is_coloured, source_line};
 use super::source_file::{Cut, LineBreaks, Source, Unreadable, between_cut_notes, read_source};
 use super::source_line::{GutterRow, Note, SourceLine, rows_from};
 use super::theme;
@@ -48,6 +48,16 @@ const SEPARATOR: &str = "┈";
 /// drawing only copies cells. The home folder `home` shows as `~` in the
 /// path of a side that cannot be read.
 pub(super) fn diff_content(entry: &DiffEntry, home: Option<&Path>) -> Content<Rows> {
+    diff_content_within(entry, home, HIGHLIGHT_LINES)
+}
+
+/// [`diff_content`] with highlighting that stops after `highlight_lines`
+/// lines of the new text.
+fn diff_content_within(
+    entry: &DiffEntry,
+    home: Option<&Path>,
+    highlight_lines: usize,
+) -> Content<Rows> {
     let sides =
         read("old", entry.old.as_ref()).and_then(|old| Ok((old, read("new", entry.new.as_ref())?)));
     match sides {
@@ -61,6 +71,7 @@ pub(super) fn diff_content(entry: &DiffEntry, home: Option<&Path>) -> Content<Ro
                 text_of(new.as_ref()),
                 cuts,
                 language(entry).as_deref(),
+                highlight_lines,
             ))
         }
         Err((side, unreadable)) => Content::Problem(unreadable.card_on_side(side, home)),
@@ -242,20 +253,27 @@ impl Rows {
     /// diff shows the rest of the other side as removed or added. Whether
     /// the file is new or deleted comes first, then the change between the
     /// notes of those limits. Unchanged lines are highlighted in
-    /// `language`.
+    /// `language`, as far as the first `highlight_lines` lines of the new
+    /// text.
     fn of(
         old: Option<&str>,
         new: Option<&str>,
         cuts: impl IntoIterator<Item = Cut>,
         language: Option<&str>,
+        highlight_lines: usize,
     ) -> Rows {
         let created_or_deleted = match (old, new) {
             (None, Some(_)) => Some(Note::new("new file")),
             (Some(_), None) => Some(Note::new("deleted file")),
             _ => None,
         };
-        let (change, lines, digits) =
-            Rows::change(old, new, created_or_deleted.is_some(), language);
+        let (change, lines, digits) = Rows::change(
+            old,
+            new,
+            created_or_deleted.is_some(),
+            language,
+            highlight_lines,
+        );
         let rows: Vec<Row> = created_or_deleted
             .map(Row::Note)
             .into_iter()
@@ -286,6 +304,7 @@ impl Rows {
         new: Option<&str>,
         created_or_deleted: bool,
         language: Option<&str>,
+        highlight_lines: usize,
     ) -> (Vec<Row>, Vec<LineRow>, usize) {
         let mut rows = Vec::new();
         let mut lines = Vec::new();
@@ -334,13 +353,25 @@ impl Rows {
         let newline_differs = old.ends_with('\n') != new.ends_with('\n');
 
         let hunks = diff.grouped_ops(CONTEXT_LINES);
-        let highlighted = highlighted_unchanged_lines(new, &hunks, language);
+        let (highlighted, stopped) =
+            highlighted_unchanged_lines(new, &hunks, language, highlight_lines);
+        // The note stands before the first unchanged line left plain, so it
+        // never comes between the removed and the added lines of a change.
+        let mut note_due = stopped;
         for (index, hunk) in hunks.iter().enumerate() {
             if index > 0 {
                 rows.push(Row::Separator);
             }
             for op in hunk {
                 for change in diff.iter_changes(op) {
+                    let plain = change.tag() == ChangeTag::Equal
+                        && change
+                            .new_index()
+                            .is_some_and(|index| index >= highlight_lines);
+                    if note_due && plain {
+                        rows.push(Row::Note(STOPPED_NOTE));
+                        note_due = false;
+                    }
                     rows.push(Row::Line(lines.len()));
                     lines.push(line_row(&change, &highlighted));
                     if newline_differs && change.missing_newline() {
@@ -763,18 +794,22 @@ fn line_row(change: &Change<&str>, highlighted: &[StyledLine]) -> LineRow {
 }
 
 /// The lines of `new` highlighted in `language`, from its first line to the
-/// last unchanged line that `hunks` show, or none without a language or
-/// such a line. The text is highlighted as one, so a hunk that starts
-/// inside a block comment or a string shows it as one: a hunk highlighted
-/// alone would start in the grammar's first state and colour the inside of
-/// a comment as code. Only unchanged lines take syntax colours, and the
-/// state at a line depends only on the text above it, so nothing after the
-/// last of them is highlighted.
+/// last unchanged line that `hunks` show or to line `limit`, whichever
+/// comes first, or none without a language or such a line. The text is
+/// highlighted as one, so a hunk that starts inside a block comment or a
+/// string shows it as one: a hunk highlighted alone would start in the
+/// grammar's first state and colour the inside of a comment as code. Only
+/// unchanged lines take syntax colours, and the state at a line depends
+/// only on the text above it, so nothing after the last of them is
+/// highlighted. Also whether highlighting stopped at `limit` with colours
+/// on the lines before it while a shown unchanged line lies past it: that
+/// line shows plain.
 fn highlighted_unchanged_lines(
     new: &str,
     hunks: &[Vec<DiffOp>],
     language: Option<&str>,
-) -> Vec<StyledLine> {
+    limit: usize,
+) -> (Vec<StyledLine>, bool) {
     let end = hunks
         .iter()
         .flatten()
@@ -783,8 +818,12 @@ fn highlighted_unchanged_lines(
         .max()
         .unwrap_or(0);
     match language {
-        Some(language) if end > 0 => patine::highlight(first_lines(new, end), Some(language)),
-        _ => Vec::new(),
+        Some(language) if end > 0 => {
+            let lines = patine::highlight(first_lines(new, end.min(limit)), Some(language));
+            let stopped = end > limit && is_coloured(&lines);
+            (lines, stopped)
+        }
+        _ => (Vec::new(), false),
     }
 }
 
@@ -916,7 +955,7 @@ mod tests {
     /// The viewer of the rows of `old` and `new`, where `cuts` are the
     /// limits that left a side only the start of a longer text.
     fn of_rows(old: &str, new: &str, cuts: impl IntoIterator<Item = Cut>) -> Content<Rows> {
-        Content::Body(Rows::of(Some(old), Some(new), cuts, None))
+        Content::Body(Rows::of(Some(old), Some(new), cuts, None, HIGHLIGHT_LINES))
     }
 
     fn file(path: &str) -> Option<DiffSide> {
@@ -1417,6 +1456,17 @@ impl Fetcher {
     /// `old_head` and `new_head`, and leaves the lines after it alike:
     /// so many of them that both sides together take `bytes` bytes.
     fn rust_change_of(old_head: &str, new_head: &str, bytes: usize) -> Content<Rows> {
+        rust_change_within(HIGHLIGHT_LINES, old_head, new_head, bytes)
+    }
+
+    /// [`rust_change_of`] with highlighting that stops after
+    /// `highlight_lines` lines.
+    fn rust_change_within(
+        highlight_lines: usize,
+        old_head: &str,
+        new_head: &str,
+        bytes: usize,
+    ) -> Content<Rows> {
         let tail = "fn a() {}\n";
         let filler = (bytes - old_head.len() - new_head.len()) / 2 - tail.len();
         let line = "// filler\n";
@@ -1425,15 +1475,192 @@ impl Fetcher {
         let rest = format!("{tail}{}{}\n", line.repeat(lines), "x".repeat(last - 1));
         let (old, new) = (format!("{old_head}{rest}"), format!("{new_head}{rest}"));
         assert_eq!(old.len() + new.len(), bytes);
-        entry(serde_json::json!({
+        stopping_after(
+            highlight_lines,
+            serde_json::json!({
+                "name": "a.rs",
+                "old": {"content": old},
+                "new": {"content": new},
+            }),
+        )
+    }
+
+    // -----------------------------------------------------------------
+    // Highlighting that stops after a number of lines
+    // -----------------------------------------------------------------
+
+    const STOP_NOTE: &str = "no highlighting after line 50,000";
+
+    /// The viewer of a diff entry `json` describes, whose highlighting
+    /// stops after `lines` lines of the new text.
+    fn stopping_after(lines: usize, json: serde_json::Value) -> Content<Rows> {
+        let entry: DiffEntry = serde_json::from_value(json).expect("test entry parses");
+        diff_content_within(&entry, None, lines)
+    }
+
+    /// `count` lines of Rust, `fn f1() {}` and on, where each line in
+    /// `changed` is `let x = 1;` in the old text and `let x = 2;` in the
+    /// new one.
+    fn rust_sides(count: usize, changed: &[usize]) -> serde_json::Value {
+        let side = |value: u8| -> String {
+            (1..=count)
+                .map(|line| {
+                    if changed.contains(&line) {
+                        format!("let x{line} = {value};\n")
+                    } else {
+                        format!("fn f{line}() {{}}\n")
+                    }
+                })
+                .collect()
+        };
+        serde_json::json!({
             "name": "a.rs",
-            "old": {"content": old},
-            "new": {"content": new},
-        }))
+            "old": {"content": side(1)},
+            "new": {"content": side(2)},
+        })
     }
 
     #[test]
-    fn a_diff_of_one_mib_is_highlighted() {
+    fn unchanged_lines_past_the_limit_show_plain_below_a_dim_note() {
+        let mut viewer = stopping_after(3, rust_sides(12, &[2]));
+
+        let buf = drawn(&mut viewer, 40, 8, Offset::default());
+
+        assert_eq!(row(&buf, 3), " 3  3   fn f3() {}");
+        assert_eq!(fg_in_row(&buf, 3, "fn"), Color::Indexed(5));
+        assert_eq!(row(&buf, 4), STOP_NOTE);
+        assert!(buf[(0, 4)].modifier.contains(Modifier::DIM));
+        assert_eq!(row(&buf, 5), " 4  4   fn f4() {}");
+        assert_eq!(fg_in_row(&buf, 5, "fn"), Color::Reset);
+        assert_eq!(fg_in_row(&buf, 6, "fn"), Color::Reset);
+    }
+
+    #[test]
+    fn a_diff_whose_unchanged_lines_all_come_before_the_limit_has_no_note() {
+        let mut viewer = stopping_after(3, rust_sides(3, &[2]));
+
+        let buf = drawn(&mut viewer, 40, 6, Offset::default());
+
+        assert_eq!(viewer.lay_out(40, 6).lines, 4);
+        assert_eq!(fg_in_row(&buf, 3, "fn"), Color::Indexed(5));
+    }
+
+    #[test]
+    fn a_diff_whose_lines_are_all_changed_has_no_note() {
+        let mut viewer = stopping_after(
+            3,
+            serde_json::json!({
+                "name": "a.rs",
+                "old": {"content": "a\nb\nc\nd\ne\n"},
+                "new": {"content": "A\nB\nC\nD\nE\n"},
+            }),
+        );
+
+        assert_eq!(viewer.lay_out(40, 12).lines, 10);
+    }
+
+    #[test]
+    fn a_hunk_past_the_limit_gets_the_note_after_its_separator() {
+        let mut viewer = stopping_after(4, rust_sides(24, &[1, 20]));
+
+        let buf = drawn(&mut viewer, 40, 9, Offset::default());
+
+        assert!(row(&buf, 5).starts_with('┈'), "{:?}", row(&buf, 5));
+        assert_eq!(row(&buf, 6), STOP_NOTE);
+        assert_eq!(row(&buf, 7), "17 17   fn f17() {}");
+    }
+
+    #[test]
+    fn a_diff_without_a_language_gets_no_note() {
+        let mut json = rust_sides(12, &[2]);
+        json.as_object_mut().expect("an object").remove("name");
+        let mut viewer = stopping_after(3, json);
+
+        assert_eq!(viewer.lay_out(40, 12).lines, 6);
+    }
+
+    #[test]
+    fn a_language_patine_does_not_know_gets_no_note() {
+        let mut json = rust_sides(12, &[2]);
+        json["language"] = serde_json::json!("no-such-language");
+        let mut viewer = stopping_after(3, json);
+
+        assert_eq!(viewer.lay_out(40, 12).lines, 6);
+    }
+
+    #[test]
+    fn a_diff_above_one_mib_gets_no_note_though_it_shows_plain() {
+        let mut viewer =
+            rust_change_within(3, "let x = 1;\n", "let x = 22;\n", HIGHLIGHT_LIMIT + 1);
+
+        let buf = drawn(&mut viewer, 40, 6, Offset::default());
+
+        assert!((0..6).all(|y| row(&buf, y) != STOP_NOTE));
+    }
+
+    #[test]
+    fn the_note_keeps_a_replaced_line_next_to_the_line_that_replaces_it_side_by_side() {
+        let side = |value: u8| {
+            format!(
+                "fn f1() {{}}\nfn f2() {{}}\nlet a = {value};\nlet b = {value};\nfn f5() {{}}\nfn f6() {{}}\n"
+            )
+        };
+        let mut viewer = stopping_after(
+            3,
+            serde_json::json!({
+                "name": "a.rs",
+                "old": {"content": side(1)},
+                "new": {"content": side(2)},
+            }),
+        );
+
+        let buf = drawn_side_by_side(&mut viewer, 100, 8, Offset::default());
+
+        let shown = rows(&buf);
+        let facing = |old: &str, new: &str| {
+            shown
+                .iter()
+                .position(|row| row.contains(old) && row.contains(new))
+        };
+        let a = facing("let a = 1;", "let a = 2;").expect("a faces its replacement");
+        let b = facing("let b = 1;", "let b = 2;").expect("b faces its replacement");
+        let note = shown
+            .iter()
+            .position(|row| row.contains(STOP_NOTE))
+            .expect("the note shows");
+        assert!(a < b && b < note, "{shown:?}");
+        assert!(shown[note + 1].contains("fn f5() {}"), "{shown:?}");
+    }
+
+    #[test]
+    fn a_diff_of_the_highlight_limit_in_lines_past_its_change_stops_highlighting_there() {
+        let side = |value: u8| {
+            format!(
+                "fn first() {{}}\n{}fn x() {{}}\nfn y() {{}}\nfn z() {{}}\nlet x = {value};\n{}",
+                "\n".repeat(HIGHLIGHT_LINES - 4),
+                "fn b() {}\n".repeat(3)
+            )
+        };
+        let json = serde_json::json!({
+            "name": "a.rs",
+            "old": {"content": side(1)},
+            "new": {"content": side(2)},
+        });
+        let mut viewer = entry(json);
+
+        let buf = drawn(&mut viewer, 40, 9, Offset::default());
+
+        assert_eq!(
+            fg_in_row(&buf, 0, "fn"),
+            Color::Indexed(5),
+            "before the limit"
+        );
+        assert_eq!(row(&buf, 5), STOP_NOTE, "after the change at the limit");
+        assert_eq!(fg_in_row(&buf, 6, "fn"), Color::Reset, "past the limit");
+    }
+
+    #[test]
+    fn the_top_of_a_diff_of_one_mib_is_highlighted() {
         let mut viewer = rust_change_of("let x = 1;\n", "let x = 2;\n", HIGHLIGHT_LIMIT);
 
         let buf = drawn(&mut viewer, 30, 3, Offset::default());

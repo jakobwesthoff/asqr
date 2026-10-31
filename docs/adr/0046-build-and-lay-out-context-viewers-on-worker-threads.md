@@ -16,6 +16,8 @@ Amended by [49. Present problems through one component in three forms](0049-pres
 
 Amended by [94. Show a Markdown entry above 1 MiB as plain text](0094-show-a-markdown-entry-above-1-mib-as-plain-text.md)
 
+Amended by [95. Highlight the first 50,000 lines of a code entry and a diff](0095-highlight-the-first-50000-lines-of-a-code-entry-and-a-diff.md)
+
 ## Context
 
 - Building a context viewer reads its file and prepares its content:
