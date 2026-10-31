@@ -1,11 +1,13 @@
 ---
-title: "Review and submit"
+title: "Review, submit and come back later"
 tags: [guide/answer]
 site:
-  order: 5
+  order: 3
 ---
-The last tab of a session is the review. You look at everything once,
-then submit the answers or reject the session.
+The last tab of a session is the review. Before you send, it shows every
+answer, and you can add a note for your agent or reject the session with a
+reason. This page also says what happens when you leave a session for
+later, and when the asker takes it back or replaces it.
 
 ## The review tab
 

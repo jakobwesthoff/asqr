@@ -2,7 +2,7 @@
 title: "Questions and answers"
 tags: [guide/answer]
 site:
-  order: 2
+  order: 5
 ---
 A session holds questions of four kinds. This page shows each of them,
 and how defaults, your own answers and notes work.
