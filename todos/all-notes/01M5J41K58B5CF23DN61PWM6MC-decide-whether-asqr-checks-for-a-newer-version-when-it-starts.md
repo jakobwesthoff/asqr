@@ -92,6 +92,18 @@ The user's direction, not final:
   touches; spawning `curl` needs no dependency. Startup never waits for
   the network: a background thread with short timeouts.
 
+## Re-checked (Jakob, 2026-10-31, in the chat)
+
+Kept parked until the first-start screen (todo
+01M623QGQXR4ERM34GYV8H6DVR) is built. Where the notice shows, what it
+says and how often asqr checks are discussed when this todo is taken
+up, not before. The options put to Jakob that day, for then: the notice
+in the empty queue's key bar beside the version, a line of its own above
+the key bar, or only in the settings pane; the text with the release
+page, with the host only, or with both versions and no link; a check at
+start and then at most once every 24 hours, at start only, or at start
+with the time of the last check kept in a file.
+
 ## Revisit when
 
 The first-start screen exists (todo 01M623QGQXR4ERM34GYV8H6DVR), and the
