@@ -422,7 +422,7 @@ impl App {
     }
 
     /// The overlay the screen shows. Over the empty queue only the queue
-    /// switcher shows. Keys open
+    /// switcher and the settings pane show. Keys open
     /// one at a time, since each takes the key that would open another; were
     /// several open, the one shown is the one [`App::handle`] gives the keys
     /// to first. The intro shows only for a session that has one, also an
