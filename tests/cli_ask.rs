@@ -304,39 +304,92 @@ fn makes_every_context_path_absolute_and_keeps_unknown_fields() {
     );
 }
 
-#[test]
-fn ask_warns_that_note_false_is_ignored_and_drops_the_field() {
-    // Every question takes a note (ADR 68). Without the field, an older
-    // asqr watching the queue offers the note too.
+/// Asks one question that sets `note` to `value`, and returns the output of
+/// `ask` and the question as it reached the inbox, when it did.
+fn ask_with_note(value: &str, kind: &str) -> (std::process::Output, Option<serde_json::Value>) {
     let sandbox = Sandbox::new();
     let file = sandbox.file(
-        "quiet.json",
-        r#"{"asqr": 2, "id": "quiet", "questions": [
-            {"id": "q", "text": "?", "kind": "text", "note": false},
-            {"id": "r", "text": "?", "kind": "text", "note": true},
-            {"id": "s", "text": "?", "kind": "text"}]}"#,
+        "noted.json",
+        &format!(
+            r#"{{"asqr": 2, "id": "noted", "questions": [
+                {{"id": "q", "text": "?", "kind": "{kind}", "note": {value}}}]}}"#
+        ),
     );
-
     let output = sandbox
         .asqr_in_queue(&["ask"])
         .arg(&file)
         .output()
         .expect("runs");
+    let dropped = (output.status.code() == Some(0)).then(|| {
+        let mut file = inbox_file(&sandbox, "noted");
+        file["questions"][0].take()
+    });
+    (output, dropped)
+}
+
+#[test]
+fn ask_warns_that_a_note_is_ignored() {
+    // Every question takes a note (ADR 68).
+    let (output, _) = ask_with_note("false", "text");
 
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
-    let warnings = stderr(&output);
     assert!(
-        warnings.contains(
-            "warning: questions[0].note: false is ignored; every question takes a note\n"
-        ),
-        "{warnings}"
+        stderr(&output)
+            .contains("warning: questions[0].note: ignored; every question takes a note\n"),
+        "{}",
+        stderr(&output)
     );
-    assert!(!warnings.contains("questions[1].note"), "{warnings}");
-    let dropped = inbox_file(&sandbox, "quiet");
-    let questions = dropped["questions"].as_array().expect("questions");
-    assert!(questions[0].get("note").is_none(), "{dropped}");
-    assert_eq!(questions[1]["note"], true, "a true stays as written");
-    assert!(questions[2].get("note").is_none(), "no field is added");
+}
+
+// A released asqr that watches the queue reads the field as a boolean and
+// turns the note off for `false`, so no value of it may reach the inbox.
+
+#[test]
+fn ask_drops_note_false_from_the_copy() {
+    let (_, dropped) = ask_with_note("false", "text");
+
+    assert!(dropped.expect("delivered").get("note").is_none());
+}
+
+#[test]
+fn ask_drops_note_true_from_the_copy() {
+    let (_, dropped) = ask_with_note("true", "text");
+
+    assert!(dropped.expect("delivered").get("note").is_none());
+}
+
+#[test]
+fn ask_drops_a_note_string_from_the_copy() {
+    let (output, dropped) = ask_with_note(r#""remember this""#, "text");
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(dropped.expect("delivered").get("note").is_none());
+}
+
+#[test]
+fn ask_drops_a_note_null_from_an_info_item() {
+    let (output, dropped) = ask_with_note("null", "info");
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(dropped.expect("delivered").get("note").is_none());
+}
+
+#[test]
+fn ask_adds_no_note_to_a_question_without_one() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "plain.json",
+        r#"{"asqr": 2, "id": "plain", "questions": [{"id": "q", "text": "?", "kind": "text"}]}"#,
+    );
+
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    let dropped = inbox_file(&sandbox, "plain");
+    assert!(dropped["questions"][0].get("note").is_none(), "{dropped}");
 }
 
 #[test]

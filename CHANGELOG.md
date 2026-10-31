@@ -70,6 +70,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A question and an info item have no `note` field in the format any more,
+  and the schema drops it. A file that still sets one stays valid, with
+  any value, `true`, a string and `null` included; before, a value that
+  was no boolean was an error. `asqr validate` and `asqr ask` warn
+  `questions[0].note: ignored; every question takes a note` for each, where
+  they warned about `"note": false` only, and `asqr ask` removes the field
+  from the copy it puts into the inbox whatever its value, where it
+  removed `false` only.
 - A queue given with `--dir` or `ASQR_DIR` is named by its absolute path,
   with `~` for the home folder, on the waiting screen, in the title bar,
   in the terminal title, in the queue switcher and in the status line

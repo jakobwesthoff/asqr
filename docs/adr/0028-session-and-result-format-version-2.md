@@ -32,6 +32,8 @@ Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-afte
 
 Amended by [77. Count a cleared default as the person having started](0077-count-a-cleared-default-as-the-person-having-started.md)
 
+Amended by [102. Drop the note field from questions within format version 2](0102-drop-the-note-field-from-questions-within-format-version-2.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

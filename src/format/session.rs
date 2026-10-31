@@ -248,24 +248,12 @@ pub struct Question {
     #[schemars(with = "Option<Vec<ContextEntry>>", length(max = MAX_CONTEXT_ENTRIES))]
     pub context: Vec<ContextEntry>,
 
-    /// Ignored: every question and info item takes a note. A file that sets
-    /// it stays valid.
-    // Parsed, so a value that is no boolean is a shape error, and
-    // `asqr validate` and `asqr ask` warn about `false` (ADR 68).
-    #[serde(default = "note_allowed_by_default")]
-    #[schemars(extend("deprecated" = true))]
-    pub note: bool,
-
     /// Bounds on the number of selected options of a `multi` question.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<u32>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<u32>,
-}
-
-fn note_allowed_by_default() -> bool {
-    true
 }
 
 /// Reads a `null` context as an empty list. A `null` counts as a missing
@@ -436,9 +424,6 @@ mod tests {
 
         assert_eq!(session.id, None);
         let question = &session.questions[0];
-        // The field reads as `true` when left out; it changes nothing
-        // either way (ADR 68).
-        assert!(question.note);
         assert_eq!(question.custom, None);
         assert!(question.context.is_empty());
     }
@@ -690,6 +675,24 @@ mod tests {
     }
 
     #[test]
+    fn a_note_string_does_not_fail_the_parse() {
+        let parsed = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "note": "x"}]}"#,
+        );
+
+        assert!(parsed.is_ok(), "{parsed:?}");
+    }
+
+    #[test]
+    fn a_note_null_does_not_fail_the_parse() {
+        let parsed = parse_session(
+            br#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "note": null}]}"#,
+        );
+
+        assert!(parsed.is_ok(), "{parsed:?}");
+    }
+
+    #[test]
     fn an_info_item_parses_with_its_text_context_and_note() {
         let (_, session) = parse_session(
             br#"{"asqr": 2, "questions": [{"id": "checks", "header": "Checks",
@@ -702,7 +705,6 @@ mod tests {
         assert_eq!(info.kind, Kind::Info);
         assert_eq!(info.header.as_deref(), Some("Checks"));
         assert_eq!(info.context.len(), 1);
-        assert!(!info.note);
     }
 
     #[test]

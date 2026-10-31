@@ -248,25 +248,65 @@ fn validate_refuses_an_unknown_kind_as_one_a_newer_asqr_may_support() {
     );
 }
 
-#[test]
-fn validate_warns_that_note_false_is_ignored() {
+/// Runs `asqr validate` on a one-question session that sets `note` to `value`.
+fn validate_with_note(value: &str) -> std::process::Output {
     let sandbox = Sandbox::new();
     let file = sandbox.file(
-        "quiet.json",
-        r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "note": false}]}"#,
+        "noted.json",
+        &format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "?", "kind": "text", "note": {value}}}]}}"#
+        ),
     );
 
-    let output = sandbox
+    sandbox
         .asqr()
         .arg("validate")
         .arg(&file)
         .output()
-        .expect("runs");
+        .expect("runs")
+}
+
+#[test]
+fn validate_warns_that_note_false_is_ignored() {
+    let output = validate_with_note("false");
 
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         stderr(&output),
-        "warning: questions[0].note: false is ignored; every question takes a note\n"
+        "warning: questions[0].note: ignored; every question takes a note\n"
+    );
+}
+
+#[test]
+fn validate_warns_that_note_true_is_ignored() {
+    let output = validate_with_note("true");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        stderr(&output),
+        "warning: questions[0].note: ignored; every question takes a note\n"
+    );
+}
+
+#[test]
+fn validate_accepts_a_note_string_with_the_warning() {
+    let output = validate_with_note(r#""remember this""#);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        "warning: questions[0].note: ignored; every question takes a note\n"
+    );
+}
+
+#[test]
+fn validate_accepts_a_note_null_with_the_warning() {
+    let output = validate_with_note("null");
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        "warning: questions[0].note: ignored; every question takes a note\n"
     );
 }
 

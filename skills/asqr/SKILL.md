@@ -263,9 +263,8 @@ paths --json` shows where the queue's files are.
   answer to a `single` or `multi` question. `length` gives a target
   range and a `warn` limit for typed text. It guides with a counter;
   nothing the person types is refused.
-- Do not set `note`; it has no effect. The person can add a note to
-  every question and info item: a condition on an answer, why they
-  skipped, or that a question is wrong.
+- The person can add a note to every question and info item: a
+  condition on an answer, why they skipped, or that a question is wrong.
 - Every question is optional: the person may skip any of them, one with
   a `default` included. `min` and `max` count the picked options; the
   own answer of a `multi` comes on top of them.

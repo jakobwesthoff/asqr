@@ -141,12 +141,11 @@ Text fields (`intro`, question `text`, option `label` and option
 - `context` (optional): material that helps to answer the question,
   shown next to it (section 8). Most questions have none. A list of at
   most one entry (section 3.3).
-- `note` (optional): ignored. Every question and info item takes a note,
-  one per question (ADR 68). A file that sets `"note": false` stays
-  valid; `validate` and `ask` warn that it is ignored (section 3.4), and
-  the schema marks the field deprecated. asqr 0.13.1 and earlier turn
-  the note off for `"note": false`, so `asqr ask` drops the field from
-  the copy it puts into the inbox (section 5.5).
+
+Every question and info item takes a note, one per question (ADR 68).
+The format has no `note` field on a question: a file that sets one stays
+valid, asqr ignores it and `validate` and `ask` warn about it (section
+3.4).
 
 Every question is optional (section 4.2, ADR 28): there is no way to
 force an answer, and a skipped question comes back as `skipped: true`.
@@ -325,8 +324,8 @@ add optional fields.
   gets no such warning. An entry can get both this and the 1 MiB
   warning.
 - about fields of earlier format versions (section 3.6).
-- about `"note": false` on a question or an info item, which is ignored,
-  as every question takes a note (section 3.2).
+- about a `note` of any value, `null` included, on a question or an info
+  item, which is ignored, as every question takes a note (section 3.2).
 
 `asqr validate <file>` prints `<file>: valid` and exits with 0, or lists
 every error and exits with 11. Warnings never fail it. A file that is
@@ -845,9 +844,12 @@ dotfiles, editor swap and backup files, `.DS_Store`.
 `.tmp` suffix the watcher ignores, and renames it into place.
 
 What `ask` drops is a copy of the asker's file: pretty-printed, with the
-`id` filled in, the paths of context entries made absolute and
-`"note": false` removed from its questions (section 3.2). The
-asker's own file is never changed. `session_sha256` in the result
+`id` filled in, the paths of context entries made absolute and any
+`note` removed from its questions and info items (section 3.2). A
+released asqr that watches the queue reads `note` as a boolean: asqr
+0.13.1 and earlier turn the note off for `"note": false`, and any
+released asqr refuses a `note` that is no boolean. The asker's own file
+is never changed. `session_sha256` in the result
 (section 5.7) is the hash of that copy.
 
 - No session with that id is waiting: the rename only succeeds while no

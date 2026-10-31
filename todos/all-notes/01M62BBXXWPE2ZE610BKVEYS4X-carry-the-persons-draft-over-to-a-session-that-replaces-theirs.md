@@ -70,9 +70,8 @@ on 2026-10-28 (reviewer finding O4).
 
 ## Checked on main 1dcae03 (lead, 2026-10-30)
 
-- `note` on a question is a boolean in format version 2 today; todo
-  01M61Z3MJBAWT63Y2RYEKSMJD6 removes that field within version 2. The
-  carry-over restores a note from the draft, which has its own `note` on
+- `note` on a question was a boolean in format version 2; ADR 102
+  removes that field within version 2. The carry-over restores a note from the draft, which has its own `note` on
   each answer and does not depend on that field.
 - `restored` (`src/tui/session.rs:1965`) decides whether a restored
   answer counts as touched; an untouched default restores as the file's

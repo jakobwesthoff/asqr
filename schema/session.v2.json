@@ -564,12 +564,6 @@
             "null"
           ]
         },
-        "note": {
-          "default": true,
-          "deprecated": true,
-          "description": "Ignored: every question and info item takes a note. A file that sets\nit stays valid.",
-          "type": "boolean"
-        },
         "options": {
           "description": "The choices of a `single` or `multi` question.",
           "items": {

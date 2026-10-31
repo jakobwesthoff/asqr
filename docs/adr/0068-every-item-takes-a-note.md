@@ -12,6 +12,8 @@ the asker can no longer turn a question's note off
 Amends [36. Treat every typed field alike](0036-treat-every-typed-field-alike.md):
 an open note stays open on a replaced file while its question shows
 
+Amended by [102. Drop the note field from questions within format version 2](0102-drop-the-note-field-from-questions-within-format-version-2.md)
+
 ## Context
 
 - A question's `note` field defaulted to `true`; `"note": false` turned

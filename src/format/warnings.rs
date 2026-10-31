@@ -39,9 +39,9 @@ pub enum WarningKind {
     /// An agent working from an older skill writes it, and the generic
     /// unknown-field warning would not tell it where the image goes.
     ImageField,
-    /// `"note": false` on a question or an info item: every one takes a
-    /// note, so the field is ignored (ADR 68).
-    NoteIgnored,
+    /// A `note` on a question or an info item, whatever its value: every
+    /// one takes a note, so asqr no longer has the field (ADR 102).
+    NoteField,
     RelativePath,
     FileNotFound(PathBuf),
     /// The path exists but names a directory or another file that is not
@@ -74,8 +74,8 @@ impl fmt::Display for Warning {
             WarningKind::ImageField => formatter.write_str(
                 r#"ignored; since format version 2 an image is a context entry: "context": [{"type": "image", "path": ...}]"#,
             ),
-            WarningKind::NoteIgnored => {
-                formatter.write_str("false is ignored; every question takes a note")
+            WarningKind::NoteField => {
+                formatter.write_str("ignored; every question takes a note")
             }
             WarningKind::RelativePath => formatter.write_str(
                 "relative path; `asqr ask` makes it absolute, a file dropped into an inbox by hand must use an absolute path",
@@ -167,16 +167,17 @@ impl KnownFields {
                 Some((kind.to_owned(), fields))
             })
             .collect();
-        // `image` gets a warning of its own (`image_fields`), so it does not
-        // count as unknown as well.
-        let with_image = |mut fields: BTreeSet<String>| {
-            fields.insert("image".to_owned());
+        // `image` and, on a question, `note` get a warning of their own
+        // (`image_fields`, `note_fields`), so they do not count as unknown
+        // as well.
+        let with = |mut fields: BTreeSet<String>, names: &[&str]| {
+            fields.extend(names.iter().map(|name| (*name).to_owned()));
             fields
         };
         KnownFields {
             session: names(&schema),
-            question: with_image(definition("Question")),
-            choice: with_image(definition("Choice")),
+            question: with(definition("Question"), &["image", "note"]),
+            choice: with(definition("Choice"), &["image"]),
             custom: definition("CustomConfig"),
             length: definition("Length"),
             context,
@@ -237,15 +238,20 @@ fn unknown_fields(raw: &Value, found: &mut Vec<Warning>) {
     }
 }
 
-/// Reports `"note": false` on a question, which no longer turns the note
-/// off (ADR 68). `true` changes nothing either way and gets no warning.
+/// Reports a `note` on a question or an info item, whatever its value. The
+/// field left the format within version 2 (ADR 102), so a file from an agent
+/// that still sets it would otherwise get the generic unknown-field warning,
+/// which does not say that every question takes a note.
+// TODO: this warning, its `WarningKind::NoteField` and `drop_note` in
+// `cli/ask.rs` can go once asqr moves to a format version 3. A released asqr
+// refuses a file of another version before it reads the fields.
 fn note_fields(raw: &Value, found: &mut Vec<Warning>) {
     let questions = raw["questions"].as_array().into_iter().flatten();
     for (index, question) in questions.enumerate() {
-        if question.get("note") == Some(&Value::Bool(false)) {
+        if question.get("note").is_some() {
             found.push(Warning {
                 path: FieldPath::root("questions").index(index).field("note"),
-                kind: WarningKind::NoteIgnored,
+                kind: WarningKind::NoteField,
             });
         }
     }
@@ -1208,28 +1214,93 @@ mod tests {
         );
     }
 
+    /// The warning every spelling of a `note` on a question gets.
+    const NOTE_IGNORED: &str = "ignored; every question takes a note";
+
     #[test]
-    fn note_false_is_ignored_with_a_warning() {
+    fn a_note_false_on_a_question_gets_the_pointed_warning() {
         let json = r#"{"asqr": 2, "questions": [
-            {"id": "q", "text": "?", "kind": "text", "note": false},
+            {"id": "q", "text": "?", "kind": "text", "note": false}]}"#;
+
+        assert_eq!(
+            warn(json, None),
+            [format!("questions[0].note: {NOTE_IGNORED}")]
+        );
+    }
+
+    #[test]
+    fn a_note_on_an_info_item_gets_the_pointed_warning() {
+        let json = r#"{"asqr": 2, "questions": [
             {"id": "i", "text": "Done.", "kind": "info", "note": false}]}"#;
 
-        let ignored = "false is ignored; every question takes a note";
+        assert_eq!(
+            warn(json, None),
+            [format!("questions[0].note: {NOTE_IGNORED}")]
+        );
+    }
+
+    #[test]
+    fn a_note_true_gets_the_pointed_warning() {
+        let json =
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "note": true}]}"#;
+
+        assert_eq!(
+            warn(json, None),
+            [format!("questions[0].note: {NOTE_IGNORED}")]
+        );
+    }
+
+    #[test]
+    fn a_note_string_gets_the_pointed_warning() {
+        let json = r#"{"asqr": 2, "questions": [
+            {"id": "q", "text": "?", "kind": "text", "note": "remember this"}]}"#;
+
+        assert_eq!(
+            warn(json, None),
+            [format!("questions[0].note: {NOTE_IGNORED}")]
+        );
+    }
+
+    #[test]
+    fn a_note_null_gets_the_pointed_warning() {
+        let json =
+            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "note": null}]}"#;
+
+        assert_eq!(
+            warn(json, None),
+            [format!("questions[0].note: {NOTE_IGNORED}")]
+        );
+    }
+
+    #[test]
+    fn every_question_with_a_note_gets_its_own_warning() {
+        let json = r#"{"asqr": 2, "questions": [
+            {"id": "a", "text": "?", "kind": "text", "note": false},
+            {"id": "b", "text": "?", "kind": "text"},
+            {"id": "c", "text": "?", "kind": "text", "note": true}]}"#;
+
         assert_eq!(
             warn(json, None),
             [
-                format!("questions[0].note: {ignored}"),
-                format!("questions[1].note: {ignored}"),
+                format!("questions[0].note: {NOTE_IGNORED}"),
+                format!("questions[2].note: {NOTE_IGNORED}"),
             ]
         );
     }
 
     #[test]
-    fn note_true_changes_nothing_and_gets_no_warning() {
-        let json =
-            r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "text", "note": true}]}"#;
+    fn a_note_on_an_option_or_the_session_is_an_unknown_field() {
+        // Only a question or an info item once had the field.
+        let json = r#"{"asqr": 2, "note": "x", "questions": [{"id": "q", "text": "?",
+            "kind": "single", "options": [{"id": "a", "label": "A", "note": false}]}]}"#;
 
-        assert_eq!(warn(json, None), Vec::<String>::new());
+        assert_eq!(
+            warn(json, None),
+            [
+                "note: unknown field",
+                "questions[0].options[0].note: unknown field"
+            ]
+        );
     }
 
     #[test]

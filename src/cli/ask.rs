@@ -88,7 +88,7 @@ pub(super) fn run(
     let raw = &mut session_file.raw;
     raw["id"] = Value::from(id.as_str());
     make_context_paths_absolute(raw, file);
-    drop_note_false(raw);
+    drop_note(raw);
     drop_reserved_names(raw);
     let mut bytes = serde_json::to_vec_pretty(raw).expect("a serde_json Value always serializes");
     bytes.push(b'\n');
@@ -246,14 +246,15 @@ fn replace(
     }
 }
 
-/// Removes `"note": false` from every question. Every question takes a
-/// note (ADR 68) and this asqr ignores the field, but an older asqr watching
-/// the queue would still turn the note off.
-fn drop_note_false(raw: &mut Value) {
+/// Removes `note`, whatever its value, from every question and info item.
+/// Every question takes a note (ADR 68) and this asqr ignores the field, but
+/// a released asqr watching the queue reads it as a boolean: it turns the note
+/// off for `false` and refuses a session where it is no boolean.
+// TODO: goes with the `note` warning once asqr moves to a format version 3
+// (see `note_fields` in `format/warnings.rs`).
+fn drop_note(raw: &mut Value) {
     for question in array_mut(raw, "questions") {
-        if let Some(fields) = question.as_object_mut()
-            && fields.get("note") == Some(&Value::Bool(false))
-        {
+        if let Some(fields) = question.as_object_mut() {
             fields.remove("note");
         }
     }
