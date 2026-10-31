@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use jiff::tz::TimeZone;
 
 use super::Exit;
+use super::plain::plain_line;
 use crate::queue::{
     BundleError, EntryPlace, EntryRef, LoadedReplay, QueueLocation, Resolution, bundle_path,
     describe_entry, load_replay, resolve_reference,
@@ -226,6 +227,35 @@ fn print_candidates(candidates: &[EntryRef]) {
             .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
             .to_zoned(zone.clone())
             .strftime("%d %b %H:%M");
-        eprintln!("  {}  {name:<width$}  {when}  {title}", entry.reference());
+        eprintln!(
+            "{}",
+            candidate_row(&entry.reference(), name, width, &when.to_string(), &title)
+        );
+    }
+}
+
+/// The line that lists one candidate: its reference, queue, time and title.
+fn candidate_row(reference: &str, queue: &str, width: usize, when: &str, title: &str) -> String {
+    let title = plain_line(title);
+    format!("  {reference}  {queue:<width$}  {when}  {title}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_candidate_row_lists_reference_queue_time_and_title() {
+        assert_eq!(
+            candidate_row("9PA7KXZQ", "work", 7, "29 Oct 16:41", "Pick the hero"),
+            "  9PA7KXZQ  work     29 Oct 16:41  Pick the hero"
+        );
+    }
+
+    #[test]
+    fn a_candidate_title_cannot_carry_control_characters() {
+        let row = candidate_row("9PA7KXZQ", "work", 4, "29 Oct 16:41", "Pick\n\x1b[2Jone");
+
+        assert!(!row.contains('\n') && !row.contains('\x1b'), "{row:?}");
     }
 }

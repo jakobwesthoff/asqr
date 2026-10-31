@@ -13,6 +13,7 @@ use jiff::tz::TimeZone;
 use serde_json::{Value, json};
 
 use super::Exit;
+use super::plain::plain_line;
 use crate::queue::{
     FileCounts, History, HistoryEntry, HistoryOutcome, QueueLocation, list_history, list_queues,
 };
@@ -163,10 +164,10 @@ fn render(
         };
         out.push_str(&line(&headers, "TITLE"));
         for (row, entry) in rows.iter().zip(&list.entries) {
-            let title = entry.title.as_deref().unwrap_or(&entry.entry.id);
+            let title = plain_line(entry.title.as_deref().unwrap_or(&entry.entry.id));
             let title = match width {
-                Some(width) => cut(title, width.saturating_sub(before_title).max(1)),
-                None => title.to_owned(),
+                Some(width) => cut(&title, width.saturating_sub(before_title).max(1)),
+                None => title,
             };
             out.push_str(&line(&[&row[0], &row[1], &row[2], &row[3]], &title));
         }

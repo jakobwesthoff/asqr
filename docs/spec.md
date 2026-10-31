@@ -1533,8 +1533,12 @@ Open one with: asqr replay <REF>
 - FILES counts the files the archived session recorded (section 5.1):
   `3 kept`, `1 of 2 gone` (missing or unreadable when it was finished),
   `2 not kept`, and `-` for a session that shows none or records none.
-- TITLE is the session's `title`, its id without one. It is cut to the
-  terminal width when stdout is a terminal.
+- TITLE is the session's `title`, its id without one. Each control
+  character in it, an escape or a newline included, is printed as U+FFFD
+  so that an agent's title cannot move the cursor or change the terminal.
+  It is cut to the terminal width when stdout is a terminal. The titles
+  that `replay` lists for an ambiguous reference are printed the same way.
+  `--json` carries the title as it is, in JSON escapes.
 - A session is paired with its result by hash: a result answers a session
   when its `session_sha256` equals `archived.session_sha256` or the hash
   of the file's own bytes. Among several results that match, a session

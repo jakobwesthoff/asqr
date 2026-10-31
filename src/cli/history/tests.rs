@@ -423,3 +423,29 @@ fn a_limit_is_a_whole_number_of_at_least_one() {
         Err("expected a whole number, such as 10".to_owned())
     );
 }
+
+#[test]
+fn a_title_with_control_characters_cannot_change_the_terminal() {
+    let list = history(vec![entry(
+        "a",
+        1,
+        "2026-10-30T10:02:00Z",
+        Some("Pick\n\x1b]0;owned\x07 one"),
+        HistoryOutcome::Sent,
+        FileCounts::default(),
+    )]);
+    let blocks = [Block {
+        queue: "q",
+        history: &list,
+    }];
+
+    let text = drawn(&blocks, None, Some(80));
+
+    assert!(
+        text.ends_with(
+            "Pick\u{fffd}\u{fffd}]0;owned\u{fffd} one\n\nOpen one with: asqr replay <REF>\n"
+        ),
+        "{text:?}"
+    );
+    assert!(!text.contains('\x1b') && !text.contains('\x07'), "{text:?}");
+}

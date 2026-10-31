@@ -15,6 +15,7 @@ mod history;
 pub(crate) use hint::shell_word;
 pub(crate) mod log;
 mod paths;
+mod plain;
 mod prune;
 mod queues;
 mod replay;
