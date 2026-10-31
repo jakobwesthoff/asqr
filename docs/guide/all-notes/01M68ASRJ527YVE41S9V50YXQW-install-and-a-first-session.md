@@ -65,7 +65,7 @@ same tmux session as asqr.
 asqr shows the session as soon as it arrives, with a desktop
 notification and a terminal bell.
 
-![A question of a session, with the title bar, the header, the tabs, the options and the key bar](../pictures/first-question.png)
+![The first question of a session: title bar, header, tabs, options and key bar](../pictures/first-question.png)
 
 The picture shows another session, a release checklist from the
 `examples/sessions` folder of the asqr repository. Most pictures in this

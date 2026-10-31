@@ -9,6 +9,8 @@ site:
 Every key of asqr, by place. Inside asqr, `?` shows the keys that work
 where the cursor is.
 
+![The help over a session, with the screen behind it dimmed](../pictures/help.png)
+
 ## Keys on a question
 
 These keys work on the rows of a question and its options.

@@ -99,7 +99,7 @@ asqr wait "$id" --timeout 540
 
 In asqr, the first question of this session looks like this:
 
-![A question of a session, with the title bar, the header, the tabs, the options and the key bar](../pictures/first-question.png)
+![The first question of a session: title bar, header, tabs, options and key bar](../pictures/first-question.png)
 
 You pick "Publish now", leave the channels as they are, type a sentence and
 reach the review:
