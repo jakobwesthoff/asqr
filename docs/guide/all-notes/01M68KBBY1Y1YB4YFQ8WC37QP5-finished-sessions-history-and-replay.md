@@ -2,11 +2,19 @@
 title: "Finished sessions: history and replay"
 tags: [guide/queues]
 site:
-  order: 4
+  order: 3
 ---
-A finished session stays in the queue's archive. `asqr history` lists the
-finished sessions, and `asqr replay` opens one of them again, read-only,
-with your answers filled in and the files it showed.
+A finished session stays in the queue's archive, so you can look at what
+you answered later. Most of the time two commands do it:
+
+```sh
+asqr history
+asqr replay <REF>
+```
+
+`asqr history` lists the finished sessions, newest first, each with a
+reference, and `asqr replay` opens one of them again, read-only, with your
+answers filled in and the files it showed. `q` leaves it.
 
 ## The list
 

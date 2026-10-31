@@ -33,8 +33,8 @@ reading order. The pictures are in `pictures/`.
 
 - [Queues](all-notes/01M68C1XV58STWHBH179QYXPZR-queues.md)
 - [Settings](all-notes/01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
-- [Notifications, the terminal and tmux](all-notes/01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
 - [Finished sessions: history and replay](all-notes/01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
+- [Notifications, the terminal and tmux](all-notes/01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md), details of what asqr sends to your terminal
 
 ### Reference
 
