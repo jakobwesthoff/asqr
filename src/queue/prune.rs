@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use super::names::entries_if_present;
+use super::names::{entries_if_present, read_if_present};
 use super::{
     Archived, BundleReader, DRAFTS_LOCK_ATTEMPTS, EntryKind, EntryName, EntryRef, Month,
     QueueLocation, bundle_path, list_entries, list_queues, lock_drafts, parse_archive_name,
@@ -115,7 +115,9 @@ fn unneeded_kept_files(
         if !is_session {
             continue;
         }
-        let Ok(bytes) = std::fs::read(&path) else {
+        // A session that cannot be read may show any kept file, so none can
+        // be told to be unneeded.
+        let Some(bytes) = read_session(&path)? else {
             continue;
         };
         let names = kept_file_names(&bytes);
@@ -142,6 +144,19 @@ fn unneeded_kept_files(
         }
     }
     Ok(unneeded)
+}
+
+/// The bytes of the loose archived session at `path`, `None` when it is
+/// gone meanwhile. Any other failure is an error naming the file, as the
+/// compaction treats it, so that nothing is removed on a guess about what
+/// the session shows.
+fn read_session(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    read_if_present(path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("cannot read {}: {error}", path.display()),
+        )
+    })
 }
 
 /// Removes `archive/files/` when nothing is left in it. A folder left
@@ -254,7 +269,7 @@ pub fn prune_session(entry: &EntryRef, remove: bool) -> io::Result<Vec<Removal>>
     let mut loose_files = Vec::new();
     if let Some(path) = &loose {
         removals.push(Removal::File(path.clone()));
-        let own = std::fs::read(path).unwrap_or_default();
+        let own = read_session(path)?.unwrap_or_default();
         let mut shown_by_others: HashSet<String> = HashSet::new();
         for other in entries_if_present(&location.archive())? {
             let other = other.path();
@@ -265,7 +280,7 @@ pub fn prune_session(entry: &EntryRef, remove: bool) -> io::Result<Vec<Removal>>
                 .is_some_and(|parsed| parsed.kind == Archived::Session);
             if is_session
                 && other != *path
-                && let Ok(bytes) = std::fs::read(&other)
+                && let Some(bytes) = read_session(&other)?
             {
                 shown_by_others.extend(kept_file_names(&bytes));
             }
@@ -1035,6 +1050,75 @@ mod tests {
 
         assert!(error.to_string().contains("2026-10.zip"), "{error}");
         assert!(path.exists());
+    }
+
+    /// A loose session that cannot be read: a directory under a session's
+    /// name, which fails to read whoever runs the tests.
+    fn unreadable_loose_session(location: &QueueLocation, when: &str) -> PathBuf {
+        let ulid = Ulid::from_parts(millis(at(when)), 3);
+        let path = location
+            .archive()
+            .join(archive_name("broken", ulid, Archived::Session));
+        fs::create_dir(&path).expect("created");
+        path
+    }
+
+    #[test]
+    fn an_unreadable_loose_session_stops_older_than_and_removes_nothing() {
+        let (_scratch, location) = queue();
+        let (old, _) = loose_showing(&location, "old", "2026-08-10T10:00:00Z", &[SHA_A]);
+        let shown = kept(&location, SHA_A, "2027-01-12T00:00:00Z");
+        let broken = unreadable_loose_session(&location, "2027-01-10T10:00:00Z");
+
+        let error = prune(&location, 30 * DAY, now(), true).expect_err("refused");
+
+        assert!(
+            error.to_string().contains(&broken.display().to_string()),
+            "{error}"
+        );
+        assert!(old.exists() && shown.exists());
+    }
+
+    #[test]
+    fn an_unreadable_loose_session_fails_the_older_than_dry_run_too() {
+        let (_scratch, location) = queue();
+        loose_showing(&location, "old", "2026-08-10T10:00:00Z", &[SHA_A]);
+        unreadable_loose_session(&location, "2027-01-10T10:00:00Z");
+
+        assert!(prune(&location, 30 * DAY, now(), false).is_err());
+    }
+
+    #[test]
+    fn an_unreadable_other_loose_session_stops_prune_session_and_removes_nothing() {
+        let (_scratch, location) = queue();
+        let (path, entry) = loose_showing(&location, "old", "2026-08-10T10:00:00Z", &[SHA_A]);
+        let file = kept(&location, SHA_A, "2027-01-12T00:00:00Z");
+        let broken = unreadable_loose_session(&location, "2027-01-10T10:00:00Z");
+
+        let error = prune_session(&entry, true).expect_err("refused");
+
+        assert!(
+            error.to_string().contains(&broken.display().to_string()),
+            "{error}"
+        );
+        assert!(path.exists() && file.exists());
+    }
+
+    #[test]
+    fn a_session_that_prune_session_names_and_cannot_read_is_an_error() {
+        let (_scratch, location) = queue();
+        let (path, entry) = loose_showing(&location, "old", "2026-08-10T10:00:00Z", &[SHA_A]);
+        let file = kept(&location, SHA_A, "2027-01-12T00:00:00Z");
+        fs::remove_file(&path).expect("removed");
+        fs::create_dir(&path).expect("created");
+
+        let error = prune_session(&entry, true).expect_err("refused");
+
+        assert!(
+            error.to_string().starts_with("cannot read "),
+            "the read fails, not the removal: {error}"
+        );
+        assert!(file.exists());
     }
 
     #[test]

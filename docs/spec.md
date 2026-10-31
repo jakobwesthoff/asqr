@@ -1204,7 +1204,9 @@ makes the exit code 1.
   bundle holds its own copy of every file its sessions show, so a bundled
   session is no reason to keep a loose copy. Only files named as kept
   files count: the temp files of a copy being written and anything else
-  in `archive/files/` stay. `archive/files/` is removed with its last
+  in `archive/files/` stay. A loose session that cannot be read is an
+  error naming its file, exit code 1, and nothing is removed, as it may
+  show any kept file; this holds for the dry run as well. `archive/files/` is removed with its last
   file. The kept files print like the entries do.
 - Without `--yes`, `prune` deletes nothing: it prints `would remove
   <path>` for each file and queue it would delete, then `nothing was
@@ -1225,8 +1227,8 @@ makes the exit code 1.
   written anew without them under the drafts lock, and removed when
   nothing is left in it. The result of the session stays. It prints and
   asks as `--older-than` does, a bundle entry as `<bundle>: <name>`. A
-  bundle that cannot be read is an error, exit code 1, and nothing is
-  removed. Named queues that hold nothing are not removed.
+  bundle or a loose session that cannot be read is an error, exit code 1,
+  and nothing is removed. Named queues that hold nothing are not removed.
 - `--results` is a usage error that names the new form: asqr moves
   results older than 30 days into the archive, and `prune --older-than`
   deletes them there with their month.

@@ -69,13 +69,15 @@ verb says. A bare `asqr history` is the list.
 - A session lying both loose and in the bundle of its month is removed
   from both. The bundle is written anew without the session and without
   the kept files only it showed, in one hold of the drafts lock, and
-  removed when nothing remains in it. A bundle that cannot be read is an
-  error and nothing is removed. The result of the session stays.
+  removed when nothing remains in it. A bundle or a loose session that
+  cannot be read is an error and nothing is removed. The result of the session stays.
 - `prune --older-than` removes the loose kept files of the loose sessions
   it removes that no loose session that stays shows, and loose kept files
   no loose session shows whose own modification time is before the cutoff;
   a dry run lists them. A loose copy is needed by loose sessions only,
-  since a bundle holds a copy of every file its sessions show.
+  since a bundle holds a copy of every file its sessions show. A loose
+  session that cannot be read may show any kept file, so it is an error
+  and nothing is removed, as the compaction treats it.
 
 ### The reference
 

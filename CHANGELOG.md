@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference `asqr history` prints, with the kept files only it showed; a
   dry run lists what would go, and `--yes` removes it. `asqr prune
   --older-than` now removes the kept files of the sessions it removes, and
-  kept files no session shows that are older than the age.
+  kept files no session shows that are older than the age. Both stop with
+  an error, removing nothing, when a loose session cannot be read.
 - `asqr replay <ref>` opens a finished session of the archive, by the
   reference `asqr history` prints, read-only: its answers are filled in,
   the options not picked are dim, the files the session showed come from
