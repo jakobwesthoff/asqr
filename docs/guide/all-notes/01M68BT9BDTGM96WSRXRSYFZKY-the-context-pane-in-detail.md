@@ -91,7 +91,8 @@ while it has the focus.
 
 ## Markdown
 
-A Markdown entry shows rendered, wrapped at the pane's width.
+A Markdown entry shows rendered, wrapped at the pane's width, as the texts
+of a session render.
 
 ![A Markdown entry in the context pane](../pictures/context-markdown.png)
 
