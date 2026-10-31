@@ -59,6 +59,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-default-fancy"] }
 ulid = "3.0.0"
 unicode-segmentation = "1.13.3"
+# Reads and writes the month bundles of the archive. Deflate goes through
+# `flate2` and its pure-Rust backend; the default features would bring in
+# bzip2, zstd, lzma and aes.
+zip = { version = "9.1", default-features = false, features = ["deflate-flate2"] }
 
 [dev-dependencies]
 assert_cmd = "2.2.2"

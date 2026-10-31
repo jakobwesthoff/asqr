@@ -7,6 +7,7 @@
 
 mod archive;
 mod atomic;
+mod bundle;
 mod drafts;
 mod drop;
 mod finish;
@@ -20,6 +21,7 @@ mod withdraw;
 
 pub use archive::*;
 pub(crate) use atomic::write_atomically_with;
+pub use bundle::*;
 pub use drafts::*;
 pub use drop::*;
 pub use finish::*;
