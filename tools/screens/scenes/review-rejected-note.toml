@@ -1,0 +1,7 @@
+caption = "The review tab with a note to the asker and a reason for rejecting typed in"
+columns = 80
+rows = 24
+keys = ["enter", "enter", { text = "Startup is twice as fast." }, "enter", "down", { text = "Ship it after the changelog is fixed." }, "down", { text = "Not today." }]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"

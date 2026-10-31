@@ -1,0 +1,7 @@
+caption = "An info item, which shows text and context and takes only a note"
+columns = 120
+rows = 30
+keys = ["l", "l", "l"]
+
+[[sessions]]
+file = "../../../examples/sessions/retry-review.json"

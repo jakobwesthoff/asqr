@@ -1,0 +1,6 @@
+caption = "Review findings: the fix as a diff and three ways to answer"
+columns = 120
+rows = 30
+
+[[sessions]]
+file = "../../../examples/sessions/review-findings.json"

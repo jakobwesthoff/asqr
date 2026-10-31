@@ -1,0 +1,7 @@
+caption = "The context pane below the question"
+columns = 100
+rows = 36
+layout = "below"
+
+[[sessions]]
+file = "../../../examples/sessions/retry-review.json"

@@ -1,0 +1,7 @@
+caption = "The context shown full screen after z"
+columns = 120
+rows = 30
+keys = ["z"]
+
+[[sessions]]
+file = "../../../examples/sessions/retry-review.json"

@@ -1,0 +1,6 @@
+caption = "A code entry in the context pane"
+columns = 120
+rows = 30
+
+[[sessions]]
+file = "../../../examples/sessions/context-tour.json"

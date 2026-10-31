@@ -1,0 +1,6 @@
+caption = "The first question of a session: title bar, header, tabs, options and key bar"
+columns = 80
+rows = 24
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"

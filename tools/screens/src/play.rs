@@ -304,7 +304,7 @@ pub fn play(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<Buffer> {
     let mut view = View::new(queue, layout, images)
         .chosen_queue(queue != "default")
         .glyphs(glyphs)
-        .home(std::env::var_os("HOME").map(PathBuf::from))
+        .home(scene.home.clone())
         .wake_on_load(move || {
             // The receiver lives as long as the scene is played.
             let _ = wake.send(());
@@ -803,13 +803,30 @@ mod tests {
             "\",\", \"j\", \"j\"",
             &format!(
                 "layout = \"below\"\n{RELEASE}\
-                 [settings]\npath = \"~/.config/asqr/settings.toml\"\ncontext_held_by = \"flag\"\n"
+                 [settings]\npath = \"/nowhere/asqr/settings.toml\"\ncontext_held_by = \"flag\"\n"
             ),
         ));
 
         let shown = text(&buf);
         assert!(shown.contains("set by --layout"), "{shown}");
-        assert!(shown.contains("~/.config/asqr/settings.toml"), "{shown}");
+        assert!(shown.contains("/nowhere/asqr/settings.toml"), "{shown}");
+    }
+
+    #[test]
+    fn the_settings_path_shows_with_the_scene_s_home_as_a_tilde() {
+        let buf = screen(&scene_with(
+            "\",\"",
+            &format!(
+                "home = \"/home/someone\"\n{RELEASE}\
+                 [settings]\npath = \"/home/someone/.config/asqr/settings.toml\"\n"
+            ),
+        ));
+
+        assert!(
+            text(&buf).contains("~/.config/asqr/settings.toml"),
+            "{}",
+            text(&buf)
+        );
     }
 
     #[test]

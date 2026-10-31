@@ -1,0 +1,7 @@
+caption = "An ansi entry, text in the colours of its escape sequences"
+columns = 120
+rows = 30
+keys = ["l", "l"]
+
+[[sessions]]
+file = "../../../examples/sessions/context-tour.json"

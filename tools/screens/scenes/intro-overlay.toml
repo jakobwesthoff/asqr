@@ -1,0 +1,7 @@
+caption = "The whole intro of a session, shown by i, in a frame that scrolls"
+columns = 80
+rows = 18
+keys = ["i"]
+
+[[sessions]]
+file = "../../../examples/sessions/context-tour.json"

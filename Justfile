@@ -44,3 +44,10 @@ setup:
 [positional-arguments]
 screens *args:
     cargo run --quiet -p screens -- "$@"
+
+# Draws every scene into the guide's pictures folder, which the notes of
+# docs/guide show. The captions of the tool's index.md are the notes' alt
+# texts, so the index is not kept.
+guide-pictures:
+    cargo run --quiet -p screens -- --out docs/guide/pictures
+    rm docs/guide/pictures/index.md

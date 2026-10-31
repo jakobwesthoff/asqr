@@ -204,15 +204,16 @@ mod tests {
             .filter_map(|file| file.file_name())
             .map(|name| name.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(
-            names,
-            [
-                "empty-queue.toml",
-                "help.toml",
-                "queue-switcher.toml",
-                "session-list.toml",
-                "session-with-context.toml"
-            ]
+        assert!(
+            names.windows(2).all(|pair| pair[0] < pair[1]),
+            "the scenes come sorted by name: {names:?}"
+        );
+        for scene in ["empty-queue.toml", "help.toml", "queue-switcher.toml"] {
+            assert!(names.iter().any(|name| name == scene), "{names:?}");
+        }
+        assert!(
+            names.iter().all(|name| name.ends_with(".toml")),
+            "only scene files: {names:?}"
         );
     }
 

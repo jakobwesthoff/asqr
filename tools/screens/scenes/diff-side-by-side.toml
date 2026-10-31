@@ -1,0 +1,7 @@
+caption = "A diff shown side by side after s"
+columns = 120
+rows = 30
+keys = ["s"]
+
+[[sessions]]
+file = "../../../examples/sessions/retry-review.json"

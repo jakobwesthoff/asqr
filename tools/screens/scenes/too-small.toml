@@ -1,0 +1,6 @@
+caption = "What asqr shows on a terminal under 60 by 15"
+columns = 50
+rows = 12
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"

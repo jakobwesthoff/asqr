@@ -1,0 +1,13 @@
+caption = "The settings pane with the Context row held by --layout"
+columns = 100
+rows = 24
+layout = "below"
+home = "/home/someone"
+keys = [",", "j", "j"]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+[settings]
+path = "/home/someone/.config/asqr/settings.toml"
+context_held_by = "flag"

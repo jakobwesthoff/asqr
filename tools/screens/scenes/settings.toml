@@ -1,0 +1,11 @@
+caption = "The settings pane over a session"
+columns = 100
+rows = 24
+home = "/home/someone"
+keys = [","]
+
+[[sessions]]
+file = "../../../examples/sessions/release-checklist.json"
+
+[settings]
+path = "/home/someone/.config/asqr/settings.toml"
