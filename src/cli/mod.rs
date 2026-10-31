@@ -11,6 +11,7 @@ mod compact;
 mod exit;
 mod format;
 mod hint;
+mod history;
 pub(crate) use hint::shell_word;
 pub(crate) mod log;
 mod paths;
@@ -187,6 +188,32 @@ enum Command {
         all: bool,
 
         /// List only sessions answered within this age, such as 2h or 1d.
+        #[arg(long, value_name = "AGE", value_parser = prune::parse_age)]
+        since: Option<Duration>,
+    },
+
+    /// List the finished sessions, newest first, with the reference that
+    /// `asqr replay` takes.
+    History {
+        /// Print the list as JSON.
+        #[arg(long)]
+        json: bool,
+
+        /// List the finished sessions of every queue under the data
+        /// directory.
+        #[arg(long)]
+        all: bool,
+
+        /// List at most this many sessions per queue, the newest first.
+        #[arg(
+            long,
+            value_name = "COUNT",
+            default_value_t = history::DEFAULT_LIMIT,
+            value_parser = history::parse_limit
+        )]
+        limit: usize,
+
+        /// List only sessions finished within this age, such as 2d or 3w.
         #[arg(long, value_name = "AGE", value_parser = prune::parse_age)]
         since: Option<Duration>,
     },
@@ -519,6 +546,21 @@ fn dispatch(
                 json,
                 limit: (!all).then_some(limit),
                 since,
+            },
+        ),
+        Command::History {
+            json,
+            all,
+            limit,
+            since,
+        } => history::run(
+            &location,
+            root.as_deref(),
+            history::HistoryOptions {
+                all,
+                since,
+                limit,
+                json,
             },
         ),
         Command::Queues { json } => queues::run(root.as_deref(), tmux, json),

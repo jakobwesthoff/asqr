@@ -1279,6 +1279,7 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr result <id>` | prints the result if it is there, like `wait --timeout 0` |
 | `asqr withdraw <id> [--force]` | takes a waiting session back and prints its result, status `withdrawn` (section 5.10) |
 | `asqr status [--json] [--limit <count> \| --all] [--since <age>]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
+| `asqr history [--json] [--all] [--limit <count>] [--since <age>]` | the finished sessions of the queue, newest first, each with the reference `asqr replay` takes (section 6.5) |
 | `asqr queues [--json]` | every named queue, the sessions waiting in it and its results, and the asqr watching it (section 6.5) |
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
@@ -1401,7 +1402,7 @@ withdrawn before it prints that result and exits with 0 too. Its
 refusals exit with 1, and an id that only the archive or nothing in the
 queue knows with 13, with the messages of section 5.10.
 
-### 6.5 `status` and `queues`
+### 6.5 `status`, `queues` and `history`
 
 `status --json` prints an object with `queue`, `watched_by` (the lock
 holder, or `null`), `waiting` (a list of `{id, draft_has_answers}`),
@@ -1447,9 +1448,70 @@ default           0       516  nobody
 `answered_total`, `watched_by` (the first line of the lock, or `null`)
 and `tmux_session` (or `null`).
 
+`asqr history` lists the finished sessions of the queue: the loose
+files `archive/<id>.<ulid>.json` and the `sessions/` entries of the month
+bundles (section 5.1), newest first by the ULID in the name. A session
+that is both loose and bundled, because a compaction was interrupted
+between the two steps, is listed once. Files named `invalid.<ulid>.json`
+and the results moved aside by `ask --force` are no sessions and are not
+listed. The text form:
+
+```
+queue: default
+finished (10 of 52):
+REF       WHEN          STATUS      FILES        TITLE
+H3WQ8N5X  30 Oct 09:14  sent        -            Release 0.2.0
+D0M6Z4TB  29 Oct 11:20  withdrawn*  1 of 2 gone  Migration plan: drop legacy tables
+
+* withdrawn by the asker; the answers you had entered are kept as a draft
+
+Open one with: asqr replay <REF>
+```
+
+- REF is the last 8 characters of the archive ULID, the random part, so
+  two sessions finished in the same second differ. Ids repeat and the
+  ULID does not, which is why the reference and not the id names an
+  entry.
+- WHEN is the time the result was finished, in the local time zone; a
+  session without a result shows the time it was archived.
+- STATUS is `sent` (a `submitted` result), `rejected` (`cancelled`),
+  `error`, `withdrawn` or `no result`. `withdrawn*` is a withdrawn
+  session whose result carries an unsent `draft`.
+- FILES counts the files the archived session recorded (section 5.1):
+  `3 kept`, `1 of 2 gone` (missing or unreadable when it was finished),
+  `2 not kept`, and `-` for a session that shows none or records none.
+- TITLE is the session's `title`, its id without one. It is cut to the
+  terminal width when stdout is a terminal.
+- A session is paired with its result by hash: a result answers a session
+  when its `session_sha256` equals `archived.session_sha256` or the hash
+  of the file's own bytes. Among several results that match, a session
+  takes the latest one finished at or before it was archived, each result
+  answers one session, the oldest session chooses first. The results are
+  those in the outbox, those moved aside by `ask --force` and those of
+  the bundles, so a result in another month than its session is found.
+- `--limit <count>` lists at most that many sessions per queue, 10 when it
+  is not given, and must be at least 1. `--since <age>` keeps the sessions
+  archived within that age, in the units of `status --since`. The header
+  reads `finished (10 of 52):` when the limit cut the list, `finished
+  (4 in 3d):` with `--since` and `finished (3):` otherwise.
+- `--all` lists every queue under the root (section 5.2), the queue in use
+  first and the others by name, one block each; `--limit` and `--since`
+  apply per queue. A queue given by `--dir` is listed first and the
+  hint to open an entry names it with `--dir`.
+- `--json` prints an object with `queue`, `total` (the sessions `--since`
+  keeps, before the limit cuts the list) and `entries`, a list of `ref`,
+  `id`, `finished_at` (UTC, whole seconds), `status` (`sent`,
+  `rejected`, `error`, `withdrawn` or `none`), `files` (`kept`, `gone`
+  and `not_kept` counts), `title` (or `null`) and `draft`. With `--all` it
+  prints an array of these objects, one per queue.
+- A bundle that cannot be read is a `warning:` line on stderr naming it;
+  the other sessions are listed and the exit code stays 0, as it does for
+  `status`.
+
 ### 6.6 Exit codes
 
-The same for every command:
+The same for every command. `history` ends with 0, 1 or 2 only: how a
+session ended shows in its row and never as 10 to 14.
 
 | Code | Meaning |
 |---|---|

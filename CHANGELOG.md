@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `asqr history` lists the finished sessions of the queue, newest first,
+  with a reference for each, when it ended, how it ended, what became of
+  the files it showed and its title. `--all` covers every queue under the
+  data directory, `--limit` and `--since` cut the list per queue and
+  `--json` prints it for scripts.
 - When the person finishes a session, asqr copies the files it showed into
   the archive: images as WebP copies at about a fifth of their size, every
   other file as it is. The archived session points at the copies and

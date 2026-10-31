@@ -44,6 +44,16 @@ impl Sandbox {
         }
     }
 
+    /// The directory under which asqr keeps the named queues, under the
+    /// sandbox's home on either platform.
+    pub fn data_dir(&self) -> PathBuf {
+        if cfg!(target_os = "macos") {
+            self.home.path().join("Library/Application Support/asqr")
+        } else {
+            self.home.path().join(".local/share/asqr")
+        }
+    }
+
     /// A queue directory inside the sandbox, for `--dir`.
     pub fn queue_dir(&self) -> PathBuf {
         self.home.path().join("queue")
