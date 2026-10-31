@@ -2,7 +2,6 @@
 title: "Carry the person's draft over to a session that replaces theirs"
 kind: feature
 component: queue
-status: needs-discussion
 origin: review
 ---
 # Carry the person's draft over to a session that replaces theirs
@@ -47,13 +46,14 @@ on 2026-10-28 (reviewer finding O4).
   id. Rejected: carry-over only with a flag such as `--keep-draft`,
   which an agent can forget; presets written by the agent with a result
   flag. This replaces the presets and the skill's quoting rule.
+- **A note in the session header marks the carry-over (Jakob,
+  2026-10-31, in the chat),** such as `continues your draft of
+  <old id or title>`. The fields themselves look as a restored draft
+  looks today, as the person's own input. Rejected: `◀ draft` after each
+  carried entry, and no mark at all.
 
-## Open questions
+## Open questions for the implementation
 
-- Product (for Jakob): whether the carried-over entries get a mark in
-  the TUI (for example `◀ draft`, as the replay marks a withdrawn draft's
-  picks in a finished session shown again, spec 7.11), or show as a restored draft of the same
-  session does today, without one.
 - Technical (for the lead): carried-over entries are the person's input,
   so `person_entered` (`src/queue/drafts.rs:96`) counts them and a
   further `--replaces` needs `--force`; check that this is what the

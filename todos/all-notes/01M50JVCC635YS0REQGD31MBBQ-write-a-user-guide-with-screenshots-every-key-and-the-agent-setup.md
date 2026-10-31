@@ -146,4 +146,4 @@ guide itself and the pictures it needs.
 
 ## Relations
 
-- Relates to: [Add a VHS demo GIF to the README](01M3HNJJXAVRC9TJWRTPPTFNC0-add-a-vhs-demo-gif-to-the-readme.md)
+- Relates to: [Add an animated demo GIF from tools/screens to the README](01M3HNJJXAVRC9TJWRTPPTFNC0-add-an-animated-demo-gif-from-tools-screens-to-the-readme.md)

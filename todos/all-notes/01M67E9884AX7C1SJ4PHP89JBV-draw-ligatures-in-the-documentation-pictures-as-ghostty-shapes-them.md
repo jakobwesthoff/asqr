@@ -2,7 +2,7 @@
 title: "Draw ligatures in the documentation pictures as Ghostty shapes them"
 kind: chore
 component: project
-horizon: someday
+status: blocked
 origin: discussion
 tags: [ux]
 ---
@@ -34,11 +34,13 @@ and does not change.
 - Size: about 150 to 250 lines with tests. `rustybuzz` becomes a
   dependency of the tool only, not of asqr.
 
-## Revisit when
+## Decision (Jakob, 2026-10-31, in the chat)
 
-`tools/screens` is on main and the guide's pictures exist, and the
-pictures should look closer to the terminal.
+After the guide merges: the guide goes in with plain pictures, then the
+shaper re-renders the pictures with ligature pairs (17 of 44 scenes at
+most, by a search for the pairs), and Jakob reviews only those.
+Rejected: before the guide, not at all, no date.
 
 ## Relations
 
-- Relates to: [Write a user guide with screenshots, every key and the agent setup](01M50JVCC635YS0REQGD31MBBQ-write-a-user-guide-with-screenshots-every-key-and-the-agent-setup.md)
+- Depends on: [Write a user guide with screenshots, every key and the agent setup](01M50JVCC635YS0REQGD31MBBQ-write-a-user-guide-with-screenshots-every-key-and-the-agent-setup.md)
