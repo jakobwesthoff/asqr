@@ -910,9 +910,9 @@ is never changed. `session_sha256` in the result
   file in its place".
 - A session with that id is waiting and its draft has an answer
   (section 4.3): `ask` refuses with "session "<id>" is being answered;
-  wait for its result, or ask the person and withdraw it with `asqr
-  withdraw --force <id>`". Another id would leave the old session in
-  the person's queue.
+  wait for its result, or ask the person and withdraw it with `<asqr>
+  withdraw --force <id>`" (`<asqr>` as in section 6.7). Another id would
+  leave the old session in the person's queue.
 - A result with that id is still in the outbox: `ask` refuses, so an
   unread result is never lost. `ask --force` moves the old result into
   the archive (section 5.7) and then drops the new session. Reading the
@@ -1354,14 +1354,14 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
   answers are questions marked `cleared` (section 4.3): the result's
   `draft` has nothing to carry for them.
 - A session answered already, whose result is in the outbox, is refused:
-  "session "<id>" is answered already; read the result with `asqr result
-  <id>`". So is a session whose finish was interrupted after its result
+  "session "<id>" is answered already; read the result with `<asqr>
+  result <id>`". So is a session whose finish was interrupted after its result
   was written, which recovery completes. An error result counts as an
   answer here.
 - A session next to an unread result of an earlier session under its id,
   which only a file dropped by hand can be, is refused: "an unread
   result of an earlier session "<id>" is in the outbox; the asqr
-  watching the queue archives this session unanswered (`asqr result
+  watching the queue archives this session unanswered (`<asqr> result
   <id>` shows that result)". The TUI's recovery does that (section 5.7).
 - A session withdrawn before gives the same result again and says
   "asqr: <id> was withdrawn already" on stderr. A withdrawal interrupted

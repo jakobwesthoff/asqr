@@ -67,12 +67,16 @@ pub(super) fn run(
             hint::being_answered(invocation, &id, Refusing::Withdraw).print();
             Exit::Failure
         }
-        Err(WithdrawError::Io(error)) => {
-            eprintln!("error: cannot withdraw {id}: {error}");
+        Err(WithdrawError::Answered(id)) => {
+            hint::answered_already(invocation, &id).print();
             Exit::Failure
         }
-        Err(error) => {
-            eprintln!("error: {error}");
+        Err(WithdrawError::UnreadResult(id)) => {
+            hint::withdraw_unread_result(invocation, &id).print();
+            Exit::Failure
+        }
+        Err(WithdrawError::Io(error)) => {
+            eprintln!("error: cannot withdraw {id}: {error}");
             Exit::Failure
         }
     }

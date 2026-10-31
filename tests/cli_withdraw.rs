@@ -212,7 +212,10 @@ fn withdraw_of_an_answered_session_is_refused_with_1() {
     assert_eq!(refused.status.code(), Some(1));
     assert_eq!(
         stderr(&refused),
-        "error: session \"batch\" is answered already; read the result with `asqr result batch`\n"
+        format!(
+            "error: session \"batch\" is answered already; read the result with `asqr --dir {} result batch`\n",
+            sandbox.queue_dir().display()
+        )
     );
 }
 
@@ -300,10 +303,12 @@ fn withdraw_with_an_unread_result_of_an_earlier_session_exits_1() {
     let refused = withdraw(&sandbox, &["batch"]);
 
     assert_eq!(refused.status.code(), Some(1));
-    assert!(
-        stderr(&refused).starts_with("error: an unread result of an earlier session \"batch\""),
-        "{}",
-        stderr(&refused)
+    assert_eq!(
+        stderr(&refused),
+        format!(
+            "error: an unread result of an earlier session \"batch\" is in the outbox; the asqr watching the queue archives this session unanswered (`asqr --dir {} result batch` shows that result)\n",
+            sandbox.queue_dir().display()
+        )
     );
 }
 

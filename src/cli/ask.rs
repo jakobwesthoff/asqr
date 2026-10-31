@@ -103,6 +103,9 @@ pub(super) fn run(
                     DropError::UnreadResult(id) => {
                         hint::unread_result(invocation, &id, None).print();
                     }
+                    DropError::BeingAnswered(id) => {
+                        hint::drop_being_answered(invocation, &id).print();
+                    }
                     error => eprintln!("error: {error}"),
                 }
                 Exit::Failure
@@ -273,6 +276,18 @@ fn replace(
                 }
                 ReplaceError::Drop(DropError::UnreadResult(id)) => {
                     hint::unread_result(invocation, &id, Some(old)).print();
+                    Exit::Failure
+                }
+                ReplaceError::Drop(DropError::BeingAnswered(id)) => {
+                    hint::drop_being_answered(invocation, &id).print();
+                    Exit::Failure
+                }
+                ReplaceError::Withdraw(WithdrawError::Answered(old)) => {
+                    hint::answered_already(invocation, &old).print();
+                    Exit::Failure
+                }
+                ReplaceError::Withdraw(WithdrawError::UnreadResult(old)) => {
+                    hint::withdraw_unread_result(invocation, &old).print();
                     Exit::Failure
                 }
                 error => {

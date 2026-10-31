@@ -199,6 +199,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `asqr ask --replaces` against a queue that does not exist creates nothing,
   as `withdraw` does. Before, a mistyped queue name left a queue directory
   with its four folders behind.
+- The refusals of `ask` for a session being answered and of `withdraw` and
+  `ask --replaces` for an answered session or an unread result name the
+  command that reaches the queue, such as `asqr --dir <path> result <id>`,
+  as the other refusals do. Before, they named plain `asqr`, which does
+  not reach a queue chosen by `--queue`, `--dir` or a variable.
 
 ## [0.15.0] - 2026-10-30
 

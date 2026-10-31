@@ -681,7 +681,10 @@ fn refuses_while_the_session_is_being_answered() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output),
-        "error: session \"batch-01\" is being answered; wait for its result, or ask the person and withdraw it with `asqr withdraw --force batch-01`\n"
+        format!(
+            "error: session \"batch-01\" is being answered; wait for its result, or ask the person and withdraw it with `asqr --dir {} withdraw --force batch-01`\n",
+            sandbox.queue_dir().display()
+        )
     );
 }
 
@@ -1634,11 +1637,61 @@ fn ask_replaces_refuses_an_answered_old_session() {
 
     assert_eq!(output.status.code(), Some(1));
     assert!(
-        stderr(&output).contains("is answered already"),
+        stderr(&output).contains(&format!(
+            "is answered already; read the result with `asqr --dir {} result round-1`",
+            sandbox.queue_dir().display()
+        )),
         "{}",
         stderr(&output)
     );
     assert_eq!(waiting(&sandbox), Vec::<String>::new());
+}
+
+#[test]
+fn ask_replaces_refuses_a_new_id_that_is_being_answered() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&second)
+        .assert()
+        .success();
+    start_answering(&sandbox, "round-2");
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "error: session \"round-2\" is being answered; wait for its result, or ask the person and withdraw it with `asqr --dir {} withdraw --force round-2`\n",
+            sandbox.queue_dir().display()
+        )
+    );
+    assert_eq!(waiting(&sandbox), ["round-1.json", "round-2.json"]);
+}
+
+#[test]
+fn ask_replaces_refuses_an_old_session_next_to_an_unread_result_of_its_id() {
+    let sandbox = Sandbox::new();
+    let second = round_one_waiting(&sandbox);
+    answer(&sandbox, "round-1", |sha| {
+        SessionResult::submitted("round-1", sha, &now_rfc3339(), None, Vec::new())
+    });
+    // Dropped by hand next to the unread result, which `ask` refuses.
+    std::fs::write(sandbox.queue_dir().join("inbox/round-1.json"), "{}").expect("written");
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains(&format!(
+            "(`asqr --dir {} result round-1` shows that result)",
+            sandbox.queue_dir().display()
+        )),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]

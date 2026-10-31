@@ -378,6 +378,35 @@ pub(super) fn being_answered(invocation: &Invocation, id: &str, refusing: Refusi
     })
 }
 
+/// `ask` refused session `id` because the person is answering a waiting
+/// session of that id, which `--force` does not get past (spec section
+/// 5.5).
+pub(super) fn drop_being_answered(invocation: &Invocation, id: &str) -> Line {
+    Line::error(format!(
+        "session {id:?} is being answered; wait for its result, or ask the person and withdraw it with `{} withdraw --force {id}`",
+        invocation.command
+    ))
+}
+
+/// `withdraw` or `ask --replaces` refused session `id` because it has its
+/// result already (spec section 5.10).
+pub(super) fn answered_already(invocation: &Invocation, id: &str) -> Line {
+    Line::error(format!(
+        "session {id:?} is answered already; read the result with `{} result {id}`",
+        invocation.command
+    ))
+}
+
+/// `withdraw` or `ask --replaces` refused session `id` because an unread
+/// result of an earlier session of that id is in the outbox (spec section
+/// 5.10).
+pub(super) fn withdraw_unread_result(invocation: &Invocation, id: &str) -> Line {
+    Line::error(format!(
+        "an unread result of an earlier session {id:?} is in the outbox; the asqr watching the queue archives this session unanswered (`{} result {id}` shows that result)",
+        invocation.command
+    ))
+}
+
 // =========================================================================
 // The hints of `wait` and `result`
 // =========================================================================
