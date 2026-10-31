@@ -18,6 +18,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::apply::{KeepJob, Kept, keep};
+use super::snapshot::MemoryBudget;
 
 /// How often a drain that can be stopped asks whether it should.
 pub const STOP_POLL: Duration = Duration::from_millis(50);
@@ -28,6 +29,8 @@ pub struct KeepWorker {
     sender: Sender<Message>,
     /// The jobs handed over that have not finished.
     pending: Arc<AtomicUsize>,
+    /// The file content the snapshots of the queued jobs may hold together.
+    budget: MemoryBudget,
 }
 
 #[derive(Debug)]
@@ -46,6 +49,14 @@ impl KeepWorker {
     /// A worker that runs `runner` on each job, one after another. A panic
     /// of the runner is logged and the worker goes on with the next job.
     pub fn new_with(runner: impl Fn(KeepJob) + Send + 'static) -> Self {
+        Self::new_with_budget(MemoryBudget::new(MemoryBudget::RUN), runner)
+    }
+
+    /// [`KeepWorker::new_with`] whose snapshots draw on `budget`.
+    pub fn new_with_budget(
+        budget: MemoryBudget,
+        runner: impl Fn(KeepJob) + Send + 'static,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel::<Message>();
         let pending = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&pending);
@@ -70,7 +81,18 @@ impl KeepWorker {
                 }
             })
             .expect("the system can start a thread");
-        KeepWorker { sender, pending }
+        KeepWorker {
+            sender,
+            pending,
+            budget,
+        }
+    }
+
+    /// The budget every snapshot taken for this worker draws on. A snapshot
+    /// that does not fit what the queued ones left leaves its files to the
+    /// worker to read, so submitting a job never waits.
+    pub fn budget(&self) -> &MemoryBudget {
+        &self.budget
     }
 
     /// Hands `job` over and returns at once. A worker that is gone drops

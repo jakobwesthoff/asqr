@@ -1022,9 +1022,10 @@ busy".
 TUI reads the files the session shows into memory (section 5.1): an
 asker that removes its temporary files as soon as it sees the result must
 not take away what the person saw. A file past the viewer's limit is not
-read, and at most 256 MiB of file content is held; a file that does not
-fit is left for the worker below, which reads it from its path (an asker
-that removes it first leaves it `missing`). Under `off` no content is held:
+read, and at most 256 MiB of file content is held across all sessions
+that wait for the worker; a file that does not fit what is left is left
+for the worker below, which reads it from its path (an asker that removes
+it first leaves it `missing`). Under `off` no content is held:
 each file is hashed while it is read and only its size, modification time
 and SHA-256 remain.
 

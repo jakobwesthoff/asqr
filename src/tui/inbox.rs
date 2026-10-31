@@ -600,7 +600,7 @@ impl Inbox {
                 &known.sha256,
                 &KEEP_NOW,
                 Hold::for_mode(mode),
-                &MemoryBudget::new(MemoryBudget::RUN),
+                keeper.budget(),
             );
             (keeper, mode, seen)
         });
@@ -2692,6 +2692,57 @@ mod tests {
             assert!(job.archived.path.starts_with(location.archive()));
             assert_eq!(job.archived.bytes, bytes);
             assert!(matches!(job.snapshot.places[0].seen, Seen::Read(_)));
+        }
+
+        #[test]
+        fn the_snapshots_of_queued_jobs_share_one_budget() {
+            let (_scratch, location, picture) = showing_a_picture();
+            let session = serde_json::json!({
+                "asqr": 2,
+                "questions": [{"id": "q", "text": "?", "kind": "text",
+                    "context": [{"type": "image", "path": picture}]}]
+            });
+            put(&location, "villain.json", &session.to_string());
+            let size = fs::metadata(&picture).expect("metadata").len();
+            // Room for one picture and a little more, not for two.
+            let (sender, jobs) = mpsc::channel();
+            let worker = KeepWorker::new_with_budget(
+                crate::keep::snapshot::MemoryBudget::new(size + size / 2),
+                move |job| {
+                    let _ = sender.send(job);
+                },
+            );
+            let (mut inbox, mut app) = started(&location, &worker);
+
+            inbox.apply(&mut app, submit("hero"));
+            inbox.apply(&mut app, submit("villain"));
+
+            let first = jobs.recv_timeout(Duration::from_secs(30)).expect("a job");
+            let second = jobs.recv_timeout(Duration::from_secs(30)).expect("a job");
+            assert!(matches!(first.snapshot.places[0].seen, Seen::Read(_)));
+            assert!(
+                matches!(second.snapshot.places[0].seen, Seen::Deferred),
+                "the first snapshot still holds the budget"
+            );
+        }
+
+        #[test]
+        fn a_finished_job_gives_its_share_of_the_budget_back() {
+            let (_scratch, location, picture) = showing_a_picture();
+            let size = fs::metadata(&picture).expect("metadata").len();
+            let budget = crate::keep::snapshot::MemoryBudget::new(size);
+            let (sender, jobs) = mpsc::channel();
+            let worker = KeepWorker::new_with_budget(budget.clone(), move |job| {
+                let _ = sender.send(job);
+            });
+            let (mut inbox, mut app) = started(&location, &worker);
+
+            inbox.apply(&mut app, submit("hero"));
+            let job = jobs.recv_timeout(Duration::from_secs(30)).expect("a job");
+            assert_eq!(budget.unclaimed(), 0);
+            drop(job);
+
+            assert_eq!(budget.unclaimed(), size);
         }
 
         #[test]

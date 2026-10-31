@@ -118,8 +118,9 @@ Files are read the way the viewers read them: through
 the viewers' limits (64 MiB for an image, 8 MiB for any other file). A
 file over its limit, a missing file, a relative path or a file that
 changes while it is read is recorded with its state and a reason, not
-treated as an error. A snapshot holds at most 256 MiB of file content in
-memory; a file that does not fit is left to be read later by its path.
+treated as an error. The snapshots of the jobs that wait for the
+worker hold at most 256 MiB of file content together; a file that does not
+fit what is left is not read then and is left to be read later by its path.
 
 `asqr ask` removes `archived` and every `shown` from a session before it
 enters the inbox, as asqr alone writes them.
@@ -129,9 +130,11 @@ enters the inbox, as asqr alone writes them.
 When the person finishes a session, the TUI thread reads every shown file into memory within the
 limits above and hashes it, before the result is written, so an agent that
 removes its temporary files after `asqr wait` returns cannot take them
-away. At most 256 MiB is held; a file that does not fit is read by the
-worker from its path, and an agent that removes it first leaves it
-`missing`. Under `off` no content is held at all: a file is hashed while it
+away. At most 256 MiB is held across all jobs that wait for the worker,
+and a job gives its share back as its files are done. A file that does not
+fit what is left is read by the worker from its path, and an agent that
+removes it first leaves it `missing`. Taking the share never waits, so
+finishing a session never blocks the TUI thread. Under `off` no content is held at all: a file is hashed while it
 is read, which `asqr withdraw` and `ask --replaces` do as well. The worker
 handles one file at a time: it reads a file that was left to it when its
 turn comes, processes it, writes its copy as a temp file and only then goes
