@@ -35,10 +35,10 @@ asqr cuts or simplifies what is large:
   1 MiB, show without highlighting. Highlighting covers the first 50,000
   lines, and a dim "no highlighting after line 50,000" stands where it
   stops.
-- A Markdown parser failure shows the entry as plain text below a dim
-  "Markdown failed: shown as plain text". The intro, a question text, an
-  option label or a description that the parser fails on shows as written,
-  without Markdown.
+- Should the Markdown parser fail on an entry, asqr shows it as plain
+  text below a dim "Markdown failed: shown as plain text". Should it fail
+  on the intro, a question text, an option label or a description, that
+  text shows as written, without Markdown.
 - An image file larger than 64 MiB is not read, and a card stands in its
   place.
 
