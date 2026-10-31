@@ -21,7 +21,7 @@ Every asqr command. `asqr --help` lists them too, and `asqr <command>
 | `asqr withdraw <id> [--force]` | Takes a waiting session back and prints its result, with the status `withdrawn`. `--force` takes one that you started answering. |
 | `asqr status [--json] [--limit <count>\|--all] [--since <age>]` | Lists the waiting sessions, with or without a draft answer, the answered sessions and the asqr that watches the queue. `--since` keeps the sessions answered within an age such as `2h`, `--limit` lists at most that many, 10 by default. |
 | `asqr history [--json] [--all] [--limit <count>] [--since <age>]` | Lists the finished sessions of the queue, newest first, each with the reference `asqr replay` takes. `--all` lists every queue under the data directory, `--limit` at most that many sessions for each queue, 10 by default, and `--since` the sessions archived within an age such as `2d`. |
-| `asqr replay <ref>` | Opens a finished session read-only in the terminal UI, with your answers filled in and the files it showed. |
+| `asqr replay <ref> [--json] [--extract <dir>]` | Opens a finished session read-only in the terminal UI, with your answers filled in and the files it showed. With `--json` it prints the session, its result and the state of each file as one JSON object, and with `--extract` it writes them into a new or empty directory. Neither needs a terminal. |
 | `asqr queues [--json]` | Lists every named queue with its waiting sessions, its results and the asqr that watches it. |
 | `asqr paths [--json]` | Prints where the queue and its files are. |
 | `asqr compact [--all]` | Bundles finished sessions and results older than 30 days into month bundles. `--all` does it for every named queue. |
