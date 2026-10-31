@@ -77,6 +77,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `asqr ask --replaces` carries the draft of the session it withdraws
+  over into the new session. The person's picks, typed text, notes, the
+  session note, the reject reason and the question they were on are
+  matched to the new file by question id and option id, and what no
+  longer fits is dropped, so a question you keep under its id keeps what
+  they entered and one under a new id starts fresh. The header of the new
+  session says `continues your draft of "<title>"`, and a session the
+  person had open leaves with the information notice `"<old>" was
+  replaced by "<new>"; your answers carried over`. The new session counts
+  as started: `ask` of its id is refused, also with `--force`, and
+  `--replaces` of it needs `--force`. The hint after `ask --replaces` and
+  the hint for a withdrawn result with a `draft` say so, and the skill no
+  longer advises presets with `default` or quoting typed text. The draft
+  file gains `carried_from`; asqr 0.15.0 and earlier ignore it.
 - A question and an info item have no `note` field in the format any more,
   and the schema drops it. A file that still sets one stays valid, with
   any value, `true`, a string and `null` included; before, a value that

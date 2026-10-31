@@ -11,7 +11,7 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use asqr::format::{Answer, SessionResult, now_rfc3339};
-use asqr::queue::{QueueLocation, finish, lock_queue, save_draft, session_sha256};
+use asqr::queue::{QueueLocation, finish, load_draft, lock_queue, save_draft, session_sha256};
 use common::{Sandbox, stderr, stdout};
 
 const SESSION: &str =
@@ -1089,19 +1089,496 @@ fn ask_replaces_with_force_takes_a_session_being_answered() {
 #[test]
 fn ask_replaces_force_points_at_the_old_sessions_draft() {
     let sandbox = Sandbox::new();
-    let second = round_one_waiting(&sandbox);
+    round_one_waiting(&sandbox);
     start_answering(&sandbox, "round-1");
+    // The question has another id here, so nothing of the draft fits.
+    let second = sandbox.file(
+        "round-2.json",
+        &SESSION
+            .replace("batch-01", "round-2")
+            .replace("\"q\"", "\"other\""),
+    );
 
     let output = replace(&sandbox, &second, &["--replaces", "round-1", "--force"]);
 
     assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
     let started_on = format!(
-        "hint: the person had started on round-1; what they entered is in the `draft` of its result: `asqr --dir {} result round-1`\n",
+        "hint: the person had started on round-1; asqr carried nothing of it over into round-2; what they entered is in the `draft` of its result: `asqr --dir {} result round-1`\n",
         sandbox.queue_dir().display()
     );
     assert_eq!(
         stderr(&output),
         nobody_watching(&sandbox) + &started_on + &wait_reminder(&sandbox, "round-2")
+    );
+}
+
+// -------------------------------------------------------------------------
+// --replaces carries the person's draft over
+// -------------------------------------------------------------------------
+
+/// A session of one `single` with the options `opts` (`b` is its default),
+/// one `multi`, one `text` and one `info` question, titled for the header.
+fn rework(id: &str, opts: &[&str], custom: bool) -> String {
+    let options: Vec<_> = opts
+        .iter()
+        .map(|option| serde_json::json!({"id": option, "label": option, "default": *option == "b"}))
+        .collect();
+    serde_json::json!({"asqr": 2, "id": id, "title": format!("Title of {id}"), "questions": [
+        {"id": "pick", "text": "?", "kind": "single", "custom": custom, "options": options},
+        {"id": "many", "text": "?", "kind": "multi", "custom": custom,
+         "options": [{"id": "x", "label": "X"}, {"id": "y", "label": "Y"}]},
+        {"id": "free", "text": "?", "kind": "text"},
+        {"id": "fyi", "text": "?", "kind": "info"}
+    ]})
+    .to_string()
+}
+
+fn ask_rework(sandbox: &Sandbox, id: &str, opts: &[&str], custom: bool) -> std::path::PathBuf {
+    let file = sandbox.file(&format!("{id}.json"), &rework(id, opts, custom));
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    file
+}
+
+/// The draft of `round-1`, saved as the TUI saves it.
+fn person_entered(sandbox: &Sandbox, answers: Vec<Answer>) {
+    save_draft(
+        &location(sandbox),
+        &SessionResult::draft("round-1", "pick", answers),
+    )
+    .expect("saved");
+}
+
+/// Replaces `round-1` by a `round-2` made from `opts` and `custom`.
+fn rework_forced(sandbox: &Sandbox, opts: &[&str], custom: bool) -> std::process::Output {
+    let second = sandbox.file("round-2.json", &rework("round-2", opts, custom));
+    let output = replace(sandbox, &second, &["--replaces", "round-1", "--force"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    output
+}
+
+fn carried_draft(sandbox: &Sandbox) -> Option<SessionResult> {
+    load_draft(&location(sandbox), "round-2").expect("readable")
+}
+
+fn carried_answer(draft: &SessionResult, question: &str) -> Answer {
+    draft
+        .answers
+        .iter()
+        .find(|answer| answer.question == question)
+        .cloned()
+        .expect("the draft has an answer to every question")
+}
+
+#[test]
+fn a_question_kept_under_its_id_keeps_the_pick() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b", "c"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+
+    rework_forced(&sandbox, &["a", "b", "c"], true);
+
+    let draft = carried_draft(&sandbox).expect("a draft was carried");
+    assert_eq!(carried_answer(&draft, "pick").selected, ["a"]);
+}
+
+#[test]
+fn a_question_under_a_new_id_starts_fresh() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b", "c"], true);
+    person_entered(
+        &sandbox,
+        vec![
+            Answer {
+                selected: vec!["a".into()],
+                ..Answer::new("old-pick")
+            },
+            Answer {
+                custom: Some("kept words".into()),
+                ..Answer::new("free")
+            },
+        ],
+    );
+
+    rework_forced(&sandbox, &["a", "b", "c"], true);
+
+    let draft = carried_draft(&sandbox).expect("the text question fits");
+    let pick = carried_answer(&draft, "pick");
+    assert_eq!(
+        (&pick.selected[..], pick.defaulted),
+        (&["b".to_owned()][..], true)
+    );
+}
+
+#[test]
+fn an_option_the_replacement_lacks_leaves_nothing_to_carry() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b", "c"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["c".into()],
+            ..Answer::new("pick")
+        }],
+    );
+
+    rework_forced(&sandbox, &["a", "b"], true);
+
+    assert_eq!(carried_draft(&sandbox), None);
+}
+
+#[test]
+fn own_text_without_a_field_in_the_replacement_leaves_nothing_to_carry() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            custom: Some("typed".into()),
+            ..Answer::new("pick")
+        }],
+    );
+
+    rework_forced(&sandbox, &["a", "b"], false);
+
+    assert_eq!(carried_draft(&sandbox), None);
+}
+
+#[test]
+fn a_note_is_carried() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            note: Some("because of the colour".into()),
+            ..Answer::new("pick")
+        }],
+    );
+
+    rework_forced(&sandbox, &["a", "b"], true);
+
+    let draft = carried_draft(&sandbox).expect("a draft was carried");
+    assert_eq!(
+        carried_answer(&draft, "pick").note.as_deref(),
+        Some("because of the colour")
+    );
+}
+
+#[test]
+fn a_text_answer_is_carried() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            custom: Some("my own words".into()),
+            ..Answer::new("free")
+        }],
+    );
+
+    rework_forced(&sandbox, &["a", "b"], true);
+
+    let draft = carried_draft(&sandbox).expect("a draft was carried");
+    assert_eq!(
+        carried_answer(&draft, "free").custom.as_deref(),
+        Some("my own words")
+    );
+}
+
+#[test]
+fn a_cleared_default_stays_cleared() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            cleared: true,
+            ..Answer::new("pick")
+        }],
+    );
+
+    rework_forced(&sandbox, &["a", "b"], true);
+
+    let draft = carried_draft(&sandbox).expect("a draft was carried");
+    let pick = carried_answer(&draft, "pick");
+    assert!(
+        pick.cleared && pick.selected.is_empty() && !pick.defaulted,
+        "{pick:?}"
+    );
+}
+
+#[test]
+fn a_session_nobody_started_on_carries_nothing() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+
+    let second = sandbox.file("round-2.json", &rework("round-2", &["a", "b"], true));
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(carried_draft(&sandbox), None);
+    assert!(
+        !stderr(&output).contains("the person had started"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn the_carried_draft_names_the_session_it_continues() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+
+    rework_forced(&sandbox, &["a", "b"], true);
+
+    let from = carried_draft(&sandbox)
+        .expect("a draft was carried")
+        .carried_from
+        .expect("the draft says where it comes from");
+    assert_eq!(
+        (from.id.as_str(), from.title.as_deref()),
+        ("round-1", Some("Title of round-1"))
+    );
+}
+
+#[test]
+fn the_session_note_and_the_tab_are_carried_along() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    let mut draft = SessionResult::draft(
+        "round-1",
+        "free",
+        vec![Answer {
+            custom: Some("words".into()),
+            ..Answer::new("free")
+        }],
+    );
+    draft.note = Some("overall".into());
+    save_draft(&location(&sandbox), &draft).expect("saved");
+
+    rework_forced(&sandbox, &["a", "b"], true);
+
+    let carried = carried_draft(&sandbox).expect("a draft was carried");
+    assert_eq!(
+        (carried.note.as_deref(), carried.current.as_deref()),
+        (Some("overall"), Some("free"))
+    );
+}
+
+#[test]
+fn a_carried_replacement_needs_force_to_be_replaced_again() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+    rework_forced(&sandbox, &["a", "b"], true);
+    let third = sandbox.file("round-3.json", &rework("round-3", &["a", "b"], true));
+
+    let refused = replace(&sandbox, &third, &["--replaces", "round-2"]);
+
+    assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
+    assert!(
+        stderr(&refused).contains("session \"round-2\" is being answered"),
+        "{}",
+        stderr(&refused)
+    );
+    assert_eq!(waiting(&sandbox), ["round-2.json"]);
+}
+
+#[test]
+fn asking_a_carried_replacement_again_under_its_id_is_refused_even_with_force() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+    let second = sandbox.file("round-2.json", &rework("round-2", &["a", "b"], true));
+    let output = replace(&sandbox, &second, &["--replaces", "round-1", "--force"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+
+    let again = replace(&sandbox, &second, &["--force"]);
+
+    assert_eq!(again.status.code(), Some(1), "{}", stderr(&again));
+    assert!(
+        stderr(&again).contains("session \"round-2\" is being answered"),
+        "{}",
+        stderr(&again)
+    );
+}
+
+#[test]
+fn a_session_withdrawn_before_is_carried_from_its_result() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+    sandbox
+        .asqr_in_queue(&["withdraw", "--force", "round-1"])
+        .assert()
+        .success();
+
+    let second = sandbox.file("round-2.json", &rework("round-2", &["a", "b"], true));
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let draft = carried_draft(&sandbox).expect("a draft was carried");
+    assert_eq!(carried_answer(&draft, "pick").selected, ["a"]);
+    assert_eq!(
+        draft.carried_from.expect("marker").title.as_deref(),
+        Some("Title of round-1"),
+        "the title comes from the archived session"
+    );
+}
+
+#[test]
+fn an_answered_draft_of_the_new_id_is_left_alone() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+    let orphan = SessionResult::draft(
+        "round-2",
+        "free",
+        vec![Answer {
+            custom: Some("from an earlier session".into()),
+            ..Answer::new("free")
+        }],
+    );
+    save_draft(&location(&sandbox), &orphan).expect("saved");
+
+    let output = rework_forced(&sandbox, &["a", "b"], true);
+
+    assert_eq!(carried_draft(&sandbox), Some(orphan));
+    assert!(
+        stderr(&output).contains("asqr carried nothing of it over into round-2"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn a_waiting_session_of_the_new_id_gets_nothing_carried() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    ask_rework(&sandbox, "round-2", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+
+    rework_forced(&sandbox, &["a", "b"], true);
+
+    assert_eq!(carried_draft(&sandbox), None);
+}
+
+#[test]
+fn a_draft_of_the_new_id_that_cannot_be_read_is_not_overwritten() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+    // A draft that cannot be read counts as answered, so it stays.
+    std::fs::create_dir(sandbox.queue_dir().join("drafts").join("round-2.json"))
+        .expect("directory");
+
+    let output = rework_forced(&sandbox, &["a", "b"], true);
+
+    assert_eq!(waiting(&sandbox), ["round-2.json"]);
+    assert!(
+        stderr(&output).contains("asqr carried nothing of it over into round-2"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn the_hint_after_a_carry_says_what_it_means_for_the_replacement() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }],
+    );
+
+    let output = rework_forced(&sandbox, &["a", "b"], true);
+
+    let started_on = format!(
+        "hint: the person had started on round-1; asqr carried what fits over into round-2 as their draft; the `draft` of its result still holds all they entered: `asqr --dir {} result round-1`; round-2 counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces round-2` with `--force`\n",
+        sandbox.queue_dir().display()
+    );
+    assert_eq!(
+        stderr(&output),
+        nobody_watching(&sandbox) + &started_on + &wait_reminder(&sandbox, "round-2")
+    );
+}
+
+#[test]
+fn the_hint_after_a_carry_of_only_cleared_questions_names_no_draft() {
+    let sandbox = Sandbox::new();
+    ask_rework(&sandbox, "round-1", &["a", "b"], true);
+    person_entered(
+        &sandbox,
+        vec![Answer {
+            cleared: true,
+            ..Answer::new("pick")
+        }],
+    );
+
+    let output = rework_forced(&sandbox, &["a", "b"], true);
+
+    assert!(
+        stderr(&output).contains(
+            "hint: the person had started on round-1; asqr carried what they changed over into round-2 as their draft; round-2 counts as started now"
+        ),
+        "{}",
+        stderr(&output)
     );
 }
 

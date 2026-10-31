@@ -17,15 +17,16 @@ use super::hint::{self, Caller, Invocation, Refusing};
 use super::skill_age;
 use super::wait::{Elsewhere, elsewhere, wait_for_result};
 use crate::format::{
-    WarningKind, array_mut, is_valid_session_id, make_context_paths_absolute, same_session_id,
-    validate, warnings,
+    SessionResult, WarningKind, array_mut, is_valid_session_id, make_context_paths_absolute,
+    same_session_id, validate, warnings,
 };
 use crate::keep::apply::record_after_withdrawal;
 use crate::pairing::{self, Tmux, TmuxPane, TmuxSession};
 use crate::queue::{
-    DropError, Dropped, Gate, Origin, QueueLocation, ReplaceError, WithdrawError, Withdrawn,
-    drop_replacing_archived, drop_session, list_queues, lock_holder,
+    Carry, DropError, Dropped, Gate, Origin, QueueLocation, ReplaceError, Replaced, WithdrawError,
+    Withdrawn, drop_replacing_carrying, drop_session, list_queues, lock_holder,
 };
+use crate::tui::SessionState;
 
 pub(super) struct AskOptions {
     pub wait: bool,
@@ -95,7 +96,7 @@ pub(super) fn run(
 
     let dropped = match options.replaces.as_deref() {
         None => drop_session(location, &id, &bytes, options.force)
-            .map(|dropped| (None, dropped))
+            .map(|dropped| (None, dropped, false))
             .map_err(|error| {
                 tracing::warn!(id, %error, "ask refused");
                 match error {
@@ -106,24 +107,30 @@ pub(super) fn run(
                 }
                 Exit::Failure
             }),
-        Some(old) => replace(
-            location,
-            invocation,
-            around.root,
-            old,
-            &id,
-            &bytes,
-            options.force,
-        )
-        .map(|(withdrawn, dropped)| (Some(withdrawn), dropped)),
+        Some(old) => {
+            // The person's draft of `old` becomes the draft of the new
+            // session, kept to what the new file has a place for.
+            let new_session = &session_file.session;
+            let carry =
+                |draft: &SessionResult| SessionState::carried_draft(&id, new_session, draft);
+            let replacement = Replacement {
+                old,
+                id: &id,
+                bytes: &bytes,
+                force: options.force,
+                carry: &carry,
+            };
+            replace(location, invocation, around.root, &replacement)
+                .map(|(withdrawn, dropped, carried)| (Some(withdrawn), dropped, carried))
+        }
     };
-    let withdrawn = match dropped {
-        Ok((withdrawn, dropped)) => {
-            tracing::info!(id, ?dropped, "dropped session");
+    let (withdrawn, carried) = match dropped {
+        Ok((withdrawn, dropped, carried)) => {
+            tracing::info!(id, ?dropped, carried, "dropped session");
             if let Dropped::Replaced(_) = dropped {
                 hint::replaced_waiting(&id).print();
             }
-            withdrawn
+            (withdrawn, carried)
         }
         Err(exit) => return exit,
     };
@@ -132,9 +139,9 @@ pub(super) fn run(
     // of the old session comes back as `Already` with its draft.
     if let (Some(old), Some(Withdrawn::Now(result) | Withdrawn::Already(result))) =
         (options.replaces.as_deref(), &withdrawn)
-        && result.draft.is_some()
+        && let Some(line) = hint::started_on(invocation, old, &id, carried, result.draft.is_some())
     {
-        hint::started_on(invocation, old).print();
+        line.print();
     }
 
     if options.wait {
@@ -158,6 +165,19 @@ pub(super) fn run(
     }
 }
 
+/// What `ask --replaces` puts in place of the session it withdraws.
+struct Replacement<'a> {
+    /// The waiting session withdrawn.
+    old: &'a str,
+    /// The id of the new session.
+    id: &'a str,
+    /// The new session file as dropped into the inbox.
+    bytes: &'a [u8],
+    force: bool,
+    /// Makes the draft of the new session out of that of `old`.
+    carry: Carry<'a>,
+}
+
 /// `ask --replaces <old>` (spec section 5.5): withdraws `old` and drops the
 /// new session `id` in one step. Its refusals exit as those of `ask` and
 /// `withdraw` do.
@@ -165,11 +185,15 @@ fn replace(
     location: &QueueLocation,
     invocation: &Invocation,
     root: Option<&Path>,
-    old: &str,
-    id: &str,
-    bytes: &[u8],
-    force: bool,
-) -> Result<(Withdrawn, Dropped), Exit> {
+    replacement: &Replacement<'_>,
+) -> Result<(Withdrawn, Dropped, bool), Exit> {
+    let Replacement {
+        old,
+        id,
+        bytes,
+        force,
+        carry,
+    } = *replacement;
     // `ask` replaces a waiting session of the same id by itself; naming it
     // again would withdraw the session the new file is to replace.
     if same_session_id(old, id) {
@@ -178,8 +202,21 @@ fn replace(
         );
         return Err(Exit::Usage);
     }
-    match drop_replacing_archived(location, old, id, bytes, force, Gate::default()) {
-        Ok((withdrawn, dropped, archived)) => {
+    match drop_replacing_carrying(
+        location,
+        old,
+        id,
+        bytes,
+        force,
+        Some(carry),
+        Gate::default(),
+    ) {
+        Ok(Replaced {
+            withdrawn,
+            dropped,
+            archived,
+            carried,
+        }) => {
             record_after_withdrawal(location, archived);
             // The result holds what the person typed, so the log gets its
             // status and counts only (ADR 90).
@@ -194,9 +231,10 @@ fn replace(
                 status = ?result.status,
                 answers = result.answers.len(),
                 draft_answers = result.draft.as_ref().map_or(0, |draft| draft.answers.len()),
+                carried,
                 "replaced a session"
             );
-            Ok((withdrawn, dropped))
+            Ok((withdrawn, dropped, carried))
         }
         Err(error) => {
             tracing::warn!(id, old, %error, "ask --replaces refused");

@@ -43,6 +43,17 @@ struct Known {
     sha256: String,
 }
 
+/// A session that left the inbox, with the notice its leaving earns.
+struct Left {
+    id: String,
+    /// What the app called it, where it showed it.
+    name: Option<String>,
+    /// Whether the notice names a file that holds text the person wrote in
+    /// their editor.
+    kept: bool,
+    notice: Option<Notice>,
+}
+
 /// What a sync found.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Synced {
@@ -218,16 +229,65 @@ impl Inbox {
     /// only waited in the queue, or one withdrawn while asqr was not
     /// running, leaves without a word.
     fn leave(&mut self, app: &mut App, id: &str) {
+        let left = self.leave_unannounced(app, id);
+        if let Some(notice) = left.notice {
+            app.show(notice);
+        }
+    }
+
+    /// [`Self::leave`] without showing the notice, so a sync can first load
+    /// the sessions that arrive with it and see whether one of them
+    /// continues the draft of the session that left.
+    fn leave_unannounced(&mut self, app: &mut App, id: &str) -> Left {
         let kept = self
             .kept_texts
             .iter()
             .position(|(kept, _)| same_session_id(kept, id))
             .map(|index| self.kept_texts.remove(index).1);
+        let name = app
+            .sessions()
+            .iter()
+            .find(|state| same_session_id(state.id(), id))
+            .map(|state| state.name().to_owned());
         let notice = self.withdrawn_notice(app, id, kept.as_deref());
         self.forget(app, id);
-        if let Some(notice) = notice {
-            app.show(notice);
+        Left {
+            id: id.to_owned(),
+            name,
+            kept: kept.is_some(),
+            notice,
         }
+    }
+
+    /// Shows the notice of the session `left`, which the sync that loaded
+    /// `app`'s new sessions holds back: a session that continues its draft
+    /// says so, in place of the warning that the asker took the answers
+    /// (spec section 7.9). A notice that names the file the person's
+    /// editor text lies in stays, as that text is not in the new session.
+    fn announce_leaving(&self, app: &mut App, left: Left) {
+        let Some(notice) = left.notice else {
+            return;
+        };
+        let continued = (!left.kept)
+            .then(|| {
+                app.sessions().iter().find(|state| {
+                    state
+                        .carried_from()
+                        .is_some_and(|from| same_session_id(&from.id, &left.id))
+                })
+            })
+            .flatten();
+        let notice = match (continued, &left.name) {
+            (Some(state), Some(old)) => Notice::new(
+                Tone::Info,
+                format!(
+                    "↩ \"{old}\" was replaced by \"{}\"; your answers carried over",
+                    state.name()
+                ),
+            ),
+            _ => notice,
+        };
+        app.show(notice);
     }
 
     /// Notes where the text of session `id`'s field lies, which the
@@ -347,9 +407,10 @@ impl Inbox {
             })
             .map(|known| known.id.clone())
             .collect();
+        let mut left = Vec::new();
         for id in gone {
             tracing::info!(%id, "session left the inbox");
-            self.leave(app, &id);
+            left.push(self.leave_unannounced(app, &id));
         }
 
         let mut synced = Synced::default();
@@ -369,6 +430,9 @@ impl Inbox {
         for id in loaded {
             let title = self.follows_title(app, &id);
             app.set_follows_title(&id, title);
+        }
+        for left in left {
+            self.announce_leaving(app, left);
         }
         // A kept text waits for the sync that sees its session leave, and
         // `leave` took it there. One left over belongs to a session this
@@ -1955,6 +2019,61 @@ mod tests {
     /// The notice for session `name` withdrawn, `after` following the name.
     fn withdrawn(tone: Tone, name: &str, after: &str) -> Notice {
         Notice::naming(tone, "↩ withdrawn \"", name, after)
+    }
+
+    /// `batch`, answered once, replaced by `next` with the carry `carry`.
+    fn replaced_by_next(carry: crate::queue::Carry<'_>) -> App {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        crate::queue::drop_replacing_carrying(
+            &location,
+            "batch",
+            "next",
+            SESSION.as_bytes(),
+            true,
+            Some(carry),
+            Gate::default(),
+        )
+        .expect("replaced");
+        inbox.sync(&mut app).expect("synced");
+        app
+    }
+
+    #[test]
+    fn a_session_replaced_with_its_draft_carried_over_says_so() {
+        let app = replaced_by_next(&|old| {
+            Some(SessionResult {
+                id: "next".into(),
+                ..old.clone()
+            })
+        });
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(
+                Tone::Info,
+                "↩ \"batch\" was replaced by \"next\"; your answers carried over"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_session_replaced_without_a_carry_leaves_with_the_warning() {
+        let app = replaced_by_next(&|_| None);
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker, with your answers so far"
+            ))
+        );
     }
 
     #[test]

@@ -16,11 +16,11 @@ use super::drop::{check_drop, write_drop};
 use super::finish::{ArchivedSession, archive_session, finish_steps, stem};
 use super::{
     ArchivedStanding, DropError, Dropped, FinishError, Gate, QueueLocation, Step,
-    archived_standing, delete_draft, find_session_file, has_answered_draft, load_draft,
-    lock_drafts, person_entered, read_if_present, session_sha256,
+    archived_standing, archived_title, delete_draft, find_session_file, has_answered_draft,
+    load_draft, lock_drafts, person_entered, read_if_present, save_draft, session_sha256,
 };
 use crate::format::{
-    SessionResult, Status, UnsentDraft, now_rfc3339, parse_session, rejected_answers,
+    CarriedFrom, SessionResult, Status, UnsentDraft, now_rfc3339, parse_session, rejected_answers,
 };
 
 /// How a withdrawal ended.
@@ -93,6 +93,36 @@ pub fn withdraw_session_archived(
     // cannot save an answer into the draft after the check.
     let _lock = lock_drafts(location, gate.attempts)?;
     withdraw_locked(location, id, force, &mut gate.step)
+        .map(|taken| (taken.withdrawn, taken.archived))
+}
+
+/// What a withdrawal under the drafts lock took from the queue.
+struct Taken {
+    withdrawn: Withdrawn,
+    archived: Option<ArchivedSession>,
+    /// The draft file of the session as it was before the withdrawal
+    /// deleted it, where there was a readable one.
+    draft: Option<SessionResult>,
+    /// The title of the withdrawn session, where its file was at hand.
+    title: Option<String>,
+}
+
+impl Taken {
+    /// A withdrawal that found the session gone already: nothing was
+    /// archived, and no file is at hand to read a draft or a title from.
+    fn without_files(withdrawn: Withdrawn) -> Self {
+        Taken {
+            withdrawn,
+            archived: None,
+            draft: None,
+            title: None,
+        }
+    }
+}
+
+/// The title of the session file `bytes`, where they hold a session.
+fn title_of(bytes: &[u8]) -> Option<String> {
+    parse_session(bytes).ok()?.1.title
 }
 
 /// The withdrawal of [`withdraw_session_with`] once the drafts lock is
@@ -102,9 +132,9 @@ fn withdraw_locked(
     id: &str,
     force: bool,
     step: &mut dyn FnMut(Step),
-) -> Result<(Withdrawn, Option<ArchivedSession>), WithdrawError> {
+) -> Result<Taken, WithdrawError> {
     let Some(session) = find_session_file(&location.inbox(), id)? else {
-        return gone(location, id).map(|withdrawn| (withdrawn, None));
+        return gone(location, id).map(Taken::without_files);
     };
     let bytes = std::fs::read(&session)?;
     let sha256 = session_sha256(&bytes);
@@ -120,6 +150,9 @@ fn withdraw_locked(
                     return Err(WithdrawError::Answered(id.to_owned()));
                 }
                 step(Step::Checked);
+                // The interrupted withdrawal left the draft file, which
+                // may hold more than the result's `draft` does.
+                let draft = load_draft(location, id).ok().flatten();
                 let archived = archive_session(location, &session, stem(&session))?.map(|path| {
                     ArchivedSession {
                         path,
@@ -129,7 +162,12 @@ fn withdraw_locked(
                 step(Step::Archived);
                 delete_draft(location, id)?;
                 step(Step::DraftDeleted);
-                Ok((Withdrawn::Already(result), archived))
+                Ok(Taken {
+                    withdrawn: Withdrawn::Already(result),
+                    archived,
+                    draft,
+                    title: title_of(&bytes),
+                })
             }
             _ => Err(WithdrawError::UnreadResult(id.to_owned())),
         };
@@ -138,22 +176,31 @@ fn withdraw_locked(
     if !force && has_answered_draft(location, id) {
         return Err(WithdrawError::BeingAnswered(id.to_owned()));
     }
+    // Read before `finish_steps` deletes it: the replacement of a session
+    // takes its draft over from here.
+    let draft = load_draft(location, id).ok().flatten();
     let result = SessionResult::withdrawn(
         stem(&session),
         &sha256,
         &now_rfc3339(),
-        unsent_draft(location, id, &bytes),
+        unsent_draft(draft.as_ref(), &bytes),
     );
     step(Step::Checked);
     match finish_steps(location, &session, &result, step) {
         Ok(archived) => {
             tracing::info!(id, forced = force, "withdrew a session");
+            let title = title_of(&bytes);
             let archived = archived.map(|path| ArchivedSession { path, bytes });
-            Ok((Withdrawn::Now(result), archived))
+            Ok(Taken {
+                withdrawn: Withdrawn::Now(result),
+                archived,
+                draft,
+                title,
+            })
         }
         // Another result landed after the check, from a writer that does
         // not take the lock; it decides what happened to the session.
-        Err(FinishError::Conflict(_)) => gone(location, id).map(|withdrawn| (withdrawn, None)),
+        Err(FinishError::Conflict(_)) => gone(location, id).map(Taken::without_files),
         Err(FinishError::Io(error)) => Err(error.into()),
     }
 }
@@ -203,22 +250,110 @@ pub fn drop_replacing_archived(
     id: &str,
     bytes: &[u8],
     force: bool,
-    mut gate: Gate<'_>,
+    gate: Gate<'_>,
 ) -> Result<(Withdrawn, Dropped, Option<ArchivedSession>), ReplaceError> {
+    drop_replacing_carrying(location, old, id, bytes, force, None, gate)
+        .map(|replaced| (replaced.withdrawn, replaced.dropped, replaced.archived))
+}
+
+/// Makes the draft of the new session out of the draft of the one it
+/// replaces, or none where nothing of it fits (spec section 4.3).
+pub type Carry<'a> = &'a dyn Fn(&SessionResult) -> Option<SessionResult>;
+
+/// How an `ask --replaces` ended.
+#[derive(Debug)]
+pub struct Replaced {
+    pub withdrawn: Withdrawn,
+    pub dropped: Dropped,
+    /// The archived session of the old one, where this call moved it.
+    pub archived: Option<ArchivedSession>,
+    /// Whether a draft was written for the new session.
+    pub carried: bool,
+}
+
+/// [`drop_replacing_archived`] that also writes the new session a draft
+/// made by `carry` out of the draft of the old one (spec section 5.5),
+/// before the session file itself, so the TUI finds the draft when the
+/// session arrives.
+pub fn drop_replacing_carrying(
+    location: &QueueLocation,
+    old: &str,
+    id: &str,
+    bytes: &[u8],
+    force: bool,
+    carry: Option<Carry<'_>>,
+    mut gate: Gate<'_>,
+) -> Result<Replaced, ReplaceError> {
     let refused = |error| ReplaceError::Drop(DropError::Io(error));
     // Made under the drafts lock, as `drop_session_with` makes them.
     let _lock = lock_drafts(location, gate.attempts).map_err(refused)?;
     location.create_layout().map_err(refused)?;
     let checked = check_drop(location, id, force).map_err(ReplaceError::Drop)?;
-    let (withdrawn, archived) =
+    // A waiting session of the new id is replaced in place, and a running
+    // TUI rebuilds it from its own state, not from the draft file. An
+    // answered draft of the new id belongs to a session of that id the
+    // person started on before (spec section 5.4), so it stays.
+    let may_carry = carry.is_some() && !checked.waits() && !has_answered_draft(location, id);
+    let taken =
         withdraw_locked(location, old, force, &mut gate.step).map_err(ReplaceError::Withdraw)?;
+
+    let mut carried = false;
+    if let (true, Some(carry)) = (may_carry, carry) {
+        let source = draft_to_carry(old, &taken);
+        if let Some(mut draft) = source.as_ref().and_then(carry) {
+            draft.carried_from = Some(CarriedFrom {
+                id: old.to_owned(),
+                title: taken
+                    .title
+                    .clone()
+                    .or_else(|| archived_title(location, old).ok().flatten()),
+            });
+            // A failed write costs the carry and nothing else: the old
+            // session is withdrawn already, and its result holds the draft.
+            match save_draft(location, &draft) {
+                Ok(()) => {
+                    (gate.step)(Step::DraftWritten);
+                    carried = true;
+                }
+                Err(error) => tracing::warn!(id, old, %error, "cannot write the carried draft"),
+            }
+        }
+    }
+
     let dropped = write_drop(location, id, bytes, checked, &mut gate.step).map_err(|error| {
+        // No draft is left for a session that never arrived.
+        if carried {
+            let _ = delete_draft(location, id);
+        }
         ReplaceError::DropAfterWithdrawal {
             old: old.to_owned(),
             error,
         }
     })?;
-    Ok((withdrawn, dropped, archived))
+    Ok(Replaced {
+        withdrawn: taken.withdrawn,
+        dropped,
+        archived: taken.archived,
+        carried,
+    })
+}
+
+/// The draft of the withdrawn session that the replacement takes over: the
+/// draft file where the withdrawal read one, else, for a session withdrawn
+/// before, what its result's `draft` holds. That holds less: no cleared
+/// question, no own text that was unpicked, no selection below `min`
+/// without a note, and no own text next to a pick.
+fn draft_to_carry(old: &str, taken: &Taken) -> Option<SessionResult> {
+    if let Some(draft) = &taken.draft {
+        return Some(draft.clone());
+    }
+    let Withdrawn::Already(result) = &taken.withdrawn else {
+        return None;
+    };
+    let unsent = result.draft.as_ref()?;
+    let mut draft = SessionResult::draft(old, "", unsent.answers.clone());
+    draft.note = unsent.note.clone();
+    Some(draft)
 }
 
 /// Where a session stands whose file is not in the inbox, as far as a
@@ -261,8 +396,8 @@ fn read_result(path: &Path) -> Option<SessionResult> {
 /// shape of a rejected result leaves out. None
 /// without a readable draft, for a session file that is no valid session,
 /// and for a draft that holds nothing else the person entered.
-fn unsent_draft(location: &QueueLocation, id: &str, bytes: &[u8]) -> Option<UnsentDraft> {
-    let draft = load_draft(location, id).ok().flatten()?;
+fn unsent_draft(draft: Option<&SessionResult>, bytes: &[u8]) -> Option<UnsentDraft> {
+    let draft = draft?;
     let (_, session) = parse_session(bytes).ok()?;
     let note = draft
         .note
@@ -938,6 +1073,220 @@ mod tests {
         );
         assert_eq!(names(&location.inbox()), ["round-1.json"]);
         assert_eq!(names(&location.outbox()), Vec::<String>::new());
+    }
+
+    /// The carry of a test: the old draft under the id `round-2`.
+    fn as_round_two(old: &SessionResult) -> Option<SessionResult> {
+        Some(SessionResult {
+            id: "round-2".into(),
+            ..old.clone()
+        })
+    }
+
+    fn replace_carrying(
+        location: &QueueLocation,
+        carry: Carry<'_>,
+        gate: Gate<'_>,
+    ) -> Result<Replaced, ReplaceError> {
+        drop_replacing_carrying(location, "round-1", "round-2", NEW, true, Some(carry), gate)
+    }
+
+    #[test]
+    fn the_carried_draft_is_written_before_the_session_under_the_lock() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        started(&location, "round-1");
+        let seen = RefCell::new(Vec::new());
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(|step| {
+                seen.borrow_mut().push((
+                    step,
+                    crate::queue::drafts_lock_is_held(&location),
+                    location.inbox().join("round-2.json").exists(),
+                    location.drafts().join("round-2.json").exists(),
+                ));
+            }),
+        };
+
+        let replaced = replace_carrying(&location, &as_round_two, gate).expect("replaced");
+
+        assert!(replaced.carried);
+        assert_eq!(
+            seen.into_inner(),
+            [
+                (Step::Checked, true, false, false),
+                (Step::ResultWritten, true, false, false),
+                (Step::Archived, true, false, false),
+                (Step::DraftDeleted, true, false, false),
+                (Step::DraftWritten, true, false, true),
+                (Step::SessionWritten, true, true, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_carried_draft_names_where_it_comes_from() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        started(&location, "round-1");
+
+        replace_carrying(&location, &as_round_two, Gate::default()).expect("replaced");
+
+        let draft = load_draft(&location, "round-2")
+            .expect("readable")
+            .expect("carried");
+        assert_eq!(
+            draft.carried_from,
+            Some(CarriedFrom {
+                id: "round-1".into(),
+                title: None
+            })
+        );
+    }
+
+    #[test]
+    fn nothing_is_written_where_the_carry_finds_nothing_to_carry() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        started(&location, "round-1");
+
+        let replaced = replace_carrying(&location, &|_| None, Gate::default()).expect("replaced");
+
+        assert!(!replaced.carried);
+        assert_eq!(load_draft(&location, "round-2").expect("readable"), None);
+    }
+
+    #[test]
+    fn a_drop_that_fails_after_the_carry_takes_the_carried_draft_with_it() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        started(&location, "round-1");
+        let inbox = location.inbox();
+        // A file dropped by hand at the moment the draft is written.
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(move |step| {
+                if step == Step::DraftWritten {
+                    fs::write(inbox.join("round-2.json"), "{}").expect("written");
+                }
+            }),
+        };
+
+        let failed = replace_carrying(&location, &as_round_two, gate);
+
+        assert!(
+            matches!(failed, Err(ReplaceError::DropAfterWithdrawal { .. })),
+            "{failed:?}"
+        );
+        assert_eq!(load_draft(&location, "round-2").expect("readable"), None);
+    }
+
+    #[test]
+    fn a_drop_that_fails_without_a_carry_leaves_the_draft_of_the_new_id() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        started(&location, "round-1");
+        let unanswered = SessionResult::draft("round-2", "q", Vec::new());
+        save_draft(&location, &unanswered).expect("saved");
+        let inbox = location.inbox();
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(move |step| {
+                if step == Step::DraftDeleted {
+                    fs::write(inbox.join("round-2.json"), "{}").expect("written");
+                }
+            }),
+        };
+
+        let failed = replace_carrying(&location, &|_| None, gate);
+
+        assert!(
+            matches!(failed, Err(ReplaceError::DropAfterWithdrawal { .. })),
+            "{failed:?}"
+        );
+        assert_eq!(
+            load_draft(&location, "round-2").expect("readable"),
+            Some(unanswered)
+        );
+    }
+
+    #[test]
+    fn a_carried_draft_that_cannot_be_written_costs_the_carry_only() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        started(&location, "round-1");
+        let drafts = location.drafts();
+        // A directory takes the place of the file after the checks, so
+        // only the write of the draft fails.
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(move |step| {
+                if step == Step::DraftDeleted {
+                    fs::create_dir(drafts.join("round-2.json")).expect("directory");
+                }
+            }),
+        };
+
+        let replaced = replace_carrying(&location, &as_round_two, gate).expect("replaced");
+
+        assert!(!replaced.carried);
+        assert_eq!(names(&location.inbox()), ["round-2.json"]);
+        assert_eq!(
+            outbox_result(&location, "round-1").status,
+            Status::Withdrawn
+        );
+    }
+
+    #[test]
+    fn a_withdrawal_interrupted_after_its_result_still_hands_over_the_whole_draft() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        cleared_default(&location, "round-1");
+        write_result(
+            &location,
+            "round-1",
+            &SessionResult::withdrawn("round-1", &sha(), AT, None),
+        );
+
+        let replaced =
+            replace_carrying(&location, &as_round_two, Gate::default()).expect("replaced");
+
+        assert!(matches!(replaced.withdrawn, Withdrawn::Already(_)));
+        let draft = load_draft(&location, "round-2")
+            .expect("readable")
+            .expect("carried");
+        assert!(draft.answers[0].cleared, "{draft:?}");
+    }
+
+    #[test]
+    fn a_session_withdrawn_long_ago_hands_over_what_its_result_holds() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        started(&location, "round-1");
+        withdraw_session(&location, "round-1", true).expect("withdrawn");
+
+        replace_carrying(&location, &as_round_two, Gate::default()).expect("replaced");
+
+        let draft = load_draft(&location, "round-2")
+            .expect("readable")
+            .expect("carried");
+        assert_eq!(draft.answers[0].selected, ["b"]);
+        assert_eq!(draft.note.as_deref(), Some("first thoughts"));
+    }
+
+    #[test]
+    fn a_session_that_waits_under_the_new_id_gets_no_carried_draft() {
+        let (_scratch, location) = queue();
+        asked(&location, "round-1");
+        asked(&location, "round-2");
+        started(&location, "round-1");
+
+        let replaced =
+            replace_carrying(&location, &as_round_two, Gate::default()).expect("replaced");
+
+        assert!(!replaced.carried);
+        assert_eq!(load_draft(&location, "round-2").expect("readable"), None);
     }
 
     #[test]

@@ -428,6 +428,46 @@ impl SessionState {
         Self::build(id.into(), session, draft, true)
     }
 
+    /// The draft of session `id` made from `old`, the draft of the session
+    /// it replaces, and `None` when none of what the person entered fits
+    /// (spec section 4.3).
+    pub fn carried_draft(
+        id: &str,
+        session: &Session,
+        old: &SessionResult,
+    ) -> Option<SessionResult> {
+        let restore =
+            |old: &SessionResult| SessionState::new(id, session.clone(), Some(old)).to_draft();
+        let mut draft = restore(old);
+
+        // A pick or own text that the replacement has no place for comes
+        // back from the restore as `cleared`, which keeps the new default
+        // off, since the person moved off the default of a question they
+        // saw (spec section 4.3). They never saw this question, so what
+        // does not fit is dropped and the question takes the defaults of
+        // the new file. Only a `cleared` the person made stays.
+        let unfit: Vec<&str> = draft
+            .answers
+            .iter()
+            .filter(|restored| {
+                restored.cleared
+                    && !old
+                        .answers
+                        .iter()
+                        .any(|asked| asked.question == restored.question && asked.cleared)
+            })
+            .map(|restored| restored.question.as_str())
+            .collect();
+        if !unfit.is_empty() {
+            let mut fitting = old.clone();
+            fitting
+                .answers
+                .retain(|asked| !unfit.contains(&asked.question.as_str()));
+            draft = restore(&fitting);
+        }
+        crate::queue::draft_has_answer(&draft).then_some(draft)
+    }
+
     /// Gives a replayed session what its screen shows besides it.
     pub fn with_replay_info(mut self, info: ReplayInfo) -> Self {
         self.replay_info = Some(info);
@@ -5056,6 +5096,254 @@ mod tests {
         restored.replace_session(serde_json::from_str(SESSION).expect("parses"));
 
         assert_eq!(restored.carried_from(), draft.carried_from.as_ref());
+    }
+
+    // ---------------------------------------------------------------
+    // Carrying a draft over into a replacing session
+    // ---------------------------------------------------------------
+
+    /// A replacement session: `pick` takes the options `opts` (`b` is its
+    /// default) and own text where `custom` holds.
+    fn replacement(opts: &[&str], custom: bool) -> Session {
+        let options: Vec<_> = opts
+            .iter()
+            .map(|id| serde_json::json!({"id": id, "label": id, "default": *id == "b"}))
+            .collect();
+        serde_json::from_value(serde_json::json!({"asqr": 2, "questions": [
+            {"id": "pick", "text": "?", "kind": "single", "custom": custom, "options": options},
+            {"id": "many", "text": "?", "kind": "multi", "custom": custom,
+             "options": [{"id": "x", "label": "X"}, {"id": "y", "label": "Y"}, {"id": "z", "label": "Z"}]},
+            {"id": "free", "text": "?", "kind": "text"},
+            {"id": "fyi", "text": "?", "kind": "info"}
+        ]}))
+        .expect("test session parses")
+    }
+
+    fn earlier(answers: Vec<Answer>) -> SessionResult {
+        SessionResult::draft("round-1", "pick", answers)
+    }
+
+    fn carried(old: &SessionResult, session: &Session) -> Option<SessionResult> {
+        SessionState::carried_draft("round-2", session, old)
+    }
+
+    fn answer_to<'a>(draft: &'a SessionResult, question: &str) -> &'a Answer {
+        draft
+            .answers
+            .iter()
+            .find(|answer| answer.question == question)
+            .expect("the draft has an answer to every question")
+    }
+
+    #[test]
+    fn a_kept_question_keeps_what_the_person_picked() {
+        let old = earlier(vec![Answer {
+            selected: vec!["a".into()],
+            ..Answer::new("pick")
+        }]);
+
+        let draft = carried(&old, &replacement(&["a", "b", "c"], true)).expect("carried");
+
+        assert_eq!(draft.id, "round-2");
+        assert_eq!(answer_to(&draft, "pick").selected, ["a"]);
+        assert!(!answer_to(&draft, "pick").defaulted);
+    }
+
+    #[test]
+    fn a_question_under_a_new_id_starts_fresh() {
+        let old = earlier(vec![
+            Answer {
+                selected: vec!["a".into()],
+                ..Answer::new("renamed")
+            },
+            Answer {
+                note: Some("kept".into()),
+                ..Answer::new("free")
+            },
+        ]);
+
+        let draft = carried(&old, &replacement(&["a", "b", "c"], true)).expect("carried");
+
+        assert_eq!(answer_to(&draft, "pick").selected, ["b"], "the default");
+        assert!(answer_to(&draft, "pick").defaulted);
+        assert_eq!(answer_to(&draft, "free").note.as_deref(), Some("kept"));
+    }
+
+    #[test]
+    fn nothing_is_carried_when_the_picked_option_is_gone() {
+        let old = earlier(vec![Answer {
+            selected: vec!["c".into()],
+            ..Answer::new("pick")
+        }]);
+
+        assert_eq!(carried(&old, &replacement(&["a", "b"], true)), None);
+    }
+
+    #[test]
+    fn a_multi_keeps_the_options_that_are_still_there() {
+        let old = earlier(vec![Answer {
+            selected: vec!["x".into(), "z".into()],
+            ..Answer::new("many")
+        }]);
+        let session: Session = serde_json::from_value(serde_json::json!({"asqr": 2, "questions": [
+            {"id": "many", "text": "?", "kind": "multi",
+             "options": [{"id": "x", "label": "X"}, {"id": "y", "label": "Y"}]}
+        ]}))
+        .expect("parses");
+
+        let draft = carried(&old, &session).expect("carried");
+
+        assert_eq!(answer_to(&draft, "many").selected, ["x"]);
+        assert!(!answer_to(&draft, "many").cleared);
+    }
+
+    #[test]
+    fn nothing_is_carried_when_own_text_has_no_field_any_more() {
+        let old = earlier(vec![Answer {
+            custom: Some("mine".into()),
+            ..Answer::new("pick")
+        }]);
+
+        assert_eq!(carried(&old, &replacement(&["a", "b"], false)), None);
+    }
+
+    #[test]
+    fn own_text_next_to_a_pick_is_dropped_and_the_pick_stays() {
+        let old = earlier(vec![Answer {
+            selected: vec!["a".into()],
+            custom: Some("typed, then unpicked".into()),
+            custom_unpicked: true,
+            ..Answer::new("pick")
+        }]);
+
+        let draft = carried(&old, &replacement(&["a", "b"], false)).expect("carried");
+
+        let pick = answer_to(&draft, "pick");
+        assert_eq!(pick.selected, ["a"]);
+        assert_eq!((&pick.custom, pick.custom_unpicked), (&None, false));
+    }
+
+    #[test]
+    fn a_note_stays_when_the_pick_it_belongs_to_is_gone() {
+        let old = earlier(vec![Answer {
+            selected: vec!["c".into()],
+            note: Some("because".into()),
+            ..Answer::new("pick")
+        }]);
+
+        let draft = carried(&old, &replacement(&["a", "b"], true)).expect("carried");
+
+        let pick = answer_to(&draft, "pick");
+        assert_eq!(pick.note.as_deref(), Some("because"));
+        assert!(pick.selected.is_empty() && !pick.cleared, "{pick:?}");
+    }
+
+    #[test]
+    fn a_text_answer_is_carried() {
+        let old = earlier(vec![Answer {
+            custom: Some("my own words".into()),
+            ..Answer::new("free")
+        }]);
+
+        let draft = carried(&old, &replacement(&["a", "b"], true)).expect("carried");
+
+        assert_eq!(
+            answer_to(&draft, "free").custom.as_deref(),
+            Some("my own words")
+        );
+    }
+
+    #[test]
+    fn a_cleared_default_stays_cleared() {
+        let old = earlier(vec![Answer {
+            cleared: true,
+            ..Answer::new("pick")
+        }]);
+
+        let draft = carried(&old, &replacement(&["a", "b"], true)).expect("carried");
+
+        let pick = answer_to(&draft, "pick");
+        assert!(
+            pick.cleared && pick.selected.is_empty() && !pick.defaulted,
+            "{pick:?}"
+        );
+    }
+
+    #[test]
+    fn a_cleared_info_item_alone_is_carried() {
+        let old = earlier(vec![Answer {
+            cleared: true,
+            ..Answer::new("fyi")
+        }]);
+
+        let draft = carried(&old, &replacement(&["a", "b"], true)).expect("carried");
+
+        assert!(answer_to(&draft, "fyi").cleared);
+    }
+
+    #[test]
+    fn nothing_is_carried_when_the_person_only_moved_through() {
+        let old = earlier(vec![Answer {
+            selected: vec!["b".into()],
+            defaulted: true,
+            ..Answer::new("pick")
+        }]);
+
+        assert_eq!(carried(&old, &replacement(&["a", "b"], true)), None);
+    }
+
+    #[test]
+    fn the_session_note_the_reason_and_the_tab_ride_along_with_an_answer() {
+        let mut old = SessionResult::draft(
+            "round-1",
+            "free",
+            vec![Answer {
+                custom: Some("words".into()),
+                ..Answer::new("free")
+            }],
+        );
+        old.note = Some("overall".into());
+        old.reason = Some("not now".into());
+
+        let draft = carried(&old, &replacement(&["a", "b"], true)).expect("carried");
+
+        assert_eq!(
+            (
+                draft.note.as_deref(),
+                draft.reason.as_deref(),
+                draft.current.as_deref()
+            ),
+            (Some("overall"), Some("not now"), Some("free"))
+        );
+    }
+
+    #[test]
+    fn a_reason_alone_is_not_carried() {
+        let mut old = earlier(Vec::new());
+        old.reason = Some("not now".into());
+
+        assert_eq!(carried(&old, &replacement(&["a", "b"], true)), None);
+    }
+
+    #[test]
+    fn a_carried_draft_restores_to_itself() {
+        let old = earlier(vec![
+            Answer {
+                selected: vec!["a".into()],
+                note: Some("n".into()),
+                ..Answer::new("pick")
+            },
+            Answer {
+                cleared: true,
+                ..Answer::new("many")
+            },
+        ]);
+        let session = replacement(&["a", "b"], true);
+        let draft = carried(&old, &session).expect("carried");
+
+        let restored = SessionState::new("round-2", session, Some(&draft));
+
+        assert_eq!(restored.to_draft(), draft);
     }
 
     /// The test session with the own answer of `single` switched off and

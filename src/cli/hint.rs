@@ -178,13 +178,31 @@ pub(super) fn replaced_waiting(id: &str) -> Line {
     ))
 }
 
-/// `ask --replaces <old>` withdrew a session whose result holds a `draft`
-/// (D2r): the person had started on it, and the new session starts empty.
-pub(super) fn started_on(invocation: &Invocation, old: &str) -> Line {
-    Line::hint(format!(
-        "the person had started on {old}; what they entered is in the `draft` of its result: `{} result {old}`",
-        invocation.command
-    ))
+/// `ask --replaces <old>` withdrew a session the person had started on
+/// (D2r), and the new session is `id`. `carried` says whether asqr wrote a
+/// draft for it; `in_result` whether the result of `old` holds a `draft`.
+/// A carried draft makes `id` a started session.
+pub(super) fn started_on(
+    invocation: &Invocation,
+    old: &str,
+    id: &str,
+    carried: bool,
+    in_result: bool,
+) -> Option<Line> {
+    let command = &invocation.command;
+    let holds = format!("the `draft` of its result: `{command} result {old}`");
+    match (carried, in_result) {
+        (true, true) => Some(Line::hint(format!(
+            "the person had started on {old}; asqr carried what fits over into {id} as their draft; the `draft` of its result still holds all they entered: `{command} result {old}`; {id} counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces {id}` with `--force`"
+        ))),
+        (true, false) => Some(Line::hint(format!(
+            "the person had started on {old}; asqr carried what they changed over into {id} as their draft; {id} counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces {id}` with `--force`"
+        ))),
+        (false, true) => Some(Line::hint(format!(
+            "the person had started on {old}; asqr carried nothing of it over into {id}; what they entered is in {holds}"
+        ))),
+        (false, false) => None,
+    }
 }
 
 /// A queue another asqr watches, as advice names it.
@@ -443,7 +461,7 @@ fn result_hints(result: &SessionResult) -> Vec<Line> {
 fn outcome(result: &SessionResult) -> Option<Line> {
     if result.status == Status::Withdrawn && result.draft.is_some() {
         return Some(Line::hint(format!(
-            "`draft` holds what the person entered and never sent; these are not decisions, so use them only as presets in a replacement session (`asqr skill {WITHDRAWING_PART}` says how) and ignore them otherwise"
+            "`draft` holds what the person entered and never sent; these are not decisions, so ignore them; `ask --replaces` carries what fits over into a replacement session by itself (`asqr skill {WITHDRAWING_PART}` says how)"
         )));
     }
     let text = match result.status {

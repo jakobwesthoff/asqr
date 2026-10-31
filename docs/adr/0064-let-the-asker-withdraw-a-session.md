@@ -10,6 +10,9 @@ Amends [4. Hand sessions over through watched queue directories](0004-hand-sessi
 
 Amends [28. Session and result format version 2](0028-session-and-result-format-version-2.md)
 
+Amended by [105. Carry the draft over to a session that replaces theirs](0105-carry-the-draft-over-to-a-session-that-replaces-theirs.md):
+the `draft` is no longer meant as presets for a replacement session
+
 ## Context
 
 An asker could not take back a session it had dropped into a queue. An

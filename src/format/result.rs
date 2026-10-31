@@ -62,9 +62,10 @@ pub struct SessionResult {
 
     /// A withdrawn result's unsent draft: what the person had answered and
     /// noted when the asker withdrew the session. These are no decisions,
-    /// as the person never sent them; they may only serve as presets in a
-    /// replacement session. Absent when the person had entered nothing it
-    /// can carry, such as only a cleared default.
+    /// as the person never sent them. `asqr ask --replaces` carries what
+    /// fits over into the replacement session itself. Absent when the
+    /// person had entered nothing it can carry, such as only a cleared
+    /// default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<UnsentDraft>,
 

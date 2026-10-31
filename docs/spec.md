@@ -430,8 +430,9 @@ rules are validation's alone.
     person answered or noted, in the shape of a cancelled result but
     without an untouched default, which is the asker's preset and
     nothing the person entered (section 4.3). These
-    are no decisions: the person never sent them, and an asker uses
-    them at most as presets of a replacement session. A question the
+    are no decisions: the person never sent them. `ask --replaces`
+    carries what fits over into the replacement itself (section 4.3). A
+    question the
     person only cleared (`cleared` in the draft, section 4.3) is skipped
     without a note and so is not in `answers`. `draft` is absent when the
     person had entered nothing it can carry, such as only a cleared
@@ -517,9 +518,9 @@ with `custom_unpicked: true` on its answer. The field appears only in
 drafts, and the result schema leaves it out. It is new within format
 version 2: asqr 0.13.1 and earlier ignore it, so the text counts there
 again.
-A question the person changed and left without a selection, typed text
-that is not blank or a note that is not blank, as when they cleared its
-default, has `cleared: true` on its answer. The field appears only in
+A question the person changed and left without a selection, without
+typed text that is not blank and without a note that is not blank, as
+when they cleared its default, has `cleared: true` on its answer. The field appears only in
 drafts, and the result schema leaves it out. It is new within format
 version 2: asqr 0.14.0 and earlier ignore it (ADR 77).
 A draft that continues the draft of an earlier session has `carried_from`
@@ -528,6 +529,20 @@ it continues. The TUI shows it as a note in the header (section 7.2) and
 writes it into every draft it saves for the session. The field appears
 only in drafts, and the result schema leaves it out. It is new within
 format version 2: asqr 0.15.0 and earlier ignore it.
+
+`asqr ask --replaces` writes the draft of the new session out of the
+draft of the session it withdraws (section 5.5). The answers are matched
+by question id and option id, under the rules of a restore (below), with
+one difference: an answer whose picked option or own-text field the new
+file has no place for is dropped, so that question takes the defaults of
+the new file, in place of coming back `cleared`. A `cleared` mark the
+person made stays. The session note, the reject reason and the current
+question are carried with the answers. What the draft of a session
+withdrawn before can give is what the `draft` of its result holds
+(section 4.1): no `cleared` mark, no own text that was unpicked, no
+selection below `min` without a note and no own text next to a pick. No
+draft is written where nothing fits, and a reject reason alone does not
+count, as for a draft that "has an answer" (below).
 It is written on every change while the session waits in the inbox; a
 change to a session whose file has left the inbox writes no draft. The
 look at the inbox and the write run under the drafts lock (section 5.6).
@@ -933,7 +948,27 @@ is in the outbox; read it first with `<asqr> result <id>`, then leave
 `id` out of the file to get a fresh id; --force would archive that
 result and also withdraw <old-id> even if the person is answering it".
 The new session's own id is a usage error, since `ask` replaces a
-waiting session of the same id by itself. Exit
+waiting session of the same id by itself.
+
+`--replaces` also carries the draft of the old session over into the new
+one (section 4.3), so what the person entered is not lost when the asker
+reworks a session, and the asker writes no text into the person's
+fields. A question kept under its id keeps the person's input; a
+question under a new id starts fresh. The draft of the new session is
+written under the same hold of the drafts lock, after the withdrawal and
+before the session file, so the TUI finds it when the session arrives.
+It carries `carried_from`, which the TUI shows in the header (section
+7.2). Its entries are the person's input, so the new session counts as
+started: a further `--replaces` of it needs `--force`, and `ask` of its
+id is refused, also with `--force` (above). A draft is written only for
+a new session that does not wait already, since a running TUI rebuilds a
+waiting session from its own state, and not where `drafts/<new-id>.json`
+holds an answer already, which stays as it is (section 5.4). Then, and
+where nothing of the draft fits, the old draft is only in the `draft` of
+the old result. A draft that cannot be written costs the carry and
+nothing else. A crash between the draft and the session file leaves a
+draft without a session, as a session taken back by hand does (section
+5.4). Exit
 codes are those of `ask` and `withdraw`: 13 for an old id the queue does
 not know or whose result is gone. An old id found in one other named
 queue (section 5.10) drops nothing and exits with 13: "session
@@ -1796,10 +1831,18 @@ before the id.
   For `ASQR_DIR` the line names the variable and the absolute
   directory. A tmux that does not answer gives no line.
 
-- `ask --replaces <old>` whose withdrawn result of `<old>` holds a
-  `draft`:
+- `ask --replaces <old>` after the person had started on `<old>`, with
+  the draft carried over into the new session `<id>` (section 5.5), the
+  result of `<old>` holding a `draft`:
 
-      hint: the person had started on <old>; what they entered is in the `draft` of its result: `<asqr> result <old>`
+      hint: the person had started on <old>; asqr carried what fits over into <id> as their draft; the `draft` of its result still holds all they entered: `<asqr> result <old>`; <id> counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces <id>` with `--force`
+
+  Where the result holds no `draft` (the person only cleared questions),
+  the line reads "asqr carried what they changed over into <id> as their
+  draft; <id> counts as started now, ..." with the same ending. Where
+  nothing was carried and the result holds a `draft`:
+
+      hint: the person had started on <old>; asqr carried nothing of it over into <id>; what they entered is in the `draft` of its result: `<asqr> result <old>`
 
 - `ask` without `--wait`, after it dropped the session, as the last
   line, when the session file drew no warning (section 3.4; the warning
@@ -1837,7 +1880,7 @@ before the id.
 
   A withdrawn result with a `draft`:
 
-      hint: `draft` holds what the person entered and never sent; these are not decisions, so use them only as presets in a replacement session (`asqr skill withdrawing` says how) and ignore them otherwise
+      hint: `draft` holds what the person entered and never sent; these are not decisions, so ignore them; `ask --replaces` carries what fits over into a replacement session by itself (`asqr skill withdrawing` says how)
 
   After the line above, a submitted or rejected result with a note that
   is not blank, on the session or on any question. The question ids
@@ -2925,7 +2968,13 @@ keeps the session and shows its own notice instead.
   One that only waited in the queue leaves without a word, as one
   withdrawn while asqr was not running does, so the status line keeps
   what it shows. When several leave at once, the last one's notice
-  shows.
+  shows. A session replaced by `ask --replaces` whose draft was carried
+  over (section 5.5) gets an information notice in place of the first
+  three, as the new session shows the answers:
+
+      ↩ "Release 0.2.0" was replaced by "Release 0.2.1"; your answers carried over
+
+  The notice that names a kept file stays.
 - A session colliding with an unread result (section 5.7) and a failure
   to write a draft or a result trigger a notice. A failure never ends
   asqr; answers stay in the TUI.
@@ -3680,12 +3729,14 @@ The skill teaches, in the core unless a part is named:
 - `asqr withdraw` for a session whose answers it no longer needs, and
   `asqr ask --replaces` for a session rebuilt under another id; in
   `withdrawing.md`, that `--force` takes one the person has started
-  answering, that a withdrawn result's `draft` holds no decisions, only
-  presets for a replacement session, and that its typed text and notes,
-  which have no preset, are quoted in the replacement's question text,
-  that the `--force` of `--replaces` also ends a session the person is
-  in the middle of, so it is for the exception, and that a fresh id
-  avoids an unread result of the new id without it
+  answering, that a withdrawn result's `draft` holds no decisions, that
+  `--replaces` carries the person's draft over into the replacement by
+  question id and option id, so an asker keeps the ids of the questions
+  and options whose earlier answers should stay, that the carried
+  replacement counts as started, that the `--force` of `--replaces` also
+  ends a session the person is in the middle of, so it is for the
+  exception, and that a fresh id avoids an unread result of the new id
+  without it
 - longer sessions: batches, follow-up rounds with `follows`, keeping a
   record of the answers, and reading earlier sessions with `history
   --json`, `replay <ref> --json` and `replay <ref> --extract <dir>`

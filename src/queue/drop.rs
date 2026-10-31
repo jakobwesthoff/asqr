@@ -96,6 +96,14 @@ pub(super) struct CheckedDrop {
     result: Option<PathBuf>,
 }
 
+impl CheckedDrop {
+    /// Whether a session of the same id waits in the inbox, which the drop
+    /// replaces in place.
+    pub(super) fn waits(&self) -> bool {
+        self.waiting.is_some()
+    }
+}
+
 /// The refusals of a drop of session `id`, every one of them before the
 /// first change, so a refused drop leaves the queue as it was. The caller
 /// holds the drafts lock.

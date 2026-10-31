@@ -362,7 +362,7 @@ fn no_session(sandbox: &Sandbox, id: &str) -> String {
 
 /// The hint after a withdrawn result that carries a `draft`, behind the
 /// empty line that ends the result's JSON.
-const DRAFT_HINT: &str = "\nhint: `draft` holds what the person entered and never sent; these are not decisions, so use them only as presets in a replacement session (`asqr skill withdrawing` says how) and ignore them otherwise\n";
+const DRAFT_HINT: &str = "\nhint: `draft` holds what the person entered and never sent; these are not decisions, so ignore them; `ask --replaces` carries what fits over into a replacement session by itself (`asqr skill withdrawing` says how)\n";
 
 #[test]
 fn withdraw_force_points_at_the_draft() {
