@@ -4,7 +4,7 @@ tags: [guide/answer]
 site:
   index: true
   label: Answering
-  order: 1
+  order: 2
 ---
 asqr draws a session as a stack of rows over the full width of the
 terminal. This page names the parts of the screen from the top down.
