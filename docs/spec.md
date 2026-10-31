@@ -611,7 +611,12 @@ format, a syntax the code viewer highlights or one of `txt md log diff
 patch ansi`, else `dat`. A reader accepts only names of exactly this
 form, so a path edited by hand, `files/../x` for one, is never opened. A
 file shown by several sessions is stored once per place: once loose and
-once in each month bundle that holds a session showing it.
+once in each month bundle that holds a session showing it. Under
+`compact` an image is re-encoded as WebP with its Exif orientation applied
+to the pixels. A WebP, a GIF, an animated PNG, a TIFF with several pages,
+an ICO with several images and a picture of more than 32 million pixels
+are kept as they are, as is any image whose re-encoding is not smaller or
+does not show the same picture.
 
 The archived session is the JSON the person saw, with one object added
 at the top and one per shown file. `path` names the copy only where

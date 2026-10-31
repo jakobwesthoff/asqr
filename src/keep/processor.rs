@@ -12,7 +12,8 @@ use std::io::Cursor;
 use std::path::Path;
 
 use image::codecs::png::PngDecoder;
-use image::{ImageFormat, ImageReader, Limits, Rgba, RgbaImage};
+use image::metadata::Orientation;
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, Rgba, RgbaImage};
 
 use crate::syntaxes::SYNTAXES;
 
@@ -190,12 +191,18 @@ const MAX_DECODE_BYTES: u64 = 512 * 1024 * 1024;
 /// The pixels of `original`, or `None` when the file must stay as it is.
 /// The format is read from the content, never the name. WebP is already
 /// what re-encoding makes, and GIF and animated PNG hold frames that one
-/// still picture would lose. The size is read from the header first, so a
+/// still picture would lose, and so do the pages of a TIFF and the images
+/// of an ICO. The size is read from the header first, so a
 /// picture libwebp cannot encode, or one of more than `max_pixels`, is not
 /// decoded.
 fn decode_for_reencoding(original: &[u8], max_pixels: u64) -> Option<RgbaImage> {
     match image::guess_format(original).ok()? {
         ImageFormat::WebP | ImageFormat::Gif => return None,
+        format @ (ImageFormat::Tiff | ImageFormat::Ico) => {
+            if has_several_pictures(format, original) {
+                return None;
+            }
+        }
         ImageFormat::Png => {
             let animated = PngDecoder::new(Cursor::new(original))
                 .ok()?
@@ -223,7 +230,66 @@ fn decode_for_reencoding(original: &[u8], max_pixels: u64) -> Option<RgbaImage> 
     let mut limits = Limits::default();
     limits.max_alloc = Some(MAX_DECODE_BYTES);
     reader.limits(limits);
-    Some(reader.decode().ok()?.into_rgba8())
+    let mut decoder = reader.into_decoder().ok()?;
+    if decoder.total_bytes() > MAX_DECODE_BYTES {
+        return None;
+    }
+    // The orientation is applied to the pixels, as the WebP copy carries no
+    // Exif chunk that a viewer would turn it by.
+    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let mut picture = DynamicImage::from_decoder(decoder).ok()?;
+    picture.apply_orientation(orientation);
+    Some(picture.into_rgba8())
+}
+
+/// Whether `original`, a file of `format`, holds more than one picture, of
+/// which `image` decodes the first only: TIFF pages and ICO images. A TIFF
+/// that cannot be followed to the end of its page list counts as several.
+fn has_several_pictures(format: ImageFormat, original: &[u8]) -> bool {
+    match format {
+        ImageFormat::Ico => original
+            .get(4..6)
+            .is_none_or(|count| u16::from_le_bytes([count[0], count[1]]) != 1),
+        ImageFormat::Tiff => tiff_has_several_pages(original),
+        _ => false,
+    }
+}
+
+/// Follows the first image file directory of a classic TIFF to the offset
+/// of the next one.
+fn tiff_has_several_pages(original: &[u8]) -> bool {
+    let little = match original.get(..2) {
+        Some(b"II") => true,
+        Some(b"MM") => false,
+        _ => return true,
+    };
+    let u16_at = |at: usize| -> Option<usize> {
+        let bytes: [u8; 2] = original.get(at..at + 2)?.try_into().ok()?;
+        Some(usize::from(if little {
+            u16::from_le_bytes(bytes)
+        } else {
+            u16::from_be_bytes(bytes)
+        }))
+    };
+    let u32_at = |at: usize| -> Option<usize> {
+        let bytes: [u8; 4] = original.get(at..at + 4)?.try_into().ok()?;
+        usize::try_from(if little {
+            u32::from_le_bytes(bytes)
+        } else {
+            u32::from_be_bytes(bytes)
+        })
+        .ok()
+    };
+    // BigTIFF (magic 43) and anything else unknown is left as it is.
+    let single_page = || -> Option<bool> {
+        if u16_at(2)? != 42 {
+            return None;
+        }
+        let first = u32_at(4)?;
+        let entries = u16_at(first)?;
+        Some(u32_at(first + 2 + 12 * entries)? == 0)
+    };
+    single_page() != Some(true)
 }
 
 /// The lowest PSNR, in dB, at which a re-encoded image still counts as

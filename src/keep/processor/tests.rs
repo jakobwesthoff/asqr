@@ -453,3 +453,149 @@ fn a_picture_at_the_pixel_cap_is_re_encoded() {
 
     assert_eq!(processor.process(original, "fits.png").extension, "webp");
 }
+
+// =========================================================
+// Pictures whose pixels are not the whole story
+// =========================================================
+
+/// The Exif chunk of a picture that asks to be turned by `orientation`.
+fn exif_with_orientation(orientation: u8) -> Vec<u8> {
+    let mut exif = b"MM\x00\x2a\x00\x00\x00\x08\x00\x01".to_vec();
+    exif.extend_from_slice(&[
+        0x01,
+        0x12,
+        0x00,
+        0x03,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        orientation,
+    ]);
+    exif.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+    exif
+}
+
+fn jpeg_with_exif(picture: &RgbaImage, exif: Vec<u8>) -> Vec<u8> {
+    let rgb = image::DynamicImage::ImageRgba8(picture.clone()).to_rgb8();
+    let mut bytes = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 95);
+    image::ImageEncoder::set_exif_metadata(&mut encoder, exif).expect("JPEG takes Exif");
+    image::ImageEncoder::write_image(
+        encoder,
+        rgb.as_raw(),
+        rgb.width(),
+        rgb.height(),
+        ExtendedColorType::Rgb8,
+    )
+    .expect("encodes");
+    bytes
+}
+
+#[test]
+fn an_exif_orientation_is_applied_to_the_pixels_before_encoding() {
+    // Orientation 6 asks for a quarter turn clockwise.
+    let original = jpeg_with_exif(&photo_like(96, 64), exif_with_orientation(6));
+    let upright = image::imageops::rotate90(&decoded(&original));
+
+    let processed = compact(&original, "/tmp/x/phone.jpg");
+
+    assert_eq!(processed.extension, "webp");
+    let kept = decoded(&processed.bytes);
+    assert_eq!(kept.dimensions(), (64, 96));
+    assert!(same_picture(&upright, &kept));
+}
+
+/// A two-page TIFF: the page `picture` makes, followed by a copy of it.
+fn two_page_tiff(picture: &RgbaImage) -> Vec<u8> {
+    let mut bytes = encoded(picture, ImageFormat::Tiff);
+    assert_eq!(
+        &bytes[..4],
+        b"II*\0",
+        "the encoder writes little-endian TIFF"
+    );
+    let read_u32 = |bytes: &[u8], at: usize| {
+        u32::from_le_bytes(bytes[at..at + 4].try_into().expect("four bytes")) as usize
+    };
+    let first = read_u32(&bytes, 4);
+    let entries = u16::from_le_bytes([bytes[first], bytes[first + 1]]) as usize;
+    let next_at = first + 2 + 12 * entries;
+    assert_eq!(read_u32(&bytes, next_at), 0, "one page to begin with");
+    let second = bytes.len();
+    let page = bytes[first..next_at + 4].to_vec();
+    bytes.extend_from_slice(&page);
+    let second_next = second + 2 + 12 * entries;
+    bytes[second_next..second_next + 4].copy_from_slice(&0u32.to_le_bytes());
+    bytes[next_at..next_at + 4].copy_from_slice(&(second as u32).to_le_bytes());
+    bytes
+}
+
+#[test]
+fn a_tiff_with_several_pages_stays_as_it_is() {
+    let original = two_page_tiff(&photo_like(64, 64));
+
+    let processed = compact(&original, "/tmp/x/scan.tif");
+
+    assert_eq!(processed.extension, "tif");
+    assert_eq!(processed.bytes, original);
+}
+
+#[test]
+fn an_ico_with_several_images_stays_as_it_is() {
+    let frames: Vec<_> = [64, 32]
+        .map(|side| {
+            let picture = photo_like(side, side);
+            image::codecs::ico::IcoFrame::as_png(
+                picture.as_raw(),
+                side,
+                side,
+                ExtendedColorType::Rgba8,
+            )
+            .expect("a frame")
+        })
+        .into();
+    let mut original = Vec::new();
+    image::codecs::ico::IcoEncoder::new(&mut original)
+        .encode_images(&frames)
+        .expect("encodes");
+
+    let processed = compact(&original, "/tmp/x/favicon.ico");
+
+    assert_eq!(processed.extension, "ico");
+    assert_eq!(processed.bytes, original);
+}
+
+#[test]
+fn a_single_page_tiff_of_either_byte_order_is_one_picture() {
+    let little = b"II*\0\x08\0\0\0\0\0\0\0\0\0";
+    let big = b"MM\0*\0\0\0\x08\0\0\0\0\0\0";
+
+    assert!(!tiff_has_several_pages(little));
+    assert!(!tiff_has_several_pages(big));
+}
+
+#[test]
+fn a_tiff_that_cannot_be_followed_counts_as_several_pictures() {
+    let unknown_order = b"XX*\0\x08\0\0\0\0\0\0\0\0\0";
+    let big_tiff = b"II+\0\x08\0\x00\0\x10\0\0\0\0\0\0\0";
+    let cut_off = b"II*\0\x08\0\0\0\x05\0";
+    let page_list_beyond_the_file = b"II*\0\x08\0\0\0\x09\0\0\0\0\0\0\0";
+
+    for bytes in [
+        &unknown_order[..],
+        &big_tiff[..],
+        &cut_off[..],
+        &page_list_beyond_the_file[..],
+        b"",
+    ] {
+        assert!(tiff_has_several_pages(bytes), "{bytes:?}");
+    }
+}
+
+#[test]
+fn an_ico_without_a_readable_count_counts_as_several_pictures() {
+    assert!(has_several_pictures(ImageFormat::Ico, b"\0\0\x01"));
+    assert!(!has_several_pictures(ImageFormat::Ico, b"\0\0\x01\0\x01\0"));
+    assert!(has_several_pictures(ImageFormat::Ico, b"\0\0\x01\0\x02\0"));
+}

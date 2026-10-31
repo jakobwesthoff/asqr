@@ -59,9 +59,16 @@ replaces one type. Rejected: the WebP call inlined in the archiving code.
 ### Re-encoding an image
 
 - The format is read from the file's content, never its name. A WebP, a
-  GIF and an animated PNG stay as they are, as does an image that is 0
+  GIF, an animated PNG, a TIFF with more than one page and an ICO with
+  more than one image stay as they are, as does an image that is 0
   pixels or more than 16383 pixels wide or tall (libwebp's limit), and
-  one whose decode needs more than 512 MiB.
+  one whose decode needs more than 512 MiB. `image` decodes the first page
+  or image only, so re-encoding would drop the others. A TIFF whose page
+  list cannot be followed (BigTIFF, a cut-off file) counts as several
+  pages.
+- The Exif orientation of a picture is applied to its pixels before it is
+  encoded. The WebP copy carries no Exif chunk, so a viewer would not turn
+  it.
 - A picture of more than 32 Mpixel (32 x 1024 x 1024) stays as it is. The
   re-encoding holds the decoded picture at 4 bytes a pixel and, to
   compare, the decoded copy of the result, so 32 Mpixel is 256 MiB of
