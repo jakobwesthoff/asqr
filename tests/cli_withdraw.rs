@@ -230,6 +230,23 @@ fn withdraw_twice_exits_0_and_says_so() {
 }
 
 #[test]
+fn withdrawing_again_prints_the_outbox_bytes_with_the_fields_asqr_does_not_know() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "batch");
+    withdraw(&sandbox, &["batch"]);
+    // A newer asqr may have written a field this one does not know.
+    let result = sandbox.queue_dir().join("outbox").join("batch.json");
+    let text = std::fs::read_to_string(&result).expect("the result is in the outbox");
+    let extended = text.replacen('{', "{\"extra_field\": 1,", 1);
+    std::fs::write(&result, &extended).expect("the result is writable");
+
+    let again = withdraw(&sandbox, &["batch"]);
+
+    assert_eq!(again.status.code(), Some(0));
+    assert_eq!(stdout(&again), extended);
+}
+
+#[test]
 fn withdraw_of_an_unknown_id_exits_13() {
     let sandbox = Sandbox::new();
     std::fs::create_dir_all(sandbox.queue_dir()).expect("queue");

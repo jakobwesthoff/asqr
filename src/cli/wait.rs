@@ -61,6 +61,15 @@ fn standing(location: &QueueLocation, id: &str) -> std::io::Result<Standing> {
     )
 }
 
+/// The bytes of the result session `id` has in the outbox or the archive,
+/// as the file holds them; `None` where it has none.
+pub(super) fn stored_result(location: &QueueLocation, id: &str) -> Option<Vec<u8>> {
+    match standing(location, id) {
+        Ok(Standing::Answered(bytes)) => Some(bytes),
+        _ => None,
+    }
+}
+
 /// Where else session `id` is, looked for only when the queue a command
 /// runs on has no trace of it: no waiting file, no result and no archive
 /// entry. A session finished there is never looked up elsewhere.

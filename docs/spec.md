@@ -1532,7 +1532,8 @@ that will not come. A withdrawn result ends both with 14.
 
 `withdraw` prints the result it wrote, with the bytes the outbox holds,
 as `wait` and `result` print a result, and exits with 0; for a session
-withdrawn before it prints that result and exits with 0 too. Its
+withdrawn before it prints that result, the file's bytes with any field
+this asqr does not know, and exits with 0 too. Its
 refusals exit with 1, and an id that only the archive or nothing in the
 queue knows with 13, with the messages of section 5.10.
 

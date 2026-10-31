@@ -193,6 +193,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file"), a text file asqr may not read, and an image file larger than
   64 MiB, as they already did for a missing file and an image asqr cannot
   decode. Before, the person met the red card first.
+- `asqr withdraw` of a session withdrawn before prints the result file as
+  the outbox holds it, as `wait` and `result` do. Before, it printed a
+  copy that lost the fields a newer asqr had written.
 
 ## [0.15.0] - 2026-10-30
 

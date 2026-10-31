@@ -11,7 +11,7 @@ use std::path::Path;
 
 use super::Exit;
 use super::hint::{self, Invocation, Refusing};
-use super::wait::{Elsewhere, elsewhere};
+use super::wait::{Elsewhere, elsewhere, stored_result};
 use crate::format::SessionResult;
 use crate::keep::apply::record_after_withdrawal;
 use crate::queue::{Gate, QueueLocation, WithdrawError, Withdrawn, withdraw_session_archived};
@@ -29,10 +29,12 @@ pub(super) fn run(
             // slow, and the TUI saves drafts under that lock.
             record_after_withdrawal(location, archived);
             match withdrawn {
-                Withdrawn::Now(result) => print(&result),
+                Withdrawn::Now(result) => print(&result, None),
                 Withdrawn::Already(result) => {
                     eprintln!("asqr: {id} was withdrawn already");
-                    print(&result)
+                    // A newer asqr may have written fields this one does not
+                    // know, and `wait` and `result` print them.
+                    print(&result, stored_result(location, id))
                 }
             }
         }
@@ -78,10 +80,12 @@ pub(super) fn run(
 
 /// Prints `result` with the bytes the outbox holds for it, so the output
 /// matches what `wait` and `result` print for the session, then the hints
-/// it gets. A result that did not reach stdout gets none, since they point
-/// into it.
-fn print(result: &SessionResult) -> Exit {
-    let json = serde_json::to_vec_pretty(result).expect("a result always serializes");
+/// it gets. `stored` is those bytes; a result this call wrote has none yet
+/// and prints as it was written. A result that did not reach stdout gets no
+/// hints, since they point into it.
+fn print(result: &SessionResult, stored: Option<Vec<u8>>) -> Exit {
+    let json = stored
+        .unwrap_or_else(|| serde_json::to_vec_pretty(result).expect("a result always serializes"));
     let written = {
         let mut stdout = std::io::stdout().lock();
         stdout.write_all(&json).and_then(|()| stdout.flush())
