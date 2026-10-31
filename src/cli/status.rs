@@ -227,6 +227,23 @@ mod tests {
     }
 
     #[test]
+    fn an_outbox_whose_files_cannot_be_examined_is_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_scratch, location) = queue();
+        std::fs::write(location.outbox().join("here.json"), "{}").expect("written");
+        // Listable, but nothing in it can be looked at.
+        std::fs::set_permissions(location.outbox(), std::fs::Permissions::from_mode(0o444))
+            .expect("chmod");
+
+        let listed = answered(&location);
+
+        std::fs::set_permissions(location.outbox(), std::fs::Permissions::from_mode(0o755))
+            .expect("chmod back, so the temp dir can go");
+        assert!(listed.is_err());
+    }
+
+    #[test]
     fn a_result_that_cannot_be_read_is_listed_once_as_unreadable() {
         let (_scratch, location) = queue();
         // A directory where the result belongs: it exists and cannot be read.

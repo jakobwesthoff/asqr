@@ -463,6 +463,7 @@ fn an_outbox_result_changed_during_compaction_stays() {
 fn an_inbox_session_that_arrives_during_compaction_keeps_the_result_for_recovery() {
     let (_scratch, location, lock) = queue();
     let (path, _) = outbox_result(&location, "done", "2026-09-15T10:00:00+00:00");
+    fs::write(location.inbox().join("notes.txt"), "").expect("written");
 
     let report = compact_with(&location, &lock, now(), 1, &mut |_| {
         fs::write(location.inbox().join("done.json"), "{}").expect("written");
@@ -601,4 +602,21 @@ fn an_outbox_file_that_vanished_since_the_listing_is_skipped() {
     let report = compact_now(&location, &lock);
 
     assert_eq!(report, CompactReport::default());
+}
+
+#[cfg(unix)]
+#[test]
+fn an_outbox_whose_files_cannot_be_examined_is_a_problem() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_scratch, location, lock) = queue();
+    outbox_result(&location, "done", "2026-09-15T10:00:00+00:00");
+    fs::set_permissions(location.outbox(), fs::Permissions::from_mode(0o444)).expect("chmod");
+
+    let report = compact_now(&location, &lock);
+
+    fs::set_permissions(location.outbox(), fs::Permissions::from_mode(0o755))
+        .expect("chmod back, so the temp dir can go");
+    assert_eq!(report.problems.len(), 1);
+    assert!(report.bundled.is_empty());
 }

@@ -10,9 +10,6 @@ use std::time::{Duration, SystemTime};
 use super::Exit;
 use crate::queue::{QueueLocation, prune, prune_empty_queues};
 
-/// Parses an age such as `30d`: a whole number and one unit, `s`, `m`, `h`,
-/// `d` or `w`. Used as clap's value parser, so a malformed age is a usage
-/// error.
 /// The shortest age `prune` takes: 30 days, the age after which the
 /// compaction bundles sessions and results.
 const PRUNE_FLOOR: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -48,9 +45,9 @@ pub(super) fn parse_prune_age(input: &str) -> Result<Duration, String> {
     Ok(age)
 }
 
-/// Parses an age such as `30m`: a whole number and one unit, `s`, `m`,
-/// `h`, `d` or `w`. Used as clap's value parser, so a malformed age is a usage
-/// error.
+/// Parses an age such as `30m`: a whole number and one unit, `s`, `m`, `h`,
+/// `d` or `w`. Used as clap's value parser for `status --since`, so a
+/// malformed age is a usage error.
 pub(super) fn parse_age(input: &str) -> Result<Duration, String> {
     let malformed = || "expected a number and a unit (s, m, h, d or w), such as 30d".to_owned();
     let split = input
