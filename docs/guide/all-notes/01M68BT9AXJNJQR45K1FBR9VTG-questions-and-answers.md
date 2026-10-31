@@ -92,9 +92,10 @@ The texts of a session, which are the intro, the question, the option
 labels and their descriptions, are Markdown. asqr renders headings,
 emphasis, lists, task lists, quotes, tables, links and code blocks, which
 are highlighted when the fence names a language. A link written as a
-reference shows like an inline one. Footnotes show at the end of the text,
-in the order they are referenced, and a footnote nothing references does
-not show. Quotes and lists nested so deep that a line would keep little
+reference shows like an inline one. A footnote reference shows its number
+dimmed in square brackets, such as `[1]`, and the footnotes show at the
+end of the text, in the order they are referenced, each starting with its
+number. A footnote nothing references does not show. Quotes and lists nested so deep that a line would keep little
 room for its text stop indenting further.
 
 [Every key](01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md) is listed on one page.
