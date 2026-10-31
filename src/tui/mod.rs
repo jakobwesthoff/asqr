@@ -9,6 +9,7 @@
 mod alert;
 mod app;
 mod editor;
+mod first_start;
 mod inbox;
 mod key_reader;
 mod open;
@@ -29,6 +30,7 @@ mod watch;
 pub use alert::*;
 pub use app::*;
 pub use editor::*;
+pub use first_start::*;
 pub use inbox::*;
 pub use key_reader::*;
 pub use open::*;

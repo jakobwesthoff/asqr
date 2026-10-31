@@ -1,0 +1,19 @@
+---
+source: src/tui/render/first_start.rs
+expression: "drawn(&no_copies, 60, 15)"
+---
+" asqr                                                       "
+" ╭ First start ───────────────────────────────────────────╮ "
+" │       Compact copies: images are kept as WebP copies,  │ "
+" │       about a fifth of their size; every other file is │ "
+" │       kept as it is.                                   │ "
+" │   ( ) exact copies                                     │ "
+" │       Exact copies: every file is kept byte for byte,  │ "
+" │       images included.                                 │ "
+" │ ❯ ( ) no copies                                        │ "
+" │       No copies: no file is kept. asqr still records   │ "
+" │       each file's size and checksum, so a replay can   │ "
+" │       tell the file is gone.                           │ "
+" ╰─────── writes …/Application Support/asqr/settings.toml ╯ "
+"                                                            "
+" ↑/↓  move   enter  pick   q  quit               asqr 0.0.0 "

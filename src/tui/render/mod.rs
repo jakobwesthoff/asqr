@@ -19,6 +19,7 @@ mod diff;
 mod dim;
 mod elsewhere;
 mod empty;
+mod first_start;
 mod header;
 mod keys;
 mod loading;
@@ -45,6 +46,7 @@ mod viewer;
 mod wrap;
 
 pub(crate) use diff::unified_text;
+pub use first_start::draw_first_start;
 pub use loading::loader_panicked;
 pub use mascot::Glyphs;
 pub use panes::{PaneLayout, ReadingWidth};

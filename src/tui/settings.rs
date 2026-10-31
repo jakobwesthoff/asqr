@@ -13,7 +13,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use clap::ValueEnum;
 
 use crate::keep::KeepFiles;
-use crate::settings::{Direction, Lock, Setting, Settings};
+use crate::settings::{Direction, Lock, SaveError, Setting, Settings};
 use crate::tui::render::PaneLayout;
 
 /// What a key did in the settings pane.
@@ -158,6 +158,12 @@ pub fn value_name(setting: Setting, choice: usize) -> &'static str {
     values(setting)[choice].0
 }
 
+/// What value number `choice` of `setting` means, without the `(default)`
+/// the footer adds.
+pub fn value_text(setting: Setting, choice: usize) -> &'static str {
+    values(setting)[choice].1
+}
+
 /// The value of `setting` the settings start with, as its number.
 pub fn default_choice(setting: Setting) -> usize {
     Settings::default().choice(setting)
@@ -182,7 +188,7 @@ pub fn about(setting: Setting) -> &'static str {
 /// What the footer says value number `choice` of `setting` means, with
 /// `(default)` after the default.
 pub fn meaning(setting: Setting, choice: usize) -> String {
-    let meaning = values(setting)[choice].1;
+    let meaning = value_text(setting, choice);
     if choice == default_choice(setting) {
         format!("{meaning} (default)")
     } else {
@@ -259,6 +265,12 @@ pub fn saved_text(setting: Setting, choice: usize) -> String {
         label(setting).to_lowercase(),
         value_name(setting, choice)
     )
+}
+
+/// The status line's news of a setting that could not be written to the
+/// file: the value holds for this run only.
+pub fn save_failed_text(error: &SaveError) -> String {
+    format!("cannot save the setting: {error}; the choice holds until asqr quits")
 }
 
 #[cfg(test)]

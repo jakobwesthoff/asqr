@@ -264,6 +264,20 @@ pub(super) fn settings_hints(locked: bool) -> Vec<Hint> {
     hints
 }
 
+/// The keys of the first-start screen: `enter` saves where the cursor
+/// stands on the button.
+pub(super) fn first_start_hints(on_button: bool) -> Vec<Hint> {
+    vec![
+        hint("↑/↓", "move", Rank::Cursor),
+        hint(
+            "enter",
+            if on_button { "save" } else { "pick" },
+            Rank::Cursor,
+        ),
+        QUIT_HINT,
+    ]
+}
+
 /// The keys of the start picker, whose new-queue row is a field while
 /// it is `typing`.
 pub(super) fn picker_hints(typing: bool) -> Vec<Hint> {

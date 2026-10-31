@@ -15,7 +15,8 @@ use std::io;
 use std::path::PathBuf;
 
 use super::{
-    App, AppEffect, EditRequest, Invalid, Notice, Outcome, SessionState, Tone, saved_text,
+    App, AppEffect, EditRequest, Invalid, Notice, Outcome, SessionState, Tone, save_failed_text,
+    saved_text,
 };
 use crate::format::{
     ContextEntry, ParseError, SessionResult, Status, is_valid_session_id, now_rfc3339,
@@ -667,12 +668,7 @@ impl Inbox {
                 let choice = app.settings().choice(setting);
                 match app.settings().save(setting) {
                     Ok(()) => app.notice(Tone::Success, saved_text(setting, choice)),
-                    Err(error) => app.notice(
-                        Tone::Error,
-                        format!(
-                            "cannot save the setting: {error}; the choice holds until asqr quits"
-                        ),
-                    ),
+                    Err(error) => app.notice(Tone::Error, save_failed_text(&error)),
                 }
                 return Applied::SettingsChanged;
             }
