@@ -1037,7 +1037,9 @@ start and after a switch to the queue, with the queue lock it holds.
 `asqr compact` runs it for the chosen queue; `asqr compact --all` runs it
 for every named queue under the root (section 5.2), whatever `--queue` or
 `--dir` say. It takes the queue lock, trying as long as a start
-does (section 5.6), and skips a queue another asqr watches: for the
+does (section 5.6) and writing `pid <pid> on <host>, running asqr compact`
+into the lock file, so an asqr that is refused says who holds the queue,
+and skips a queue another asqr watches: for the
 chosen queue it says so on stderr and exits with 1, under `--all` it
 names the queue and goes on. A queue that has no directory is not
 created and counts as nothing to compact. Each bundle that took in

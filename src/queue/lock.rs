@@ -218,12 +218,14 @@ pub fn try_lock_queue(location: &QueueLocation) -> io::Result<Option<QueueLock>>
     })
 }
 
-/// [`try_lock_queue`] that tries `attempts` times, 20 ms apart;
-/// [`LOCK_ATTEMPTS`] is the number a start uses.
-/// `lock_holder` takes a shared lock for a moment, as every TUI and
-/// command that looks at a queue does, so a single attempt can meet it
-/// and report a queue as watched that nobody watches. Like
-/// [`try_lock_queue`], it does not write this process into the file.
+/// Takes the queue lock for a compaction (`asqr compact`), without waiting
+/// longer than `attempts` tries, 20 ms apart; [`LOCK_ATTEMPTS`] is the
+/// number a start uses. `lock_holder` takes a shared lock for a moment, as
+/// every TUI and command that looks at a queue does, so a single attempt
+/// can meet it and report a queue as watched that nobody watches.
+///
+/// The file names this process as `pid <pid> on <host>, running asqr
+/// compact`, so a TUI that is refused says who holds the queue.
 pub fn try_lock_queue_for(
     location: &QueueLocation,
     attempts: u32,
@@ -239,12 +241,19 @@ fn try_lock_queue_waiting(
     wait: &mut dyn FnMut(),
 ) -> io::Result<Option<QueueLock>> {
     let path = location.lock_file();
-    Ok(
-        match take_waiting(&path, || open_lock_file(location), attempts, wait)? {
-            Taken::Locked(file) => Some(QueueLock { _file: file }),
-            Taken::Held(_) => None,
-        },
-    )
+    let mut file = match take_waiting(&path, || open_lock_file(location), attempts, wait)? {
+        Taken::Locked(file) => file,
+        Taken::Held(_) => return Ok(None),
+    };
+    file.set_len(0)?;
+    file.rewind()?;
+    writeln!(
+        file,
+        "pid {} on {}, running asqr compact",
+        std::process::id(),
+        gethostname::gethostname().to_string_lossy()
+    )?;
+    Ok(Some(QueueLock { _file: file }))
 }
 
 /// Who holds the queue lock, if anyone, without taking it. Commands that
@@ -412,6 +421,31 @@ mod tests {
 
         assert!(matches!(locked, Ok(Some(_))), "{locked:?}");
         assert_eq!(waited, 1, "the first attempt met the probe");
+    }
+
+    #[test]
+    fn a_compaction_names_itself_as_the_holder() {
+        let (_scratch, location) = queue();
+        location.create_layout().expect("layout");
+
+        let held = try_lock_queue_for(&location, 1)
+            .expect("locks")
+            .expect("free");
+
+        let holder = lock_holder(&location).expect("readable").expect("held");
+        assert_eq!(
+            holder.text,
+            format!(
+                "pid {} on {}, running asqr compact",
+                std::process::id(),
+                gethostname::gethostname().to_string_lossy()
+            )
+        );
+        match lock_queue(&location, None) {
+            Err(LockError::Held(refused)) => assert_eq!(refused, holder),
+            other => panic!("refused with the holder, not {other:?}"),
+        }
+        drop(held);
     }
 
     #[test]
