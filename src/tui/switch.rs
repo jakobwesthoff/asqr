@@ -14,7 +14,9 @@ use super::{App, Host, Inbox, InboxWatcher, Notice, Place, QueueChoice, QueueRow
 use super::{Tone, start, watch_inbox};
 use crate::cli::shell_word;
 use crate::pairing::{self, Tmux, TmuxFailure, TmuxPane};
-use crate::queue::{LockError, QueueLocation, QueueLock, list_queues, lock_queue, summarize};
+use crate::queue::{
+    LockError, QueueLocation, QueueLock, compact_quietly, list_queues, lock_queue, summarize,
+};
 use crate::settings::SettingsStore;
 
 /// The queues for the switcher, looked at now: the named queues under
@@ -118,6 +120,9 @@ pub fn prepare_switch(
     target
         .create_layout()
         .map_err(|error| Refusal::Failed(error.to_string()))?;
+    // The asqr that shows a queue bundles its old entries (spec section
+    // 5.9); a failure is logged and never stops the switch.
+    compact_quietly(target, &lock);
     let watcher =
         watch_inbox(target, changed).map_err(|error| Refusal::Failed(watch_failure(error)))?;
     Ok(Held {
@@ -591,6 +596,45 @@ mod tests {
                 ""
             )
         );
+    }
+
+    /// An archived session of 2020 in `target`, which is long due.
+    fn old_loose_session(target: &QueueLocation) -> std::path::PathBuf {
+        target.create_layout().expect("layout");
+        let name = crate::queue::archive_name(
+            "old",
+            ulid::Ulid::from_parts(1_600_000_000_000, 1),
+            crate::queue::Archived::Session,
+        );
+        let path = target.archive().join(name);
+        std::fs::write(&path, "{}").expect("written");
+        path
+    }
+
+    #[test]
+    fn a_switch_compacts_the_queue_it_takes() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = QueueLocation::named(scratch.path(), "old-work");
+        let old = old_loose_session(&target);
+
+        let held = prepare_switch(&target, None, || {}).expect("prepared");
+
+        assert!(!old.exists(), "bundled");
+        assert_eq!(crate::queue::list_months(&target).expect("listed").len(), 1);
+        drop(held);
+    }
+
+    #[test]
+    fn a_picked_queue_is_compacted() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = QueueLocation::named(scratch.path(), "old-work");
+        let old = old_loose_session(&target);
+
+        let taken =
+            take_picked(&target, &SettingsStore::default(), || {}).map_err(|notice| notice.text);
+
+        assert!(taken.is_ok());
+        assert!(!old.exists(), "bundled");
     }
 
     #[test]

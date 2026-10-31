@@ -83,10 +83,19 @@ enum Taken {
 /// the path and locks that one too. So a lock taken is kept only on the
 /// file the path still names; otherwise the path is opened again with
 /// `open` and tried at once.
-fn take(
+fn take(path: &Path, open: impl FnMut() -> io::Result<File>, attempts: u32) -> io::Result<Taken> {
+    take_waiting(path, open, attempts, &mut || {
+        std::thread::sleep(LOCK_RETRY);
+    })
+}
+
+/// [`take`] that calls `wait` between two attempts, in place of sleeping:
+/// tests release a held lock there.
+fn take_waiting(
     path: &Path,
     mut open: impl FnMut() -> io::Result<File>,
     attempts: u32,
+    wait: &mut dyn FnMut(),
 ) -> io::Result<Taken> {
     let mut file = open()?;
     let mut tried = 0;
@@ -102,7 +111,7 @@ fn take(
         if tried >= attempts {
             return Ok(Taken::Held(file));
         }
-        std::thread::sleep(LOCK_RETRY);
+        wait();
     }
 }
 
@@ -161,7 +170,7 @@ pub(crate) fn acquired(attempt: Result<(), TryLockError>) -> io::Result<bool> {
 
 /// How often, and how far apart, a held lock is tried before the queue
 /// counts as watched: 200 ms in all.
-const LOCK_ATTEMPTS: u32 = 10;
+pub const LOCK_ATTEMPTS: u32 = 10;
 const LOCK_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
 
 /// Takes the queue lock for this process, which runs in the tmux pane
@@ -207,6 +216,35 @@ pub fn try_lock_queue(location: &QueueLocation) -> io::Result<Option<QueueLock>>
         Taken::Locked(file) => Some(QueueLock { _file: file }),
         Taken::Held(_) => None,
     })
+}
+
+/// [`try_lock_queue`] that tries `attempts` times, 20 ms apart;
+/// [`LOCK_ATTEMPTS`] is the number a start uses.
+/// `lock_holder` takes a shared lock for a moment, as every TUI and
+/// command that looks at a queue does, so a single attempt can meet it
+/// and report a queue as watched that nobody watches. Like
+/// [`try_lock_queue`], it does not write this process into the file.
+pub fn try_lock_queue_for(
+    location: &QueueLocation,
+    attempts: u32,
+) -> io::Result<Option<QueueLock>> {
+    try_lock_queue_waiting(location, attempts, &mut || {
+        std::thread::sleep(LOCK_RETRY);
+    })
+}
+
+fn try_lock_queue_waiting(
+    location: &QueueLocation,
+    attempts: u32,
+    wait: &mut dyn FnMut(),
+) -> io::Result<Option<QueueLock>> {
+    let path = location.lock_file();
+    Ok(
+        match take_waiting(&path, || open_lock_file(location), attempts, wait)? {
+            Taken::Locked(file) => Some(QueueLock { _file: file }),
+            Taken::Held(_) => None,
+        },
+    )
 }
 
 /// Who holds the queue lock, if anyone, without taking it. Commands that
@@ -353,6 +391,35 @@ mod tests {
         release.join().expect("joined");
 
         assert!(locked.is_ok(), "{locked:?}");
+    }
+
+    #[test]
+    fn a_holder_check_at_the_same_moment_does_not_make_a_try_give_up() {
+        let (_scratch, location) = queue();
+        location.create_layout().expect("layout");
+        std::fs::write(location.lock_file(), "").expect("lock file");
+        // What `lock_holder` does: a shared lock, held until the try has
+        // waited once.
+        let probe = std::fs::File::open(location.lock_file()).expect("opens");
+        probe.try_lock_shared().expect("shared lock");
+        let mut probe = Some(probe);
+        let mut waited = 0;
+
+        let locked = try_lock_queue_waiting(&location, LOCK_ATTEMPTS, &mut || {
+            waited += 1;
+            probe.take();
+        });
+
+        assert!(matches!(locked, Ok(Some(_))), "{locked:?}");
+        assert_eq!(waited, 1, "the first attempt met the probe");
+    }
+
+    #[test]
+    fn a_try_gives_up_while_the_queue_stays_held() {
+        let (_scratch, location) = queue();
+        let _held = lock_queue(&location, None).expect("first instance locks");
+
+        assert!(matches!(try_lock_queue_for(&location, 2), Ok(None)));
     }
 
     #[test]

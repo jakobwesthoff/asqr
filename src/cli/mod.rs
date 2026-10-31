@@ -7,6 +7,7 @@
 //! are reachable from tests.
 
 mod ask;
+mod compact;
 mod exit;
 mod format;
 mod hint;
@@ -194,6 +195,14 @@ enum Command {
         /// Print the queues as JSON.
         #[arg(long)]
         json: bool,
+    },
+
+    /// Bundle sessions and results older than 30 days into month bundles.
+    Compact {
+        /// Compact every named queue instead of the chosen one, skipping
+        /// those another asqr watches.
+        #[arg(long)]
+        all: bool,
     },
 
     /// Remove archived sessions, and with --results old results too.
@@ -481,6 +490,7 @@ fn dispatch(
             },
         ),
         Command::Queues { json } => queues::run(root.as_deref(), tmux, json),
+        Command::Compact { all } => compact::run(&location, root.as_deref(), all),
         Command::Prune {
             older_than,
             results,
@@ -1392,6 +1402,30 @@ mod tests {
     }
 
     #[test]
+    fn the_watching_asqr_compacts_its_queue_before_the_terminal_ui_runs() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let location = QueueLocation::at(scratch.path());
+        location.create_layout().expect("layout");
+        let old = location.archive().join(crate::queue::archive_name(
+            "old",
+            ulid::Ulid::from_parts(1_600_000_000_000, 1),
+            crate::queue::Archived::Session,
+        ));
+        std::fs::write(&old, "{}").expect("written");
+        let dir = scratch.path().to_str().expect("UTF-8 temp path");
+        let cli = Cli::try_parse_from(["asqr", "--dir", dir]).expect("parses");
+
+        let mut bundled_at_start = false;
+        let exit = dispatch(cli, Environment::default(), &Unasked, None, None, |_| {
+            bundled_at_start = !old.exists();
+            Exit::Success
+        });
+
+        assert_eq!(exit, Exit::Success);
+        assert!(bundled_at_start, "the old entry was bundled at the start");
+    }
+
+    #[test]
     fn prune_without_a_data_directory_prunes_the_queue_directory_alone() {
         let scratch = tempfile::tempdir().expect("temp dir");
         let dir = scratch.path().to_str().expect("UTF-8 temp path");
@@ -1403,6 +1437,19 @@ mod tests {
         });
 
         assert_eq!(exit, Exit::Success);
+    }
+
+    #[test]
+    fn compact_all_without_a_data_directory_is_a_failure() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let dir = scratch.path().to_str().expect("UTF-8 temp path");
+        let cli = Cli::try_parse_from(["asqr", "--dir", dir, "compact", "--all"]).expect("parses");
+
+        let exit = dispatch(cli, Environment::default(), &Unasked, None, None, |_| {
+            unreachable!("no TUI for compact")
+        });
+
+        assert_eq!(exit, Exit::Failure);
     }
 
     #[test]

@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pane shows a setting they hold as locked. A file asqr cannot read costs
   only the settings it holds, with a warning in the log and the status
   line. `asqr paths` names the file.
+- Finished sessions and results older than 30 days are compressed into
+  one zip per queue and month, `archive/2026-10.zip`, by the asqr that
+  starts watching or switches to a queue. Nothing is deleted but the
+  loose file of an entry that is inside its bundle. `asqr compact`
+  does the same by hand for the chosen queue, and `asqr compact --all`
+  for every named queue that no asqr watches.
 
 ### Changed
 
@@ -53,6 +59,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first 50,000 lines only. The lines after them show plain, with a dim
   "no highlighting after line 50,000" where highlighting stops. Highlighting
   500,000 short lines took 4.9 s, and 50,000 take 0.5 s.
+- `asqr result`, `wait`, `status`, `withdraw` and `queues` also read the
+  month bundles of the archive, `archive/<YYYY-MM>.zip`. A result that
+  left the outbox is printed from its bundle as it was written, and
+  `status` lists bundled results among the answered sessions. The header
+  of a session that `follows` another shows the title of a bundled
+  session too.
+- A result older than 30 days leaves the outbox, so it no longer stops a
+  new `ask` of its id. `asqr result <id>` still prints it from the
+  archive until the new session is answered.
+
 - `asqr result`, `wait`, `status`, `withdraw` and `queues` also read the
   month bundles of the archive, `archive/<YYYY-MM>.zip`. A result that
   left the outbox is printed from its bundle as it was written, and

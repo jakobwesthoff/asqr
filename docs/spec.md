@@ -585,6 +585,8 @@ Every entry records the time it was bundled in an extra field with the
 id `0xA5C1`: four bytes of Unix seconds in UTC, little endian. An entry
 without the field is never hidden by a later session (section 6.4).
 
+Section 5.9 describes who writes the bundles and when.
+
 Readers list the loose files (the outbox, then `archive/`) before they
 open a bundle, so an entry that moves into a bundle at that moment is
 found twice at worst and never missed.
@@ -998,6 +1000,50 @@ know, and its error result says that a newer asqr may support it.
 Nothing is deleted automatically, apart from drafts in step 3 of section
 5.7. Drafts of sessions that left the inbox stay (section 5.4).
 
+**Compaction.** Finished sessions and results older than 30 days are
+compressed into the month bundles of section 5.1. Nothing is deleted
+for it but the loose file of an entry that is inside its bundle. What is
+due:
+
+- Loose archive entries (`archive/<id>.<ulid>.json`, `.result.json` and
+  `invalid.<ulid>.json`) whose ULID is more than 30 days old. They go
+  into the bundle of the month of their ULID, as `sessions/` or
+  `replaced/` entries.
+- Results in the outbox that were finished more than 30 days ago, by
+  `submitted_at`, else the modification time of the file. They move into
+  the bundle of the month they were finished in, as `results/` entries.
+  A result stays in the outbox while a session of its id waits in the
+  inbox, as recovery (section 5.7) decides what happens to that pair.
+  Once a result has left the outbox, it no longer stops a new `ask` of
+  its id (section 5.5); `asqr result <id>` still prints it until the new
+  session is answered.
+
+An entry that comes due after its month's bundle exists joins that
+bundle, so a month never has two. A bundle is never changed in place:
+asqr writes a new file beside it from the entries it holds, copying the
+ones it has compressed already, writes it to disk, and then renames it
+over the old one. The loose file goes after the rename. The bundle is
+built without any lock. The drafts lock (section 5.6) covers the check
+that no bundle or loose file changed in the meantime, the rename and the
+removal, and a month where the check fails, a bundle that cannot be read
+or a lock that stays taken is left for the next run and named in the
+output. An entry already in the bundle under the same name with other
+content keeps its loose file. Temp files that a writer left in
+`archive/` and that were last written more than 24 hours ago are removed.
+
+The asqr that starts watching a queue runs the compaction for it, at the
+start and after a switch to the queue, with the queue lock it holds.
+`asqr compact` runs it for the chosen queue; `asqr compact --all` runs it
+for every named queue under the root (section 5.2), whatever `--queue` or
+`--dir` say. It takes the queue lock, trying as long as a start
+does (section 5.6), and skips a queue another asqr watches: for the
+chosen queue it says so on stderr and exits with 1, under `--all` it
+names the queue and goes on. A queue that has no directory is not
+created and counts as nothing to compact. Each bundle that took in
+entries prints as `<month>.zip: <n> sessions, <n> results, <n> replaced
+results`; without any, `nothing to compact` is printed. A skipped month
+makes the exit code 1.
+
 - `asqr prune --older-than <duration>` removes archive entries older than
   the duration, going by the ULID in their name. A duration is a whole
   number with one unit, `s`, `m`, `h`, `d` or `w`, such as `30d`. Names
@@ -1095,6 +1141,7 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr queues [--json]` | every named queue, the sessions waiting in it and its results, and the asqr watching it (section 6.5) |
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
+| `asqr compact [--all]` | bundles sessions and results older than 30 days into month bundles (section 5.9) |
 | `asqr prune --older-than <duration> [--results]` | section 5.9 |
 | `asqr skill [<part> \| --install <dir>]` | prints the skill's core or one of its parts, or writes the skill to `<dir>/asqr/` (section 9) |
 
@@ -1394,8 +1441,8 @@ before the id.
 
 `asqr` (or `asqr watch`) starts on the queue chosen by section 5.2. It
 needs a terminal on stdin and stdout; otherwise it prints "asqr needs a
-terminal" and exits with 1. It takes the queue lock (section 5.6) and
-creates the queue's directories.
+terminal" and exits with 1. It takes the queue lock (section 5.6),
+creates the queue's directories and compacts the queue (section 5.9).
 
 Outside tmux, with no queue chosen by a flag or a variable, and with a
 queue besides `default` under the data directory that no other asqr

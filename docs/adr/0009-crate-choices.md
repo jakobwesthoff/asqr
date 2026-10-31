@@ -14,6 +14,8 @@ Amended by [83. Set which events reach the log through ASQR_LOG](0083-set-which-
 
 Amended by [91. Rotate the log at 1 MiB and keep old logs compressed](0091-rotate-the-log-at-1-mib-and-keep-old-logs-compressed.md)
 
+Amended by [96. Bundle finished sessions and results per month in a zip](0096-bundle-finished-sessions-and-results-per-month-in-a-zip.md)
+
 ## Context
 
 The tool uses clap, anyhow and thiserror, and other crates where they

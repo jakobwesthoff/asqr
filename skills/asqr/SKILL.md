@@ -339,8 +339,8 @@ or restart it, and ask again once they have.
   session with `"follows": "<previous id>"`. The person sees the title
   of the session it continues.
 - **Keep a record** of the answers you act on in your own notes or
-  files. Results stay in the queue's outbox until the person prunes
-  them.
+  files. Results leave the outbox after 30 days; `asqr result` still
+  finds them.
 - **Queues.** Pass no `--queue` unless the person or your instructions
   name one, and never switch on your own to a queue another asqr
   watches.

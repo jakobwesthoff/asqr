@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 
 use super::{Exit, WatchArgs};
 use crate::pairing::{self, Multiplexer, Tmux, TmuxPane};
-use crate::queue::{Holder, LockError, Origin, QueueLocation, QueueLock, lock_queue};
+use crate::queue::{
+    Holder, LockError, Origin, QueueLocation, QueueLock, compact_quietly, lock_queue,
+};
 use crate::settings::{Loaded, SettingsStore};
 use crate::tui::render::{PaneLayout, ReadingWidth};
 use crate::tui::{Alerts, QueueChoice, queue_choice};
@@ -195,6 +197,9 @@ pub(super) fn run(
         );
         return Exit::Failure;
     }
+    // The asqr that shows a queue bundles its old entries (spec section
+    // 5.9); a failure is logged and never stops the start.
+    compact_quietly(&location, &lock);
     // Only a named queue is pinned, and not after tmux failed to answer,
     // when setting the pin would only wait on it again.
     let pin = match (pane, location.name(), pairing.origin) {
