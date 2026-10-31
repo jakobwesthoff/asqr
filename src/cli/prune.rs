@@ -8,7 +8,8 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use super::Exit;
-use crate::queue::{QueueLocation, prune, prune_empty_queues};
+use super::replay::find_entry;
+use crate::queue::{QueueLocation, Removal, prune, prune_empty_queues, prune_session};
 
 /// The shortest age `prune` takes: 30 days, the age after which the
 /// compaction bundles sessions and results.
@@ -109,6 +110,45 @@ pub(super) fn run(
             Exit::Failure
         }
     }
+}
+
+/// Prunes the one finished session `reference` names, with the kept files
+/// only it used. Without `yes` it only says what it would remove.
+pub(super) fn run_session(
+    location: &QueueLocation,
+    root: Option<&Path>,
+    reference: &str,
+    yes: bool,
+) -> Exit {
+    let entry = match find_entry(location, root, reference) {
+        Ok(entry) => entry,
+        Err(exit) => return exit,
+    };
+    let removals = match prune_session(&entry, yes) {
+        Ok(removals) => removals,
+        Err(error) => {
+            eprintln!("error: cannot prune the session: {error}");
+            return Exit::Failure;
+        }
+    };
+    let shown = |removal: &Removal| match removal {
+        Removal::File(path) => path.display().to_string(),
+        Removal::BundleEntry { bundle, name } => format!("{}: {name}", bundle.display()),
+    };
+    if yes {
+        for removal in &removals {
+            tracing::info!(removed = %shown(removal), "pruned");
+            println!("removed {}", shown(removal));
+        }
+    } else if removals.is_empty() {
+        println!("nothing to remove");
+    } else {
+        for removal in &removals {
+            println!("would remove {}", shown(removal));
+        }
+        println!("nothing was removed; run again with --yes to remove these");
+    }
+    Exit::Success
 }
 
 #[cfg(test)]

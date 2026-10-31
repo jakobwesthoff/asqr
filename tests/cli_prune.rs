@@ -376,3 +376,191 @@ fn a_dry_run_lists_the_queue_that_the_removal_would_leave_empty() {
         "{would:?}"
     );
 }
+
+// =========================================================
+// One session
+// =========================================================
+
+fn reference_of(ulid: Ulid) -> String {
+    let text = ulid.to_string();
+    text[text.len() - 8..].to_owned()
+}
+
+/// A ULID `days` ago whose reference differs from every other day's.
+fn distinct(days: u64) -> Ulid {
+    let millis = ago(days)
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_millis() as u64;
+    Ulid::from_parts(millis, 0x1000_0000_0000 + u128::from(days) * 7919)
+}
+
+/// A session archived loose `days` ago; its path and reference.
+fn loose_distinct(location: &QueueLocation, id: &str, days: u64) -> (PathBuf, String) {
+    let ulid = distinct(days);
+    let path = location
+        .archive()
+        .join(archive_name(id, ulid, Archived::Session));
+    std::fs::write(&path, "{}").expect("written");
+    (path, reference_of(ulid))
+}
+
+/// A bundle holding one session finished `days` ago; its path and the
+/// session's reference.
+fn bundle_distinct(location: &QueueLocation, days: u64) -> (PathBuf, String) {
+    let ulid = distinct(days);
+    let name = EntryName {
+        kind: EntryKind::Session,
+        id: "a".to_owned(),
+        ulid,
+    };
+    add_entries(
+        location,
+        Month::of(ulid),
+        &[NewEntry::named(name, b"{}".to_vec())],
+        SystemTime::now(),
+    )
+    .expect("bundled");
+    (bundle_path(location, Month::of(ulid)), reference_of(ulid))
+}
+fn prune_session(sandbox: &Sandbox, args: &[&str]) -> std::process::Output {
+    sandbox
+        .asqr_in_queue(&["prune"])
+        .args(args)
+        .output()
+        .expect("runs")
+}
+
+#[test]
+fn prune_session_lists_what_it_would_remove_and_removes_nothing_without_yes() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    let (path, reference) = loose_distinct(&location, "old", 3);
+
+    let output = prune_session(&sandbox, &["--session", &reference]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "would remove {}\nnothing was removed; run again with --yes to remove these\n",
+            path.display()
+        )
+    );
+    assert!(path.exists());
+}
+
+#[test]
+fn prune_session_with_yes_removes_the_session_and_leaves_the_rest() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    let (doomed, reference) = loose_distinct(&location, "old", 3);
+    let (other, _) = loose_distinct(&location, "other", 5);
+
+    let output = prune_session(&sandbox, &["--session", &reference.to_lowercase(), "--yes"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(stdout(&output), format!("removed {}\n", doomed.display()));
+    assert!(!doomed.exists() && other.exists());
+}
+
+#[test]
+fn prune_session_rewrites_the_bundle_of_a_bundled_session() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    let (path, reference) = bundle_distinct(&location, 60);
+
+    let output = prune_session(&sandbox, &["--session", &reference, "--yes"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        stdout(&output).starts_with("removed "),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        stdout(&output).contains("2026") || stdout(&output).contains(".zip"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(!path.exists(), "the bundle held only that session");
+}
+
+#[test]
+fn prune_session_with_a_reference_that_ends_nothing_says_so() {
+    let sandbox = Sandbox::new();
+    queue(&sandbox);
+
+    let output = prune_session(&sandbox, &["--session", "ZZZZZZ", "--yes"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("no finished session ends in \"ZZZZZZ\""),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn prune_session_with_a_reference_that_ends_two_removes_nothing() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    // Two sessions in one queue with the same last 30 bits.
+    let first = Ulid::from_parts(1_788_000_000_000, 0x01_2345_6789);
+    let second = Ulid::from_parts(1_788_000_100_000, 0x02_2345_6789);
+    let paths: Vec<_> = [first, second]
+        .iter()
+        .map(|ulid| {
+            let path = location
+                .archive()
+                .join(archive_name("x", *ulid, Archived::Session));
+            std::fs::write(&path, "{}").expect("written");
+            path
+        })
+        .collect();
+    let shared = reference_of(first)[2..].to_owned();
+
+    let output = prune_session(&sandbox, &["--session", &shared, "--yes"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("ends 2 finished sessions"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(paths.iter().all(|path| path.exists()));
+}
+
+#[test]
+fn prune_takes_an_age_or_a_session_and_not_both_or_neither() {
+    let sandbox = Sandbox::new();
+
+    let both = prune_session(&sandbox, &["--session", "ABCDEF", "--older-than", "90d"]);
+    let neither = prune_session(&sandbox, &[]);
+
+    assert_eq!(both.status.code(), Some(2));
+    assert_eq!(neither.status.code(), Some(2));
+    assert!(
+        stderr(&neither).contains("--older-than"),
+        "{}",
+        stderr(&neither)
+    );
+}
+
+#[test]
+fn prune_session_in_a_busy_queue_is_an_error_and_removes_nothing() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    let (path, reference) = loose_distinct(&location, "old", 3);
+    let _held = asqr::queue::lock_drafts(&location, 1).expect("locks");
+
+    let output = prune_session(&sandbox, &["--session", &reference, "--yes"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).starts_with("error: cannot prune the session: "),
+        "{}",
+        stderr(&output)
+    );
+    assert!(path.exists());
+}

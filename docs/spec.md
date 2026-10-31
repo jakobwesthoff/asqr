@@ -1169,8 +1169,8 @@ entries prints as `<month>.zip: <n> sessions, <n> results, <n> replaced
 results`; without any, `nothing to compact` is printed. A skipped month
 makes the exit code 1.
 
-- `asqr prune --older-than <age>` is the only way asqr deletes sessions
-  and results. An age is a whole number with one unit, `d` (days), `w`
+- `asqr prune --older-than <age>` and `asqr prune --session <ref>` (below)
+  are the only ways asqr deletes sessions and results. An age is a whole number with one unit, `d` (days), `w`
   (weeks), `mo` (months of 30 days) or `y` (years of 365 days), such as
   `90d`, and at least 30 days. The units `s`, `m` and `h` are refused as
   a usage error that names `d`, `w`, `mo` and `y`, and so is an age
@@ -1181,6 +1181,16 @@ makes the exit code 1.
   characters and ids may contain `.`; what goes does not depend on
   whether the compaction has run. Results in the outbox are never
   deleted, and files in `archive/` that are no entries or bundles stay.
+  The kept files (section 5.1) go with the loose sessions that showed
+  them: each `archive/files/<sha256>.<ext>` that a removed loose session
+  showed and no loose session that stays shows is deleted, and so is each
+  one whose own modification time lies before the cutoff and that no
+  loose session shows, which a session removed earlier left behind. A
+  bundle holds its own copy of every file its sessions show, so a bundled
+  session is no reason to keep a loose copy. Only files named as kept
+  files count: the temp files of a copy being written and anything else
+  in `archive/files/` stay. `archive/files/` is removed with its last
+  file. The kept files print like the entries do.
 - Without `--yes`, `prune` deletes nothing: it prints `would remove
   <path>` for each file and queue it would delete, then `nothing was
   removed; run again with --yes to remove these`, or `nothing to remove`.
@@ -1188,6 +1198,20 @@ makes the exit code 1.
   <path>`. Deleting takes the drafts lock (section 5.6), which the
   compaction holds while it renames a bundle, so a deleted bundle does
   not come back.
+- `asqr prune --session <ref> [--yes]` removes one finished session, named
+  by the REF `asqr history` prints (section 6.5) and searched as
+  `asqr replay` searches it, which cannot be combined with `--older-than`.
+  Session ids repeat and a delete must hit exactly one entry, so the
+  reference names the entry, never the id. A session can lie in two
+  places, as a loose file and as an entry of the bundle of its month; both
+  go. Kept files go that no other session of the same place shows: loose
+  copies that no other loose session shows, and the `files/` entries of
+  the bundle that no other session of that bundle shows. The bundle is
+  written anew without them under the drafts lock, and removed when
+  nothing is left in it. The result of the session stays. It prints and
+  asks as `--older-than` does, a bundle entry as `<bundle>: <name>`. A
+  bundle that cannot be read is an error, exit code 1, and nothing is
+  removed. Named queues that hold nothing are not removed.
 - `--results` is a usage error that names the new form: asqr moves
   results older than 30 days into the archive, and `prune --older-than`
   deletes them there with their month.
@@ -1285,7 +1309,8 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
 | `asqr compact [--all]` | bundles sessions and results older than 30 days into month bundles (section 5.9) |
-| `asqr prune --older-than <age> [--yes]` | lists, and with `--yes` deletes, archive entries and bundles of months older than the age (section 5.9) |
+| `asqr prune --older-than <age> [--yes]` | lists, and with `--yes` deletes, archive entries and bundles of months older than the age, with the kept files only they showed (section 5.9) |
+| `asqr prune --session <ref> [--yes]` | lists, and with `--yes` deletes, one finished session by its REF, with the kept files only it showed (section 5.9) |
 | `asqr skill [<part> \| --install <dir>]` | prints the skill's core or one of its parts, or writes the skill to `<dir>/asqr/` (section 9) |
 
 ### 6.2 Flags and environment

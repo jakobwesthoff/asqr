@@ -15,6 +15,8 @@ the removal of named queues that hold nothing is a dry run unless `--yes`
 
 Amended by [100. Keep the files a finished session showed](0100-keep-the-files-a-finished-session-showed.md)
 
+Amended by [101. Replay finished sessions through asqr history and asqr replay](0101-replay-finished-sessions-through-history-and-replay.md)
+
 ## Context
 
 - `asqr prune --older-than <age>` took the units `s`, `m`, `h`, `d` and

@@ -12,8 +12,8 @@ pane on `,` (ADR 92, spec 5.2 and 7.6). The three settings it has today,
 how a diff opens, the widest a question gets and where context goes,
 have defaults a person can judge only after a session, so asqr does not
 ask for them. What remains is a first-start screen for the settings that
-need a deliberate answer before they take effect: keeping files (todo
-01M67A73S1SRPTR8YRZPPC4FSH) and the update check (todo
+need a deliberate answer before they take effect: keeping files (the
+`keep_files` setting, ADR 100) and the update check (todo
 01M5J41K58B5CF23DN61PWM6MC).
 
 ## Decisions (Jakob, 2026-10-30, in the chat)
@@ -23,7 +23,7 @@ need a deliberate answer before they take effect: keeping files (todo
   and does not ask again. Rejected: start with defaults and only name
   the file.
 - **It comes with the first setting that needs a deliberate answer,**
-  keeping files (todo 01M67A73S1SRPTR8YRZPPC4FSH), and the update check
+  keeping files (the `keep_files` setting, ADR 100), and the update check
   joins it later. Rejected: a first start that asks the taste settings,
   which nobody can judge before a session.
 - **Look: the design "Sibling"** from the design study of 2026-10-30
@@ -43,8 +43,8 @@ need a deliberate answer before they take effect: keeping files (todo
 
 ## What the settings need
 
-- Keeping files: `compact`, `exact` or `off`, default `compact`
-  (todo 01M67A73S1SRPTR8YRZPPC4FSH). `ASQR_KEEP_FILES` overrides it, and
+- Keeping files: `compact`, `exact` or `off`, default `compact` (the
+  `keep_files` setting, ADR 100). `ASQR_KEEP_FILES` overrides it, and
   the pane shows such a setting locked, as it does `ASQR_LAYOUT`.
 - The update check (todo 01M5J41K58B5CF23DN61PWM6MC): asked on first
   start with "no" preselected, and kept as a setting.

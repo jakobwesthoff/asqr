@@ -6,6 +6,9 @@ Date: 2026-10-31
 
 Accepted
 
+Amends [97. Delete only through prune --older-than with long units, after a dry run](0097-delete-only-through-prune-older-than-with-long-units-after-a-dry-run.md):
+`asqr prune --session <ref>` deletes one session, after the same dry run
+
 ## Context
 
 - Archived sessions record the files they showed and keep copies of them
@@ -56,6 +59,23 @@ verb says. A bare `asqr history` is the list.
   from it. The terminal title is `asqr replay <REF>`.
 - Loading happens before the terminal is taken, so an error that ends the
   replay prints on the normal screen with exit code 1.
+
+### Pruning one session
+
+- `asqr prune --session <ref>` takes the same reference as `replay`, not a
+  session id: ids repeat and one delete must hit exactly one entry. It
+  lists what it would remove and removes only with `--yes`, as
+  `--older-than` does.
+- A session lying both loose and in the bundle of its month is removed
+  from both. The bundle is written anew without the session and without
+  the kept files only it showed, in one hold of the drafts lock, and
+  removed when nothing remains in it. A bundle that cannot be read is an
+  error and nothing is removed. The result of the session stays.
+- `prune --older-than` removes the loose kept files of the loose sessions
+  it removes that no loose session that stays shows, and loose kept files
+  no loose session shows whose own modification time is before the cutoff;
+  a dry run lists them. A loose copy is needed by loose sessions only,
+  since a bundle holds a copy of every file its sessions show.
 
 ### The reference
 

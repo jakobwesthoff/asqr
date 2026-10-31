@@ -1231,3 +1231,143 @@ fn probe_of_a_month_without_a_bundle_finds_nothing() {
 
     assert_eq!(probed, [Probed::Absent]);
 }
+
+// =========================================================
+// Rewriting a bundle without entries
+// =========================================================
+
+fn names_in(location: &QueueLocation, month: Month) -> Vec<String> {
+    let mut names: Vec<String> = list_entries(location, month)
+        .expect("listed")
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    names.sort();
+    names
+}
+
+fn three_entries(location: &QueueLocation) -> (EntryName, EntryName) {
+    let first = entry(EntryKind::Session, "a", "2026-10-02T10:00:00Z", "first");
+    let second = entry(EntryKind::Session, "b", "2026-10-03T10:00:00Z", "second");
+    let result = entry(EntryKind::Result, "a", "2026-10-02T10:00:01Z", "answer");
+    let (one, two) = (named(&first), named(&second));
+    add_entries(
+        location,
+        OCTOBER,
+        &[first, second, result],
+        at("2026-10-05T00:00:00Z"),
+    )
+    .expect("bundled");
+    (one, two)
+}
+
+#[test]
+fn a_rewrite_drops_the_named_entries_and_keeps_the_others_as_they_were() {
+    let (_scratch, location) = queue();
+    let (one, two) = three_entries(&location);
+    let before = list_entries(&location, OCTOBER).expect("listed");
+
+    let prepared = prepare_rewrite(&location, OCTOBER, &[one.zip_name()]).expect("prepared");
+    assert!(prepared.still_current().expect("stamped"));
+    prepared.commit().expect("committed");
+
+    let after = list_entries(&location, OCTOBER).expect("listed");
+    assert_eq!(after.len(), 2);
+    assert!(after.iter().all(|entry| entry.name != one.zip_name()));
+    for kept in &after {
+        let was = before
+            .iter()
+            .find(|entry| entry.name == kept.name)
+            .expect("was there");
+        assert_eq!(
+            (kept.size, kept.crc32, kept.bundled_at),
+            (was.size, was.crc32, was.bundled_at)
+        );
+    }
+    assert_eq!(
+        read_entry(&location, OCTOBER, &two.zip_name()).expect("readable"),
+        b"second"
+    );
+    assert!(temp_files(&location).is_empty());
+}
+
+#[test]
+fn a_rewrite_that_drops_the_last_entry_removes_the_bundle() {
+    let (_scratch, location) = queue();
+    let only = entry(EntryKind::Session, "a", "2026-10-02T10:00:00Z", "only");
+    let name = named(&only);
+    add_entries(&location, OCTOBER, &[only], at("2026-10-05T00:00:00Z")).expect("bundled");
+
+    prepare_rewrite(&location, OCTOBER, &[name.zip_name()])
+        .expect("prepared")
+        .commit()
+        .expect("committed");
+
+    assert!(!bundle_path(&location, OCTOBER).exists());
+}
+
+#[test]
+fn a_rewrite_ignores_names_the_bundle_does_not_hold() {
+    let (_scratch, location) = queue();
+    three_entries(&location);
+    let before = names_in(&location, OCTOBER);
+
+    prepare_rewrite(
+        &location,
+        OCTOBER,
+        &["sessions/nobody.01K000000000000000000000000.json".to_owned()],
+    )
+    .expect("prepared")
+    .commit()
+    .expect("committed");
+
+    assert_eq!(names_in(&location, OCTOBER), before);
+}
+
+#[test]
+fn a_rewrite_of_a_month_without_a_bundle_makes_none() {
+    let (_scratch, location) = queue();
+
+    prepare_rewrite(&location, OCTOBER, &["sessions/a.x.json".to_owned()])
+        .expect("prepared")
+        .commit()
+        .expect("committed");
+
+    assert!(!bundle_path(&location, OCTOBER).exists());
+}
+
+#[test]
+fn a_bundle_that_changed_after_the_rewrite_was_built_is_noticed() {
+    let (_scratch, location) = queue();
+    let (one, _) = three_entries(&location);
+    let prepared = prepare_rewrite(&location, OCTOBER, &[one.zip_name()]).expect("prepared");
+
+    // Another process adds to the bundle meanwhile.
+    add_entries(
+        &location,
+        OCTOBER,
+        &[entry(
+            EntryKind::Session,
+            "c",
+            "2026-10-04T10:00:00Z",
+            "third",
+        )],
+        at("2026-10-06T00:00:00Z"),
+    )
+    .expect("bundled");
+
+    assert!(!prepared.still_current().expect("stamped"));
+}
+
+#[test]
+fn a_rewrite_of_a_bundle_that_cannot_be_read_is_an_error_and_leaves_it() {
+    let (_scratch, location) = queue();
+    std::fs::write(bundle_path(&location, OCTOBER), "no zip").expect("written");
+
+    let error = prepare_rewrite(&location, OCTOBER, &["sessions/a.x.json".to_owned()])
+        .err()
+        .expect("refused");
+
+    assert!(error.to_string().contains("2026-10.zip"), "{error}");
+    assert_eq!(bundle_bytes(&location, OCTOBER), b"no zip");
+}

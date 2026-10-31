@@ -250,8 +250,19 @@ enum Command {
         /// Remove what lies in months older than this age, such as 90d, 5w
         /// or 6mo: days, weeks (w), months of 30 days (mo) or years of 365
         /// days (y), at least 30d.
-        #[arg(long, value_name = "AGE", value_parser = prune::parse_prune_age)]
-        older_than: Duration,
+        #[arg(
+            long,
+            value_name = "AGE",
+            value_parser = prune::parse_prune_age,
+            required_unless_present = "session",
+            conflicts_with = "session"
+        )]
+        older_than: Option<Duration>,
+
+        /// Remove one finished session, by the reference `asqr history`
+        /// prints, with the kept files only it used; its result stays.
+        #[arg(long, value_name = "REF")]
+        session: Option<String>,
 
         /// Remove; without it, prune only lists what it would remove.
         #[arg(long)]
@@ -618,9 +629,14 @@ fn dispatch_with(
         }
         Command::Prune {
             older_than,
+            session,
             yes,
             results: false,
-        } => prune::run(&location, root.as_deref(), older_than, yes),
+        } => match (older_than, session) {
+            (_, Some(reference)) => prune::run_session(&location, root.as_deref(), &reference, yes),
+            (Some(older_than), None) => prune::run(&location, root.as_deref(), older_than, yes),
+            (None, None) => unreachable!("clap requires one of --older-than and --session"),
+        },
         Command::Skill { part, install } => skill::run(part.as_deref(), install.as_deref()),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),

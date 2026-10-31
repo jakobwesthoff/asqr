@@ -105,53 +105,9 @@ pub(super) fn run(
         no_color,
         home,
     } = request;
-    // A queue given as a directory outside the data directory is searched
-    // only when it is named.
-    let extra = location.root().is_none().then_some(location);
-    if root.is_none() && extra.is_none() {
-        eprintln!("error: no platform data directory found, so there are no queues to search");
-        return Exit::Failure;
-    }
-    let resolved = match resolve_reference(root, extra, reference) {
-        Ok(resolved) => resolved,
-        Err(error) => {
-            eprintln!("error: cannot read the queues: {error}");
-            return Exit::Failure;
-        }
-    };
-    let entry = match resolved.resolution {
-        Resolution::Found(entry) => entry,
-        Resolution::TooShort => {
-            eprintln!("asqr: \"{reference}\" is too short; give at least 6 characters of the REF");
-            return Exit::Usage;
-        }
-        Resolution::TooLong => {
-            eprintln!("asqr: \"{reference}\" is too long; a REF has at most 8 characters");
-            return Exit::Usage;
-        }
-        Resolution::NotAReference(letter) => {
-            eprintln!("asqr: \"{reference}\" is no REF: no REF holds the letter {letter}");
-            return Exit::Usage;
-        }
-        Resolution::NoMatch => {
-            // The bundle that cannot be read may hold the entry.
-            if let Some(error) = resolved.unreadable.first() {
-                eprintln!("error: {error}");
-                return Exit::Failure;
-            }
-            eprintln!(
-                "asqr: no finished session ends in \"{reference}\" in any queue under the data directory; a queue given with --dir is only searched when named"
-            );
-            return Exit::Failure;
-        }
-        Resolution::Ambiguous(candidates) => {
-            eprintln!(
-                "asqr: \"{reference}\" ends {} finished sessions; give more of the REF:",
-                candidates.len()
-            );
-            print_candidates(&candidates);
-            return Exit::Failure;
-        }
+    let entry = match find_entry(location, root, reference) {
+        Ok(entry) => entry,
+        Err(exit) => return exit,
     };
 
     // The copies of the files go into the directory of this run, which `o`
@@ -176,6 +132,65 @@ pub(super) fn run(
         no_color,
         home,
     })
+}
+
+/// The finished session `reference` names in the queues under `root` and
+/// in `location` where that is a directory given by `--dir`, or the exit
+/// to end with after the reason has been printed.
+pub(super) fn find_entry(
+    location: &QueueLocation,
+    root: Option<&Path>,
+    reference: &str,
+) -> Result<EntryRef, Exit> {
+    // A queue given as a directory outside the data directory is searched
+    // only when it is named.
+    let extra = location.root().is_none().then_some(location);
+    if root.is_none() && extra.is_none() {
+        eprintln!("error: no platform data directory found, so there are no queues to search");
+        return Err(Exit::Failure);
+    }
+    let resolved = match resolve_reference(root, extra, reference) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            eprintln!("error: cannot read the queues: {error}");
+            return Err(Exit::Failure);
+        }
+    };
+    let entry = match resolved.resolution {
+        Resolution::Found(entry) => entry,
+        Resolution::TooShort => {
+            eprintln!("asqr: \"{reference}\" is too short; give at least 6 characters of the REF");
+            return Err(Exit::Usage);
+        }
+        Resolution::TooLong => {
+            eprintln!("asqr: \"{reference}\" is too long; a REF has at most 8 characters");
+            return Err(Exit::Usage);
+        }
+        Resolution::NotAReference(letter) => {
+            eprintln!("asqr: \"{reference}\" is no REF: no REF holds the letter {letter}");
+            return Err(Exit::Usage);
+        }
+        Resolution::NoMatch => {
+            // The bundle that cannot be read may hold the entry.
+            if let Some(error) = resolved.unreadable.first() {
+                eprintln!("error: {error}");
+                return Err(Exit::Failure);
+            }
+            eprintln!(
+                "asqr: no finished session ends in \"{reference}\" in any queue under the data directory; a queue given with --dir is only searched when named"
+            );
+            return Err(Exit::Failure);
+        }
+        Resolution::Ambiguous(candidates) => {
+            eprintln!(
+                "asqr: \"{reference}\" ends {} finished sessions; give more of the REF:",
+                candidates.len()
+            );
+            print_candidates(&candidates);
+            return Err(Exit::Failure);
+        }
+    };
+    Ok(entry)
 }
 
 /// One line for each of `candidates`, the newest first: the reference, the

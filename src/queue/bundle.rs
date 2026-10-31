@@ -731,6 +731,8 @@ pub struct PreparedBundle {
     temp: Option<tempfile::NamedTempFile>,
     seen: Option<Stamp>,
     outcomes: Vec<Added>,
+    /// Commit removes the bundle: nothing is left in it.
+    delete: bool,
 }
 
 impl PreparedBundle {
@@ -750,6 +752,14 @@ impl PreparedBundle {
     /// synced after the rename; a platform that refuses to sync a
     /// directory leaves the rename as durable as it is.
     pub fn commit(self) -> Result<(), BundleError> {
+        if self.delete {
+            match std::fs::remove_file(&self.target) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(BundleError::io(&self.target, error)),
+            }
+            return Ok(());
+        }
         let Some(temp) = self.temp else {
             return Ok(());
         };
@@ -810,6 +820,7 @@ pub fn prepare_bundle(
             temp: None,
             seen,
             outcomes,
+            delete: false,
         });
     }
 
@@ -882,6 +893,91 @@ pub fn prepare_bundle(
         temp: Some(temp),
         seen,
         outcomes,
+        delete: false,
+    })
+}
+
+/// Builds the bundle of `month` without the entries `drop` names (their
+/// names inside the zip), as a temp file in `archive/`, without touching
+/// the bundle that is there. The other entries are copied over as they are,
+/// compressed and with the time they were bundled. Where nothing would be
+/// left, committing removes the bundle. Names the bundle does not hold are
+/// ignored, and a bundle that is not there is not made.
+///
+/// The caller holds the drafts lock for [`PreparedBundle::still_current`]
+/// and [`PreparedBundle::commit`], as for [`prepare_bundle`].
+pub fn prepare_rewrite(
+    location: &QueueLocation,
+    month: Month,
+    drop: &[String],
+) -> Result<PreparedBundle, BundleError> {
+    let target = bundle_path(location, month);
+    let seen = stamp(&target).map_err(|error| BundleError::io(&target, error))?;
+    let unchanged = |seen: Option<Stamp>| PreparedBundle {
+        target: target.clone(),
+        temp: None,
+        seen,
+        outcomes: Vec::new(),
+        delete: false,
+    };
+    if seen.is_none() {
+        return Ok(unchanged(seen));
+    }
+    let mut existing = open(&target)?;
+    let mut kept: Vec<usize> = Vec::new();
+    for index in 0..existing.len() {
+        let name = existing
+            .by_index_raw(index)
+            .map_err(|error| BundleError::zip(&target, error))?
+            .name()
+            .map_err(|error| BundleError::zip(&target, error))?
+            .into_owned();
+        if !drop.contains(&name) {
+            kept.push(index);
+        }
+    }
+    if kept.len() == existing.len() {
+        return Ok(unchanged(seen));
+    }
+    if kept.is_empty() {
+        return Ok(PreparedBundle {
+            delete: true,
+            ..unchanged(seen)
+        });
+    }
+
+    let archive_dir = location.archive();
+    let temp = temp_file_in(&archive_dir).map_err(|error| BundleError::io(&archive_dir, error))?;
+    let temp_path = temp.path().to_owned();
+    let write_error = |error: zip::result::ZipError| BundleError::zip(&temp_path, error);
+    let mut writer = ZipWriter::new(
+        temp.as_file()
+            .try_clone()
+            .map_err(|error| BundleError::io(&temp_path, error))?,
+    );
+    for index in kept {
+        let file = existing
+            .by_index_raw(index)
+            .map_err(|error| BundleError::zip(&target, error))?;
+        writer.raw_copy_file(file).map_err(write_error)?;
+    }
+    let file = writer.finish().map_err(write_error)?;
+    file.sync_all()
+        .map_err(|error| BundleError::io(&temp_path, error))?;
+    // The copy is read through before it can replace the bundle.
+    let mut written = open(&temp_path)?;
+    for index in 0..written.len() {
+        let name = written
+            .by_index_raw(index)
+            .map_err(|error| BundleError::zip(&temp_path, error))?
+            .name()
+            .map_err(|error| BundleError::zip(&temp_path, error))?
+            .into_owned();
+        read_through(&mut written, &temp_path, &name)?;
+    }
+    Ok(PreparedBundle {
+        temp: Some(temp),
+        ..unchanged(seen)
     })
 }
 
