@@ -1040,9 +1040,12 @@ stays and the job ends with a warning in the log. So the archived file
 has two states, plain and recorded, a copy lies under its name only once
 a recording that refers to it was written, and a crash or a failing copy
 at any point leaves the plain session. What is lost then are the copies
-and the fingerprints of that session. Quitting, or a SIGTERM, waits for
-the worker to run its queue empty for up to 10 seconds and lets go of the
-rest.
+and the fingerprints of that session. Quitting, or a SIGTERM, gives the
+terminal back first. Where jobs are still running it prints `keeping the
+files of <n> finished sessions, ctrl-c lets go of them...` on stderr (`1
+finished session, ctrl-c lets go of it` for one) and waits for the worker
+to run its queue empty for up to 10 seconds. Ctrl-c ends the wait, and
+what is left is let go of.
 
 A session completed by recovery gets a job too; the worker reads its
 files, which may be gone by then. `asqr withdraw` and `asqr ask

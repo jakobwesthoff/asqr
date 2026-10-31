@@ -217,3 +217,81 @@ fn clones_share_one_worker() {
 
     assert_eq!(*seen.lock().expect("lock"), ["one", "two"]);
 }
+
+#[test]
+fn pending_counts_the_jobs_handed_over_that_have_not_finished() {
+    let seen = Arc::default();
+    let (release, gate) = mpsc::channel();
+    let worker = KeepWorker::new_with(gated(&seen, gate));
+    assert_eq!(worker.pending(), 0);
+
+    worker.submit(job("one"));
+    worker.submit(job("two"));
+    assert_eq!(worker.pending(), 2);
+    release.send(()).expect("sends");
+    release.send(()).expect("sends");
+    worker.idle();
+
+    assert_eq!(worker.pending(), 0);
+    assert_eq!(worker.clone().pending(), 0, "clones count the same jobs");
+}
+
+#[test]
+fn a_drain_that_is_told_to_stop_ends_while_a_job_runs() {
+    let seen = Arc::default();
+    let (release, gate) = mpsc::channel();
+    let worker = KeepWorker::new_with(gated(&seen, gate));
+    worker.submit(job("slow"));
+
+    let started = std::time::Instant::now();
+    let drained = worker.drain_unless(Duration::from_secs(30), || true);
+    let waited = started.elapsed();
+    release.send(()).expect("sends");
+    worker.idle();
+
+    assert!(!drained, "stopped before the job ended");
+    assert!(
+        waited < Duration::from_secs(5),
+        "it did not wait for the limit: {waited:?}"
+    );
+    assert_eq!(
+        *seen.lock().expect("lock"),
+        ["slow"],
+        "the job itself goes on"
+    );
+}
+
+#[test]
+fn a_drain_that_is_not_stopped_waits_for_the_job() {
+    let seen = Arc::default();
+    let (release, gate) = mpsc::channel();
+    let worker = KeepWorker::new_with(gated(&seen, gate));
+    worker.submit(job("slow"));
+    let asked = std::cell::Cell::new(0);
+
+    let drained = worker.drain_unless(Duration::from_secs(30), || {
+        asked.set(asked.get() + 1);
+        // The job is released once the drain has asked a few times, so it
+        // asks while the job is still running.
+        if asked.get() == 3 {
+            release.send(()).expect("sends");
+        }
+        false
+    });
+
+    assert!(drained);
+    assert!(asked.get() >= 3, "{}", asked.get());
+}
+
+#[test]
+fn the_quit_notice_names_how_many_sessions_are_still_being_kept() {
+    assert_eq!(quit_notice(0), None);
+    assert_eq!(
+        quit_notice(1).as_deref(),
+        Some("keeping the files of 1 finished session, ctrl-c lets go of it...")
+    );
+    assert_eq!(
+        quit_notice(3).as_deref(),
+        Some("keeping the files of 3 finished sessions, ctrl-c lets go of them...")
+    );
+}

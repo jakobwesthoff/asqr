@@ -140,8 +140,10 @@ references and the removals all happen under the drafts lock. A busy
 lock, a changed or missing archived file, a failing copy, a panic in a job
 (caught and logged) or a crash leaves the plain session. What is lost then
 are the copies and fingerprints of that session, and temp files that the
-compaction's sweep removes. Quitting waits for the worker to run its queue
-empty for up to 10 seconds and lets go of the rest, as a crash would. A
+compaction's sweep removes. Quitting gives the terminal back, prints one
+line on stderr that says how many finished sessions are still being kept,
+and waits for the worker to run its queue empty for up to 10 seconds;
+ctrl-c ends the wait. What is left is let go of, as a crash would. A
 queue switch does not touch the worker, as a job carries its queue.
 
 `asqr withdraw` and `ask --replaces` archive under their lock as before and

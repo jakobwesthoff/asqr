@@ -9,16 +9,23 @@
 
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, PanicHookInfo, catch_unwind};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::apply::{KeepJob, Kept, keep};
+
+/// How often a drain that can be stopped asks whether it should.
+pub const STOP_POLL: Duration = Duration::from_millis(50);
 
 /// A handle to the thread; clones share it.
 #[derive(Debug, Clone)]
 pub struct KeepWorker {
     sender: Sender<Message>,
+    /// The jobs handed over that have not finished.
+    pending: Arc<AtomicUsize>,
 }
 
 #[derive(Debug)]
@@ -38,6 +45,8 @@ impl KeepWorker {
     /// of the runner is logged and the worker goes on with the next job.
     pub fn new_with(runner: impl Fn(KeepJob) + Send + 'static) -> Self {
         let (sender, receiver) = mpsc::channel::<Message>();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&pending);
         thread::Builder::new()
             .name("asqr-keep".to_owned())
             .spawn(move || {
@@ -47,6 +56,7 @@ impl KeepWorker {
                             IN_JOB.set(true);
                             let outcome = catch_unwind(AssertUnwindSafe(|| runner(job)));
                             IN_JOB.set(false);
+                            counted.fetch_sub(1, Ordering::SeqCst);
                             if outcome.is_err() {
                                 tracing::warn!("a job that keeps files panicked");
                             }
@@ -58,13 +68,16 @@ impl KeepWorker {
                 }
             })
             .expect("the system can start a thread");
-        KeepWorker { sender }
+        KeepWorker { sender, pending }
     }
 
     /// Hands `job` over and returns at once. A worker that is gone drops
     /// the job: the plain archived session stays, as after a crash.
     pub fn submit(&self, job: KeepJob) {
-        let _ = self.sender.send(Message::Job(job));
+        self.pending.fetch_add(1, Ordering::SeqCst);
+        if self.sender.send(Message::Job(job)).is_err() {
+            self.pending.fetch_sub(1, Ordering::SeqCst);
+        }
     }
 
     /// Waits until every job handed over before the call has run.
@@ -78,8 +91,47 @@ impl KeepWorker {
     /// Waits for the queue to run empty for at most `limit` and says whether
     /// it did. What is left then is let go of, as a crash would.
     pub fn drain(&self, limit: Duration) -> bool {
+        self.drain_unless(limit, || false)
+    }
+
+    /// How many jobs were handed over and have not finished.
+    pub fn pending(&self) -> usize {
+        self.pending.load(Ordering::SeqCst)
+    }
+
+    /// [`KeepWorker::drain`] that also stops, saying `false`, as soon as
+    /// `stop` says so. It is asked every [`STOP_POLL`], so a person who
+    /// presses ctrl-c does not wait for the limit.
+    pub fn drain_unless(&self, limit: Duration, mut stop: impl FnMut() -> bool) -> bool {
         let (reply, answered) = mpsc::channel();
-        self.sender.send(Message::Idle(reply)).is_ok() && answered.recv_timeout(limit).is_ok()
+        if self.sender.send(Message::Idle(reply)).is_err() {
+            return false;
+        }
+        let deadline = Instant::now() + limit;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match answered.recv_timeout(left.min(STOP_POLL)) {
+                Ok(()) => return true,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return false,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if left <= STOP_POLL || stop() {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The line quitting prints on stderr while `pending` finished sessions are
+/// still being kept; none where nothing is.
+pub fn quit_notice(pending: usize) -> Option<String> {
+    match pending {
+        0 => None,
+        1 => Some("keeping the files of 1 finished session, ctrl-c lets go of it...".to_owned()),
+        many => Some(format!(
+            "keeping the files of {many} finished sessions, ctrl-c lets go of them..."
+        )),
     }
 }
 

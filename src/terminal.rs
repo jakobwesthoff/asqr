@@ -26,7 +26,7 @@ use asqr::graphics::{
 };
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
-use asqr::keep::worker::{KeepWorker, job_panicked};
+use asqr::keep::worker::{KeepWorker, job_panicked, quit_notice};
 use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure, TmuxPane};
 use asqr::queue::{QueueLocation, QueueLock, WaitingQueue, platform_data_dir, waiting_elsewhere};
 use asqr::settings::SettingsStore;
@@ -137,12 +137,42 @@ impl RunConfig {
 /// crash would: the plain archived session stays.
 const KEEP_DRAIN: Duration = Duration::from_secs(10);
 
+/// Runs the TUI, then, with the terminal given back, waits for the worker
+/// that keeps files to finish what the person's last finishes handed it.
 fn run_in_terminal(mode: &mut Mode<'_>) -> anyhow::Result<()> {
-    let config = RunConfig::of(mode);
     // One worker for the whole run, whichever queue is shown: a job carries
     // its queue.
     let keeper = matches!(mode, Mode::Watch(_)).then(KeepWorker::new);
     let (sender, events) = mpsc::channel();
+    let ran = run_tui(mode, keeper.as_ref(), sender, &events);
+    // The terminal is back as it was, so the line below reads on the normal
+    // screen. The signal threads still feed `events`, so ctrl-c, which is
+    // a signal again now that raw mode is off, lets go of what is left.
+    if let Some(keeper) = &keeper
+        && let Some(notice) = quit_notice(keeper.pending())
+    {
+        eprintln!("{notice}");
+        let interrupted = |stop: &mut bool| {
+            while let Ok(event) = events.try_recv() {
+                *stop |= matches!(event, Event::Quit);
+            }
+            *stop
+        };
+        let mut stop = false;
+        if !keeper.drain_unless(KEEP_DRAIN, || interrupted(&mut stop)) {
+            tracing::warn!("quit before the files of the last sessions were kept");
+        }
+    }
+    ran
+}
+
+fn run_tui(
+    mode: &mut Mode<'_>,
+    keeper: Option<&KeepWorker>,
+    sender: mpsc::Sender<Event>,
+    events: &mpsc::Receiver<Event>,
+) -> anyhow::Result<()> {
+    let config = RunConfig::of(mode);
     let inbox_events = sender.clone();
     // A queue chosen at the start is held already. Its watcher comes first
     // and the first scan second, so no file can arrive unseen in between
@@ -158,7 +188,7 @@ fn run_in_terminal(mode: &mut Mode<'_>) -> anyhow::Result<()> {
                 })
                 .context("watching the inbox")?;
                 let (app, inbox) =
-                    start_with_keeper(location.clone(), watch.settings().clone(), keeper.clone())?;
+                    start_with_keeper(location.clone(), watch.settings().clone(), keeper.cloned())?;
                 Some(Taken {
                     held: Held {
                         location,
@@ -308,11 +338,11 @@ fn run_in_terminal(mode: &mut Mode<'_>) -> anyhow::Result<()> {
                 .pick()
                 .expect("a watch without a lock carries the picker's queues");
             let settings = watch.settings().clone();
-            let keeper = keeper.clone();
+            let keeper = keeper.cloned();
             let picked = pick_queue(
                 &mut terminal,
                 Switcher::picker(choice.clone()),
-                &events,
+                events,
                 VERSION,
                 |target| {
                     let changes = inbox_events.clone();
@@ -411,21 +441,15 @@ fn run_in_terminal(mode: &mut Mode<'_>) -> anyhow::Result<()> {
     {
         tracing::info!(reason, "tmux did not take the pin");
     }
-    let ran = run(
+    run(
         &mut terminal,
         &mut app,
         &mut inbox,
         &mut view,
-        &events,
+        events,
         &mut host,
         &mut opened,
-    );
-    if let Some(keeper) = &keeper
-        && !keeper.drain(KEEP_DRAIN)
-    {
-        tracing::warn!("quit before the files of the last sessions were kept");
-    }
-    ran
+    )
 }
 
 /// Sends [`Event::QueuesTick`] on a thread of its own at once and then

@@ -30,8 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other file as it is. The archived session points at the copies and
   records each shown file's original path, size and SHA-256, also for a
   file that is gone. `asqr withdraw` and `ask --replaces` record the
-  fingerprints without copies. Quitting waits up to 10 seconds for copies
-  still being written.
+  fingerprints without copies. Quitting gives the terminal back, says on
+  stderr how many finished sessions are still being kept and waits up to
+  10 seconds for them; ctrl-c ends the wait.
 - asqr keeps four settings in `settings.toml` in its config directory
   (`~/Library/Application Support/asqr/` on macOS, `$XDG_CONFIG_HOME/asqr/`
   on Linux): how a diff opens (`diff_layout`), the widest a question gets
