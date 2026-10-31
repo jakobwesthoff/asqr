@@ -193,7 +193,7 @@ pub(super) fn started_on(
     let holds = format!("the `draft` of its result: `{command} result {old}`");
     match (carried, in_result) {
         (true, true) => Some(Line::hint(format!(
-            "the person had started on {old}; asqr carried what fits over into {id} as their draft; the `draft` of its result still holds all they entered: `{command} result {old}`; {id} counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces {id}` with `--force`"
+            "the person had started on {old}; asqr carried what fits over into {id} as their draft; the `draft` of its result still holds their answers and notes: `{command} result {old}`; {id} counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces {id}` with `--force`"
         ))),
         (true, false) => Some(Line::hint(format!(
             "the person had started on {old}; asqr carried what they changed over into {id} as their draft; {id} counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces {id}` with `--force`"

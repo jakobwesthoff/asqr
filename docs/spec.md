@@ -968,7 +968,11 @@ where nothing of the draft fits, the old draft is only in the `draft` of
 the old result. A draft that cannot be written costs the carry and
 nothing else. A crash between the draft and the session file leaves a
 draft without a session, as a session taken back by hand does (section
-5.4). Exit
+5.4); the same command run again keeps that draft, which names the old
+session in `carried_from`, and reports it as carried. A withdrawn
+session is replaced once: a later `--replaces` of it carries nothing
+while a draft that continues it exists, since the `draft` of its result
+may be stale by then. Exit
 codes are those of `ask` and `withdraw`: 13 for an old id the queue does
 not know or whose result is gone. An old id found in one other named
 queue (section 5.10) drops nothing and exits with 13: "session
@@ -1835,7 +1839,7 @@ before the id.
   the draft carried over into the new session `<id>` (section 5.5), the
   result of `<old>` holding a `draft`:
 
-      hint: the person had started on <old>; asqr carried what fits over into <id> as their draft; the `draft` of its result still holds all they entered: `<asqr> result <old>`; <id> counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces <id>` with `--force`
+      hint: the person had started on <old>; asqr carried what fits over into <id> as their draft; the `draft` of its result still holds their answers and notes: `<asqr> result <old>`; <id> counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces <id>` with `--force`
 
   Where the result holds no `draft` (the person only cleared questions),
   the line reads "asqr carried what they changed over into <id> as their
@@ -2974,7 +2978,13 @@ keeps the session and shows its own notice instead.
 
       ↩ "Release 0.2.0" was replaced by "Release 0.2.1"; your answers carried over
 
-  The notice that names a kept file stays.
+  The notice names a session that arrived in the same scan of the inbox
+  and continues the draft of the one that left. A notice stays the
+  warning when it names a kept file, and when the session held changes
+  that no saved draft had, as after keys that failed to save while the
+  queue was busy (section 5.6). A scan that sees the session gone while
+  the drafts lock is held and no session has arrived leaves the notice
+  for the next scan, which the new file's arrival triggers.
 - A session colliding with an unread result (section 5.7) and a failure
   to write a draft or a result trigger a notice. A failure never ends
   asqr; answers stay in the TUI.

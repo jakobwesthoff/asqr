@@ -1550,7 +1550,7 @@ fn the_hint_after_a_carry_says_what_it_means_for_the_replacement() {
     let output = rework_forced(&sandbox, &["a", "b"], true);
 
     let started_on = format!(
-        "hint: the person had started on round-1; asqr carried what fits over into round-2 as their draft; the `draft` of its result still holds all they entered: `asqr --dir {} result round-1`; round-2 counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces round-2` with `--force`\n",
+        "hint: the person had started on round-1; asqr carried what fits over into round-2 as their draft; the `draft` of its result still holds their answers and notes: `asqr --dir {} result round-1`; round-2 counts as started now, so asking it again under the same id is refused, and replacing it takes `--replaces round-2` with `--force`\n",
         sandbox.queue_dir().display()
     );
     assert_eq!(

@@ -62,8 +62,13 @@ question whose meaning changed a new id, and keep the ids of the
 questions and options whose earlier answers should stay. You write no
 text into their fields, and there is no flag for it. The person sees a
 note in the session's header that it continues their draft. The result
-of the old session still holds their `draft`; the hint after `ask`
-says whether anything was carried. It refuses where `withdraw` or `ask` would refuse,
+of the old session still holds their `draft`, with their answers and
+notes only. The hint after `ask` says whether anything was carried. A
+withdrawn session is replaced once: a second `--replaces` of the same
+old id carries nothing while a draft that continues it exists, since
+its result's `draft` may be stale by then.
+
+`--replaces` refuses where `withdraw` or `ask` would refuse,
 with the same exit codes; 13 means the old id is unknown. When it
 refuses, nothing changes: the old session stays and the new one is not
 dropped. If stderr says the old session was withdrawn already, run the

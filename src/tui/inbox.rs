@@ -44,6 +44,7 @@ struct Known {
 }
 
 /// A session that left the inbox, with the notice its leaving earns.
+#[derive(Debug)]
 struct Left {
     id: String,
     /// What the app called it, where it showed it.
@@ -52,6 +53,9 @@ struct Left {
     /// their editor.
     kept: bool,
     notice: Option<Notice>,
+    /// Whether the session held changes that no saved draft held when it
+    /// left, as after keys the drafts lock refused.
+    unsaved: bool,
 }
 
 /// What a sync found.
@@ -93,6 +97,13 @@ pub struct Inbox {
     /// a text written in the editor while the session left (see
     /// [`Inbox::keep_text_for`]).
     kept_texts: Vec<(String, String)>,
+    /// The notices of sessions that left while the drafts lock was held
+    /// and no new session had arrived, which the next sync shows (see
+    /// [`Inbox::sync`]).
+    pending: Vec<Left>,
+    /// By session id, the draft the session had when it was loaded or last
+    /// saved, to tell whether keys since then never reached the file.
+    saved: Vec<(String, SessionResult)>,
     /// Where the files of a finished session are kept (ADR 100). Without
     /// one, nothing is kept: the tests of other behaviour finish sessions
     /// in temp queues and need no worker.
@@ -122,6 +133,8 @@ impl Inbox {
             ignored: HashSet::new(),
             lock_attempts: DRAFTS_LOCK_ATTEMPTS,
             kept_texts: Vec::new(),
+            pending: Vec::new(),
+            saved: Vec::new(),
             keeper: None,
             counting: false,
             #[cfg(test)]
@@ -220,7 +233,34 @@ impl Inbox {
         if let Some(index) = self.known(id) {
             self.known.remove(index);
         }
+        self.saved.retain(|(saved, _)| !same_session_id(saved, id));
         app.remove(id);
+    }
+
+    /// Notes that `draft` is what the file of its session holds now.
+    fn remember_saved(&mut self, draft: &SessionResult) {
+        self.saved
+            .retain(|(saved, _)| !same_session_id(saved, &draft.id));
+        self.saved.push((draft.id.clone(), draft.clone()));
+    }
+
+    /// Whether `state` holds something no draft file of it has: its draft
+    /// differs from the one loaded or saved last. A session that none was
+    /// noted for counts as holding such changes.
+    fn unsaved(&self, state: &SessionState) -> bool {
+        let draft = state.to_draft();
+        self.saved
+            .iter()
+            .find(|(saved, _)| same_session_id(saved, state.id()))
+            .is_none_or(|(_, saved)| draft != *saved)
+    }
+
+    /// Whether the drafts lock is held right now. It is tried once.
+    fn queue_busy(&self) -> bool {
+        matches!(
+            crate::queue::lock_drafts(&self.location, 1),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock
+        )
     }
 
     /// Forgets session `id`, which left the inbox, and tells the person
@@ -244,11 +284,12 @@ impl Inbox {
             .iter()
             .position(|(kept, _)| same_session_id(kept, id))
             .map(|index| self.kept_texts.remove(index).1);
-        let name = app
+        let state = app
             .sessions()
             .iter()
-            .find(|state| same_session_id(state.id(), id))
-            .map(|state| state.name().to_owned());
+            .find(|state| same_session_id(state.id(), id));
+        let name = state.map(|state| state.name().to_owned());
+        let unsaved = state.is_some_and(|state| self.unsaved(state));
         let notice = self.withdrawn_notice(app, id, kept.as_deref());
         self.forget(app, id);
         Left {
@@ -256,24 +297,28 @@ impl Inbox {
             name,
             kept: kept.is_some(),
             notice,
+            unsaved,
         }
     }
 
     /// Shows the notice of the session `left`, which the sync that loaded
-    /// `app`'s new sessions holds back: a session that continues its draft
-    /// says so, in place of the warning that the asker took the answers
-    /// (spec section 7.9). A notice that names the file the person's
-    /// editor text lies in stays, as that text is not in the new session.
-    fn announce_leaving(&self, app: &mut App, left: Left) {
+    /// the sessions `loaded` holds back: one of them that continues its
+    /// draft says so, in place of the warning that the asker took the
+    /// answers (spec section 7.9). A notice that names the file the
+    /// person's editor text lies in stays, as that text is not in the new
+    /// session, and so does one for a session that held changes no draft
+    /// had.
+    fn announce_leaving(&self, app: &mut App, left: Left, loaded: &[String]) {
         let Some(notice) = left.notice else {
             return;
         };
-        let continued = (!left.kept)
+        let continued = (!left.kept && !left.unsaved)
             .then(|| {
                 app.sessions().iter().find(|state| {
-                    state
-                        .carried_from()
-                        .is_some_and(|from| same_session_id(&from.id, &left.id))
+                    loaded.iter().any(|id| same_session_id(id, state.id()))
+                        && state
+                            .carried_from()
+                            .is_some_and(|from| same_session_id(&from.id, &left.id))
                 })
             })
             .flatten();
@@ -407,7 +452,7 @@ impl Inbox {
             })
             .map(|known| known.id.clone())
             .collect();
-        let mut left = Vec::new();
+        let mut left = std::mem::take(&mut self.pending);
         for id in gone {
             tracing::info!(%id, "session left the inbox");
             left.push(self.leave_unannounced(app, &id));
@@ -427,12 +472,21 @@ impl Inbox {
         }
         // Only once every waiting file is loaded, so a follow-up that is
         // older than the session it follows still finds it waiting.
-        for id in loaded {
-            let title = self.follows_title(app, &id);
-            app.set_follows_title(&id, title);
+        for id in &loaded {
+            let title = self.follows_title(app, id);
+            app.set_follows_title(id, title);
         }
-        for left in left {
-            self.announce_leaving(app, left);
+        // A replacement withdraws the old session, writes the draft and
+        // drops the new session under one hold of the drafts lock. A sync
+        // that sees the old one gone before the new one arrives waits for
+        // the next, which the new file triggers.
+        if loaded.is_empty() && self.queue_busy() {
+            self.pending
+                .extend(left.into_iter().filter(|left| left.notice.is_some()));
+        } else {
+            for left in left {
+                self.announce_leaving(app, left, &loaded);
+            }
         }
         // A kept text waits for the sync that sees its session leave, and
         // `leave` took it there. One left over belongs to a session this
@@ -500,6 +554,10 @@ impl Inbox {
             None => {
                 synced.arrived.push(waiting.id.clone());
                 self.known.push(known);
+                if let Some(state) = app.sessions().iter().find(|state| state.id() == waiting.id) {
+                    let loaded_draft = state.to_draft();
+                    self.remember_saved(&loaded_draft);
+                }
             }
         }
         Ok(true)
@@ -587,13 +645,13 @@ impl Inbox {
                     return Applied::Continue;
                 };
                 let session = &self.known[index].path;
-                if let Err(error) =
-                    save_draft_while_waiting_with(&self.location, session, &draft, self.gate())
-                {
-                    app.notice(
+                match save_draft_while_waiting_with(&self.location, session, &draft, self.gate()) {
+                    Ok(true) => self.remember_saved(&draft),
+                    Ok(false) => {}
+                    Err(error) => app.notice(
                         Tone::Error,
                         format!("cannot save the draft of {}: {error}", draft.id),
-                    );
+                    ),
                 }
             }
             AppEffect::Finish { id, outcome } => self.finish(app, &id, outcome),
@@ -2065,6 +2123,159 @@ mod tests {
     #[test]
     fn a_session_replaced_without_a_carry_leaves_with_the_warning() {
         let app = replaced_by_next(&|_| None);
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker, with your answers so far"
+            ))
+        );
+    }
+
+    fn next_of_batch(old: &SessionResult) -> Option<SessionResult> {
+        Some(SessionResult {
+            id: "next".into(),
+            ..old.clone()
+        })
+    }
+
+    #[test]
+    fn a_session_that_waits_with_the_mark_of_another_does_not_make_that_one_replaced() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        put(&location, "next.json", SESSION);
+        let mut continuing = SessionResult::draft("next", "q", Vec::new());
+        continuing.carried_from = Some(crate::format::CarriedFrom {
+            id: "batch".into(),
+            title: None,
+        });
+        save_draft(&location, &continuing).expect("saved");
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        // A later session of the id `batch`, withdrawn on its own.
+        withdraw_session(&location, "batch", true).expect("withdrawn");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker, with your answers so far"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_sync_in_the_middle_of_a_replacement_waits_for_the_new_session() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+        let shown_midway = std::cell::Cell::new(true);
+
+        let (inbox_ref, app_ref) = (&mut inbox, &mut app);
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(|step| {
+                // The old session has left the inbox and the lock is held.
+                if step == crate::queue::Step::DraftDeleted {
+                    inbox_ref.sync(app_ref).expect("synced");
+                    shown_midway.set(app_ref.current_notice().is_some());
+                }
+            }),
+        };
+        crate::queue::drop_replacing_carrying(
+            &location,
+            "batch",
+            "next",
+            SESSION.as_bytes(),
+            true,
+            Some(&next_of_batch),
+            gate,
+        )
+        .expect("replaced");
+        inbox.sync(&mut app).expect("synced");
+
+        assert!(!shown_midway.get(), "no notice while the lock is held");
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(
+                Tone::Info,
+                "↩ \"batch\" was replaced by \"next\"; your answers carried over"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_notice_held_back_during_a_withdrawal_shows_with_the_next_sync() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+
+        let (inbox_ref, app_ref) = (&mut inbox, &mut app);
+        let gate = Gate {
+            attempts: 1,
+            step: Box::new(|step| {
+                if step == crate::queue::Step::DraftDeleted {
+                    inbox_ref.sync(app_ref).expect("synced");
+                }
+            }),
+        };
+        crate::queue::withdraw_session_with(&location, "batch", true, gate).expect("withdrawn");
+        assert_eq!(app.current_notice(), None);
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker, with your answers so far"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_key_the_lock_refused_keeps_the_withdrawal_warning_in_a_replacement() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        inbox.set_lock_attempts(1);
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+        // Back to the question, so the next pick changes it.
+        let effect = app.handle(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        inbox.apply(&mut app, effect);
+        {
+            // This key does not reach the draft: the queue is busy.
+            let _held = crate::queue::lock_drafts(&location, 1).expect("locks");
+            let effect = app.handle(key('1'));
+            inbox.apply(&mut app, effect);
+        }
+
+        crate::queue::drop_replacing_carrying(
+            &location,
+            "batch",
+            "next",
+            SESSION.as_bytes(),
+            true,
+            Some(&next_of_batch),
+            Gate::default(),
+        )
+        .expect("replaced");
+        inbox.sync(&mut app).expect("synced");
 
         assert_eq!(
             app.current_notice(),

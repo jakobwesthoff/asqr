@@ -69,8 +69,13 @@ a carried `cleared` question shows its default marked and not picked
 - **Where it applies.** Only for a new session that does not wait
   already: a running TUI rebuilds a waiting session from its own state,
   not from the draft file. Not where `drafts/<new>.json` holds an
-  answer, which stays as it is. A draft that cannot be written costs the
-  carry only. A drop that fails after the draft was written removes it.
+  answer, which stays as it is, unless it names the old session in
+  `carried_from`: a rerun after a crash keeps it. A draft that cannot be
+  written costs the carry only. A drop that fails after the draft was
+  written removes it.
+- **Replaced once.** Where a draft that continues the old session
+  exists, a later `--replaces` of the same old id carries nothing from
+  the old result's `draft`, which may be stale by then.
 - **The marker.** A draft that continues another has `carried_from`
   with the `id` and the `title` of the earlier session. Only drafts
   carry it, like `custom_unpicked` and `cleared`, and the result schema
@@ -81,9 +86,13 @@ a carried `cleared` question shows its default marked and not picked
 - **Notice for the old session.** A session the person had open, whose
   draft was carried over, leaves with the information notice `↩ "<old>"
   was replaced by "<new>"; your answers carried over` in place of the
-  withdrawal warning (spec section 7.9).
+  withdrawal warning (spec section 7.9). It names a session that arrived
+  in the same scan of the inbox. It stays the warning where the session
+  held changes no saved draft had. A scan that sees the old session gone
+  while the drafts lock is held, with no new session arrived, leaves the
+  notice for the next scan.
 - **Hints.** The hint after `ask --replaces` says that asqr carried the
-  draft over, that the `draft` of the old result still holds it, and
+  draft over, that the `draft` of the old result still holds their answers and notes, and
   what it means for the replacement; where nothing was carried it says
   so. The hint for a withdrawn result with a `draft` tells the asker to
   ignore the `draft` and that `ask --replaces` carries what fits over.
