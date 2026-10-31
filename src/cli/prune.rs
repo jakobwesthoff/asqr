@@ -83,7 +83,8 @@ pub(super) fn run(
 ) -> Exit {
     let pruned = prune(location, older_than, SystemTime::now(), yes).and_then(|mut found| {
         if let Some(root) = root {
-            found.extend(prune_empty_queues(root, yes)?);
+            let gone = found.clone();
+            found.extend(prune_empty_queues(root, yes, &gone)?);
         }
         Ok(found)
     });

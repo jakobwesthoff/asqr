@@ -85,14 +85,19 @@ pub fn prune_with(
 
 /// Removes every named queue under `root` that no asqr watches and that
 /// holds no file, or only lists them when `remove` is not set, and
-/// returns their directories. Its lock files, `lock`
-/// and `drafts.lock`, hold no session data and do not count. A queue that
-/// cannot be locked at once, or holds anything, stays.
+/// returns their directories. Files in `also_gone` count as removed. A
+/// queue's lock files, `lock` and `drafts.lock`, hold no session data and
+/// do not count. A queue that cannot be locked at once, or holds anything,
+/// stays.
 ///
 /// Both locks are held while the queue goes, and the lock files are
 /// removed while they are held, so a process that waits on one finds its
 /// file gone and takes the lock anew on a fresh queue (ADR 85).
-pub fn prune_empty_queues(root: &Path, remove: bool) -> io::Result<Vec<PathBuf>> {
+pub fn prune_empty_queues(
+    root: &Path,
+    remove: bool,
+    also_gone: &[PathBuf],
+) -> io::Result<Vec<PathBuf>> {
     let mut removed = Vec::new();
     for summary in list_queues(root)? {
         let location = summary.location;
@@ -107,7 +112,7 @@ pub fn prune_empty_queues(root: &Path, remove: bool) -> io::Result<Vec<PathBuf>>
         let Ok(_drafts) = lock_drafts(&location, 1) else {
             continue;
         };
-        if !holds_nothing(&location)? {
+        if !holds_nothing(&location, also_gone)? {
             continue;
         }
         if remove {
@@ -130,15 +135,18 @@ pub fn prune_empty_queues(root: &Path, remove: bool) -> io::Result<Vec<PathBuf>>
 
 /// Whether the queue at `location` holds no file but its lock files: its
 /// four directories are empty or missing, and nothing else lies beside
-/// them.
-fn holds_nothing(location: &QueueLocation) -> io::Result<bool> {
+/// them. The files in `also_gone` count as removed: a dry run asks as if
+/// the files it lists were gone already.
+fn holds_nothing(location: &QueueLocation, also_gone: &[PathBuf]) -> io::Result<bool> {
     let layout = ["inbox", "outbox", "drafts", "archive"];
     for entry in entries_if_present(location.dir())? {
         let name = entry.file_name();
         let name = name.to_str().unwrap_or_default();
         let empty_dir = layout.contains(&name)
             && entry.file_type()?.is_dir()
-            && entries_if_present(&entry.path())?.is_empty();
+            && entries_if_present(&entry.path())?
+                .iter()
+                .all(|inside| also_gone.contains(&inside.path()));
         if !empty_dir && name != "lock" && name != "drafts.lock" {
             return Ok(false);
         }
@@ -206,6 +214,12 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    fn archive_file(location: &QueueLocation, name: &str) -> PathBuf {
+        let path = location.archive().join(name);
+        fs::write(&path, "{}").expect("written");
+        path
     }
 
     /// The bundle of `month` holding one session.
@@ -354,7 +368,7 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let stray = used(scratch.path(), "asqr-todo");
 
-        let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
 
         assert_eq!(removed, [stray.dir().to_path_buf()]);
         assert!(!stray.dir().exists());
@@ -365,10 +379,25 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let stray = used(scratch.path(), "asqr-todo");
 
-        let listed = prune_empty_queues(scratch.path(), false).expect("lists");
+        let listed = prune_empty_queues(scratch.path(), false, &[]).expect("lists");
 
         assert_eq!(listed, [stray.dir().to_path_buf()]);
         assert!(stray.inbox().is_dir());
+    }
+
+    #[test]
+    fn a_dry_run_lists_a_queue_the_listed_paths_would_leave_empty() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let work = used(scratch.path(), "work");
+        let old = archive_file(&work, "old");
+        let other = used(scratch.path(), "other");
+        let kept = archive_file(&other, "kept");
+
+        let listed =
+            prune_empty_queues(scratch.path(), false, std::slice::from_ref(&old)).expect("lists");
+
+        assert_eq!(listed, [work.dir().to_path_buf()]);
+        assert!(old.exists() && kept.exists(), "a dry run removes nothing");
     }
 
     #[test]
@@ -379,7 +408,7 @@ mod tests {
             let file = location.dir().join(place).join("left.json");
             fs::write(&file, "{}").expect("written");
 
-            let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
+            let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
 
             assert_eq!(removed, Vec::<PathBuf>::new(), "a file in {place}");
             fs::remove_file(&file).expect("removed again");
@@ -392,7 +421,7 @@ mod tests {
         let watched = used(scratch.path(), "work");
         let _held = crate::queue::lock_queue(&watched, None).expect("locks");
 
-        let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
 
         assert_eq!(removed, Vec::<PathBuf>::new());
         assert!(watched.inbox().is_dir());
@@ -404,7 +433,7 @@ mod tests {
         let busy = used(scratch.path(), "work");
         let _held = lock_drafts(&busy, 1).expect("locks");
 
-        let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
 
         assert_eq!(removed, Vec::<PathBuf>::new());
         assert!(busy.inbox().is_dir());
@@ -414,7 +443,7 @@ mod tests {
     fn the_default_queue_before_its_first_use_is_no_removed_queue() {
         let scratch = tempfile::tempdir().expect("temp dir");
 
-        let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
 
         assert_eq!(removed, Vec::<PathBuf>::new());
         assert!(!scratch.path().join("queues").exists(), "nothing made");
@@ -424,7 +453,7 @@ mod tests {
     fn a_drop_after_the_removal_makes_the_queue_again() {
         let scratch = tempfile::tempdir().expect("temp dir");
         let location = used(scratch.path(), "work");
-        prune_empty_queues(scratch.path(), true).expect("prunes");
+        prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
 
         crate::queue::drop_session(&location, "batch", b"{}", false).expect("dropped");
 

@@ -337,3 +337,45 @@ fn queues_that_cannot_be_listed_fail_the_prune() {
         "{output:?}"
     );
 }
+
+#[test]
+fn a_dry_run_lists_the_queue_that_the_removal_would_leave_empty() {
+    let sandbox = Sandbox::new();
+    let output = sandbox
+        .asqr()
+        .args(["--queue", "work", "paths", "--json"])
+        .output()
+        .expect("runs");
+    let paths: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("JSON");
+    let work = QueueLocation::at(paths["queue"].as_str().expect("a queue"));
+    work.create_layout().expect("layout");
+    let old = loose(&work, "old", 400);
+
+    let dry = sandbox
+        .asqr()
+        .args(["--queue", "work", "prune", "--older-than", "90d"])
+        .output()
+        .expect("runs");
+    let real = sandbox
+        .asqr()
+        .args(["--queue", "work", "prune", "--older-than", "90d", "--yes"])
+        .output()
+        .expect("runs");
+
+    let would: Vec<String> = stdout(&dry)
+        .lines()
+        .filter_map(|line| line.strip_prefix("would remove "))
+        .map(str::to_owned)
+        .collect();
+    let did: Vec<String> = stdout(&real)
+        .lines()
+        .filter_map(|line| line.strip_prefix("removed "))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(would, did, "the dry run lists what --yes removes");
+    assert!(would.contains(&old.display().to_string()));
+    assert!(
+        would.contains(&work.dir().display().to_string()),
+        "{would:?}"
+    );
+}

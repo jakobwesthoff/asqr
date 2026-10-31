@@ -1077,7 +1077,9 @@ makes the exit code 1.
   queue's directory last; each queue prints like a file does, as `would
   remove <directory>` or `removed <directory>`. The default queue goes too when it holds nothing, and is
   made again on its next use. Which queues go does not depend on
-  `--queue` or `--dir`.
+  `--queue` or `--dir`. Without `--yes`, a queue counts as empty if
+  removing the files listed for the chosen queue would leave it empty, so
+  the list is what `--yes` removes.
 
 ### 5.10 Withdrawing a session
 
