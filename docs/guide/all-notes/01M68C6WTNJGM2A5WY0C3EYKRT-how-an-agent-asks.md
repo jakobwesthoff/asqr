@@ -34,8 +34,8 @@ writes no text into your fields. The new session counts as started: `ask`
 of its id is refused, also with `--force`, and replacing it again takes
 `--replaces` with `--force`. The hint `ask --replaces` prints says whether
 anything was carried, and the `draft` of the old result still holds your
-answers and notes. What you see is described in [Review and
-submit](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md).
+answers and notes. What you see is described in [Review, submit and come back
+later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md).
 
 `asqr status --json` lists the waiting sessions and the latest answered
 ones, to find a session an agent lost track of. Every command with its

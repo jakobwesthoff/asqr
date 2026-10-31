@@ -74,8 +74,8 @@ their questions apart.
 ## Can I stop in the middle?
 
 Yes. `q` quits asqr and keeps your answers as a draft, and asqr shows
-them again when it shows the session the next time. [Review and
-submit](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) says more.
+them again when it shows the session the next time. [Review, submit and come back
+later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) says more.
 
 ## What if I do not want to answer a session?
 
@@ -83,8 +83,8 @@ On the review tab, type a reason into the Reject field and press `enter`.
 Your agent gets the reason. If you answered in the chat instead, tell your
 agent: it takes the session back with `asqr withdraw`, after checking with
 you if you had started on it in asqr, and the session leaves your screen
-with a notice. [Review and
-submit](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) shows both.
+with a notice. [Review, submit and come back
+later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) shows both.
 
 ## What does my agent get back?
 
