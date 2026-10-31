@@ -8,7 +8,7 @@
 //! of each file.
 
 pub mod apply;
-mod places;
+pub(crate) mod places;
 pub mod processor;
 pub mod record;
 pub mod snapshot;

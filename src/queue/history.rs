@@ -58,6 +58,18 @@ pub struct EntryRef {
 }
 
 impl EntryRef {
+    /// Where the entry lies, for a message: the loose file's path, or the
+    /// bundle's with the entry's name.
+    pub fn place_text(&self) -> String {
+        match &self.place {
+            EntryPlace::Loose(path) => path.display().to_string(),
+            EntryPlace::Bundled(month, name) => format!(
+                "{} ({name})",
+                super::bundle::bundle_path(&self.queue, *month).display()
+            ),
+        }
+    }
+
     /// What a person types to name this entry: the last eight characters
     /// of its ULID, which are random bits.
     pub fn reference(&self) -> String {
@@ -277,6 +289,54 @@ pub fn list_history(
     let total = sessions.len();
     sessions.truncate(limit.unwrap_or(usize::MAX));
 
+    let entries = pair(location, sessions, &results, &mut unreadable)
+        .into_iter()
+        .map(|paired| paired.entry)
+        .collect();
+    Ok(History {
+        entries,
+        total,
+        unreadable,
+    })
+}
+
+/// A session of the list with the result that answers it.
+pub(super) struct PairedEntry {
+    pub entry: HistoryEntry,
+    pub result: Option<SessionResult>,
+}
+
+/// The entry `entry` names, with its result, and the bundles that could
+/// not be read on the way. Pairing considers every session of the same id,
+/// since several can claim one result.
+pub(super) fn paired_entry(entry: &EntryRef) -> io::Result<(PairedEntry, Vec<BundleError>)> {
+    let Scan {
+        sessions,
+        results,
+        mut unreadable,
+    } = scan(&entry.queue)?;
+    let id = entry.id.to_ascii_lowercase();
+    let same_id: Vec<EntryRef> = sessions
+        .into_iter()
+        .filter(|session| session.id.to_ascii_lowercase() == id)
+        .collect();
+    let paired = pair(&entry.queue, same_id, &results, &mut unreadable)
+        .into_iter()
+        .find(|paired| paired.entry.entry.ulid == entry.ulid)
+        .ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "the session is no longer listed")
+        })?;
+    Ok((paired, unreadable))
+}
+
+/// Reads `sessions` and the results that may answer them, and pairs each
+/// session with its result.
+fn pair(
+    location: &QueueLocation,
+    sessions: Vec<EntryRef>,
+    results: &[ResultRef],
+    unreadable: &mut Vec<BundleError>,
+) -> Vec<PairedEntry> {
     let mut readers = Readers::default();
     let contents: Vec<SessionContent> = sessions
         .iter()
@@ -284,7 +344,7 @@ pub fn list_history(
             let bytes = match &entry.place {
                 EntryPlace::Loose(path) => std::fs::read(path).ok(),
                 EntryPlace::Bundled(month, name) => {
-                    readers.read(location, *month, name, &mut unreadable)
+                    readers.read(location, *month, name, unreadable)
                 }
             };
             SessionContent::of(bytes.as_deref())
@@ -312,7 +372,7 @@ pub fn list_history(
                     .map(|bytes| (bytes, modified))
             }
             ResultPlace::Bundled(month, name, ulid) => readers
-                .read(location, *month, name, &mut unreadable)
+                .read(location, *month, name, unreadable)
                 .map(|bytes| (bytes, ulid.datetime())),
         };
         let Some((bytes, modified)) = read else {
@@ -358,31 +418,29 @@ pub fn list_history(
         }
     }
 
-    let entries = sessions
+    sessions
         .into_iter()
         .zip(contents)
         .zip(paired)
         .map(|((entry, content), paired)| {
             let result = paired.map(|position| &candidates[position]);
-            HistoryEntry {
-                finished: result.map_or_else(|| entry.ulid.datetime(), |found| found.finished),
-                outcome: result.map_or(HistoryOutcome::NoResult, |found| {
-                    outcome_of(found.result.status)
-                }),
-                has_draft: result.is_some_and(|found| {
-                    found.result.status == Status::Withdrawn && found.result.draft.is_some()
-                }),
-                title: content.title,
-                files: content.files,
-                entry,
+            PairedEntry {
+                entry: HistoryEntry {
+                    finished: result.map_or_else(|| entry.ulid.datetime(), |found| found.finished),
+                    outcome: result.map_or(HistoryOutcome::NoResult, |found| {
+                        outcome_of(found.result.status)
+                    }),
+                    has_draft: result.is_some_and(|found| {
+                        found.result.status == Status::Withdrawn && found.result.draft.is_some()
+                    }),
+                    title: content.title,
+                    files: content.files,
+                    entry,
+                },
+                result: result.map(|found| found.result.clone()),
             }
         })
-        .collect();
-    Ok(History {
-        entries,
-        total,
-        unreadable,
-    })
+        .collect()
 }
 
 fn outcome_of(status: Status) -> HistoryOutcome {

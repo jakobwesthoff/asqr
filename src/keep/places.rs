@@ -16,7 +16,7 @@ use super::ShownKind;
 /// entries of every question and option, and both sides of a `diff`. An
 /// entry with inline `content` has no `path` and is not listed. The raw
 /// JSON is edited, not the typed session, so unknown fields survive.
-pub(super) fn places_mut(raw: &mut Value) -> Vec<(ShownKind, &mut Value)> {
+pub(crate) fn places_mut(raw: &mut Value) -> Vec<(ShownKind, &mut Value)> {
     let mut found = Vec::new();
     if let Some(questions) = raw.get_mut("questions").and_then(Value::as_array_mut) {
         for question in questions {

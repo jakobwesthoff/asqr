@@ -274,6 +274,8 @@ pub struct SessionState {
     id: String,
     session: Session,
     working: Vec<Working>,
+    /// A finished session shown again (see [`Self::is_read_only`]).
+    read_only: bool,
     /// The current tab; `session.questions.len()` is the review.
     tab: usize,
     row: usize,
@@ -339,6 +341,10 @@ impl SessionState {
     /// Answers in the draft are matched by question and option id; what no
     /// longer fits the session is dropped.
     pub fn new(id: impl Into<String>, session: Session, draft: Option<&SessionResult>) -> Self {
+        Self::build(id.into(), session, draft, false)
+    }
+
+    fn build(id: String, session: Session, draft: Option<&SessionResult>, read_only: bool) -> Self {
         let working = session
             .questions
             .iter()
@@ -368,9 +374,10 @@ impl SessionState {
             })
             .unwrap_or(0);
         let mut state = SessionState {
-            id: id.into(),
+            id,
             session,
             working,
+            read_only,
             tab,
             row: 0,
             focus: Focus::None,
@@ -402,6 +409,18 @@ impl SessionState {
         };
         state.arrive();
         state
+    }
+
+    /// The state of a finished session shown again, with the answers of
+    /// `draft`. Nothing in it can change: see [`Self::is_read_only`].
+    pub fn replay(id: impl Into<String>, session: Session, draft: Option<&SessionResult>) -> Self {
+        Self::build(id.into(), session, draft, true)
+    }
+
+    /// Whether this is a finished session shown again: no key changes an
+    /// answer, and nothing is saved or sent.
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
     }
 
     /// Takes over a session file that was replaced while it was open,
@@ -1286,6 +1305,18 @@ impl SessionState {
     // -----------------------------------------------------------------
 
     fn command(&mut self, key: KeyEvent) -> Effect {
+        // A replay looks and does not touch: the keys that pick, clear,
+        // note, edit or open another screen of the live session do
+        // nothing in it.
+        if self.read_only
+            && (is_ctrl_g(key)
+                || matches!(
+                    key.code,
+                    KeyCode::Backspace | KeyCode::Char(' ' | 'n' | 'L' | 'w' | ',' | '1'..='9')
+                ))
+        {
+            return Effect::None;
+        }
         // On a field's row left with `esc`, `ctrl-g` gives the field the
         // keys again, as a paste there does, and opens it in the editor.
         if is_ctrl_g(key) && self.current_row().is_some_and(Row::is_field) {
@@ -1358,6 +1389,13 @@ impl SessionState {
         let row = self
             .current_row()
             .expect("validation leaves every tab at least one row");
+        if self.read_only {
+            return match row {
+                Row::Option(_) | Row::Own | Row::Answer | Row::Next => self.go_to_tab(self.tab + 1),
+                Row::Question(index) => self.go_to_tab(index),
+                Row::Submit | Row::Note | Row::Reject => Effect::None,
+            };
+        }
         match row {
             Row::Option(index) if self.kind() == Some(Kind::Single) => self.pick(index),
             Row::Option(_) | Row::Answer | Row::Next => self.go_to_tab(self.tab + 1),
@@ -1413,7 +1451,12 @@ impl SessionState {
             0
         };
         self.arrive();
-        Effect::DraftChanged
+        // A replay has no draft to save.
+        if self.read_only {
+            Effect::None
+        } else {
+            Effect::DraftChanged
+        }
     }
 
     /// Focuses the field of the current row, if it is one, the text
@@ -1427,7 +1470,13 @@ impl SessionState {
     /// `from_above` holds: its field starts at the end of its first row
     /// (ADR 36).
     fn arrive_from(&mut self, from_above: bool) {
-        match self.row_text() {
+        // Nothing in a replay takes text, so no field takes the keys.
+        let text = if self.read_only {
+            None
+        } else {
+            self.row_text()
+        };
+        match text {
             Some(text) => {
                 self.field = Some(if from_above {
                     TextField::entered_from_above(text)
@@ -1639,6 +1688,9 @@ impl SessionState {
         self.message = None;
         if self.help {
             self.help = false;
+            return Effect::None;
+        }
+        if self.read_only {
             return Effect::None;
         }
         if self.pane_focus {
@@ -1873,6 +1925,9 @@ fn restored(question: &Question, answer: &Answer) -> Working {
         touched,
     }
 }
+
+#[cfg(test)]
+mod replay_tests;
 
 #[cfg(test)]
 mod tests {

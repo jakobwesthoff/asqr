@@ -126,20 +126,29 @@ impl OpenedFiles {
         }
     }
 
+    /// Writes a kept file of a replayed session under `name` in the run
+    /// directory and returns its path, which stays readable after the
+    /// archive changes and after asqr quits. The same name and bytes give
+    /// the same file again.
+    pub fn extract(&mut self, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
+        let key = (name.to_owned(), Sha256::digest(bytes).into());
+        if let Some(path) = self.written.get(&key).filter(|path| path.exists()) {
+            return Ok(path.clone());
+        }
+        let path = self.write_new(name, bytes)?;
+        self.written.insert(key, path.clone());
+        Ok(path)
+    }
+
     /// Writes `bytes` to a file named `name` in a directory of its own in
     /// the run directory, or finds the one written with them before.
     fn write(&mut self, name: String, bytes: &[u8]) -> Result<(PathBuf, String), String> {
-        let key = (name.clone(), Sha256::digest(bytes).into());
         // A person who edited that file in their app gets their edits: the
         // app may still show it, and a second copy would leave two.
-        if let Some(path) = self.written.get(&key).filter(|path| path.exists()) {
-            return Ok((path.clone(), name));
+        match self.extract(&name, bytes) {
+            Ok(path) => Ok((path, name)),
+            Err(error) => Err(format!("cannot write {name} to open it: {error}")),
         }
-        let path = self
-            .write_new(&name, bytes)
-            .map_err(|error| format!("cannot write {name} to open it: {error}"))?;
-        self.written.insert(key, path.clone());
-        Ok((path, name))
     }
 
     fn write_new(&mut self, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
@@ -449,6 +458,24 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use super::*;
+
+    #[test]
+    fn an_extracted_file_is_written_once_in_the_run_directory() {
+        let (_scratch, mut opened) = scratch();
+
+        let first = opened.extract("Makefile", b"all:\n").expect("written");
+        let again = opened.extract("Makefile", b"all:\n").expect("found");
+        let other = opened.extract("Makefile", b"clean:\n").expect("written");
+
+        assert_eq!(fs::read(&first).expect("readable"), b"all:\n");
+        assert_eq!(first.file_name().expect("a name"), "Makefile");
+        assert_eq!(first, again, "the same bytes give the same file");
+        assert_ne!(
+            first, other,
+            "other bytes under one name get a file of their own"
+        );
+        assert!(first.is_absolute());
+    }
 
     /// A scratch directory, and the files `o` writes under `asqr` in it.
     fn scratch() -> (tempfile::TempDir, OpenedFiles) {

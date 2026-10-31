@@ -60,3 +60,37 @@ file's own bytes. Candidates come from the outbox, from the results `ask
 identical bytes are told apart by time: the oldest session takes the
 latest matching result finished at or before it was archived, and each
 result answers one session.
+
+### Loading an entry
+
+- The session is the archived file, read from its loose place or from its
+  month bundle. If the loose file has gone into the bundle meanwhile, it is
+  read there. A session that does not parse or validate ends the replay
+  with an error that names the file or bundle, and a bundle that cannot be
+  read ends it with an error that names the bundle.
+- The answers come from the paired result: those of a `submitted` or
+  `cancelled` result, and the unsent `draft` of a `withdrawn` one. A
+  question the person skipped shows no pick, also where it has a default.
+  An `error` result and an entry without a result start empty.
+- Each kept file the session shows is read from `archive/files/` or from
+  the bundle, checked against the SHA-256 in its name and written once
+  into the run directory that `o` uses for the files it hands to the
+  opener (a directory per run, 0700, kept for a day after the run ends).
+  The session's paths then point at those copies, so the replay and `o` do
+  not depend on the archive afterwards. A kept file whose copy is missing,
+  damaged or named other than `files/<64 hex>.<extension>` is not
+  extracted and the replay records why. Only the files the session shows
+  are read, never the whole bundle.
+- A file kept under the extension `dat` is written out under the name it
+  had, since the viewers pick a language from the name.
+- Measured on a bundled session that kept the six largest images of the
+  research corpus (31 MB of originals, 3 MB of WebP copies), loading took
+  about 4 ms.
+
+### Read-only
+
+A replayed session starts on its first question. `space`, `1` to `9`, `n`, `backspace`, `L`, `w`, `,`, `ctrl-g`,
+typing and paste do nothing, no field takes the keys, and no key asks the
+app to save a draft. `enter` moves to the next question and, on the last
+one, to the last tab, where it does nothing. Moving between questions and
+rows, `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` keep their meaning.
