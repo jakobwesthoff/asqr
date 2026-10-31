@@ -1586,8 +1586,9 @@ entry's archive ULID, of which 6 or more are accepted, in any case.
   beside the asqr that watches the queue. It rings no bell, sends no
   notification and has no key that answers a session waiting in the
   queue; it counts those sessions in the title bar and says in the status
-  line where to answer them. The terminal title is `asqr replay <REF>`
-  and no progress is reported.
+  line where to answer them. A session that the watching asqr archives
+  while they are counted is not counted and no error. The terminal title
+  is `asqr replay <REF>` and no progress is reported.
 - It ends with exit code 0 when the person quits, never with 10 to 14.
 
 ### 6.6 Exit codes
