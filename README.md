@@ -53,6 +53,9 @@ or from a clone of this repository:
 
     cargo install --path .
 
+Both build libwebp, which is C code, so they need a C compiler (Xcode's
+command line tools on macOS, `cc` or `gcc` on Linux).
+
 Every GitHub release also carries prebuilt binaries for macOS (Apple
 silicon and Intel) and Linux (x86_64 and aarch64).
 

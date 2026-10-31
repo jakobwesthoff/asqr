@@ -16,6 +16,8 @@ Amended by [91. Rotate the log at 1 MiB and keep old logs compressed](0091-rotat
 
 Amended by [96. Bundle finished sessions and results per month in a zip](0096-bundle-finished-sessions-and-results-per-month-in-a-zip.md)
 
+Amended by [100. Keep the files a finished session showed](0100-keep-the-files-a-finished-session-showed.md)
+
 ## Context
 
 The tool uses clap, anyhow and thiserror, and other crates where they

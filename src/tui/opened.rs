@@ -17,14 +17,14 @@ use std::collections::HashMap;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use sha2::{Digest, Sha256};
-use two_face::re_exports::syntect::parsing::{SyntaxReference, SyntaxSet};
+use two_face::re_exports::syntect::parsing::SyntaxReference;
 
 use super::render::{unified_text, unopenable};
 use crate::format::{CodeEntry, ContextEntry, DiffEntry, MarkdownEntry};
+use crate::syntaxes::SYNTAXES;
 
 /// How long the files of a run that ended stay before a start of asqr
 /// removes them. An app may still show such a file after asqr quit; the
@@ -41,12 +41,6 @@ const RUN_PREFIX: &str = "run-";
 
 /// How many characters of a title name a written file at most.
 const NAME_CHARS: usize = 60;
-
-/// The syntaxes the code viewer highlights with, through patine, which
-/// keeps its own copy private. They decide a written code file's
-/// extension, so the app the system picks by it agrees with the
-/// highlighting. Loaded at the first `o` that needs them.
-static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
 
 /// The files asqr writes for the opener: a run directory of their own
 /// under one directory per user in the system's temp directory, kept after
