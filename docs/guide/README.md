@@ -15,12 +15,13 @@ reading order. The pictures are in `pictures/`.
 
 ### Answering
 
-- [The screen](all-notes/01M68BT9AJHW7WX304EQKGBGF6-the-screen.md)
-- [Questions and answers](all-notes/01M68BT9AXJNJQR45K1FBR9VTG-questions-and-answers.md)
-- [The context pane](all-notes/01M68BT9B5R7ASMVGW9SHK8MB2-the-context-pane.md)
-- [Looking at an entry](all-notes/01M68BT9BDTGM96WSRXRSYFZKY-looking-at-an-entry.md)
-- [Review and submit](all-notes/01M68BT9BMFVCVEAACWR03B827-review-and-submit.md)
-- [Less obvious keys](all-notes/01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md)
+- [Answering a session](all-notes/01M6916HYT9Z4N422AX47A8JQH-answering-a-session.md)
+- [Context: files, diffs and images](all-notes/01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md)
+- [Review, submit and come back later](all-notes/01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md)
+- [The screen](all-notes/01M68BT9AJHW7WX304EQKGBGF6-the-screen.md), details of answering a session
+- [Questions and answers](all-notes/01M68BT9AXJNJQR45K1FBR9VTG-questions-and-answers.md), details of answering a session
+- [The context pane in detail](all-notes/01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md), details of the context pane
+- [Less obvious keys](all-notes/01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md), details of answering a session
 
 ### Queues and settings
 

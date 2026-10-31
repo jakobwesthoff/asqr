@@ -2,9 +2,7 @@
 title: "The screen"
 tags: [guide/answer]
 site:
-  index: true
-  label: Answering
-  order: 2
+  order: 4
 ---
 asqr draws a session as a stack of rows over the full width of the
 terminal. This page names the parts of the screen from the top down.
@@ -19,7 +17,7 @@ terminal. This page names the parts of the screen from the top down.
    session it follows. A session that continues the draft of one it
    replaced adds a dim line of its own, `continues your draft of "<title>"`,
    with the id where the earlier session had no title. [Review and
-   submit](01M68BT9BMFVCVEAACWR03B827-review-and-submit.md) says when that
+   submit](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) says when that
    happens.
 3. **The intro.** The session's introduction, at most two lines. A longer
    intro is cut and ends in `… i: more`, and `i` shows all of it.

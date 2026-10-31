@@ -1,13 +1,55 @@
 ---
-title: "Looking at an entry"
+title: "The context pane in detail"
 tags: [guide/answer]
 site:
-  order: 4
+  order: 6
 ---
-The material in the context pane is an entry. An entry is a diff, a piece
-of code, Markdown, text in the colours of its escape sequences or an
-image. This page shows how asqr draws each kind and what `z`, `o` and `s`
-do with an entry.
+Details of [Context: files, diffs and
+images](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md):
+where the pane stands, its rules and focus, how asqr draws each kind of
+entry, and what `z`, `o` and `s` do with it.
+
+## Beside or below
+
+asqr puts the pane beside the question on a wide terminal and below it on
+a tall one. With the default setting, `auto`, the pane goes beside where
+the area is landscape, which is where its width divided by twice its
+height is at least 1, and below where it is portrait. A terminal of
+120 by 40 or 230 by 60 gets the pane beside, and one of 110 by 70 or
+90 by 50 gets it below. The pane fits beside on a terminal of 103 columns
+or more, and below where the area under the tab bar has 15 rows or more.
+
+![The context pane below the question](../pictures/context-below.png)
+
+You can fix the place. `--layout beside` or `--layout below` on the
+command line, or the variable `ASQR_LAYOUT`, or the `Context` setting in
+`settings.toml` does it. A flag wins over the variable and the variable
+over the file. asqr uses the other place when only that one fits.
+
+When neither place fits, the pane shrinks to one line at the bottom. It
+names the entry and says `z: full screen`.
+
+
+## The rules around the pane
+
+The pane's first line is a rule with the entry's name in bold: its title,
+or the file name of its path, or its kind when it has neither. The last
+line is a rule too. When the entry is taller than the pane it says which
+lines show, such as `1–20 of 53`, and it names `tab` when the entry is
+taller or wider than the pane.
+
+## Moving into the pane
+
+`tab` or `shift-tab` moves the focus into the pane, also from a field. A
+focused pane takes every key. The arrow keys, or `j` and `k`, scroll it
+by a line, and the pane's name shows the focus fill while its rules turn
+yellow. `tab`, `shift-tab`, `esc` or `q` give the focus back to where it
+was.
+
+![The context pane with the focus after tab: its rules and name turn yellow](../pictures/pane-focused.png)
+
+The keys that scroll the pane without moving into it are on the page about
+the [less obvious keys](01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md).
 
 ## Full screen
 
@@ -70,6 +112,14 @@ terminal only when tmux passes escape sequences through: put
 `set -g allow-passthrough all` into your tmux configuration. Without it
 asqr shows images as coarse blocks.
 
+asqr scales an image to fill the pane as far as its proportions allow. An
+entry the asker marked with `"enlarge": false` keeps its natural size and
+only shrinks to fit. A caption shows under the image, after a blank row,
+and the image takes the rows the caption leaves, so both always show
+together. Where that leaves the image fewer than 3 rows, the pane shows the
+caption alone under a dim `z shows the image`. `z` shows the image alone,
+full screen.
+
 ![An image entry with its caption beside the question, as a terminal with graphics shows it](../pictures/context-image.png)
 
 ## Open in another app
@@ -93,6 +143,13 @@ that fails, with `old side: ` or `new side: ` before the reason.
 `asqr validate` and `asqr ask` warn the agent about these files before you
 meet the card: `cannot be shown:` and the card's reason for the files above,
 "file not found" for a missing one.
+
+## Large entries
+
+asqr cuts a file after 8 MiB and a text after 500,000 lines, shows
+Markdown above 1 MiB as plain text and stops highlighting after line
+50,000. [Limits](01M68CASM4YTGM03NS3CKQS28G-limits.md) lists each limit and
+the note asqr shows.
 
 ## Slow entries
 

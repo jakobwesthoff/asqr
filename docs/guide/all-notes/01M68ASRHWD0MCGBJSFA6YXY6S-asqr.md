@@ -40,8 +40,9 @@ own diff, so you see what each choice would change:
   and takes you through a first session with your own agent.
 - [Common questions](01M690YKZXCMGCA31H3HTHFYJE-common-questions.md)
   answers what new users ask, such as why asqr needs no MCP server.
-- [The screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md) and the pages
-  after it explain answering in detail.
+- [Answering a session](01M6916HYT9Z4N422AX47A8JQH-answering-a-session.md)
+  covers what you need for most sessions, and the pages after it the
+  details.
 - [How an agent asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
   shows what your agent writes and what it gets back.
 - [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) keeps the questions of

@@ -141,5 +141,6 @@ you rejected. `asqr result "$id"` looks once and does not wait.
 
 - [Common questions](01M690YKZXCMGCA31H3HTHFYJE-common-questions.md)
   answers what new users ask.
-- [The screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md) and the pages
-  after it explain every screen and every key.
+- [Answering a session](01M6916HYT9Z4N422AX47A8JQH-answering-a-session.md)
+  covers what you need for most sessions, and the pages after it the
+  details.

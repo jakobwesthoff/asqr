@@ -2,7 +2,7 @@
 title: "Less obvious keys"
 tags: [guide/answer]
 site:
-  order: 6
+  order: 7
 ---
 Most keys do what the key bar says. These do more than it shows, or act
 differently depending on where the cursor is.
