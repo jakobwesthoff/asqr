@@ -22,8 +22,8 @@ or more, and below where the area under the tab bar has 15 rows or more.
 ![The context pane below the question](../pictures/context-below.png)
 
 You can fix the place. `--layout beside` or `--layout below` on the
-command line, or the variable `ASQR_LAYOUT`, or the `Context` setting in
-`settings.toml` does it. A flag wins over the variable and the variable
+command line, or the variable `ASQR_LAYOUT`, or the `context` key of
+`settings.toml`, the `Context` row of the settings pane, does it. A flag wins over the variable and the variable
 over the file. asqr uses the other place when only that one fits.
 
 When neither place fits, the pane shrinks to one line at the bottom. It

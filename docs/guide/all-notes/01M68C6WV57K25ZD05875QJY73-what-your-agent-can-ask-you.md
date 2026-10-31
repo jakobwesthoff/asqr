@@ -29,8 +29,8 @@ make a task a reason to use asqr without your request.
 ## Decide before implementing
 
 One question for each open point. What the agent settled that bears on
-several questions, and that you need to know, comes first in short info
-items. The recommended option stands first and is the default. Each option
+several questions, and that you need to know, comes in short info items
+just before the questions it bears on, or first where it bears on none. The recommended option stands first and is the default. Each option
 has a short trade-off as its description, and the current state or the
 option's own diff is the context.
 
