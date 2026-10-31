@@ -3,7 +3,6 @@ title: "Let a session preset own text and a note"
 kind: feature
 component: format
 status: needs-discussion
-horizon: someday
 origin: review
 ---
 # Let a session preset own text and a note
@@ -44,11 +43,17 @@ same day.
 - Whether a preset own text on a `single` starts as the pick, as a
   default option does.
 
-## Parked (Jakob, 2026-10-30, in the chat)
+## Decisions
 
-Not now. The feature needs more thinking about how to keep an agent
-from misusing it: a preset text looks like the person's own words, and
-an agent could fill in answers the person never wrote.
+- **Parked (Jakob, 2026-10-30, in the chat).** The feature needs more
+  thinking about how to keep an agent from misusing it: a preset text
+  looks like the person's own words, and an agent could fill in answers
+  the person never wrote.
+- **Resumed with a safeguard (Jakob, 2026-10-31, in the chat).** The
+  feature goes ahead only with a result flag that marks a preset the
+  person sent unchanged, as `defaulted` does for options, and with a
+  start in which the preset is not picked. Rejected: keeping it parked.
+  The detail questions above follow.
 
 ## Checked on main 1dcae03 (lead, 2026-10-30)
 
@@ -67,8 +72,3 @@ an agent could fill in answers the person never wrote.
 - The file does not record that a session replaces another
   (`ask --replaces` is a flag), so "replacement sessions only" cannot
   be checked from the file alone.
-
-## Revisit when
-
-A design exists that keeps an agent from presetting text the person
-never wrote, or replacements that lose typed text become frequent.

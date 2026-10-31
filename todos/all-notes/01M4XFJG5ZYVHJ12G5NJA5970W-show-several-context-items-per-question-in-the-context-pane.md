@@ -63,6 +63,13 @@ recommendation first:
 - An option's items: replace the question's while the cursor is on the
   option, as today; come in front of the question's.
 
+On 2026-10-31 Jakob kept the todo parked again (in the chat). The lead's
+check that day: the work touches the same pane code as the caption
+full-screen key (todo 01M620FQQ4ZP4SDK3FYDPHPJNT) and images partly
+scrolled off (todo 01M621K2HGAK8EDMX4T1RVXPAY), and `,` now opens the
+settings pane (ADR 92), so of the switch keys above only `ctrl-n`/`ctrl-p`,
+the digits and `.` remain free.
+
 Not yet asked: whether switching stops or wraps at the first and last
 item, which item shows when the cursor returns to a row (the last shown
 or the first), and how an item without a title is named in the strip.

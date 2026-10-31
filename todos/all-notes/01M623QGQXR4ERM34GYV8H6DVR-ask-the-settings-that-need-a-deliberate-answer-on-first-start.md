@@ -41,6 +41,16 @@ need a deliberate answer before they take effect: keeping files (the
 - **The screen does not run for commands agents call** (`ask`, `wait`,
   `result` and so on), only for the TUI.
 
+## Decision (Jakob, 2026-10-31, in the chat)
+
+- **The screen is built now, with keeping files as its only setting.**
+  The update check joins it when that todo is done. Rejected: a one-time
+  line in the status line instead of a screen, and parking the screen
+  until the update check. The lead had noted that accepting the default
+  changes nothing, since `compact` is already the default.
+- **The texts are written together with Jakob** before the screen is
+  implemented, as decided on 2026-10-30.
+
 ## What the settings need
 
 - Keeping files: `compact`, `exact` or `off`, default `compact` (the
