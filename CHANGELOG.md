@@ -165,6 +165,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its frame into whatever room there was.
 - The start picker draws without colours under `NO_COLOR`, keeping bold and
   dim, as the rest of the TUI does. Before, it kept its colours.
+- A key in `settings.toml` that asqr does not know, a table too, is a
+  warning in the log that names it, as the spec says. Before, it was
+  ignored without a word.
 
 ## [0.15.0] - 2026-10-30
 

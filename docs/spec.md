@@ -808,7 +808,8 @@ four keys, each of which may be left out:
   that cannot be read or does not parse gives every default. A key whose
   value is none of those in the table gives that setting's default and
   leaves the other settings as the file has them. A key asqr does not
-  know is ignored. Each case is a warning in the log. The status line
+  know, a table included, is ignored, and the warning names it. Each case
+  is a warning in the log. The status line
   shows it when the TUI starts, unless a notice is showing already; for
   several problems it reads `settings.toml: N problems, the defaults
   apply (see the log)`. A settings file never stops a command.

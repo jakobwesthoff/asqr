@@ -450,7 +450,7 @@ fn read_file(path: &Path) -> (Settings, Vec<String>) {
 /// The settings `text` holds. A text that is no TOML gives every default,
 /// and a key whose value is none of the setting's gives that setting's
 /// default, so one wrong line never costs the others. Keys asqr does not
-/// know are left alone.
+/// know are left alone and named in a warning.
 fn parse(text: &str) -> (Settings, Vec<String>) {
     let document = match text.parse::<DocumentMut>() {
         Ok(document) => document,
@@ -511,6 +511,14 @@ fn parse(text: &str) -> (Settings, Vec<String>) {
             &mut warnings,
         ),
     };
+    // A table counts as a key too: the file holds nothing asqr reads there.
+    for (key, _) in document.iter() {
+        if !Setting::ALL.iter().any(|setting| setting.key() == key) {
+            warnings.push(format!(
+                "{FILE_NAME}: {key} is not a setting asqr knows; it is ignored"
+            ));
+        }
+    }
     (settings, warnings)
 }
 
@@ -809,16 +817,33 @@ mod tests {
     }
 
     #[test]
-    fn unknown_keys_and_tables_and_an_empty_file_are_fine() {
-        for text in [
-            "",
-            "\n# only a comment\n",
-            "colour = \"red\"\n[later]\nkeep_files = \"compact\"\n",
-        ] {
+    fn an_empty_file_and_a_comment_are_fine() {
+        for text in ["", "\n# only a comment\n"] {
             let (loaded, _scratch) = loaded(text.as_bytes());
             assert_eq!(loaded.store.effective(), defaults(), "{text:?}");
             assert_eq!(loaded.warnings, Vec::<String>::new(), "{text:?}");
         }
+    }
+
+    #[test]
+    fn an_unknown_key_or_table_is_ignored_with_a_warning_naming_it() {
+        let (loaded, _scratch) =
+            loaded(b"colour = \"red\"\nkeep_files = \"off\"\n[later]\nkeep_files = \"compact\"\n");
+
+        assert_eq!(
+            loaded.store.effective(),
+            Settings {
+                keep_files: KeepFiles::Off,
+                ..defaults()
+            }
+        );
+        assert_eq!(
+            loaded.warnings,
+            [
+                "settings.toml: colour is not a setting asqr knows; it is ignored",
+                "settings.toml: later is not a setting asqr knows; it is ignored",
+            ]
+        );
     }
 
     #[test]
