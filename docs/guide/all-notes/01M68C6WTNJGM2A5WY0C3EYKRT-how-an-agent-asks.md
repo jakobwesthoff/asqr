@@ -30,6 +30,14 @@ only answer in asqr.
 ones, to find a session an agent lost track of. Every command with its
 flags is on the page [Commands](01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md).
 
+`asqr validate` and `asqr ask` print warnings on stderr and do not fail for
+them. They warn about fields they do not know, a relative path in a context
+entry (`validate` only, as `ask` resolves it), a file that does not exist or
+is no regular file, a file the viewer shows a red card for, an entry above 1
+MiB, and a `note` on a question or an info item. Every question takes a
+note, so asqr ignores the `note` field of a question, whatever its value,
+and `ask` removes it from the copy it puts into the inbox.
+
 An agent reads earlier sessions too. `asqr history --json` lists the
 finished sessions, `asqr replay <ref> --json` prints one with its result and
 the state of each file it showed, and `asqr replay <ref> --extract <dir>`
