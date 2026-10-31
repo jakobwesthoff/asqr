@@ -91,7 +91,7 @@ impl MemoryBudget {
     /// Takes `bytes` and says whether they were there.
     fn claim(&self, bytes: u64) -> bool {
         self.unclaimed
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(bytes)
             })
             .is_ok()
