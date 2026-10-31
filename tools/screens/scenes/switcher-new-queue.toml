@@ -1,5 +1,5 @@
 caption = "Typing the name of a new queue in the queue switcher"
-columns = 80
+columns = 94
 rows = 24
 queue = "asqr-todos"
 keys = ["w", "j", "j", { text = "my-project" }]

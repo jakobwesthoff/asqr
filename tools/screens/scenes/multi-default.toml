@@ -1,5 +1,5 @@
 caption = "A multiple choice with its default option checked and a second option toggled"
-columns = 80
+columns = 94
 rows = 24
 keys = ["enter", "j", "space"]
 

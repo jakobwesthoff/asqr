@@ -1,5 +1,5 @@
 caption = "Typing an own answer on the last row of a multiple choice"
-columns = 80
+columns = 94
 rows = 24
 keys = ["enter", "j", "j", "j", { text = "Mastodon" }]
 

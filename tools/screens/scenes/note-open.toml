@@ -1,5 +1,5 @@
 caption = "A note typed on a question"
-columns = 80
+columns = 94
 rows = 24
 keys = ["n", { text = "Ask me again after the weekend." }]
 

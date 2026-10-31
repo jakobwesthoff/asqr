@@ -1,5 +1,5 @@
 caption = "The Result tab of a replay: how the session ended and every answer"
-columns = 80
+columns = 94
 rows = 24
 keys = ["enter", "enter", "enter"]
 

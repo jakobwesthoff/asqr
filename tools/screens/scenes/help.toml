@@ -1,5 +1,5 @@
 caption = "The help over a session, with the screen behind it dimmed"
-columns = 80
+columns = 94
 rows = 24
 keys = ["?"]
 

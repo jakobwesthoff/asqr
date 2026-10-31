@@ -1,5 +1,5 @@
 caption = "The list of the sessions waiting in the queue"
-columns = 80
+columns = 94
 rows = 24
 keys = ["L"]
 

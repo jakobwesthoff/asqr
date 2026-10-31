@@ -1,5 +1,5 @@
 caption = "The context pane below the question"
-columns = 100
+columns = 116
 rows = 36
 layout = "below"
 

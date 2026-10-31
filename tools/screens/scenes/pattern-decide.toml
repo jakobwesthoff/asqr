@@ -1,5 +1,5 @@
 caption = "A decision before implementing: each option shows its own diff"
-columns = 120
+columns = 140
 rows = 30
 keys = ["l"]
 

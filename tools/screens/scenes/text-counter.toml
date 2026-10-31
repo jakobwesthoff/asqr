@@ -1,5 +1,5 @@
 caption = "A text question whose length counter shows the answer is inside the target range"
-columns = 80
+columns = 94
 rows = 24
 keys = ["enter", "enter", { text = "Startup is twice as fast, and a new --quiet flag silences it." }]
 

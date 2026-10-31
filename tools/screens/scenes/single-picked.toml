@@ -1,5 +1,5 @@
 caption = "A single choice with the second option picked, after going back to the question"
-columns = 80
+columns = 94
 rows = 24
 keys = ["j", "enter", "h"]
 

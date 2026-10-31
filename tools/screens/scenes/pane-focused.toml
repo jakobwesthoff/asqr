@@ -1,5 +1,5 @@
 caption = "The context pane with the focus after tab: its rules and name turn yellow"
-columns = 120
+columns = 140
 rows = 30
 keys = ["tab"]
 

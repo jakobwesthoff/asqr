@@ -70,6 +70,8 @@ terminal only when tmux passes escape sequences through: put
 `set -g allow-passthrough all` into your tmux configuration. Without it
 asqr shows images as coarse blocks.
 
+![An image entry with its caption beside the question, as a terminal with graphics shows it](../pictures/context-image.png)
+
 ## Open in another app
 
 `o` opens the entry shown with the system's opener, `open` on macOS and

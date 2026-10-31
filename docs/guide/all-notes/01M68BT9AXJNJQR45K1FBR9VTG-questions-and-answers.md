@@ -66,7 +66,7 @@ An info item shows a text and its context and asks nothing. Its hint reads
 "nothing to answer", and it has one row, `next`, where `enter` moves on.
 You can still write a note on it.
 
-![An info item, which shows text and context and takes only a note](../pictures/info-item.png)
+![An info item, which shows a text and takes only a note](../pictures/info-item.png)
 
 ## Notes
 

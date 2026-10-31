@@ -36,7 +36,7 @@ that names it.
 # What the picture shows; index.md shows it under the picture.
 caption = "The queue switcher over a session, inside tmux"
 # The terminal's size in cells.
-columns = 80
+columns = 94
 rows = 24
 # Where the context pane goes, as asqr's --layout: auto, beside or below.
 # Optional, auto by default.
