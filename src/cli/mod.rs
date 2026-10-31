@@ -757,31 +757,26 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let config = scratch.path().join("settings.toml");
         std::fs::write(&config, "context =\n").expect("written");
-        for command in ["paths", "new"] {
-            let cli = Cli::try_parse_from([
-                "asqr",
-                "--dir",
-                scratch
-                    .path()
-                    .join("queue")
-                    .to_str()
-                    .expect("UTF-8 temp path"),
-                command,
-            ])
-            .expect("parses");
-
-            assert_eq!(
-                dispatch(
-                    cli,
-                    Environment::default(),
-                    &Unasked,
-                    None,
-                    Some(config.clone()),
-                    |_| unreachable!("no TUI for {command}")
-                ),
-                Exit::Success,
-                "{command}"
+        let queue = scratch.path().join("queue");
+        let queue = queue.to_str().expect("UTF-8 temp path");
+        let reads_for = |command: &str| {
+            let before = crate::settings::file_reads_on_this_thread();
+            let cli = Cli::try_parse_from(["asqr", "--dir", queue, command]).expect("parses");
+            let exit = dispatch(
+                cli,
+                Environment::default(),
+                &Unasked,
+                None,
+                Some(config.clone()),
+                |_| Exit::Success,
             );
+            assert_eq!(exit, Exit::Success, "{command}");
+            crate::settings::file_reads_on_this_thread() - before
+        };
+
+        assert_eq!(reads_for("watch"), 1, "watching reads the file once");
+        for command in ["paths", "new", "status"] {
+            assert_eq!(reads_for(command), 0, "{command} leaves the file alone");
         }
     }
 

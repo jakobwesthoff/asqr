@@ -385,9 +385,23 @@ fn write_setting(path: &Path, setting: Setting, values: &Settings) -> Result<(),
         .map_err(|error| io("write", error))
 }
 
+#[cfg(test)]
+thread_local! {
+    static FILE_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread read a settings file, which tests ask to see
+/// that a command leaves the file alone.
+#[cfg(test)]
+pub(crate) fn file_reads_on_this_thread() -> usize {
+    FILE_READS.with(std::cell::Cell::get)
+}
+
 /// Reads the settings from the file at `path`: a file that is not there
 /// holds none, and one that cannot be read gives every default.
 fn read_file(path: &Path) -> (Settings, Vec<String>) {
+    #[cfg(test)]
+    FILE_READS.with(|reads| reads.set(reads.get() + 1));
     match std::fs::read_to_string(path) {
         Ok(text) => parse(&text),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -542,6 +556,15 @@ mod tests {
 
     fn defaults() -> Settings {
         Settings::default()
+    }
+
+    /// Whether the tests run as root, who reads and writes through the
+    /// mode bits that the tests below set to refuse a file or a directory
+    /// to its owner. They end early for root, as they would find nothing
+    /// refused.
+    #[cfg(unix)]
+    fn running_as_root() -> bool {
+        rustix::process::geteuid().is_root()
     }
 
     #[test]
@@ -789,6 +812,10 @@ mod tests {
     #[test]
     fn a_file_that_cannot_be_read_gives_every_default_and_says_so() {
         use std::os::unix::fs::PermissionsExt;
+
+        if running_as_root() {
+            return;
+        }
 
         let scratch = tempfile::tempdir().expect("temp dir");
         let path = scratch.path().join(FILE_NAME);
@@ -1233,6 +1260,10 @@ mod tests {
     fn a_directory_that_cannot_be_written_is_an_error_and_the_value_holds() {
         use std::os::unix::fs::PermissionsExt;
 
+        if running_as_root() {
+            return;
+        }
+
         let scratch = tempfile::tempdir().expect("temp dir");
         let dir = scratch.path().join("locked");
         std::fs::create_dir(&dir).expect("dir");
@@ -1284,6 +1315,10 @@ mod tests {
     #[test]
     fn a_directory_that_cannot_be_made_is_an_error_naming_what_failed() {
         use std::os::unix::fs::PermissionsExt;
+
+        if running_as_root() {
+            return;
+        }
 
         let scratch = tempfile::tempdir().expect("temp dir");
         let locked = scratch.path().join("locked");
