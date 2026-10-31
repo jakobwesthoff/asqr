@@ -153,6 +153,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The intro, a question text, an option label or description that the
   Markdown parser panics on shows as written, without Markdown. Before, it
   ended asqr and you lost the screen.
+- asqr no longer gives a Kitty image the id 31, 32 or 33, the ids the
+  terminal capability probe uses.
 
 ## [0.15.0] - 2026-10-30
 

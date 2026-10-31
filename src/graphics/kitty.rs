@@ -10,6 +10,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
+use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 
 use super::Graphics;
@@ -63,13 +64,18 @@ struct FocusRepeat {
     regained: bool,
 }
 
+/// The ids ratatui-image's capability probe queries with: 31 for the
+/// plain Kitty query, 32 for the compressed one and 33 for shared memory.
+/// asqr gives no image of its own one of these ids.
+const PROBE_IDS: RangeInclusive<u32> = 31..=33;
+
 impl Ids {
     /// A new id, drawn again while it is 0, which names no image in the
-    /// Kitty protocol, or one handed out before.
+    /// Kitty protocol, one of the [`PROBE_IDS`], or one handed out before.
     fn issue(&mut self) -> u32 {
         loop {
             let id = (self.source)();
-            if id != 0 && self.issued.insert(id) {
+            if id != 0 && !PROBE_IDS.contains(&id) && self.issued.insert(id) {
                 self.live.insert(id);
                 return id;
             }
@@ -322,6 +328,38 @@ mod tests {
         let ids = [(); 3].map(|()| HeldId::issued(&book).id);
 
         assert_eq!(ids, [7, 9, 11]);
+    }
+
+    /// The first id a book issues when its source draws `drawn` in turn.
+    fn first_issued(drawn: [u32; 2]) -> u32 {
+        let mut drawn = drawn.into_iter();
+        let book = KittyBook::new(
+            Graphics::KITTY,
+            Box::new(move || drawn.next().expect("enough ids")),
+        );
+        HeldId::issued(&book).id
+    }
+
+    #[test]
+    fn a_kitty_id_is_never_31() {
+        assert_eq!(first_issued([31, 7]), 7);
+    }
+
+    #[test]
+    fn a_kitty_id_is_never_32() {
+        assert_eq!(first_issued([32, 7]), 7);
+    }
+
+    #[test]
+    fn a_kitty_id_is_never_33() {
+        assert_eq!(first_issued([33, 7]), 7);
+    }
+
+    /// The ids next to the probe ids are issued.
+    #[test]
+    fn the_kitty_ids_around_the_probe_ids_are_issued() {
+        assert_eq!(first_issued([30, 7]), 30);
+        assert_eq!(first_issued([34, 7]), 34);
     }
 
     #[test]
