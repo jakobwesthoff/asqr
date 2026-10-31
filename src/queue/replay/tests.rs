@@ -113,10 +113,10 @@ fn answered(session: &Value, answers: Vec<Answer>) -> SessionResult {
 
 /// An extractor that writes below `scene.shown`, each file in a directory
 /// of its own, the way the opener's run directory does.
-fn extractor(shown: &Path) -> impl FnMut(&str, &[u8]) -> io::Result<PathBuf> {
+fn extractor(shown: &Path) -> impl FnMut(&str, &str, &[u8]) -> io::Result<PathBuf> {
     let shown = shown.to_owned();
     let mut count = 0;
-    move |name, bytes| {
+    move |_, name, bytes| {
         count += 1;
         let dir = shown.join(count.to_string());
         fs::create_dir(&dir)?;
@@ -750,8 +750,8 @@ fn a_scratch_directory_that_cannot_be_written_ends_the_replay() {
     let session = session_json(kept_image(&name, "/tmp/x/hero.png"));
     let entry = finish_loose(&scene, &session, &[(name, bytes)], None);
 
-    let error =
-        load_replay(&entry, &mut |_, _| Err(io::Error::other("disk full"))).expect_err("refused");
+    let error = load_replay(&entry, &mut |_, _, _| Err(io::Error::other("disk full")))
+        .expect_err("refused");
 
     assert!(error.to_string().contains("disk full"), "{error}");
 }
@@ -778,4 +778,96 @@ fn a_kept_copy_larger_than_a_kept_file_can_be_is_recorded_as_unreadable() {
         reason.contains("larger than a kept file can be"),
         "{reason}"
     );
+}
+
+// =========================================================
+// What a reader of the session as data needs
+// =========================================================
+
+/// A session with one question for each of `entries`, which it shows as
+/// the question's context.
+fn session_showing(entries: Vec<Value>) -> Value {
+    let questions: Vec<Value> = entries
+        .into_iter()
+        .enumerate()
+        .map(|(position, entry)| {
+            json!({"id": format!("q{position}"), "text": "Which?", "kind": "text",
+                   "context": [entry]})
+        })
+        .collect();
+    json!({"asqr": 2, "id": "hero-2", "title": "Pick the hero", "questions": questions})
+}
+
+#[test]
+fn the_extractor_is_given_the_archive_name_and_the_name_to_show_a_makefile_under() {
+    let scene = scene();
+    let (name, bytes) = copy(b"all:\n\tcc x.c\n", "dat");
+    let session = session_json(json!({"type": "code", "path": format!("files/{name}"),
+        "shown": {"original_path": "/work/Makefile", "state": "kept", "sha256": "cd".repeat(32),
+                  "size": 14, "kept_size": 14}}));
+    let entry = finish_loose(&scene, &session, &[(name.clone(), bytes)], None);
+    let mut given = Vec::new();
+
+    load_replay(&entry, &mut |copy_name, shown_as, _| {
+        given.push((copy_name.to_owned(), shown_as.to_owned()));
+        Ok(PathBuf::from("/nowhere"))
+    })
+    .expect("loaded");
+
+    assert_eq!(given, vec![(name, "Makefile".to_owned())]);
+}
+
+#[test]
+fn the_raw_session_keeps_the_paths_and_records_as_stored() {
+    let scene = scene();
+    let (name, bytes) = copy(b"webp bytes", "webp");
+    let mut session = session_json(kept_image(&name, "/tmp/x/hero.png"));
+    session["archived"] = json!({"session_sha256": "ab", "keep": "compact"});
+    let entry = finish_loose(&scene, &session, &[(name, bytes)], None);
+
+    let loaded = load(&scene, &entry).expect("loaded");
+
+    assert_eq!(loaded.raw, session);
+}
+
+#[test]
+fn every_place_is_listed_in_the_order_the_session_names_them_even_with_identical_bytes() {
+    let scene = scene();
+    let (name, bytes) = copy(b"the same bytes", "webp");
+    let session = session_showing(vec![
+        kept_image(&name, "/tmp/x/first.png"),
+        kept_image(&name, "/tmp/y/second.png"),
+        json!({"type": "code", "path": "/tmp/z/third.rs"}),
+    ]);
+    let entry = finish_loose(&scene, &session, &[(name, bytes)], None);
+
+    let loaded = load(&scene, &entry).expect("loaded");
+
+    let listed: Vec<(&str, &str)> = loaded
+        .shown
+        .iter()
+        .map(|file| (file.original_path.as_str(), file.state.as_str()))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("/tmp/x/first.png", "kept"),
+            ("/tmp/y/second.png", "kept"),
+            ("/tmp/z/third.rs", NOT_RECORDED),
+        ]
+    );
+}
+
+#[test]
+fn a_bundle_that_cannot_be_read_while_looking_for_the_result_is_reported() {
+    let scene = scene();
+    let session = session_json(json!({"type": "code", "content": "x"}));
+    let entry = finish_loose(&scene, &session, &[], None);
+    fs::write(scene.location.archive().join("2019-01.zip"), "no zip").expect("written");
+
+    let loaded = load(&scene, &entry).expect("loaded");
+
+    let named: Vec<String> = loaded.unreadable.iter().map(ToString::to_string).collect();
+    assert_eq!(named.len(), 1, "{named:?}");
+    assert!(named[0].contains("2019-01.zip"), "{named:?}");
 }

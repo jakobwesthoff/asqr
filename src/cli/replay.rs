@@ -11,6 +11,7 @@ use jiff::tz::TimeZone;
 
 use super::Exit;
 use super::plain::plain_line;
+use super::replay_read;
 use crate::queue::{
     BundleError, EntryPlace, EntryRef, LoadedReplay, QueueLocation, Resolution, bundle_path,
     describe_entry, load_replay, resolve_reference,
@@ -88,6 +89,7 @@ impl Replay {
 
 pub(super) struct ReplayRequest<'a> {
     pub reference: &'a str,
+    pub json: bool,
     pub root: Option<&'a Path>,
     pub config: Option<PathBuf>,
     pub no_color: bool,
@@ -102,6 +104,7 @@ pub(super) fn run(
 ) -> Exit {
     let ReplayRequest {
         reference,
+        json,
         root,
         config,
         no_color,
@@ -118,10 +121,14 @@ pub(super) fn run(
         eprintln!("warning: {error}; its sessions could not be searched for this REF");
     }
 
+    if json {
+        return print_json(&entry, &unreadable);
+    }
+
     // The copies of the files go into the directory of this run, which `o`
     // and the viewers read afterwards.
     let mut opened = opened_dir.map_or_else(OpenedFiles::in_temp_dir, OpenedFiles::in_dir);
-    let loaded = match load_replay(&entry, &mut |name, bytes| opened.extract(name, bytes)) {
+    let loaded = match load_replay(&entry, &mut |_, name, bytes| opened.extract(name, bytes)) {
         Ok(loaded) => loaded,
         Err(error) => {
             eprintln!("error: {error}");
@@ -140,6 +147,27 @@ pub(super) fn run(
         no_color,
         home,
     })
+}
+
+/// Prints the object `--json` stands for. A bundle that could not be read
+/// is warned about by the search, so the pairing's warning for the same
+/// bundle is left out.
+fn print_json(entry: &EntryRef, searched: &[BundleError]) -> Exit {
+    let loaded = match replay_read::load_for_reading(entry) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return Exit::Failure;
+        }
+    };
+    let warned: Vec<String> = searched.iter().map(ToString::to_string).collect();
+    for error in &loaded.unreadable {
+        if !warned.contains(&error.to_string()) {
+            eprintln!("warning: {error}");
+        }
+    }
+    println!("{}", replay_read::replay_json(&loaded));
+    Exit::Success
 }
 
 /// The finished session `reference` names in the queues under `root` and

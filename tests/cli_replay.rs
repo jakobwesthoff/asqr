@@ -292,6 +292,189 @@ fn a_session_found_beside_an_unreadable_bundle_warns_naming_the_bundle() {
     );
 }
 
+// =========================================================
+// replay --json
+// =========================================================
+
+fn printed_object(output: &std::process::Output) -> serde_json::Value {
+    serde_json::from_str(&common::stdout(output)).expect("stdout is one JSON object")
+}
+
+#[test]
+fn json_prints_the_session_as_one_object_without_a_terminal() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "work");
+    let reference = archive(&location, "a", "A title", 1, 0x1234_5678_9abc);
+
+    let output = replay(&sandbox, &["replay", &reference.to_lowercase(), "--json"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let printed = printed_object(&output);
+    assert_eq!(printed["ref"], reference.as_str());
+    assert_eq!(printed["queue"], "work");
+    assert_eq!(printed["session"]["title"], "A title");
+    assert_eq!(printed["status"], "none");
+    assert!(common::stdout(&output).ends_with("}\n"));
+    assert_eq!(stderr(&output), "");
+}
+
+#[test]
+fn json_leaves_a_too_short_reference_a_usage_error_with_nothing_on_stdout() {
+    let sandbox = Sandbox::new();
+
+    let output = replay(&sandbox, &["replay", "9PA7", "--json"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        stderr(&output),
+        "asqr: \"9PA7\" is too short; give at least 6 characters of the REF\n"
+    );
+    assert_eq!(common::stdout(&output), "");
+}
+
+#[test]
+fn json_leaves_a_letter_no_reference_holds_a_usage_error_with_nothing_on_stdout() {
+    let sandbox = Sandbox::new();
+
+    let output = replay(&sandbox, &["replay", "9PA7KO", "--json"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        stderr(&output),
+        "asqr: \"9PA7KO\" is no REF: no REF holds the letter O\n"
+    );
+    assert_eq!(common::stdout(&output), "");
+}
+
+#[test]
+fn json_leaves_a_reference_that_ends_no_session_a_failure_with_nothing_on_stdout() {
+    let sandbox = Sandbox::new();
+    archive(
+        &QueueLocation::named(&sandbox.data_dir(), "default"),
+        "a",
+        "A",
+        1,
+        0x1234_5678_9abc,
+    );
+
+    let output = replay(&sandbox, &["replay", "ZZZZZZ", "--json"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).starts_with("asqr: no finished session ends in \"ZZZZZZ\""),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(common::stdout(&output), "");
+}
+
+#[test]
+fn json_leaves_an_ambiguous_reference_a_failure_with_nothing_on_stdout() {
+    let sandbox = Sandbox::new();
+    let root = sandbox.data_dir();
+    let first = archive(
+        &QueueLocation::named(&root, "default"),
+        "a",
+        "Alt rework 3",
+        3,
+        0x01_2345_6789,
+    );
+    archive(
+        &QueueLocation::named(&root, "work"),
+        "b",
+        "Release notes",
+        9,
+        0x02_2345_6789,
+    );
+
+    let output = replay(&sandbox, &["replay", &first[2..], "--json"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("finished sessions; give more of the REF:"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(common::stdout(&output), "");
+}
+
+#[test]
+fn json_beside_an_unreadable_bundle_warns_naming_it_and_prints_the_session() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let reference = archive(&location, "a", "A", 1, 0x1234_5678_9abc);
+    fs::write(location.archive().join("2019-01.zip"), "no zip").expect("written");
+
+    let output = replay(&sandbox, &["replay", &reference, "--json"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(
+        stderr(&output).starts_with("warning: cannot read ")
+            && stderr(&output).contains("2019-01.zip"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(printed_object(&output)["ref"], reference.as_str());
+}
+
+#[test]
+fn json_warns_once_about_a_bundle_both_the_search_and_the_pairing_could_not_read() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let reference = archive(&location, "a", "A", 1, 0x1234_5678_9abc);
+    fs::write(location.archive().join("2019-01.zip"), "no zip").expect("written");
+
+    let output = replay(&sandbox, &["replay", &reference, "--json"]);
+
+    let text = stderr(&output);
+    assert_eq!(text.matches("2019-01.zip").count(), 1, "{text}");
+}
+
+#[test]
+fn json_writes_nothing_into_the_queue_or_the_temp_directory() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let reference = archive(&location, "a", "A", 1, 0x1234_5678_9abc);
+    let queue_before = walk(location.dir());
+    let temp = sandbox.temp_dir();
+
+    let output = replay(&sandbox, &["replay", &reference, "--json"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(walk(location.dir()), queue_before);
+    assert_eq!(walk(&temp), Vec::<String>::new());
+}
+
+#[test]
+fn json_leaves_a_session_that_cannot_be_shown_a_failure_with_nothing_on_stdout() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let reference = archive(&location, "a", "A", 1, 0x1234_5678_9abc);
+    for entry in fs::read_dir(location.archive()).expect("listed") {
+        fs::write(entry.expect("entry").path(), "this is no session").expect("overwritten");
+    }
+
+    let output = replay(&sandbox, &["replay", &reference, "--json"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("the archived session cannot be shown"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(common::stdout(&output), "");
+}
+
+#[test]
+fn json_alone_is_not_a_reference() {
+    let sandbox = Sandbox::new();
+
+    let output = replay(&sandbox, &["replay", "--json"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(common::stdout(&output), "");
+}
+
 /// A replay starts by removing the directories of earlier runs from the
 /// temp directory. The sandbox must be the one it sweeps, never the
 /// machine's.

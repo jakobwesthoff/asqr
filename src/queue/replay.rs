@@ -58,7 +58,7 @@ impl ReplayFile {
 }
 
 /// A finished session ready to be shown.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LoadedReplay {
     pub entry: HistoryEntry,
     /// The session with the paths of its kept files made absolute copies
@@ -69,6 +69,13 @@ pub struct LoadedReplay {
     pub draft: Option<SessionResult>,
     /// Each shown file, by the path the session names it at.
     pub files: HashMap<String, ReplayFile>,
+    /// The archived session as stored.
+    pub raw: Value,
+    /// Every file place of the session, in the order the session names
+    /// them.
+    pub shown: Vec<ReplayFile>,
+    /// The bundles that could not be read while looking for the result.
+    pub unreadable: Vec<BundleError>,
 }
 
 #[derive(Debug, Error)]
@@ -83,8 +90,12 @@ pub enum ReplayError {
     Session { place: String, cause: String },
 }
 
-/// Loads the entry `entry`. `extract` writes a kept file under a name and
-/// returns the absolute path it can be read at afterwards.
+/// What [`load_replay`] hands a kept file to: the file's name in the
+/// archive, the name to show it under and its bytes. It returns the path
+/// the file can be read at afterwards.
+pub type Extract<'a> = dyn FnMut(&str, &str, &[u8]) -> io::Result<PathBuf> + 'a;
+
+/// Loads the entry `entry`, handing each kept file to `extract`.
 ///
 /// The copies are written out here, once, so the replay and the file `o`
 /// hands to the opener do not depend on the archive afterwards, and a
@@ -92,7 +103,7 @@ pub enum ReplayError {
 /// session shows are read.
 pub fn load_replay(
     entry: &EntryRef,
-    extract: &mut dyn FnMut(&str, &[u8]) -> io::Result<PathBuf>,
+    extract: &mut Extract<'_>,
 ) -> Result<LoadedReplay, ReplayError> {
     let place = entry.place_text();
     let mut fetcher = Fetcher::new(entry);
@@ -102,26 +113,27 @@ pub fn load_replay(
         cause: error.to_string(),
     })?;
 
+    let stored = raw.clone();
     let mut files = HashMap::new();
+    let mut every_place = Vec::new();
     for (_, object) in places_mut(&mut raw) {
         // A path without a record names a file asqr did not keep: showing
         // what lies there now would show something the session never did.
         let Some(shown) = object.get("shown").cloned() else {
             let path = object["path"].as_str().unwrap_or_default().to_owned();
-            files.insert(
-                path.clone(),
-                ReplayFile {
-                    original_path: path,
-                    state: NOT_RECORDED.to_owned(),
-                    sha256: None,
-                    size: None,
-                    modified: None,
-                    kept_size: None,
-                    reason: None,
-                    copy: None,
-                    damaged: None,
-                },
-            );
+            let file = ReplayFile {
+                original_path: path.clone(),
+                state: NOT_RECORDED.to_owned(),
+                sha256: None,
+                size: None,
+                modified: None,
+                kept_size: None,
+                reason: None,
+                copy: None,
+                damaged: None,
+            };
+            every_place.push(file.clone());
+            files.insert(path, file);
             continue;
         };
         let original = shown_text(&shown, "original_path")
@@ -149,11 +161,12 @@ pub fn load_replay(
                 Some(name) => match fetcher.file(name) {
                     Ok(copy) => {
                         let shown_as = shown_name(name, &original);
-                        let at =
-                            extract(&shown_as, &copy).map_err(|source| ReplayError::Entry {
+                        let at = extract(name, &shown_as, &copy).map_err(|source| {
+                            ReplayError::Entry {
                                 place: format!("the scratch copy of {name}"),
                                 source,
-                            })?;
+                            }
+                        })?;
                         object["path"] = Value::String(at.to_string_lossy().into_owned());
                     }
                     Err(why) => file.damaged = Some(why),
@@ -161,6 +174,7 @@ pub fn load_replay(
             }
         }
         let key = object["path"].as_str().unwrap_or_default().to_owned();
+        every_place.push(file.clone());
         files.insert(key, file);
     }
 
@@ -177,7 +191,7 @@ pub fn load_replay(
             .join("; "),
     })?;
 
-    let (paired, _) = paired_entry(entry).map_err(|source| ReplayError::Entry {
+    let (paired, unreadable) = paired_entry(entry).map_err(|source| ReplayError::Entry {
         place: entry.queue.dir().display().to_string(),
         source,
     })?;
@@ -188,6 +202,9 @@ pub fn load_replay(
         result: paired.result,
         draft,
         files,
+        raw: stored,
+        shown: every_place,
+        unreadable,
     })
 }
 

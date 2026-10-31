@@ -1331,7 +1331,7 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr withdraw <id> [--force]` | takes a waiting session back and prints its result, status `withdrawn` (section 5.10) |
 | `asqr status [--json] [--limit <count> \| --all] [--since <age>]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
 | `asqr history [--json] [--all] [--limit <count>] [--since <age>]` | the finished sessions of the queue, newest first, each with the reference `asqr replay` takes (section 6.5) |
-| `asqr replay <ref>` | opens a finished session read-only in the terminal UI (section 6.5, 7.11) |
+| `asqr replay <ref> [--json]` | opens a finished session read-only in the terminal UI, or with `--json` prints it as data (section 6.5, 7.11) |
 | `asqr queues [--json]` | every named queue, the sessions waiting in it and its results, and the asqr watching it (section 6.5) |
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
@@ -1587,7 +1587,8 @@ entry's archive ULID, of which 6 or more are accepted, in any case.
   newest first, so a longer reference can name one.
 - A session file that does not parse or validate, and a bundle that
   cannot be read, end the replay with `error: ` naming the file or bundle
-  and exit code 1. Without a terminal, `replay` fails as `asqr` does.
+  and exit code 1. Without a terminal, the terminal UI of `replay` fails as
+  `asqr` does; `--json` needs none.
 - The replay takes no lock and writes nothing into the queue, so it runs
   beside the asqr that watches the queue. It rings no bell, sends no
   notification and has no key that answers a session waiting in the
@@ -1596,6 +1597,35 @@ entry's archive ULID, of which 6 or more are accepted, in any case.
   while they are counted is not counted and no error. The terminal title
   is `asqr replay <REF>` and no progress is reported.
 - It ends with exit code 0 when the person quits, never with 10 to 14.
+- `--json` prints the session, its result and the files it showed as one
+  JSON object on a line of its own, and starts no terminal UI. The
+  reference is resolved and refused as above, with the same messages and
+  exit codes. It creates no directory and writes nothing into the queue.
+  It ends with exit code 0, 1 or 2 only. On exit code 1 or 2 stdout is
+  empty and the reason is on stderr. The `warning:` lines for a bundle
+  that could not be read go to stderr, once for each bundle, and cover
+  the bundles that hold the session's result too.
+  - `ref`, `id`, `finished_at`, `status` and `draft` are the values
+    `history --json` gives the entry. `queue` is the name of the queue
+    the session was found in, for a queue given by `--dir` the absolute
+    path of its directory.
+  - `session` is the archived session as stored, with the fields this
+    asqr does not know. The `path` of every file it shows is the path the
+    asker wrote; the names asqr kept the files under do not appear.
+  - `result` is the result that answers the session, as asqr reads it:
+    fields asqr does not know and options without a value are left out.
+    A withdrawn result carries its `draft`. Without a result it is `null`
+    and `status` is `none`.
+  - `files` has one object for each distinct pair of original path and
+    SHA-256, sorted by that pair, with `original_path`, `state`, `sha256`,
+    `size`, `modified`, `kept_size`, `reason`, `problem` and `extracted`.
+    `state` is `kept`, `gone` (missing or unreadable when the session was
+    finished, `reason` carries the recorded text), `not_kept` or
+    `not_recorded` (a path the archive has no record of). `problem` says
+    why the copy of a kept file cannot be handed out: it is missing from
+    the archive or damaged. `extracted` is `null`. The values a state
+    does not have are `null`.
+  - `extracted_to` is `null`. No file's bytes are printed.
 
 ### 6.6 Exit codes
 

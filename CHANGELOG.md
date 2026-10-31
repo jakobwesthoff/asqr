@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `asqr replay <ref> --json` prints a finished session, its result and
+  the state of each file it showed as one JSON object, without a
+  terminal. A bundle that holds the session's result and cannot be read is
+  named in a warning on stderr.
 - `asqr prune --session <ref>` removes one finished session, by the
   reference `asqr history` prints, with the kept files only it showed; a
   dry run lists what would go, and `--yes` removes it. `asqr prune

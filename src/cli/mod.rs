@@ -19,6 +19,7 @@ mod plain;
 mod prune;
 mod queues;
 mod replay;
+mod replay_read;
 mod skill;
 mod skill_age;
 mod status;
@@ -228,6 +229,11 @@ enum Command {
         /// any case.
         #[arg(value_name = "REF")]
         reference: String,
+
+        /// Print the session, its result and the files it showed as one
+        /// JSON object instead of opening it.
+        #[arg(long)]
+        json: bool,
     },
 
     /// List every queue, what waits in it and which asqr watches it.
@@ -615,10 +621,11 @@ fn dispatch_with(
                 json,
             },
         ),
-        Command::Replay { reference } => replay::run(
+        Command::Replay { reference, json } => replay::run(
             &location,
             replay::ReplayRequest {
                 reference: &reference,
+                json,
                 root: root.as_deref(),
                 config,
                 no_color: environment.no_color,

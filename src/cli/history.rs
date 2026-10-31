@@ -58,7 +58,7 @@ fn status_word(entry: &HistoryEntry) -> String {
 }
 
 /// The word `--json` uses for a session's end.
-fn status_json(outcome: HistoryOutcome) -> &'static str {
+pub(super) fn status_json(outcome: HistoryOutcome) -> &'static str {
     match outcome {
         HistoryOutcome::Sent => "sent",
         HistoryOutcome::Rejected => "rejected",
@@ -204,6 +204,29 @@ fn when_text(entry: &HistoryEntry, zone: &TimeZone) -> String {
         .to_string()
 }
 
+/// When a session finished, in whole seconds as the results write their
+/// times.
+pub(super) fn finished_at(finished: SystemTime) -> Option<String> {
+    jiff::Timestamp::try_from(finished)
+        .ok()
+        .and_then(|time| jiff::Timestamp::from_second(time.as_second()).ok())
+        .map(|time| time.to_string())
+}
+
+/// The name a queue is listed under: its name, or for a queue given as a
+/// directory the absolute path of that directory.
+pub(super) fn queue_label(queue: &QueueLocation) -> String {
+    queue.name().map_or_else(
+        || {
+            std::path::absolute(queue.dir())
+                .unwrap_or_else(|_| queue.dir().to_path_buf())
+                .display()
+                .to_string()
+        },
+        str::to_owned,
+    )
+}
+
 /// The list of one queue as JSON.
 fn json_of(block: &Block<'_>) -> Value {
     let entries: Vec<Value> = block
@@ -211,14 +234,10 @@ fn json_of(block: &Block<'_>) -> Value {
         .entries
         .iter()
         .map(|entry| {
-            // Whole seconds, as the results write their times.
-            let finished = jiff::Timestamp::try_from(entry.finished)
-                .ok()
-                .and_then(|time| jiff::Timestamp::from_second(time.as_second()).ok());
             json!({
                 "ref": entry.entry.reference(),
                 "id": entry.entry.id,
-                "finished_at": finished.map(|time| time.to_string()),
+                "finished_at": finished_at(entry.finished),
                 "status": status_json(entry.outcome),
                 "files": {
                     "kept": entry.files.kept,
@@ -276,15 +295,7 @@ pub(super) fn run(location: &QueueLocation, root: Option<&Path>, options: Histor
     });
     let mut lists = Vec::new();
     for queue in &queues {
-        let name = queue.name().map_or_else(
-            || {
-                std::path::absolute(queue.dir())
-                    .unwrap_or_else(|_| queue.dir().to_path_buf())
-                    .display()
-                    .to_string()
-            },
-            str::to_owned,
-        );
+        let name = queue_label(queue);
         match list_history(queue, Some(options.limit), cutoff) {
             Ok(history) => lists.push((name, history)),
             Err(error) => {
