@@ -28,6 +28,7 @@ use super::{
     edited_text, editor_file, session_progress, switch_queue,
 };
 use crate::graphics::KittyDeletes;
+use crate::keep::worker::KeepWorker;
 use crate::pairing::TmuxFailure;
 use crate::queue::{QueueLocation, WaitingQueue};
 use crate::settings::SettingsStore;
@@ -322,11 +323,27 @@ fn within_bytes(text: &str, room: usize) -> String {
     format!("…{}", &text[start..])
 }
 
+/// Reads the queue for the first time and keeps no files of the sessions
+/// it finishes. The tests and `tools/screens` start this way; the asqr
+/// binary uses [`start_with_keeper`].
+pub fn start(location: QueueLocation, settings: SettingsStore) -> anyhow::Result<(App, Inbox)> {
+    start_with_keeper(location, settings, None)
+}
+
 /// Reads the queue for the first time: what waits when asqr starts is
 /// shown without an alert. Register the watcher before (spec section 5.4).
-pub fn start(location: QueueLocation, settings: SettingsStore) -> anyhow::Result<(App, Inbox)> {
+/// The sessions the inbox finishes have their files kept by `keeper`
+/// (ADR 100).
+pub fn start_with_keeper(
+    location: QueueLocation,
+    settings: SettingsStore,
+    keeper: Option<KeepWorker>,
+) -> anyhow::Result<(App, Inbox)> {
     let mut app = App::with_settings(settings);
     let mut inbox = Inbox::new(location);
+    if let Some(keeper) = keeper {
+        inbox.set_keeper(keeper);
+    }
     inbox.sync(&mut app).context("reading the inbox")?;
     Ok((app, inbox))
 }
@@ -1748,6 +1765,38 @@ mod tests {
             status_line(&harness),
             "watching work · 1 session waits in ~/dir-queue"
         );
+    }
+
+    /// The worker that keeps files must outlive the inbox it was given to:
+    /// the finishes of the queue before the switch may still be encoding.
+    #[test]
+    fn a_switch_hands_the_keeper_on_to_the_new_queue() {
+        let mut harness = two_queues();
+        let keeper = KeepWorker::new_with(|_| {});
+        let (mut app, mut inbox) = start_with_keeper(
+            harness.location.clone(),
+            SettingsStore::default(),
+            Some(keeper),
+        )
+        .expect("started");
+        assert!(inbox.keeper().is_some());
+
+        harness
+            .run_started(&mut app, &mut inbox, switch_to_work())
+            .expect("runs");
+
+        assert_eq!(inbox.location(), &work(&harness), "the switch happened");
+        assert!(inbox.keeper().is_some(), "the new inbox keeps files too");
+    }
+
+    #[test]
+    fn a_start_without_a_keeper_keeps_no_files() {
+        let harness = two_queues();
+
+        let (_, inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
+
+        assert!(inbox.keeper().is_none());
     }
 
     #[test]

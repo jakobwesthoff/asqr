@@ -103,6 +103,44 @@ memory; a file that does not fit is left to be read later by its path.
 `asqr ask` removes `archived` and every `shown` from a session before it
 enters the inbox, as asqr alone writes them.
 
+### When files are read and kept
+
+When the person finishes a session, the TUI thread reads every shown file into memory within the
+limits above and hashes it, before the result is written, so an agent that
+removes its temporary files after `asqr wait` returns cannot take them
+away. At most 256 MiB is held; a file that does not fit is read by the
+worker from its path, and an agent that removes it first leaves it
+`missing`. Encoding and writing stay off the TUI thread: the result is
+written, the session is archived by a plain rename and the draft deleted
+as before, and then a job goes to one worker thread per run, which serves
+every queue the run shows. Measured in a release build on the six largest
+images of the 127-image corpus (31.4 MB, PNG and JPEG), reading and
+hashing took 18 to 32 ms on the TUI thread before the result, and the
+worker needed 3.0 s to encode them to 3.5 MB (11.2%).
+
+The worker writes each copy as a synced temp file under
+`archive/files/.asqr-*.tmp`. It then takes the drafts lock, checks that
+the archived file still holds exactly the bytes it was archived with,
+gives the copies their names and replaces the archived file with the
+recording by one rename. The archived file therefore has two states,
+plain and recorded. A copy lies under its name only once a recording that
+refers to it was written, and placing the copies, the scans that look for
+references and the removals all happen under the drafts lock. A busy
+lock, a changed or missing archived file, a failing copy, a panic in a job
+(caught and logged) or a crash leaves the plain session. What is lost then
+are the copies and fingerprints of that session, and temp files that the
+compaction's sweep removes. Quitting waits for the worker to run its queue
+empty for up to 10 seconds and lets go of the rest, as a crash would. A
+queue switch does not touch the worker, as a job carries its queue.
+
+`asqr withdraw` and `ask --replaces` archive under their lock as before and
+keep no copies, as only the asqr that shows the queue reads the settings.
+After the lock is let go of they read the files and record each as
+`not_kept`, then replace the archived file under the lock as the worker
+does. A session completed by recovery gets a job whose files the worker
+reads, as they may be gone. A session rejected as invalid is archived as
+it is.
+
 ### libwebp
 
 libwebp is C. `libwebp-sys` 0.14.4 builds libwebp 1.6.0 from the C

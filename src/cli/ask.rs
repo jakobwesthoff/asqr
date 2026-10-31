@@ -20,10 +20,11 @@ use crate::format::{
     WarningKind, array_mut, is_valid_session_id, make_context_paths_absolute, same_session_id,
     validate, warnings,
 };
+use crate::keep::apply::record_after_withdrawal;
 use crate::pairing::{self, Tmux, TmuxPane, TmuxSession};
 use crate::queue::{
     DropError, Dropped, Gate, Origin, QueueLocation, ReplaceError, WithdrawError, Withdrawn,
-    drop_replacing, drop_session, list_queues, lock_holder,
+    drop_replacing_archived, drop_session, list_queues, lock_holder,
 };
 
 pub(super) struct AskOptions {
@@ -177,8 +178,9 @@ fn replace(
         );
         return Err(Exit::Usage);
     }
-    match drop_replacing(location, old, id, bytes, force, Gate::default()) {
-        Ok((withdrawn, dropped)) => {
+    match drop_replacing_archived(location, old, id, bytes, force, Gate::default()) {
+        Ok((withdrawn, dropped, archived)) => {
+            record_after_withdrawal(location, archived);
             // The result holds what the person typed, so the log gets its
             // status and counts only (ADR 90).
             let (outcome, result) = match &withdrawn {

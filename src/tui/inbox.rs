@@ -21,11 +21,24 @@ use crate::format::{
     ContextEntry, ParseError, SessionResult, Status, is_valid_session_id, now_rfc3339,
     parse_session, same_session_id, validate,
 };
+use crate::keep::apply::{KeepJob, snapshot_seen};
+use crate::keep::snapshot::{Limits, snapshot};
+use crate::keep::worker::KeepWorker;
 use crate::queue::{
-    DRAFTS_LOCK_ATTEMPTS, Finished, Gate, QueueLocation, Recovery, Rejected, Waiting,
-    archive_invalid_stem, archived_title, draft_has_answer, find_session_file,
+    ArchivedSession, DRAFTS_LOCK_ATTEMPTS, Finished, Gate, QueueLocation, Recovery, Rejected,
+    Waiting, archive_invalid_stem, archived_title, draft_has_answer, find_session_file,
     finish_unchanged_with, load_draft, recover_with, reject_invalid_with,
     save_draft_while_waiting_with, scan_inbox, session_sha256,
+};
+
+/// What the TUI thread reads of the files of a session it finishes: the
+/// limits of the viewers, within 256 MiB.
+const KEEP_NOW: Limits = Limits::VIEWERS;
+
+/// A snapshot that reads nothing: every file is left to the worker.
+const LEAVE_TO_WORKER: Limits = Limits {
+    memory: 0,
+    ..Limits::VIEWERS
 };
 
 /// A session the app shows, with the bytes it was read from.
@@ -75,6 +88,23 @@ pub struct Inbox {
     /// a text written in the editor while the session left (see
     /// [`Inbox::keep_text_for`]).
     kept_texts: Vec<(String, String)>,
+    /// Where the files of a finished session are kept (ADR 100). Without
+    /// one, nothing is kept: the tests of other behaviour finish sessions
+    /// in temp queues and need no worker.
+    keeper: Option<KeepWorker>,
+    /// Called after each step of an operation under the drafts lock.
+    #[cfg(test)]
+    step_hook: Option<StepHook>,
+}
+
+#[cfg(test)]
+struct StepHook(std::rc::Rc<dyn Fn(crate::queue::Step)>);
+
+#[cfg(test)]
+impl std::fmt::Debug for StepHook {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.write_str("StepHook")
+    }
 }
 
 impl Inbox {
@@ -85,7 +115,26 @@ impl Inbox {
             ignored: HashSet::new(),
             lock_attempts: DRAFTS_LOCK_ATTEMPTS,
             kept_texts: Vec::new(),
+            keeper: None,
+            #[cfg(test)]
+            step_hook: None,
         }
+    }
+
+    /// Has the files of the sessions this inbox finishes kept by `keeper`.
+    pub fn set_keeper(&mut self, keeper: KeepWorker) {
+        self.keeper = Some(keeper);
+    }
+
+    /// The worker that keeps files, for the inbox of the next queue.
+    pub fn keeper(&self) -> Option<&KeepWorker> {
+        self.keeper.as_ref()
+    }
+
+    /// Calls `hook` after each step of an operation under the drafts lock.
+    #[cfg(test)]
+    pub(crate) fn on_step(&mut self, hook: impl Fn(crate::queue::Step) + 'static) {
+        self.step_hook = Some(StepHook(std::rc::Rc::new(hook)));
     }
 
     /// The queue whose inbox this is.
@@ -123,6 +172,14 @@ impl Inbox {
 
     /// The gate for an operation under the drafts lock.
     fn gate(&self) -> Gate<'static> {
+        #[cfg(test)]
+        if let Some(StepHook(hook)) = &self.step_hook {
+            let hook = std::rc::Rc::clone(hook);
+            return Gate {
+                attempts: self.lock_attempts,
+                step: Box::new(move |step| hook(step)),
+            };
+        }
         Gate {
             attempts: self.lock_attempts,
             ..Gate::default()
@@ -232,8 +289,11 @@ impl Inbox {
         // under its id (spec section 5.7).
         for recovery in recover_with(&self.location, self.gate())? {
             match recovery {
-                Recovery::Completed(id) => {
+                Recovery::Completed { id, archived } => {
                     tracing::info!(%id, "completed an interrupted finish");
+                    if let Some(archived) = archived {
+                        self.keep_files_of_recovered(app, archived);
+                    }
                     self.leave(app, &id);
                 }
                 Recovery::Conflict(id) => {
@@ -477,6 +537,18 @@ impl Inbox {
         Applied::Continue
     }
 
+    /// Hands the files of a session whose interrupted finish recovery
+    /// completed to the worker. Its files are read by the worker, as the
+    /// agent may have removed them already.
+    fn keep_files_of_recovered(&self, app: &App, archived: ArchivedSession) {
+        let Some(keeper) = &self.keeper else {
+            return;
+        };
+        let mode = app.settings().effective().keep_files;
+        let seen = snapshot(&archived.bytes, &LEAVE_TO_WORKER);
+        keeper.submit(KeepJob::new(self.location.clone(), archived, seen, mode));
+    }
+
     fn finish(&mut self, app: &mut App, id: &str, outcome: Outcome) {
         let Some(index) = self.known(id) else {
             return;
@@ -492,6 +564,14 @@ impl Inbox {
             .find(|state| same_session_id(state.id(), id))
             .map(|state| confirmation(state, &outcome));
 
+        // The files the person saw are read before the result is written:
+        // an asker that cleans up as soon as it sees the result must not
+        // take them away. Encoding and writing the copies is the worker's.
+        let keeping = self.keeper.clone().map(|keeper| {
+            let mode = app.settings().effective().keep_files;
+            let seen = snapshot_seen(&known.path, &known.sha256, &KEEP_NOW);
+            (keeper, mode, seen)
+        });
         let at = now_rfc3339();
         let result = match outcome {
             Outcome::Submitted { answers, note } => {
@@ -527,8 +607,11 @@ impl Inbox {
                     app.notice(Tone::Error, format!("cannot read the inbox: {error}"));
                 }
             }
-            Ok(Finished::Done) => {
+            Ok(Finished::Done(archived)) => {
                 tracing::info!(%id, status = ?result.status, "finished a session");
+                if let (Some((keeper, mode, seen)), Some(archived)) = (keeping, archived) {
+                    keeper.submit(KeepJob::new(self.location.clone(), archived, seen, mode));
+                }
                 self.forget(app, id);
                 // Only a key or a paste clears a notice, so the
                 // confirmation stays over the next session or the empty
@@ -2393,5 +2476,213 @@ mod tests {
         assert_eq!(synced.expect("synced").arrived, ["round-2"]);
         assert_eq!(follows_title(&app, "round-2"), None);
         assert!(app.current_notice().is_none(), "{:?}", app.current_notice());
+    }
+
+    // -----------------------------------------------------------------
+    // Keeping the files a finished session showed (ADR 100)
+    // -----------------------------------------------------------------
+
+    mod keeping {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        use serde_json::Value;
+
+        use super::*;
+        use crate::keep::apply::KeepJob;
+        use crate::keep::snapshot::Seen;
+        use crate::keep::test_support::gradient_png;
+        use crate::keep::worker::KeepWorker;
+
+        /// A queue with session `hero` waiting, which shows a picture at
+        /// `hero.png` beside the queue.
+        fn showing_a_picture() -> (tempfile::TempDir, QueueLocation, PathBuf) {
+            let (scratch, location) = queue();
+            let picture = scratch.path().join("hero.png");
+            fs::write(&picture, gradient_png()).expect("written");
+            let session = serde_json::json!({
+                "asqr": 2,
+                "questions": [{"id": "q", "text": "?", "kind": "text",
+                    "context": [{"type": "image", "path": picture}]}]
+            });
+            put(&location, "hero.json", &session.to_string());
+            (scratch, location, picture)
+        }
+
+        fn submit(id: &str) -> AppEffect {
+            AppEffect::Finish {
+                id: id.to_owned(),
+                outcome: Outcome::Submitted {
+                    answers: Vec::new(),
+                    note: None,
+                },
+            }
+        }
+
+        /// The one session in the archive, as JSON, with its path.
+        fn archived_session(location: &QueueLocation) -> (PathBuf, Value) {
+            let found: Vec<_> = names(&location.archive())
+                .into_iter()
+                .filter(|name| name.ends_with(".json") && !name.contains(".result."))
+                .collect();
+            assert_eq!(found.len(), 1, "{found:?}");
+            let path = location.archive().join(&found[0]);
+            let json = serde_json::from_slice(&fs::read(&path).expect("reads")).expect("JSON");
+            (path, json)
+        }
+
+        /// A worker that sends every job it gets to the returned receiver
+        /// and keeps nothing.
+        fn collecting() -> (KeepWorker, mpsc::Receiver<KeepJob>) {
+            let (sender, jobs) = mpsc::channel();
+            let worker = KeepWorker::new_with(move |job| {
+                let _ = sender.send(job);
+            });
+            (worker, jobs)
+        }
+
+        fn started(location: &QueueLocation, worker: &KeepWorker) -> (Inbox, App) {
+            let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+            inbox.set_keeper(worker.clone());
+            inbox.sync(&mut app).expect("synced");
+            (inbox, app)
+        }
+
+        #[test]
+        fn after_a_finish_the_archived_session_records_its_files() {
+            let (_scratch, location, _picture) = showing_a_picture();
+            let worker = KeepWorker::new();
+            let (mut inbox, mut app) = started(&location, &worker);
+
+            inbox.apply(&mut app, submit("hero"));
+            worker.idle();
+
+            let (_, json) = archived_session(&location);
+            let path = json["questions"][0]["context"][0]["path"]
+                .as_str()
+                .expect("a path");
+            assert!(
+                path.starts_with("files/") && path.ends_with(".webp"),
+                "{path}"
+            );
+            assert!(location.archive().join(path).is_file());
+            assert_eq!(json["archived"]["keep"], "compact");
+        }
+
+        #[test]
+        fn the_snapshot_is_taken_before_the_result_is_written() {
+            let (_scratch, location, picture) = showing_a_picture();
+            let worker = KeepWorker::new();
+            let (mut inbox, mut app) = started(&location, &worker);
+            // The asker cleans up as soon as it sees the result.
+            inbox.on_step(move |step| {
+                if step == crate::queue::Step::ResultWritten {
+                    fs::remove_file(&picture).expect("removes");
+                }
+            });
+
+            assert!(format!("{inbox:?}").contains("StepHook"));
+
+            inbox.apply(&mut app, submit("hero"));
+            worker.idle();
+
+            let (_, json) = archived_session(&location);
+            assert_eq!(
+                json["questions"][0]["context"][0]["shown"]["state"], "kept",
+                "{json}"
+            );
+        }
+
+        #[test]
+        fn the_result_is_written_before_encoding_starts() {
+            let (_scratch, location, _picture) = showing_a_picture();
+            let (sender, written) = mpsc::channel();
+            let worker = KeepWorker::new_with(move |job| {
+                let _ = sender.send(job.location.outbox().join("hero.json").is_file());
+            });
+            let (mut inbox, mut app) = started(&location, &worker);
+
+            inbox.apply(&mut app, submit("hero"));
+
+            assert!(
+                written
+                    .recv_timeout(Duration::from_secs(30))
+                    .expect("a job ran")
+            );
+        }
+
+        #[test]
+        fn the_job_carries_the_archived_session_the_mode_and_the_queue() {
+            let (_scratch, location, _picture) = showing_a_picture();
+            let bytes = fs::read(location.inbox().join("hero.json")).expect("reads");
+            let (worker, jobs) = collecting();
+            let (mut inbox, mut app) = started(&location, &worker);
+
+            inbox.apply(&mut app, submit("hero"));
+
+            let job = jobs.recv_timeout(Duration::from_secs(30)).expect("a job");
+            assert!(job.location.same_queue(&location));
+            assert_eq!(job.mode, crate::keep::KeepFiles::Compact);
+            assert!(job.archived.path.starts_with(location.archive()));
+            assert_eq!(job.archived.bytes, bytes);
+            assert!(matches!(job.snapshot.places[0].seen, Seen::Read(_)));
+        }
+
+        #[test]
+        fn a_session_that_changed_since_it_was_seen_gets_no_job() {
+            let (_scratch, location, _picture) = showing_a_picture();
+            let (worker, jobs) = collecting();
+            let (mut inbox, mut app) = started(&location, &worker);
+            fs::write(location.inbox().join("hero.json"), SESSION).expect("changes");
+
+            inbox.apply(&mut app, submit("hero"));
+            worker.idle();
+
+            assert!(jobs.try_recv().is_err());
+            assert!(names(&location.outbox()).is_empty());
+        }
+
+        #[test]
+        fn recovery_hands_a_job_for_a_completed_finish() {
+            let (_scratch, location, _picture) = showing_a_picture();
+            let bytes = fs::read(location.inbox().join("hero.json")).expect("reads");
+            // A finish that wrote its result and was interrupted before the
+            // archive step.
+            let result = SessionResult::submitted(
+                "hero",
+                &session_sha256(&bytes),
+                "2026-10-31T10:00:00Z",
+                None,
+                Vec::new(),
+            );
+            fs::write(
+                location.outbox().join("hero.json"),
+                serde_json::to_vec(&result).expect("serializes"),
+            )
+            .expect("written");
+            let (worker, jobs) = collecting();
+
+            let _ = started(&location, &worker);
+
+            let job = jobs.recv_timeout(Duration::from_secs(30)).expect("a job");
+            assert_eq!(job.archived.bytes, bytes);
+            assert_eq!(
+                job.snapshot.places[0].seen,
+                Seen::Deferred,
+                "the worker reads the files of a recovered finish"
+            );
+        }
+
+        #[test]
+        fn without_a_keeper_nothing_is_kept() {
+            let (_scratch, location, _picture) = showing_a_picture();
+            let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+            inbox.sync(&mut app).expect("synced");
+
+            inbox.apply(&mut app, submit("hero"));
+
+            let (_, json) = archived_session(&location);
+            assert!(json.get("archived").is_none());
+        }
     }
 }

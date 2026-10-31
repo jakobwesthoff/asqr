@@ -481,6 +481,66 @@ fn answers_a_session_that_arrives_while_it_runs() {
     assert_eq!(result.answers[0].custom.as_deref(), Some("xy z\nw\nv"));
 }
 
+/// The binary keeps the files of a session the person finished, and waits
+/// for that when it quits: the wiring of the worker in `terminal.rs`, which
+/// no test below the terminal reaches.
+#[test]
+fn a_finished_session_has_its_files_kept_before_asqr_quits() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let shown = sandbox.file("notes.txt", "what the person saw\n");
+    let session = serde_json::json!({
+        "asqr": 2, "id": "keep-test",
+        "questions": [{"id": "q", "text": "Pick a fruit", "kind": "single",
+            "context": [{"type": "code", "path": shown}],
+            "options": [{"id": "a", "label": "Apple"}, {"id": "b", "label": "Pear"}]}]
+    });
+    let file = sandbox.file("session.json", &session.to_string());
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+    );
+    tui.wait_for("Nothing to answer");
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+    tui.wait_for("Pick a fruit");
+
+    tui.press("1");
+    tui.wait_for("Review your answers");
+    tui.press("\r");
+    tui.wait_for("Nothing to answer");
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+
+    let archive = dir.join("archive");
+    let archived: Vec<_> = std::fs::read_dir(&archive)
+        .expect("archive")
+        .map(|entry| entry.expect("entry").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect();
+    assert_eq!(archived.len(), 1, "{archived:?}");
+    let json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&archived[0]).expect("reads")).expect("JSON");
+    let path = json["questions"][0]["context"][0]["path"]
+        .as_str()
+        .expect("a path");
+    assert!(
+        path.starts_with("files/") && path.ends_with(".txt"),
+        "{json}"
+    );
+    assert_eq!(
+        std::fs::read(archive.join(path)).expect("the copy exists"),
+        b"what the person saw\n"
+    );
+}
+
 /// Where `needle` first occurs in `haystack`, failing when it does not.
 fn first(haystack: &str, needle: &str) -> usize {
     haystack

@@ -13,7 +13,8 @@ use super::Exit;
 use super::hint::{self, Invocation, Refusing};
 use super::wait::{Elsewhere, elsewhere};
 use crate::format::SessionResult;
-use crate::queue::{QueueLocation, WithdrawError, Withdrawn, withdraw_session};
+use crate::keep::apply::record_after_withdrawal;
+use crate::queue::{Gate, QueueLocation, WithdrawError, Withdrawn, withdraw_session_archived};
 
 pub(super) fn run(
     location: &QueueLocation,
@@ -22,11 +23,18 @@ pub(super) fn run(
     id: &str,
     force: bool,
 ) -> Exit {
-    match withdraw_session(location, id, force) {
-        Ok(Withdrawn::Now(result)) => print(&result),
-        Ok(Withdrawn::Already(result)) => {
-            eprintln!("asqr: {id} was withdrawn already");
-            print(&result)
+    match withdraw_session_archived(location, id, force, Gate::default()) {
+        Ok((withdrawn, archived)) => {
+            // The drafts lock is let go of by now: reading the files can be
+            // slow, and the TUI saves drafts under that lock.
+            record_after_withdrawal(location, archived);
+            match withdrawn {
+                Withdrawn::Now(result) => print(&result),
+                Withdrawn::Already(result) => {
+                    eprintln!("asqr: {id} was withdrawn already");
+                    print(&result)
+                }
+            }
         }
         // A withdraw that did not happen must not look like one that did,
         // so every refusal fails; the ones that mean no session will ever

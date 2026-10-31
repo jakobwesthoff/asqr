@@ -7,12 +7,16 @@
 //! means nothing once the file is gone. This module decides what is kept
 //! of each file.
 
+pub mod apply;
 mod places;
 pub mod processor;
 pub mod record;
 pub mod snapshot;
 pub mod store;
+pub mod worker;
 
+#[cfg(test)]
+pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
 

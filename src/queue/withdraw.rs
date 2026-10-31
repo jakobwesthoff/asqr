@@ -13,7 +13,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::drop::{check_drop, write_drop};
-use super::finish::{archive_session, finish_steps, stem};
+use super::finish::{ArchivedSession, archive_session, finish_steps, stem};
 use super::{
     ArchivedStanding, DropError, Dropped, FinishError, Gate, QueueLocation, Step,
     archived_standing, delete_draft, find_session_file, has_answered_draft, load_draft,
@@ -70,8 +70,20 @@ pub fn withdraw_session_with(
     location: &QueueLocation,
     id: &str,
     force: bool,
-    mut gate: Gate<'_>,
+    gate: Gate<'_>,
 ) -> Result<Withdrawn, WithdrawError> {
+    withdraw_session_archived(location, id, force, gate).map(|(withdrawn, _)| withdrawn)
+}
+
+/// [`withdraw_session_with`], also returning the archived session when this
+/// withdrawal moved it there, so the files it showed can be recorded once
+/// the lock is let go of.
+pub fn withdraw_session_archived(
+    location: &QueueLocation,
+    id: &str,
+    force: bool,
+    mut gate: Gate<'_>,
+) -> Result<(Withdrawn, Option<ArchivedSession>), WithdrawError> {
     // Looking at a queue creates nothing: a queue that is not there holds
     // no session, and a mistyped queue name must not leave a directory.
     if !location.dir().is_dir() {
@@ -90,9 +102,9 @@ fn withdraw_locked(
     id: &str,
     force: bool,
     step: &mut dyn FnMut(Step),
-) -> Result<Withdrawn, WithdrawError> {
+) -> Result<(Withdrawn, Option<ArchivedSession>), WithdrawError> {
     let Some(session) = find_session_file(&location.inbox(), id)? else {
-        return gone(location, id);
+        return gone(location, id).map(|withdrawn| (withdrawn, None));
     };
     let bytes = std::fs::read(&session)?;
     let sha256 = session_sha256(&bytes);
@@ -108,11 +120,16 @@ fn withdraw_locked(
                     return Err(WithdrawError::Answered(id.to_owned()));
                 }
                 step(Step::Checked);
-                archive_session(location, &session, stem(&session))?;
+                let archived = archive_session(location, &session, stem(&session))?.map(|path| {
+                    ArchivedSession {
+                        path,
+                        bytes: bytes.clone(),
+                    }
+                });
                 step(Step::Archived);
                 delete_draft(location, id)?;
                 step(Step::DraftDeleted);
-                Ok(Withdrawn::Already(result))
+                Ok((Withdrawn::Already(result), archived))
             }
             _ => Err(WithdrawError::UnreadResult(id.to_owned())),
         };
@@ -129,13 +146,14 @@ fn withdraw_locked(
     );
     step(Step::Checked);
     match finish_steps(location, &session, &result, step) {
-        Ok(()) => {
+        Ok(archived) => {
             tracing::info!(id, forced = force, "withdrew a session");
-            Ok(Withdrawn::Now(result))
+            let archived = archived.map(|path| ArchivedSession { path, bytes });
+            Ok((Withdrawn::Now(result), archived))
         }
         // Another result landed after the check, from a writer that does
         // not take the lock; it decides what happened to the session.
-        Err(FinishError::Conflict(_)) => gone(location, id),
+        Err(FinishError::Conflict(_)) => gone(location, id).map(|withdrawn| (withdrawn, None)),
         Err(FinishError::Io(error)) => Err(error.into()),
     }
 }
@@ -171,14 +189,28 @@ pub fn drop_replacing(
     id: &str,
     bytes: &[u8],
     force: bool,
-    mut gate: Gate<'_>,
+    gate: Gate<'_>,
 ) -> Result<(Withdrawn, Dropped), ReplaceError> {
+    drop_replacing_archived(location, old, id, bytes, force, gate)
+        .map(|(withdrawn, dropped, _)| (withdrawn, dropped))
+}
+
+/// [`drop_replacing`], also returning the archived session of `old` when
+/// this call moved it there.
+pub fn drop_replacing_archived(
+    location: &QueueLocation,
+    old: &str,
+    id: &str,
+    bytes: &[u8],
+    force: bool,
+    mut gate: Gate<'_>,
+) -> Result<(Withdrawn, Dropped, Option<ArchivedSession>), ReplaceError> {
     let refused = |error| ReplaceError::Drop(DropError::Io(error));
     // Made under the drafts lock, as `drop_session_with` makes them.
     let _lock = lock_drafts(location, gate.attempts).map_err(refused)?;
     location.create_layout().map_err(refused)?;
     let checked = check_drop(location, id, force).map_err(ReplaceError::Drop)?;
-    let withdrawn =
+    let (withdrawn, archived) =
         withdraw_locked(location, old, force, &mut gate.step).map_err(ReplaceError::Withdraw)?;
     let dropped = write_drop(location, id, bytes, checked, &mut gate.step).map_err(|error| {
         ReplaceError::DropAfterWithdrawal {
@@ -186,7 +218,7 @@ pub fn drop_replacing(
             error,
         }
     })?;
-    Ok((withdrawn, dropped))
+    Ok((withdrawn, dropped, archived))
 }
 
 /// Where a session stands whose file is not in the inbox, as far as a

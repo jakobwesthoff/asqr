@@ -1016,6 +1016,41 @@ drafts lock (section 5.6); when it stays taken, nothing is written, the
 session stays, and a notice says "cannot finish <id>: the queue is
 busy".
 
+**Keeping the files.** Before step 1, and outside the drafts lock, the
+TUI reads the files the session shows into memory (section 5.1): an
+asker that removes its temporary files as soon as it sees the result must
+not take away what the person saw. A file past the viewer's limit is not
+read, and at most 256 MiB of file content is held; a file that does not
+fit is left for the worker below, which reads it from its path (an asker
+that removes it first leaves it `missing`).
+
+After step 3 the TUI hands the archived session, what it read and the
+mode in force to the worker, a thread of its own that serves every queue
+the asqr shows. For each job the worker, without any lock, processes the
+files (an image is encoded, section 5.1) and writes each copy as a synced
+temp file `archive/files/.asqr-*.tmp`, never under its final name. Then it
+takes the drafts lock for a moment and checks that the archived file still
+holds exactly the bytes it was archived with. If it does, each copy takes
+its name (a file of that name with the same bytes is left as it is) and
+the recording replaces the archived file by one rename. If the lock stays
+taken, or the archived file changed or went, the plain archived session
+stays and the job ends with a warning in the log. So the archived file
+has two states, plain and recorded, a copy lies under its name only once
+a recording that refers to it was written, and a crash or a failing copy
+at any point leaves the plain session. What is lost then are the copies
+and the fingerprints of that session. Quitting, or a SIGTERM, waits for
+the worker to run its queue empty for up to 10 seconds and lets go of the
+rest.
+
+A session completed by recovery gets a job too; the worker reads its
+files, which may be gone by then. `asqr withdraw` and `asqr ask
+--replaces` archive the session under their lock as before and keep no
+copies, since only the asqr that shows the queue reads the settings.
+After the lock is let go of they read the files and record each as
+`not_kept`, with `keep` recorded as `off`, then replace the archived file
+under the lock as the worker does. A session that was rejected as invalid
+is archived as it is.
+
 Recovery runs whenever asqr reads the inbox, on start and after every
 change. For an inbox session whose outbox result has the same
 `session_sha256`, the finish was interrupted, so steps 2 and 3 are

@@ -26,6 +26,7 @@ use asqr::graphics::{
 };
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
+use asqr::keep::worker::{KeepWorker, job_panicked};
 use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure, TmuxPane};
 use asqr::queue::{QueueLocation, QueueLock, WaitingQueue, platform_data_dir, waiting_elsewhere};
 use asqr::terminal_env::{TerminalEnv, TmuxState};
@@ -34,7 +35,7 @@ use asqr::tui::{
     Alerts, Clock, Event, EventSource, Held, Host, InboxWatcher, KeepAlive, KeyReader, OpenedFiles,
     ProgressTerminal, QueueChoice, Refusal, SleepClock, Switcher, Taken, alert, opener_failure,
     pick_queue, prepare_switch, progress_sequence, progress_terminal, queue_choice, queue_label,
-    run, spawn_reaped, start, take_picked, watch_inbox,
+    run, spawn_reaped, start_with_keeper, take_picked_with_keeper, watch_inbox,
 };
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -66,7 +67,15 @@ pub fn run_terminal_ui(mut watch: Watch) -> Exit {
     }
 }
 
+/// How long quitting waits for the worker that keeps the files of the
+/// sessions finished last. What it has not done by then is let go of, as a
+/// crash would: the plain archived session stays.
+const KEEP_DRAIN: Duration = Duration::from_secs(10);
+
 fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
+    // One worker for the whole run, whichever queue is shown: a job carries
+    // its queue.
+    let keeper = KeepWorker::new();
     let (sender, events) = mpsc::channel();
     let inbox_events = sender.clone();
     // A queue chosen at the start is held already. Its watcher comes first
@@ -81,7 +90,11 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
                 let _ = changes.send(Event::InboxChanged);
             })
             .context("watching the inbox")?;
-            let (app, inbox) = start(location.clone(), watch.settings().clone())?;
+            let (app, inbox) = start_with_keeper(
+                location.clone(),
+                watch.settings().clone(),
+                Some(keeper.clone()),
+            )?;
             Some(Taken {
                 held: Held {
                     location,
@@ -223,7 +236,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
                 VERSION,
                 |target| {
                     let changes = inbox_events.clone();
-                    take_picked(target, &settings, move || {
+                    take_picked_with_keeper(target, &settings, Some(keeper.clone()), move || {
                         let _ = changes.send(Event::InboxChanged);
                     })
                 },
@@ -286,7 +299,7 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
     {
         tracing::info!(reason, "tmux did not take the pin");
     }
-    run(
+    let ran = run(
         &mut terminal,
         &mut app,
         &mut inbox,
@@ -294,7 +307,11 @@ fn run_in_terminal(watch: &mut Watch) -> anyhow::Result<()> {
         &events,
         &mut host,
         &mut opened,
-    )
+    );
+    if !keeper.drain(KEEP_DRAIN) {
+        tracing::warn!("quit before the files of the last sessions were kept");
+    }
+    ran
 }
 
 /// Sends [`Event::QueuesTick`] on a thread of its own at once and then
@@ -443,7 +460,7 @@ fn hook_in_before_ratatui_on_panic(
         // A panic while loading a context entry is handed to the drawing
         // thread, which panics with it; the terminal is given back there,
         // once nothing draws any more.
-        if loader_panicked(info) {
+        if loader_panicked(info) || job_panicked(info) {
             return;
         }
         give_back_on_panic(&mut io::stdout(), &book, &title_pushed, &progress);

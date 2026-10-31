@@ -61,6 +61,67 @@ fn withdraw(sandbox: &Sandbox, args: &[&str]) -> std::process::Output {
     sandbox.asqr_in_queue(&all).output().expect("runs")
 }
 
+/// The one session in the archive, as JSON.
+fn archived_session(sandbox: &Sandbox) -> serde_json::Value {
+    let archive = sandbox.queue_dir().join("archive");
+    let found: Vec<_> = std::fs::read_dir(&archive)
+        .expect("archive")
+        .map(|entry| entry.expect("entry").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect();
+    assert_eq!(found.len(), 1, "{found:?}");
+    serde_json::from_slice(&std::fs::read(&found[0]).expect("reads")).expect("JSON")
+}
+
+/// Drops session `id`, which shows the file `shown` as code.
+fn ask_showing(sandbox: &Sandbox, id: &str, shown: &std::path::Path) {
+    let session = serde_json::json!({
+        "asqr": 2, "id": id,
+        "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "code", "path": shown}]}]
+    });
+    let file = sandbox.file(&format!("{id}.json"), &session.to_string());
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+}
+
+/// Only the asqr that shows the queue knows the setting, so a withdrawal
+/// keeps no copies; it still records what the files were.
+#[test]
+fn withdraw_records_the_fingerprints_of_the_shown_files_and_keeps_no_copy() {
+    let sandbox = Sandbox::new();
+    let shown = sandbox.file("notes.txt", "what the session showed\n");
+    ask_showing(&sandbox, "batch", &shown);
+
+    let withdrawn = withdraw(&sandbox, &["batch"]);
+
+    assert_eq!(withdrawn.status.code(), Some(0), "{}", stderr(&withdrawn));
+    let archived = archived_session(&sandbox);
+    let entry = &archived["questions"][0]["context"][0];
+    assert_eq!(archived["archived"]["keep"], "off");
+    assert_eq!(entry["path"], shown.to_string_lossy().as_ref());
+    assert_eq!(entry["shown"]["state"], "not_kept");
+    assert_eq!(entry["shown"]["size"], 24);
+    assert_eq!(entry["shown"]["sha256"].as_str().map(str::len), Some(64));
+    assert!(!sandbox.queue_dir().join("archive/files").exists());
+}
+
+#[test]
+fn withdraw_of_a_session_that_shows_no_file_archives_it_as_it_is() {
+    let sandbox = Sandbox::new();
+    ask(&sandbox, "batch");
+
+    withdraw(&sandbox, &["batch"]);
+
+    assert!(archived_session(&sandbox).get("archived").is_none());
+}
+
 #[test]
 fn withdraw_prints_the_result_and_wait_and_result_end_with_14() {
     let sandbox = Sandbox::new();

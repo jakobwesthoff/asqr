@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use clap::ValueEnum;
 use toml_edit::{DocumentMut, Item, Value};
 
+use crate::keep::KeepFiles;
 use crate::queue::{platform_config_dir, write_atomically_with};
 use crate::tui::DiffLayout;
 use crate::tui::render::{PaneLayout, ReadingWidth};
@@ -88,6 +89,7 @@ pub struct Settings {
     pub diff_layout: DiffLayout,
     pub max_question_width: ReadingWidth,
     pub context: PaneLayout,
+    pub keep_files: KeepFiles,
 }
 
 impl Settings {
@@ -469,6 +471,7 @@ fn parse(text: &str) -> (Settings, Vec<String>) {
             },
             &mut warnings,
         ),
+        keep_files: defaults.keep_files,
     };
     (settings, warnings)
 }
@@ -575,6 +578,7 @@ mod tests {
                 diff_layout: DiffLayout::Unified,
                 max_question_width: ReadingWidth::Columns100,
                 context: PaneLayout::Auto,
+                ..Settings::default()
             }
         );
     }
@@ -607,6 +611,7 @@ mod tests {
                 diff_layout: DiffLayout::SideBySide,
                 max_question_width: ReadingWidth::Columns120,
                 context: PaneLayout::Below,
+                ..Settings::default()
             }
         );
         assert_eq!(loaded.warnings, Vec::<String>::new());
@@ -697,6 +702,7 @@ mod tests {
                 diff_layout: DiffLayout::Unified,
                 max_question_width: ReadingWidth::Columns120,
                 context: PaneLayout::Below,
+                ..Settings::default()
             }
         );
         assert_eq!(
@@ -917,6 +923,7 @@ mod tests {
                 diff_layout: DiffLayout::SideBySide,
                 max_question_width: ReadingWidth::Full,
                 context: PaneLayout::Below,
+                ..Settings::default()
             }
         );
     }

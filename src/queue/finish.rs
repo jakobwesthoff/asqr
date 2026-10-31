@@ -10,7 +10,7 @@
 
 use std::fmt::Write as _;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -79,6 +79,14 @@ pub(super) fn stem(session: &Path) -> &str {
         .expect("inbox sessions are UTF-8 <id>.json names")
 }
 
+/// A session file that was moved into the archive: where it lies now and
+/// the bytes it holds. The files it showed are kept from this (ADR 100).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchivedSession {
+    pub path: PathBuf,
+    pub bytes: Vec<u8>,
+}
+
 /// Finishes the session in `session` (an inbox file) with `result`. The
 /// caller holds the drafts lock, or runs where no other process changes the
 /// queue.
@@ -87,16 +95,17 @@ pub fn finish(
     session: &Path,
     result: &SessionResult,
 ) -> Result<(), FinishError> {
-    finish_steps(location, session, result, &mut |_| {})
+    finish_steps(location, session, result, &mut |_| {}).map(drop)
 }
 
-/// [`finish`], calling `step` after each of its steps.
+/// [`finish`], calling `step` after each of its steps. It returns where
+/// the session was archived, none when its file was gone already.
 pub(super) fn finish_steps(
     location: &QueueLocation,
     session: &Path,
     result: &SessionResult,
     step: &mut dyn FnMut(Step),
-) -> Result<(), FinishError> {
+) -> Result<Option<PathBuf>, FinishError> {
     let id = stem(session);
     let target = location.outbox().join(format!("{id}.json"));
     let json = serde_json::to_vec_pretty(result).map_err(io::Error::other)?;
@@ -108,34 +117,38 @@ pub(super) fn finish_steps(
         Some(_) => return Err(FinishError::Conflict(id.to_owned())),
     }
     step(Step::ResultWritten);
-    archive_session(location, session, id)?;
+    let archived = archive_session(location, session, id)?;
     step(Step::Archived);
     delete_draft(location, id)?;
     step(Step::DraftDeleted);
-    Ok(())
+    Ok(archived)
 }
 
-/// Moves a session file into the archive; a file that is gone already was
-/// archived by an earlier run.
+/// Moves a session file into the archive and returns where it lies now. A
+/// file that is gone already was archived by an earlier run, so there is
+/// no new place to return.
 pub(super) fn archive_session(
     location: &QueueLocation,
     session: &Path,
     id: &str,
-) -> io::Result<()> {
+) -> io::Result<Option<PathBuf>> {
     let target = location
         .archive()
         .join(archive_name(id, Ulid::generate(), Archived::Session));
-    match std::fs::rename(session, target) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        other => other,
+    match std::fs::rename(session, &target) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+        Ok(()) => Ok(Some(target)),
     }
 }
 
 /// How a finish of a session the person saw ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Finished {
     /// The result is written, the session archived and its draft deleted.
-    Done,
+    /// The archived session is there unless an earlier run of this finish
+    /// had archived it.
+    Done(Option<ArchivedSession>),
     /// The session file is gone or holds other bytes than the person saw,
     /// so nothing was written.
     Changed,
@@ -156,20 +169,27 @@ pub fn finish_unchanged_with(
     let _lock = lock_drafts(location, gate.attempts)?;
     // A file that cannot be read counts as changed: the next sync reports
     // what is wrong with it.
-    let unchanged = std::fs::read(session).is_ok_and(|bytes| session_sha256(&bytes) == sha256);
+    let seen = std::fs::read(session)
+        .ok()
+        .filter(|bytes| session_sha256(bytes) == sha256);
     (gate.step)(Step::Checked);
-    if !unchanged {
+    let Some(bytes) = seen else {
         return Ok(Finished::Changed);
-    }
-    finish_steps(location, session, result, &mut gate.step)?;
-    Ok(Finished::Done)
+    };
+    let archived = finish_steps(location, session, result, &mut gate.step)?
+        .map(|path| ArchivedSession { path, bytes });
+    Ok(Finished::Done(archived))
 }
 
 /// What recovery did with a waiting session that already had a result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Recovery {
-    /// The finish had been interrupted; its last steps were completed.
-    Completed(String),
+    /// The finish had been interrupted; its last steps were completed. The
+    /// archived session is there unless it had been archived before.
+    Completed {
+        id: String,
+        archived: Option<ArchivedSession>,
+    },
     /// A new session collided with an unread result of an earlier one. It
     /// was archived without a result; the TUI shows a notice.
     Conflict(String),
@@ -209,12 +229,15 @@ pub fn recover_with(location: &QueueLocation, mut gate: Gate<'_>) -> io::Result<
             continue;
         }
         (gate.step)(Step::Checked);
-        archive_session(location, &waiting.path, &waiting.id)?;
+        let archived = archive_session(location, &waiting.path, &waiting.id)?;
         (gate.step)(Step::Archived);
         if state == OutboxState::ThisSession {
             delete_draft(location, &waiting.id)?;
             (gate.step)(Step::DraftDeleted);
-            recovered.push(Recovery::Completed(waiting.id));
+            recovered.push(Recovery::Completed {
+                id: waiting.id,
+                archived: archived.map(|path| ArchivedSession { path, bytes }),
+            });
         } else {
             recovered.push(Recovery::Conflict(waiting.id));
         }
@@ -281,7 +304,7 @@ pub fn reject_invalid_with(
 /// Archives a `.json` file whose stem is not a valid id. No asker can wait
 /// on such a name, so it gets no result.
 pub fn archive_invalid_stem(location: &QueueLocation, path: &Path) -> io::Result<()> {
-    archive_session(location, path, INVALID_STEM_ID)
+    archive_session(location, path, INVALID_STEM_ID).map(drop)
 }
 
 #[cfg(test)]
@@ -415,7 +438,10 @@ mod tests {
 
         let recovered = recover(&location).expect("recovery runs");
 
-        assert_eq!(recovered, [Recovery::Completed("batch-01".into())]);
+        assert!(
+            matches!(recovered.as_slice(), [Recovery::Completed { id, .. }] if id == "batch-01"),
+            "{recovered:?}"
+        );
         assert_eq!(names(&location.inbox()), Vec::<String>::new());
         assert_eq!(load_draft(&location, "batch-01").expect("readable"), None);
     }
@@ -437,7 +463,10 @@ mod tests {
 
         let recovered = recover(&location).expect("recovery runs");
 
-        assert_eq!(recovered, [Recovery::Completed("batch-01".into())]);
+        assert!(
+            matches!(recovered.as_slice(), [Recovery::Completed { id, .. }] if id == "batch-01"),
+            "{recovered:?}"
+        );
         assert_eq!(names(&location.inbox()), ["locked.json"]);
     }
 
@@ -597,7 +626,7 @@ mod tests {
         )
         .expect("finished");
 
-        assert_eq!(finished, Finished::Done);
+        assert!(matches!(finished, Finished::Done(Some(_))), "{finished:?}");
         assert_eq!(
             seen.into_inner(),
             [
@@ -671,7 +700,10 @@ mod tests {
 
         let recovered = recover_with(&location, recording_gate(&location, &seen)).expect("runs");
 
-        assert_eq!(recovered, [Recovery::Completed("batch-01".into())]);
+        assert!(
+            matches!(recovered.as_slice(), [Recovery::Completed { id, .. }] if id == "batch-01"),
+            "{recovered:?}"
+        );
         assert_eq!(
             seen.into_inner(),
             [

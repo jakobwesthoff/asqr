@@ -1223,6 +1223,45 @@ fn ask_replaces_an_old_session_that_cannot_be_read_fails_and_drops_nothing() {
 }
 
 #[test]
+fn ask_replaces_records_the_fingerprints_of_the_files_the_old_session_showed() {
+    let sandbox = Sandbox::new();
+    let shown = sandbox.file("notes.txt", "what round one showed\n");
+    let first = serde_json::json!({
+        "asqr": 2, "id": "round-1",
+        "questions": [{"id": "q", "text": "?", "kind": "text",
+            "context": [{"type": "code", "path": shown}]}]
+    });
+    let first = sandbox.file("round-1.json", &first.to_string());
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&first)
+        .assert()
+        .success();
+    let second = sandbox.file("round-2.json", &SESSION.replace("batch-01", "round-2"));
+
+    let output = replace(&sandbox, &second, &["--replaces", "round-1"]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let archive = sandbox.queue_dir().join("archive");
+    let archived: Vec<_> = std::fs::read_dir(&archive)
+        .expect("archive")
+        .map(|entry| entry.expect("entry").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect();
+    assert_eq!(archived.len(), 1, "{archived:?}");
+    let json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&archived[0]).expect("reads")).expect("JSON");
+    assert_eq!(json["archived"]["keep"], "off");
+    assert_eq!(
+        json["questions"][0]["context"][0]["shown"]["state"],
+        "not_kept"
+    );
+}
+
+#[test]
 fn ask_replaces_with_wait_waits_for_the_new_one() {
     let sandbox = Sandbox::new();
     let second = round_one_waiting(&sandbox);

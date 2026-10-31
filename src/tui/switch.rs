@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 
 use super::render::{View, shown_path};
 use super::{App, Host, Inbox, InboxWatcher, Notice, Place, QueueChoice, QueueRow, TakenQueue};
-use super::{Tone, start, watch_inbox};
+use super::{Tone, start_with_keeper, watch_inbox};
 use crate::cli::shell_word;
+use crate::keep::worker::KeepWorker;
 use crate::pairing::{self, Tmux, TmuxFailure, TmuxPane};
 use crate::queue::{
     LockError, QueueLocation, QueueLock, compact_quietly, list_queues, lock_queue, summarize,
@@ -148,12 +149,23 @@ pub fn take_picked(
     settings: &SettingsStore,
     changed: impl FnMut() + Send + 'static,
 ) -> Result<Taken, Notice> {
+    take_picked_with_keeper(target, settings, None, changed)
+}
+
+/// [`take_picked`], with the files of the sessions the queue finishes kept
+/// by `keeper`. The asqr binary takes its queue this way.
+pub fn take_picked_with_keeper(
+    target: &QueueLocation,
+    settings: &SettingsStore,
+    keeper: Option<KeepWorker>,
+    changed: impl FnMut() + Send + 'static,
+) -> Result<Taken, Notice> {
     // The picker lists named queues, whose label does not use the home
     // folder.
     let name = queue_label(target, None);
     let held = prepare_switch(target, None, changed).map_err(|refusal| refused(&name, refusal))?;
     // A failed read drops `held`, and with it the lock and the watcher.
-    let (app, inbox) = start(target.clone(), settings.clone())
+    let (app, inbox) = start_with_keeper(target.clone(), settings.clone(), keeper)
         .map_err(|error| cannot_watch(&name, &error.root_cause().to_string()))?;
     Ok(Taken { held, app, inbox })
 }
@@ -283,13 +295,15 @@ pub fn switch_queue(
     };
     // The new queue is read before the old one is let go of; `held` goes
     // with a failure, and with it the new lock and watcher.
-    let (mut new_app, new_inbox) = match start(target.clone(), app.settings().clone()) {
-        Ok(started) => started,
-        Err(error) => {
-            app.show(cannot_watch(&new, &error.root_cause().to_string()));
-            return;
-        }
-    };
+    let keeper = inbox.keeper().cloned();
+    let (mut new_app, new_inbox) =
+        match start_with_keeper(target.clone(), app.settings().clone(), keeper) {
+            Ok(started) => started,
+            Err(error) => {
+                app.show(cannot_watch(&new, &error.root_cause().to_string()));
+                return;
+            }
+        };
     if let Err((id, error)) = inbox.save_drafts(app) {
         tracing::warn!(%id, %error, "could not save a draft before a switch");
         app.show(Notice::naming_queue_after(
@@ -649,6 +663,19 @@ mod tests {
         assert_eq!(taken.held.location, target);
         assert_eq!(taken.inbox.location(), &target);
         assert!(lock_holder(&target).expect("readable").is_some());
+    }
+
+    #[test]
+    fn a_picked_queue_keeps_the_files_of_its_sessions_with_the_keeper_it_is_given() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = QueueLocation::named(scratch.path(), "work");
+        let keeper = KeepWorker::new_with(|_| {});
+
+        let taken =
+            take_picked_with_keeper(&target, &SettingsStore::default(), Some(keeper), || {})
+                .expect("taken");
+
+        assert!(taken.inbox.keeper().is_some());
     }
 
     #[test]

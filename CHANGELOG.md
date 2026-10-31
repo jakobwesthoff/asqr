@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- When the person finishes a session, asqr copies the files it showed into
+  the archive: images as WebP copies at about a fifth of their size, every
+  other file as it is. The archived session points at the copies and
+  records each shown file's original path, size and SHA-256, also for a
+  file that is gone. `asqr withdraw` and `ask --replaces` record the
+  fingerprints without copies. Quitting waits up to 10 seconds for copies
+  still being written.
 - asqr keeps three settings in `settings.toml` in its config directory
   (`~/Library/Application Support/asqr/` on macOS, `$XDG_CONFIG_HOME/asqr/`
   on Linux): how a diff opens (`diff_layout`), the widest a question gets
