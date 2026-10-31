@@ -56,7 +56,7 @@ fn a_reference_that_is_too_short_is_a_usage_error() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         stderr(&output),
-        "asqr: \"9PA7\" is too short; give at least 6 characters of the REF\n"
+        "error: \"9PA7\" is too short; give at least 6 characters of the REF\n"
     );
 }
 
@@ -69,7 +69,7 @@ fn a_reference_that_is_too_long_is_a_usage_error() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         stderr(&output),
-        "asqr: \"9PA7KXZQ1\" is too long; a REF has at most 8 characters\n"
+        "error: \"9PA7KXZQ1\" is too long; a REF has at most 8 characters\n"
     );
 }
 
@@ -82,7 +82,7 @@ fn a_letter_no_reference_holds_is_a_usage_error_naming_it() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         stderr(&output),
-        "asqr: \"9PA7KO\" is no REF: no REF holds the letter O\n"
+        "error: \"9PA7KO\" is no REF: no REF holds the letter O\n"
     );
 }
 
@@ -102,7 +102,7 @@ fn a_reference_that_ends_no_session_says_where_it_looked() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output),
-        "asqr: no finished session ends in \"ZZZZZZ\" in any queue under the data directory; a queue given with --dir is only searched when named\n"
+        "error: no finished session ends in \"ZZZZZZ\" in any queue under the data directory; a queue given with --dir is only searched when named\n"
     );
 }
 
@@ -134,7 +134,7 @@ fn a_reference_that_ends_two_sessions_lists_them() {
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(
         lines[0],
-        format!("asqr: \"{shared}\" ends 2 finished sessions; give more of the REF:")
+        format!("error: \"{shared}\" ends 2 finished sessions; give more of the REF:")
     );
     assert!(
         lines[1].starts_with(&format!("  {first}  default ")) && lines[1].ends_with("Alt rework 3"),
@@ -327,7 +327,7 @@ fn json_leaves_a_too_short_reference_a_usage_error_with_nothing_on_stdout() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         stderr(&output),
-        "asqr: \"9PA7\" is too short; give at least 6 characters of the REF\n"
+        "error: \"9PA7\" is too short; give at least 6 characters of the REF\n"
     );
     assert_eq!(common::stdout(&output), "");
 }
@@ -341,7 +341,7 @@ fn json_leaves_a_letter_no_reference_holds_a_usage_error_with_nothing_on_stdout(
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         stderr(&output),
-        "asqr: \"9PA7KO\" is no REF: no REF holds the letter O\n"
+        "error: \"9PA7KO\" is no REF: no REF holds the letter O\n"
     );
     assert_eq!(common::stdout(&output), "");
 }
@@ -361,7 +361,7 @@ fn json_leaves_a_reference_that_ends_no_session_a_failure_with_nothing_on_stdout
 
     assert_eq!(output.status.code(), Some(1));
     assert!(
-        stderr(&output).starts_with("asqr: no finished session ends in \"ZZZZZZ\""),
+        stderr(&output).starts_with("error: no finished session ends in \"ZZZZZZ\""),
         "{}",
         stderr(&output)
     );

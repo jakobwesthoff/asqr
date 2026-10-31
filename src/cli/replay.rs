@@ -186,15 +186,15 @@ pub(super) fn find_entry(
     let entry = match resolved.resolution {
         Resolution::Found(entry) => entry,
         Resolution::TooShort => {
-            eprintln!("asqr: \"{reference}\" is too short; give at least 6 characters of the REF");
+            eprintln!("error: \"{reference}\" is too short; give at least 6 characters of the REF");
             return Err(Exit::Usage);
         }
         Resolution::TooLong => {
-            eprintln!("asqr: \"{reference}\" is too long; a REF has at most 8 characters");
+            eprintln!("error: \"{reference}\" is too long; a REF has at most 8 characters");
             return Err(Exit::Usage);
         }
         Resolution::NotAReference(letter) => {
-            eprintln!("asqr: \"{reference}\" is no REF: no REF holds the letter {letter}");
+            eprintln!("error: \"{reference}\" is no REF: no REF holds the letter {letter}");
             return Err(Exit::Usage);
         }
         Resolution::NoMatch => {
@@ -204,13 +204,13 @@ pub(super) fn find_entry(
                 return Err(Exit::Failure);
             }
             eprintln!(
-                "asqr: no finished session ends in \"{reference}\" in any queue under the data directory; a queue given with --dir is only searched when named"
+                "error: no finished session ends in \"{reference}\" in any queue under the data directory; a queue given with --dir is only searched when named"
             );
             return Err(Exit::Failure);
         }
         Resolution::Ambiguous(candidates) => {
             eprintln!(
-                "asqr: \"{reference}\" ends {} finished sessions; give more of the REF:",
+                "error: \"{reference}\" ends {} finished sessions; give more of the REF:",
                 candidates.len()
             );
             print_candidates(&candidates);

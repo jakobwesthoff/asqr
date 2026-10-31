@@ -157,6 +157,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   terminal capability probe uses.
 - `asqr prune --results` on its own, or with only `--yes`, gives the error
   that names `prune --older-than`. Before, it asked for `--older-than`.
+- The errors of `asqr replay` for a reference that is too short, too long,
+  no REF, ends no session or ends several start with `error: ` like those
+  of every other command. Before, they started with `asqr: `.
 
 ## [0.15.0] - 2026-10-30
 

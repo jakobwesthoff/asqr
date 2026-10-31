@@ -1621,7 +1621,14 @@ entry's archive ULID, of which 6 or more are accepted, in any case.
   for this REF` line on stderr for each such bundle. A
   reference that ends several sessions ends with exit code 1 and lists
   them, each with its REF, queue, the time it was archived and its title,
-  newest first, so a longer reference can name one.
+  newest first, so a longer reference can name one. The errors read
+  `error: "<ref>" is too short; give at least 6 characters of the REF`,
+  `error: "<ref>" is too long; a REF has at most 8 characters`, `error:
+  "<ref>" is no REF: no REF holds the letter <x>`, `error: no finished
+  session ends in "<ref>" in any queue under the data directory; a
+  queue given with --dir is only searched when named` and `error:
+  "<ref>" ends <n> finished sessions; give more of the REF:`, the last
+  followed by the list.
 - A session file that does not parse or validate, and a bundle that
   cannot be read, end the replay with `error: ` naming the file or bundle
   and exit code 1. Without a terminal, the terminal UI of `replay` fails as
