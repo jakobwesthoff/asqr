@@ -51,6 +51,34 @@ need a deliberate answer before they take effect: keeping files (the
 - **The texts are written together with Jakob** before the screen is
   implemented, as decided on 2026-10-30.
 
+## Texts (Jakob, 2026-10-31, in the chat)
+
+The pane's Keep files row is final as built (`src/tui/settings.rs`):
+label `Keep files`; values `compact copies` ("Compact copies: images are
+kept as WebP copies, about a fifth of their size; every other file is
+kept as it is."), `exact copies` ("Exact copies: every file is kept byte
+for byte, images included.") and `no copies` ("No copies: no file is
+kept. asqr still records each file's size and checksum, so a replay can
+tell the file is gone."). The first-start screen uses these value texts
+word for word, so the setting reads the same on both screens.
+
+The first-start screen, in the queue switcher's frame (design
+"Sibling"):
+
+- Lead: `Before your first session, one setting needs your answer. Press
+  , later to change it.`
+- Question: `Keep copies of the files a session showed you?`
+- Why (dim): `Files a session shows are often temporary. Replay can show
+  them later only if a copy was kept.`
+- The three values with `compact copies` preselected and marked
+  `◀ default`, each with its pane text.
+- Button `[ Save and start ]`; footer `writes <path to settings.toml>`.
+- `q` and `ctrl-c` write nothing, and the next start asks again, since
+  quitting is no answer; the line `q quits without writing; the next
+  start asks again.` says so. Rejected: quitting writes the defaults.
+- After saving, the pane's own notice: `✔ saved keep files: compact
+  copies` (with the value chosen).
+
 ## What the settings need
 
 - Keeping files: `compact`, `exact` or `off`, default `compact` (the
