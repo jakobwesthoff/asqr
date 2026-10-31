@@ -18,10 +18,11 @@ use asqr::queue::{HistoryOutcome, ReplayFile};
 use asqr::queue::{QueueLocation, WaitingQueue};
 use asqr::settings::{Lock, Locks, SettingsStore};
 use asqr::tui::ReplayInfo;
-use asqr::tui::render::{Drawn, Glyphs, PaneLayout, View, draw, draw_picker};
+use asqr::tui::render::{Drawn, Glyphs, PaneLayout, View, draw, draw_first_start, draw_picker};
 use asqr::tui::{
-    App, AppEffect, Invalid, Notice, Outcome, PanePage, Place, QueueChoice, QueueRow, REFUSED_NAME,
-    SessionState, Switcher, SwitcherKey, TOO_LONG_NAME, TakenQueue, Tone,
+    App, AppEffect, FirstStart, FirstStartKey, Invalid, Notice, Outcome, PanePage, Place,
+    QueueChoice, QueueRow, REFUSED_NAME, SessionState, Switcher, SwitcherKey, TOO_LONG_NAME,
+    TakenQueue, Tone,
 };
 use clap::CommandFactory;
 use jiff::tz::TimeZone;
@@ -259,6 +260,9 @@ fn queue_choice(switcher: &crate::scene::Switcher) -> QueueChoice {
 pub fn play(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<Buffer> {
     if scene.start_picker {
         return play_picker(scene);
+    }
+    if scene.first_start {
+        return play_first_start(scene);
     }
     let mut app = App::with_settings(settings_store(scene));
     for state in load_sessions(scene, scene_file)? {
@@ -536,6 +540,59 @@ fn play_picker(scene: &Scene) -> Result<Buffer> {
             };
         }
         draw_picker_frame(&picker, notice.as_ref())?;
+    }
+    Ok(picture)
+}
+
+/// The first-start screen of `scene` (spec section 7.1) after its keys. The
+/// keys go to the screen as `ask_first_start` hands them over
+/// (`src/tui/first_start.rs`), and the button and `q` are refused: a
+/// picture cannot show what follows them.
+fn play_first_start(scene: &Scene) -> Result<Buffer> {
+    let store = settings_store(scene);
+    let version = format!(
+        "asqr {}",
+        asqr::cli::Cli::command().get_version().unwrap_or_default()
+    );
+    let mut screen = FirstStart::default();
+    let mut terminal = Terminal::new(TestBackend::new(scene.columns, scene.rows))?;
+    let mut picture = Buffer::empty(terminal.get_frame().area());
+    let mut draw_screen_frame = |screen: &FirstStart| -> Result<()> {
+        let completed = terminal.draw(|frame| {
+            draw_first_start(
+                frame,
+                screen,
+                store.path(),
+                scene.home.as_deref(),
+                &version,
+                false,
+            );
+        })?;
+        picture = completed.buffer.clone();
+        Ok(())
+    };
+
+    draw_screen_frame(&screen)?;
+    for (index, key) in scene.keys.iter().enumerate() {
+        let number = index + 1;
+        let refused = |what: &str| anyhow!("key {number} ({key}) {what}, which scenes do not play");
+        let answers = match key {
+            Key::Press { event, .. } => vec![screen.handle(*event)],
+            Key::Text(text) => text
+                .chars()
+                .map(|ch| screen.handle(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)))
+                .collect(),
+            // A paste goes nowhere on this screen.
+            Key::Paste(_) => Vec::new(),
+        };
+        for answer in answers {
+            match answer {
+                FirstStartKey::Stay => {}
+                FirstStartKey::Quit => return Err(refused("quits asqr")),
+                FirstStartKey::Save => return Err(refused("writes the settings file")),
+            }
+        }
+        draw_screen_frame(&screen)?;
     }
     Ok(picture)
 }

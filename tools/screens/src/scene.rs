@@ -48,6 +48,11 @@ pub struct Scene {
     /// `[switcher]`'s queues instead of asqr's screen; the keys go to it.
     #[serde(default)]
     pub start_picker: bool,
+    /// Draws asqr's first-start screen (spec section 7.1) instead of asqr's
+    /// screen; the keys go to it. The settings file's path in `[settings]`
+    /// is the one its footer names.
+    #[serde(default)]
+    pub first_start: bool,
     /// Session files asqr answered with an error, whose dialogs show.
     #[serde(default)]
     pub invalid: Vec<InvalidSession>,
@@ -382,6 +387,18 @@ pub fn parse_scene(text: &str) -> Result<Scene> {
     {
         anyhow::bail!("`replaced` needs a first session with `carried_from`");
     }
+    if scene.first_start
+        && scene
+            .settings
+            .as_ref()
+            .and_then(|file| file.path.as_ref())
+            .is_none()
+    {
+        anyhow::bail!("`first_start` needs a `[settings]` with a `path`, which its footer names");
+    }
+    if scene.first_start && scene.start_picker {
+        anyhow::bail!("`first_start` and `start_picker` draw one screen each: give one");
+    }
     if scene.start_picker && scene.switcher.is_none() {
         anyhow::bail!("`start_picker` needs a [switcher] with the queues to pick from");
     }
@@ -565,6 +582,16 @@ mod tests {
 
         assert!(
             error.contains("`replaced` needs a first session with `carried_from`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_first_start_needs_the_path_of_the_settings_file() {
+        let error = error_of(&format!("{SIZE}first_start = true\n"));
+
+        assert!(
+            error.contains("`first_start` needs a `[settings]` with a `path`"),
             "{error}"
         );
     }
