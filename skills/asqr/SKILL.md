@@ -151,7 +151,7 @@ Read every note before you act on the answers.
 for a queue given with `--dir`, `watched_by`, which is `null` when no
 asqr runs, `waiting`, every waiting session with its `id` and
 `draft_has_answers`, `answered`, the 10 most recently answered sessions,
-newest first, with `id` and `status`, and `answered_total`. The outbox
+newest first, with `id` and `status`, and `answered_total`. The queue
 keeps results from every agent and every earlier session, so
 `answered_total` is usually larger than the list. `--since <age>` keeps
 only sessions answered within that age, such as `30m`, `2h` or `1d`

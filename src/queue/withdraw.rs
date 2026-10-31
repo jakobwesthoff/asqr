@@ -14,15 +14,13 @@ use thiserror::Error;
 
 use super::drop::{check_drop, write_drop};
 use super::finish::{archive_session, finish_steps, stem};
-use super::names::entries_if_present;
 use super::{
-    DropError, Dropped, FinishError, Gate, QueueLocation, Step, delete_draft, find_session_file,
-    has_answered_draft, load_draft, lock_drafts, parse_archive_name, person_entered,
-    session_sha256,
+    ArchivedStanding, DropError, Dropped, FinishError, Gate, QueueLocation, Step,
+    archived_standing, delete_draft, find_session_file, has_answered_draft, load_draft,
+    lock_drafts, person_entered, read_if_present, session_sha256,
 };
 use crate::format::{
     SessionResult, Status, UnsentDraft, now_rfc3339, parse_session, rejected_answers,
-    same_session_id,
 };
 
 /// How a withdrawal ended.
@@ -192,28 +190,28 @@ pub fn drop_replacing(
 }
 
 /// Where a session stands whose file is not in the inbox, as far as a
-/// withdrawal is concerned: withdrawn before, answered, or gone.
+/// withdrawal is concerned: withdrawn before, answered, or gone. The
+/// result may have left the outbox for a month bundle.
 fn gone(location: &QueueLocation, id: &str) -> Result<Withdrawn, WithdrawError> {
+    let answered = |bytes: Option<&[u8]>| match bytes
+        .and_then(|bytes| serde_json::from_slice::<SessionResult>(bytes).ok())
+    {
+        Some(result) if result.status == Status::Withdrawn => Ok(Withdrawn::Already(result)),
+        _ => Err(WithdrawError::Answered(id.to_owned())),
+    };
     if let Some(path) = find_session_file(&location.outbox(), id)? {
-        return match read_result(&path) {
-            Some(result) if result.status == Status::Withdrawn => Ok(Withdrawn::Already(result)),
-            _ => Err(WithdrawError::Answered(id.to_owned())),
-        };
+        match read_if_present(&path) {
+            Ok(Some(bytes)) => return answered(Some(&bytes)),
+            // Moved into a bundle since the listing: the archive has it.
+            Ok(None) => {}
+            Err(_) => return answered(None),
+        }
     }
-    let archived = entries_if_present(&location.archive())?
-        .iter()
-        .any(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .and_then(parse_archive_name)
-                .is_some_and(|archived| same_session_id(&archived.id, id))
-        });
-    Err(if archived {
-        WithdrawError::ResultGone(id.to_owned())
-    } else {
-        WithdrawError::Unknown(id.to_owned())
-    })
+    match archived_standing(location, id).map_err(io::Error::other)? {
+        ArchivedStanding::Result(bytes) => answered(Some(&bytes)),
+        ArchivedStanding::Gone => Err(WithdrawError::ResultGone(id.to_owned())),
+        ArchivedStanding::Unknown => Err(WithdrawError::Unknown(id.to_owned())),
+    }
 }
 
 /// The result at `path`, or `None` when it cannot be read as one.
@@ -608,6 +606,20 @@ mod tests {
             "{refused:?}"
         );
         assert_eq!(outbox_result(&location, "batch-01"), submitted);
+    }
+
+    #[test]
+    fn an_outbox_entry_that_cannot_be_read_counts_as_answered() {
+        let (_scratch, location) = queue();
+        // A directory in the place of the result file.
+        fs::create_dir(location.outbox().join("batch-01.json")).expect("created");
+
+        let refused = withdraw_session(&location, "batch-01", false);
+
+        assert!(
+            matches!(refused, Err(WithdrawError::Answered(_))),
+            "{refused:?}"
+        );
     }
 
     #[test]

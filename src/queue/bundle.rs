@@ -219,6 +219,16 @@ impl EntryName {
     }
 }
 
+/// When the result `bytes` was finished: its `submitted_at`, else
+/// `modified`, the modification time of its file. A result is written once
+/// and never touched again, so the file's time is the closest guess.
+pub fn finished_at(bytes: &[u8], modified: SystemTime) -> SystemTime {
+    serde_json::from_slice::<crate::format::SessionResult>(bytes)
+        .ok()
+        .and_then(|result| result.submitted_at?.parse::<jiff::Timestamp>().ok())
+        .map_or(modified, SystemTime::from)
+}
+
 /// The entry name of the result `bytes` of session `id`, which was
 /// finished at `finished`. Built from the content, so the same file always
 /// gets the same name and a compaction that was interrupted finds its

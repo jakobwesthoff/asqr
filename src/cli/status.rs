@@ -6,12 +6,13 @@
 //! watches the queue. Agents use `--json` to find sessions they lost track
 //! of after a tool timeout.
 //!
-//! The outbox keeps every result until someone prunes it, so the answered
-//! list grows with every session ever finished. `status` lists the newest
+//! The outbox and the month bundles keep every result until someone prunes
+//! them, so the answered list grows with every session ever finished. `status` lists the newest
 //! [`DEFAULT_LIMIT`] by default and says how many there are, which keeps
 //! the output an agent reads short.
 
 use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
 
 use serde_json::json;
@@ -19,8 +20,9 @@ use serde_json::json;
 use super::Exit;
 use crate::format::SessionResult;
 use crate::queue::{
-    InboxName, QueueLocation, classify_inbox_name, entries_if_present, has_answered_draft,
-    lock_holder, scan_inbox,
+    BundleError, BundledResult, InboxName, QueueLocation, bundled_results, classify_inbox_name,
+    entries_if_present, finished_at, has_answered_draft, lock_holder, read_entry,
+    result_entry_name, scan_inbox,
 };
 
 /// How many answered sessions `status` lists without `--limit` or `--all`.
@@ -40,55 +42,77 @@ struct Answered {
     /// The status as the file writes it; `None` when the file is no
     /// readable result.
     status: Option<String>,
-    /// When the session was finished. A result names that time in
-    /// `submitted_at`; for a file without a usable one, its modification
-    /// time is the closest guess, as asqr writes a result once and never
-    /// touches it again.
+    /// When the session was finished: `submitted_at`, else the result
+    /// file's modification time (see [`finished_at`]).
     finished: SystemTime,
+    /// Where the result lies, for the status of a bundled one, which is
+    /// only read once the entry is on the list.
+    bundled: Option<BundledResult>,
 }
 
-/// Every result in the outbox, the most recently finished first.
-fn answered(location: &QueueLocation) -> std::io::Result<Vec<Answered>> {
+/// The status a result file writes, if it is one.
+fn status_of(bytes: &[u8]) -> Option<String> {
+    let result = serde_json::from_slice::<SessionResult>(bytes).ok()?;
+    serde_json::to_value(result.status)
+        .ok()?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// Every result in the outbox and in the month bundles, the most recently
+/// finished first, and the bundles that could not be read. A bundled
+/// result is known by its entry name alone, whose time is when it was
+/// finished; its content is read only for the entries that are listed.
+fn answered(location: &QueueLocation) -> std::io::Result<(Vec<Answered>, Vec<BundleError>)> {
     let mut answered = Vec::new();
+    // A result the compaction has bundled and not yet removed from the
+    // outbox is in both places; it counts once, as an outbox result.
+    let mut also_bundled = HashSet::new();
     for entry in entries_if_present(&location.outbox())? {
         let name = entry.file_name();
         let Some(InboxName::Session(id)) = name.to_str().map(classify_inbox_name) else {
             continue;
         };
-        let result = std::fs::read(entry.path())
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<SessionResult>(&bytes).ok());
-        let status = result
-            .as_ref()
-            .and_then(|result| serde_json::to_value(result.status).ok())
-            .and_then(|status| status.as_str().map(str::to_owned));
-        let submitted_at = result
-            .as_ref()
-            .and_then(|result| result.submitted_at.as_deref())
-            .and_then(|at| at.parse::<jiff::Timestamp>().ok());
-        let finished = match submitted_at {
-            Some(at) => SystemTime::from(at),
-            None => entry.metadata()?.modified()?,
-        };
+        let bytes = std::fs::read(entry.path()).ok();
+        let finished = finished_at(
+            bytes.as_deref().unwrap_or_default(),
+            entry.metadata()?.modified()?,
+        );
+        if let Some(bytes) = &bytes {
+            also_bundled.insert(result_entry_name(id, bytes, finished).zip_name());
+        }
         answered.push(Answered {
             id: id.to_owned(),
-            status,
+            status: bytes.as_deref().and_then(status_of),
             finished,
+            bundled: None,
         });
     }
+    let (bundled, unreadable) = bundled_results(location)?;
+    answered.extend(
+        bundled
+            .into_iter()
+            .filter(|result| !also_bundled.contains(&result.zip_name))
+            .map(|result| Answered {
+                id: result.name.id.clone(),
+                status: None,
+                finished: result.name.ulid.datetime(),
+                bundled: Some(result),
+            }),
+    );
     // `submitted_at` has whole seconds, so sessions finished in one second
     // tie. The id orders them, the same way on every call.
     answered.sort_by_cached_key(|entry| (Reverse(entry.finished), entry.id.to_ascii_lowercase()));
-    Ok(answered)
+    Ok((answered, unreadable))
 }
 
 pub(super) fn run(location: &QueueLocation, options: StatusOptions) -> Exit {
     let gathered = scan_inbox(location).and_then(|scan| {
-        let answered = answered(location)?;
+        let (answered, unreadable) = answered(location)?;
         let holder = lock_holder(location)?.map(|holder| holder.text);
-        Ok((scan.sessions, answered, holder))
+        Ok((scan.sessions, answered, unreadable, holder))
     });
-    let (waiting, mut answered, holder) = match gathered {
+    let (waiting, mut answered, unreadable, holder) = match gathered {
         Ok(gathered) => gathered,
         Err(error) => {
             eprintln!("error: cannot read the queue: {error}");
@@ -118,6 +142,16 @@ pub(super) fn run(location: &QueueLocation, options: StatusOptions) -> Exit {
     let answered_total = answered.len();
     if let Some(limit) = options.limit {
         answered.truncate(limit);
+    }
+    for entry in &mut answered {
+        if let Some(bundled) = &entry.bundled {
+            entry.status = read_entry(location, bundled.month, &bundled.zip_name)
+                .ok()
+                .and_then(|bytes| status_of(&bytes));
+        }
+    }
+    for error in &unreadable {
+        eprintln!("warning: {error}");
     }
 
     if options.json {

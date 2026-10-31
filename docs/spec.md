@@ -556,11 +556,38 @@ text changes nothing and leaves the question untouched.
   archive/<id>.<ulid>.json            finished sessions (submitted, cancelled, error, withdrawn)
   archive/<id>.<ulid>.result.json     results moved aside by `ask --force` (section 5.5)
   archive/invalid.<ulid>.json         files whose stem is no valid id (section 5.8)
+  archive/<YYYY-MM>.zip               the month bundle of older entries (below)
   lock                                the instance lock (section 5.6)
   drafts.lock                         the drafts lock (section 5.6)
 ```
 
 The four directories are created on first use.
+
+**Month bundles.** `archive/<YYYY-MM>.zip` is one zip per queue and UTC
+calendar month, such as `archive/2026-10.zip`. Its entries are
+compressed with Deflate and named by what they hold:
+
+| Entry | Holds |
+|---|---|
+| `sessions/<id>.<ulid>.json` | a finished session, the file `archive/<id>.<ulid>.json` held |
+| `results/<id>.<ulid>.json` | a result that left the outbox |
+| `replaced/<id>.<ulid>.json` | a result `ask --force` moved aside, the file `archive/<id>.<ulid>.result.json` held |
+| `files/<sha256>.<ext>` | reserved for files kept with a session |
+
+The month of an entry is the month of the ULID in its name. For a
+result, the ULID is built from the time the result was finished and the
+SHA-256 of its bytes: the finish time is its `submitted_at`, else the
+modification time of its file. A result therefore lies in the month it
+was finished in, and its session in the month it was archived, which can
+be a later one. Entries of other names are listed and left alone.
+
+Every entry records the time it was bundled in an extra field with the
+id `0xA5C1`: four bytes of Unix seconds in UTC, little endian. An entry
+without the field is never hidden by a later session (section 6.4).
+
+Readers list the loose files (the outbox, then `archive/`) before they
+open a bundle, so an entry that moves into a bundle at that moment is
+found twice at worst and never missed.
 
 ### 5.2 Location
 
@@ -935,8 +962,8 @@ waiting session.
 Apart from this recovery, the TUI does not read the outbox or the
 archive back after a submit. It reads the outbox result of a session
 that left the inbox, to tell whether the asker withdrew it (section
-7.9), and the archive only for the title that `follows` names (section
-7.2).
+7.9), and the archive and the month bundles only for the title that
+`follows` names (section 7.2).
 
 ### 5.8 Invalid sessions
 
@@ -1025,7 +1052,10 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
   after its result was written is completed: by the next `withdraw`, or
   by recovery.
 - An id that only the archive knows is "the result of <id> is gone; its
-  session is archived". An id the queue has no trace of, no waiting
+  session is archived", unless a bundled result answers it (section
+  6.4): then `withdraw` refuses as it does for an id answered in the
+  outbox, and for a withdrawn session it prints that result and exits
+  with 0. An id the queue has no trace of, no waiting
   file, no result and no archive entry, is looked for in the other named
   queues under the root (section 5.2); queue directories are not
   searched. In one of them, `withdraw` takes nothing back and exits with
@@ -1155,7 +1185,14 @@ advice names `asqr --queue <found>`. In several, they fail as
 the message of section 5.10), which includes a session taken out of
 the inbox without a result, or when only its archive entry is left,
 since its result was removed and none will come ("the result of <id>
-is gone").
+is gone"). The archive includes the month bundles (section 5.1). A
+result that left the outbox is printed from its bundle as it was
+written. The newest bundled result of an id answers, unless a session of
+that id was archived after the result was bundled: that session has no
+result, so the answer is gone. A session that was archived unanswered
+next to an unread result (section 5.10) was archived before the result
+was bundled, so `result` still prints that result. A result moved aside
+by `ask --force` answers nothing.
 So while an asqr watches the queue, the asker never waits for a result
 that will not come. A withdrawn result ends both with 14.
 
@@ -1174,8 +1211,9 @@ that cannot be read; a withdrawn session is listed here with `status`
 `withdrawn`) and `answered_total`. The text form shows the same,
 with "watched by: nobody" when no asqr watches.
 
-Results stay in the outbox until they are pruned, so `status` lists
-only part of them:
+Results stay in the outbox or, once they left it, in the month bundles
+(section 5.1) until they are pruned, so `status` lists only part of
+them:
 
 - `answered` is ordered by the time each session was finished, the
   newest first. That time is `submitted_at`; a result without a readable
@@ -1192,10 +1230,11 @@ only part of them:
 
 `asqr queues` lists every named queue under the root (section 5.2),
 sorted by name, the default queue also before its first use: the
-sessions waiting in its inbox, the results in its outbox and the asqr
-watching it, with the tmux session of that asqr where its lock names a
+sessions waiting in its inbox, the results in its outbox and in its
+month bundles and the asqr watching it, with the tmux session of that asqr where its lock names a
 pane (section 5.6) and tmux still knows it. A queue whose files cannot
-be read counts as empty and unwatched; a root whose queues cannot be
+be read counts as empty and unwatched; the rows of the TUI's switcher
+and picker count the outbox alone; a root whose queues cannot be
 listed is a failure. `--queue` and `--dir` change nothing here. The
 text form:
 
@@ -1457,8 +1496,9 @@ has context (section 7.4, ADRs 30 and 31):
 - `follows` shows the title of the session it names, in quotes, when
   asqr finds that session with a title: a waiting session, else the
   newest finished session of that id in the archive
-  (`archive/<id>.<ulid>.json`, not a result and not an `invalid.*`
-  entry), the id compared ignoring case. A session that names its own id
+  (`archive/<id>.<ulid>.json` or `sessions/<id>.<ulid>.json` in a month
+  bundle, not a result and not an `invalid.*` entry), the id compared
+  ignoring case. A session that names its own id
   finds only the archive. A waiting session without a title, and
   anything else, shows the value as written. asqr looks the title up
   when it loads or reloads the session.

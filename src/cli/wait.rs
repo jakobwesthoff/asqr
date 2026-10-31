@@ -9,14 +9,15 @@
 //! side, which keeps `ask --wait` usable from any script.
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use super::Exit;
 use super::hint::{self, Caller, Invocation};
-use crate::format::{SessionResult, Status, same_session_id};
+use crate::format::{SessionResult, Status};
 use crate::queue::{
-    QueueLocation, entries_if_present, find_session_file, list_queues, parse_archive_name,
+    ArchivedStanding, QueueLocation, archived_standing, find_session_file, list_queues,
+    read_if_present,
 };
 
 /// How often the outbox is checked. Short enough that an answer shows up
@@ -25,8 +26,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Where a session stands, as far as an asker can tell.
 enum Standing {
-    /// Its result is in the outbox.
-    Answered(PathBuf),
+    /// Its result: in the outbox, or in the archive once it left the
+    /// outbox. The bytes are the file's.
+    Answered(Vec<u8>),
     /// It waits in the inbox for an answer.
     Waiting,
     /// Only its archive entry is left: its result was removed, so none
@@ -40,26 +42,23 @@ fn standing(location: &QueueLocation, id: &str) -> std::io::Result<Standing> {
     // The outbox comes first: a finish writes the result before it
     // archives the session, so a session that just left the inbox is
     // always found here.
-    if let Some(result) = find_session_file(&location.outbox(), id)? {
-        return Ok(Standing::Answered(result));
+    if let Some(path) = find_session_file(&location.outbox(), id)?
+        && let Some(bytes) = read_if_present(&path)?
+    {
+        return Ok(Standing::Answered(bytes));
     }
     if find_session_file(&location.inbox(), id)?.is_some() {
         return Ok(Standing::Waiting);
     }
-    let archived = entries_if_present(&location.archive())?
-        .iter()
-        .any(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .and_then(parse_archive_name)
-                .is_some_and(|archived| same_session_id(&archived.id, id))
-        });
-    Ok(if archived {
-        Standing::ResultGone
-    } else {
-        Standing::Unknown
-    })
+    // A file that left the outbox for a bundle is found there, as the
+    // archive is read after the outbox.
+    Ok(
+        match archived_standing(location, id).map_err(std::io::Error::other)? {
+            ArchivedStanding::Result(bytes) => Standing::Answered(bytes),
+            ArchivedStanding::Gone => Standing::ResultGone,
+            ArchivedStanding::Unknown => Standing::Unknown,
+        },
+    )
 }
 
 /// Where else session `id` is, looked for only when the queue a command
@@ -156,8 +155,8 @@ enum Look {
 /// that cannot get one, or word that it still waits.
 fn look(location: &QueueLocation, invocation: &Invocation, id: &str) -> Look {
     match standing(location, id) {
-        Ok(Standing::Answered(path)) => {
-            Look::Done(print_result(&path).map_or_else(|exit| exit, Exit::for_status))
+        Ok(Standing::Answered(bytes)) => {
+            Look::Done(print_result(id, &bytes).map_or_else(|exit| exit, Exit::for_status))
         }
         Ok(Standing::Waiting) => Look::Waiting,
         Ok(Standing::ResultGone) => {
@@ -224,22 +223,17 @@ pub(super) fn run_result(
 }
 
 /// Prints the result file as it is, then the hints it gets on stderr, and
-/// returns its status, or the exit for a file that cannot be read or is no
-/// result.
-fn print_result(path: &std::path::Path) -> Result<Status, Exit> {
-    let bytes = std::fs::read(path).map_err(|error| {
-        eprintln!("error: cannot read {}: {error}", path.display());
-        Exit::Failure
-    })?;
-    let result: SessionResult = serde_json::from_slice(&bytes).map_err(|error| {
-        eprintln!("error: {} is not a result file: {error}", path.display());
+/// returns its status, or the exit for a file that is no result.
+fn print_result(id: &str, bytes: &[u8]) -> Result<Status, Exit> {
+    let result: SessionResult = serde_json::from_slice(bytes).map_err(|error| {
+        eprintln!("error: the result of {id} is not a result file: {error}");
         Exit::Failure
     })?;
     let mut stdout = std::io::stdout().lock();
     stdout
-        .write_all(&bytes)
+        .write_all(bytes)
         .and_then(|()| stdout.flush())
         .map_err(|_| Exit::Failure)?;
-    hint::after_result(&bytes, &result);
+    hint::after_result(bytes, &result);
     Ok(result.status)
 }

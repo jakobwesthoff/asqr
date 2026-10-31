@@ -159,6 +159,23 @@ mod tests {
     }
 
     #[test]
+    fn listing_the_queues_does_not_open_their_bundles() {
+        // The TUI lists the queues every few seconds; a bundle that is
+        // garbage changes nothing about what it reports.
+        let (_scratch, root) = root();
+        let work = queue(&root, "work");
+        std::fs::write(work.inbox().join("a.json"), "{}").expect("written");
+        std::fs::write(work.archive().join("2026-10.zip"), "garbage").expect("written");
+
+        let summaries = list_queues(&root).expect("lists");
+
+        assert_eq!(
+            counts(&summaries),
+            [("default", 0, 0, false), ("work", 1, 0, false)]
+        );
+    }
+
+    #[test]
     fn the_default_queue_is_listed_before_its_first_use() {
         let (_scratch, root) = root();
 

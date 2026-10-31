@@ -169,6 +169,16 @@ fn a_result_entry_name_is_made_of_the_content_and_the_finish_time() {
     assert_eq!(Month::of(name.ulid), OCTOBER);
 }
 
+#[test]
+fn a_result_was_finished_when_it_says_so_else_when_its_file_was_written() {
+    let written = at("2026-10-20T00:00:00Z");
+    let submitted = br#"{"asqr": 2, "id": "a", "status": "submitted", "session_sha256": "0", "submitted_at": "2026-10-15T12:00:00+02:00", "answers": []}"#;
+
+    assert_eq!(finished_at(submitted, written), at("2026-10-15T10:00:00Z"));
+    assert_eq!(finished_at(b"{}", written), written);
+    assert_eq!(finished_at(b"not json", written), written);
+}
+
 // -------------------------------------------------------------------------
 // Writing
 // -------------------------------------------------------------------------

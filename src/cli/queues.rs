@@ -11,7 +11,16 @@ use serde_json::json;
 
 use super::Exit;
 use crate::pairing::{self, Tmux};
-use crate::queue::{QueueSummary, list_queues};
+use crate::queue::{QueueSummary, bundled_results, list_queues};
+
+/// The results of a queue: the ones in its outbox and the ones in its
+/// month bundles. `QueueSummary` counts the outbox alone, as the TUI asks
+/// for it every few seconds and must not open a zip each time; this
+/// command asks once. A bundle that cannot be read counts as empty.
+fn answered_total(summary: &QueueSummary) -> usize {
+    let bundled = bundled_results(&summary.location).map_or(0, |(found, _)| found.len());
+    summary.answered + bundled
+}
 
 pub(super) fn run(root: Option<&Path>, tmux: &dyn Tmux, json: bool) -> Exit {
     let Some(root) = root else {
@@ -42,7 +51,7 @@ pub(super) fn run(root: Option<&Path>, tmux: &dyn Tmux, json: bool) -> Exit {
                 json!({
                     "queue": summary.name(),
                     "waiting_total": summary.waiting,
-                    "answered_total": summary.answered,
+                    "answered_total": answered_total(summary),
                     "watched_by": summary.holder.as_ref().map(|holder| &holder.text),
                     "tmux_session": session(summary),
                 })
@@ -69,7 +78,7 @@ pub(super) fn run(root: Option<&Path>, tmux: &dyn Tmux, json: bool) -> Exit {
             "{:<width$}  {:>7}  {:>8}  {watched_by}",
             summary.name(),
             summary.waiting,
-            summary.answered
+            answered_total(summary)
         );
     }
     Exit::Success

@@ -53,6 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first 50,000 lines only. The lines after them show plain, with a dim
   "no highlighting after line 50,000" where highlighting stops. Highlighting
   500,000 short lines took 4.9 s, and 50,000 take 0.5 s.
+- `asqr result`, `wait`, `status`, `withdraw` and `queues` also read the
+  month bundles of the archive, `archive/<YYYY-MM>.zip`. A result that
+  left the outbox is printed from its bundle as it was written, and
+  `status` lists bundled results among the answered sessions. The header
+  of a session that `follows` another shows the title of a bundled
+  session too.
 
 ### Fixed
 

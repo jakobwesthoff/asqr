@@ -64,6 +64,17 @@ pub fn entries_if_present(dir: &Path) -> io::Result<Vec<std::fs::DirEntry>> {
     }
 }
 
+/// The content of the file at `path`, or `None` when it is not there: a
+/// file listed in the outbox may have moved into a month bundle before it
+/// is read.
+pub fn read_if_present(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// What an archive entry holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Archived {
@@ -116,6 +127,23 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[test]
+    fn a_file_that_has_gone_reads_as_none_and_other_failures_are_errors() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        fs::write(dir.path().join("here.json"), "{}").expect("written");
+
+        assert_eq!(
+            read_if_present(&dir.path().join("here.json")).expect("read"),
+            Some(b"{}".to_vec())
+        );
+        assert_eq!(
+            read_if_present(&dir.path().join("gone.json")).expect("no error"),
+            None
+        );
+        // A directory in the place of a file is neither missing nor a file.
+        assert!(read_if_present(dir.path()).is_err());
+    }
 
     #[test]
     fn a_json_file_with_a_valid_stem_is_a_session() {
