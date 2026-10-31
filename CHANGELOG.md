@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- asqr keeps three settings in `settings.toml` in its config directory
+  (`~/Library/Application Support/asqr/` on macOS, `$XDG_CONFIG_HOME/asqr/`
+  on Linux): how a diff opens (`diff_layout`), the widest a question gets
+  (`max_question_width`: 80, 100, 120 or the full width) and where
+  context goes (`context`). `,` opens a settings pane that changes them
+  with `←`/`→`, saves each change at once and explains the row under the
+  cursor. `--layout` and `ASQR_LAYOUT` still win over the file, and the
+  pane shows a setting they hold as locked. A file asqr cannot read costs
+  only the settings it holds, with a warning in the log and the status
+  line. `asqr paths` names the file.
+
 ### Changed
 
 - A queue given with `--dir` or `ASQR_DIR` is named by its absolute path,

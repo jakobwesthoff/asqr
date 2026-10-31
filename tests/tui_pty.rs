@@ -365,6 +365,33 @@ fn a_settings_file_that_does_not_parse_is_said_and_asqr_runs() {
 }
 
 #[test]
+fn the_settings_pane_changes_a_setting_and_keeps_it_in_the_file() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+    );
+    tui.wait_for("Nothing to answer");
+
+    tui.press(",");
+    tui.wait_for("Diffs open as");
+    tui.send("\x1b[C");
+
+    tui.wait_for("saved diffs open as: side by side");
+    let file = sandbox.config_dir().join("settings.toml");
+    let written = std::fs::read_to_string(&file).expect("the settings file is written");
+    assert!(
+        written.contains("diff_layout = \"side-by-side\""),
+        "{written}"
+    );
+    tui.press(",");
+    tui.wait_for("Nothing to answer");
+    assert!(!tui.screen().contains("Diffs open as"), "{}", tui.screen());
+}
+
+#[test]
 fn answers_a_session_that_arrives_while_it_runs() {
     let sandbox = Sandbox::new();
     let dir = sandbox.queue_dir();

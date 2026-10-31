@@ -135,6 +135,8 @@ fn apply(app: &mut App, effect: AppEffect, scene: &Scene, number: usize, key: &K
         AppEffect::Open(_) => Err(refused("opens an entry")),
         AppEffect::Edit(_) => Err(refused("opens an editor")),
         AppEffect::Switch(_) => Err(refused("switches the queue")),
+        // The value changed in memory already; a picture never writes the person's settings file.
+        AppEffect::SaveSetting(_) => Ok(()),
     }
 }
 
@@ -583,6 +585,13 @@ mod tests {
         ));
 
         assert!(text(&buf).contains("far-away"), "{}", text(&buf));
+    }
+
+    #[test]
+    fn a_setting_changed_in_the_pane_shows_and_is_not_saved() {
+        let buf = screen(&scene_with("\",\", \"right\"", RELEASE));
+
+        assert!(text(&buf).contains("‹ side by side ›"), "{}", text(&buf));
     }
 
     #[test]

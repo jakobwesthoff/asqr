@@ -53,8 +53,37 @@ the reading width is a setting
   leaves the others as the file has them. Keys asqr does not know are
   ignored. Each case is a warning in the log and in the status line when
   the TUI starts, and never stops a command.
+- `,` opens a settings pane in the queue switcher's frame, with the
+  file's path in its bottom border, and `,` closes it. It has one row
+  per setting. The row under the cursor shows its value between `‹` and
+  `›`, and `←` and `→` change it and save the file at once. A dotted
+  rule and a footer below the rows always explain the row under the
+  cursor, what the setting does and what the chosen value means, and the
+  frame does not change height as the cursor moves.
+- A setting a flag or a variable holds is locked in the pane: its value
+  shows dim without `‹ ›`, with `set by ASQR_LAYOUT` or `set by
+  --layout` beside it, and `←` and `→` do nothing there and give no
+  error. The footer explains in full sentences what holds it, why and
+  what to do. The key bar leaves out `←/→  change` on that row. The file
+  keeps the value it had while the override holds.
+- The pane names its rows and values for someone who has not read the
+  docs: `Diffs open as` (`one column`, `side by side`), `Max question
+  width` (`80 columns`, `100 columns`, `120 columns`, `full width`) and
+  `Context` (`beside or below`, `always beside`, `always below`). The
+  file keeps the short names, such as `unified`.
+- A saved change shows a green `✔ saved <setting>: <value>` in the
+  status line. A write that fails shows a red notice, and the value
+  holds for this run.
+- Writing keeps the comments and the keys asqr does not know. asqr never
+  writes over a file that does not parse. The file is edited with the
+  `toml_edit` crate.
 - Rejected: environment variables and flags only; `~/.config/asqr` on
   macOS too, and reading `~/.config/asqr` first with the Apple path
   after; JSON instead of TOML; any width from 60 to the terminal's width;
   letting the width move the choice between beside and below; switching
-  the diff layout for the rest of the run, or saving it on `s`.
+  the diff layout for the rest of the run, or saving it on `s`; the
+  `toml` crate, which loses comments on write; `S` as the key for the
+  pane, next to `s`, which switches a diff; `enter` opening a setting in
+  place with its values as option rows; two explanation lines under the
+  focused row; every value shown on the row; changing the file's value
+  while an override holds.

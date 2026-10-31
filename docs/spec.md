@@ -668,6 +668,18 @@ three keys, each of which may be left out:
 - A flag wins over an environment variable, an environment variable over
   the file, and the file over the default. Only `context` has a flag and
   a variable, `--layout` and `ASQR_LAYOUT` (section 6.2).
+- The settings pane (section 7.6) writes only the key it changes. It
+  reads the file again before each write, so what the person or another
+  asqr changed meanwhile stays, and the file keeps every comment, every
+  key it does not know and their order. A value it replaces keeps the
+  comment on its line, a new key gets a comment naming its values, a file
+  of comments gets the key under them, and a file with `\r\n` line ends
+  keeps them. A file that is a symbolic link stays one, and the file it
+  points to is written. The file is written whole to a temporary file in
+  its directory and renamed over the old one, with the old one's
+  permissions, so a reader never sees half of it. A file that does not
+  parse is never written over, and a missing one is created with its
+  directory and a comment above the key.
 - A file that is not there gives every default and says nothing. A file
   that cannot be read or does not parse gives every default. A key whose
   value is none of those in the table gives that setting's default and
@@ -1555,8 +1567,8 @@ has context (section 7.4, ADRs 30 and 31):
   context pane's rules and edge turn yellow (section 8.1). The submit
   button (section 7.8) and the changed lines of a diff (section 8.5) are
   the only other fills.
-- The help, the whole intro, the session list and the queue switcher
-  show in a frame with rounded corners in the primary colour, a bold title, a dim footer and
+- The help, the whole intro, the session list, the queue switcher and
+  the settings pane show in a frame with rounded corners in the primary colour, a bold title, a dim footer and
   a blank column inside each side; the help's keys are bold in the
   primary colour.
 - Behind an overlay and behind the dialog of an invalid session, every
@@ -1722,8 +1734,9 @@ has context (section 7.4, ADRs 30 and 31):
   blocks. Inside tmux, the terminal of the client tmux draws for
   decides; inside GNU screen or Zellij, Talqi is drawn in quadrant
   blocks. There is no setting for it.
-- The key bar names `w  queues`, which opens the queue switcher (section
-  7.6), and `q  quit`.
+- The key bar names `w  queues`, which opens the queue switcher, `,
+  settings`, which opens the settings pane (both section 7.6), and `q
+  quit`.
 - The key bar's right end shows asqr's version, such as `asqr 0.13.1`,
   dim and one blank from the edge, also while the dialog of an invalid
   session shows. It takes only the room the hints leave and does not
@@ -1744,6 +1757,7 @@ On an option row (vim style plus arrows):
 | `n` | edit the note in its line |
 | `L` | the list of waiting sessions |
 | `w` | the queue switcher (ADR 86) |
+| `,` | the settings pane (ADR 92) |
 | `i` | the whole intro |
 | `o`, `z`, `s` | open the entry shown in the app for its file type; show the context shown full screen; show a diff side by side or unified (section 8.5) |
 | `tab`, `shift-tab` | move into the context pane; `tab`, `shift-tab`, `esc` or `q` move back |
@@ -1950,6 +1964,63 @@ Overlays and dialogs:
     queue. Inside tmux it pins a named queue in the session of asqr's
     pane last (ADR 85). The status line says what came of it (section
     7.9).
+- The settings pane (`,`, ADR 92) opens where `w` opens the queue
+  switcher, over a session and over the empty queue; in a field `,`
+  types, and the focused pane and the full-screen view take it. The
+  general help names it on a line of its own, `,  the settings`. Its
+  frame, titled `Settings`, is the queue switcher's, drawn in the middle
+  of the rows above the status line, so the status line and the key bar
+  stay free for the notices of section 7.9. It is 72 columns wide, or as
+  wide as the screen allows. The settings file's path stands on the
+  frame's bottom edge with `~` for the home folder; the frame grows to
+  hold the path whole up to the screen, and a path that still does not
+  fit loses its start behind `…`. Where asqr has no place for the file,
+  the edge names none.
+  - One row per setting: `Diffs open as` with `one column` or `side by
+    side`, `Max question width` with `80 columns`, `100 columns`, `120
+    columns` or `full width`, and `Context` with `beside or below`,
+    `always beside` or `always below`. The row under the cursor has a
+    pointer, the focus fill and its value between `‹` and `›`; the other
+    rows show their value in bold.
+  - `↑`/`↓` and `k`/`j` move, `←`/`→` and `h`/`l` change the value of
+    the row under the cursor and save it at once, wrapping around at the
+    ends, `esc`, `q` and `,` close, and `ctrl-c` quits. Every other key
+    does nothing, and a paste goes nowhere. The key bar reads `↑/↓  move
+    ←/→  change   esc  close`.
+  - A dotted rule and a footer follow the rows. The footer always
+    explains the row under the cursor: what the setting does, a blank
+    line, and what its value means, with `(default)` after the
+    default's:
+
+    | Setting | What it does | Values and what they mean |
+    | :- | :- | :- |
+    | `Diffs open as` | How a diff shows when you come to it. The s key still switches the diff you look at. | `One column: removed and added lines one below the other.` (default); `Side by side: the old version on the left, the new one on the right.` |
+    | `Max question width` | The widest a question's text may get; on a narrower terminal it gets narrower. | `80 columns: lines wrap after at most 80 characters.`, the same for 100 (default) and 120; `Full width: lines use the whole width of the terminal.` |
+    | `Context` | Where the files, images and diffs that come with a question show. | `Beside or below: beside the question when the terminal is wide enough, otherwise below it.` (default); `Always beside: next to the question whenever it fits, even on a tall terminal.`; `Always below: under the question whenever it fits, even on a wide terminal.` |
+
+    The frame is as tall as the tallest footer any row can show in this
+    run, so it keeps its height as the cursor moves.
+  - A setting a flag or a variable holds is locked. Only `Context` can
+    be: `--layout` and `ASQR_LAYOUT` hold it (section 6.2), the flag
+    first. Its row shows the value in effect dim, without `‹ ›`, and
+    beside it, dim, `set by --layout` or `set by ASQR_LAYOUT`. `←`/`→`
+    do nothing there and no notice shows, and the key bar leaves out
+    `←/→  change`. The footer says what holds the row and what to do. For
+    the variable set to `below`: `Your shell sets ASQR_LAYOUT=below, so
+    asqr always shows context below the question, whatever you choose
+    here. To choose here, remove ASQR_LAYOUT from your shell setup (for
+    example ~/.zshrc) and start asqr again.` For the flag set to
+    `below`: `You started asqr with --layout below, so this run shows
+    context below the question. Without the flag, the next start uses
+    your choice here.` With `beside` the two read `asqr shows context
+    beside the question when it fits` and `this run shows context beside
+    the question when it fits`, with `auto` `asqr picks beside or below
+    by the terminal's shape` and `this run picks beside or below by the
+    terminal's shape`.
+  - A change applies at once: the question's width and the place of the
+    context from the next draw, and the layout diffs open in for every
+    session, the one shown included, except a diff switched with `s`,
+    which keeps its layout (section 8.5).
 - A key pressed while the dialog of an invalid session shows (section
   7.9) closes it and does nothing else. While it shows, the key bar says
   `any key  close`.
@@ -2215,6 +2286,20 @@ keeps the session and shows its own notice instead.
     The sequence goes out in tmux's passthrough wrapper (section 8.9).
   - When asqr quits, also after a panic, it removes a progress it
     shows, before it leaves the alternate screen.
+- After a change in the settings pane (section 7.6) the status line
+  says what came of the save, until the next key:
+
+      ✔ saved diffs open as: side by side
+      ✗ cannot save the setting: <reason>; the choice holds until asqr quits
+
+  The first is news in green, the setting's name in lower case and its
+  value as the pane names it. The second is an error: the choice stays
+  in effect for this run, and the file does not have it. The reason is
+  one of: asqr has no config directory to keep settings.toml in; the
+  system's error for reading, creating the directory of or writing
+  settings.toml; `settings.toml does not parse (line N), so it is left as
+  it is`, as asqr never writes over a file it cannot parse; or `<key> in
+  settings.toml is a table, so the file is left as it is`.
 - After a switch of the queue switcher (section 7.6) the screen shows
   the new queue's sessions, and the title bar, the terminal title and
   the empty queue name it as they name a queue given at the start (ADR

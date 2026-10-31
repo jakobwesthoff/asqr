@@ -574,6 +574,7 @@ where
                 app.set_elsewhere(host.elsewhere());
             }
             Applied::Switch(target) => switch_queue(&target, app, inbox, view, host),
+            Applied::SettingsChanged => view.set_settings(&app.settings().effective()),
         }
     }
 }
@@ -1779,6 +1780,42 @@ mod tests {
         ));
         let added = app.sessions().last().expect("added");
         assert!(added.side_by_side());
+    }
+
+    #[test]
+    fn a_setting_changed_in_the_pane_is_saved_and_said_in_the_status_line() {
+        let mut harness = two_queues();
+        let config = harness.scratch.path().join("settings.toml");
+        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let (mut app, mut inbox) = start(harness.location.clone(), settings).expect("started");
+        let mut view = View::for_tests("test", PaneLayout::Auto, Images::half_blocks());
+
+        harness
+            .run_with_view(
+                &mut app,
+                &mut inbox,
+                &mut view,
+                vec![
+                    key(KeyCode::Char(',')),
+                    key(KeyCode::Char('j')),
+                    key(KeyCode::Left),
+                ],
+            )
+            .expect("runs");
+
+        assert!(
+            fs::read_to_string(config)
+                .expect("written")
+                .contains("max_question_width = 80"),
+        );
+        assert_eq!(
+            status_line(&harness),
+            "✔ saved max question width: 80 columns"
+        );
+        assert_eq!(
+            app.settings().effective().max_question_width,
+            crate::tui::render::ReadingWidth::Columns80
+        );
     }
 
     #[test]

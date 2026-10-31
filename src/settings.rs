@@ -10,9 +10,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
-use toml_edit::{DocumentMut, Value};
+use toml_edit::{DocumentMut, Item, Value};
 
-use crate::queue::platform_config_dir;
+use crate::queue::{platform_config_dir, write_atomically_with};
 use crate::tui::DiffLayout;
 use crate::tui::render::{PaneLayout, ReadingWidth};
 
@@ -36,12 +36,116 @@ pub enum Setting {
     Context,
 }
 
+impl Setting {
+    pub const ALL: [Setting; 3] = [
+        Setting::DiffLayout,
+        Setting::MaxQuestionWidth,
+        Setting::Context,
+    ];
+
+    /// The key of the setting in the settings file.
+    pub fn key(self) -> &'static str {
+        match self {
+            Setting::DiffLayout => "diff_layout",
+            Setting::MaxQuestionWidth => "max_question_width",
+            Setting::Context => "context",
+        }
+    }
+
+    /// The values the key takes, as a warning and the comment of a new
+    /// key name them.
+    fn allowed(self) -> &'static str {
+        match self {
+            Setting::DiffLayout => "unified or side-by-side",
+            Setting::MaxQuestionWidth => "80, 100, 120 or \"full\"",
+            Setting::Context => "auto, beside or below",
+        }
+    }
+
+    /// How many values the setting has.
+    pub fn choices(self) -> usize {
+        match self {
+            Setting::DiffLayout => DIFF_LAYOUTS.len(),
+            Setting::MaxQuestionWidth => READING_WIDTHS.len(),
+            Setting::Context => CONTEXTS.len(),
+        }
+    }
+}
+
+/// The values of each setting, in the order the pane cycles through them.
+const DIFF_LAYOUTS: [DiffLayout; 2] = [DiffLayout::Unified, DiffLayout::SideBySide];
+const READING_WIDTHS: [ReadingWidth; 4] = [
+    ReadingWidth::Columns80,
+    ReadingWidth::Columns100,
+    ReadingWidth::Columns120,
+    ReadingWidth::Full,
+];
+const CONTEXTS: [PaneLayout; 3] = [PaneLayout::Auto, PaneLayout::Beside, PaneLayout::Below];
+
 /// The values of the settings. The default is every setting's own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Settings {
     pub diff_layout: DiffLayout,
     pub max_question_width: ReadingWidth,
     pub context: PaneLayout,
+}
+
+impl Settings {
+    /// Which of the values of `setting`, counted from 0 in the order the
+    /// pane cycles through them, this is.
+    pub fn choice(&self, setting: Setting) -> usize {
+        let found = match setting {
+            Setting::DiffLayout => DIFF_LAYOUTS
+                .iter()
+                .position(|value| *value == self.diff_layout),
+            Setting::MaxQuestionWidth => READING_WIDTHS
+                .iter()
+                .position(|value| *value == self.max_question_width),
+            Setting::Context => CONTEXTS.iter().position(|value| *value == self.context),
+        };
+        found.expect("every value of a setting is among its choices")
+    }
+
+    /// These settings with `setting` at its value number `choice`.
+    fn with_choice(self, setting: Setting, choice: usize) -> Settings {
+        match setting {
+            Setting::DiffLayout => Settings {
+                diff_layout: DIFF_LAYOUTS[choice],
+                ..self
+            },
+            Setting::MaxQuestionWidth => Settings {
+                max_question_width: READING_WIDTHS[choice],
+                ..self
+            },
+            Setting::Context => Settings {
+                context: CONTEXTS[choice],
+                ..self
+            },
+        }
+    }
+
+    /// The value of `setting` as the file writes it.
+    fn file_value(&self, setting: Setting) -> Value {
+        match setting {
+            Setting::DiffLayout => Value::from(match self.diff_layout {
+                DiffLayout::Unified => "unified",
+                DiffLayout::SideBySide => "side-by-side",
+            }),
+            Setting::MaxQuestionWidth => match self.max_question_width {
+                ReadingWidth::Columns80 => Value::from(80),
+                ReadingWidth::Columns100 => Value::from(100),
+                ReadingWidth::Columns120 => Value::from(120),
+                ReadingWidth::Full => Value::from("full"),
+            },
+            Setting::Context => Value::from(
+                self.context
+                    .to_possible_value()
+                    .expect("no value of PaneLayout is skipped")
+                    .get_name()
+                    .to_owned(),
+            ),
+        }
+    }
 }
 
 /// What holds a setting for the run from outside the file.
@@ -61,6 +165,26 @@ pub struct SettingsStore {
     path: Option<PathBuf>,
     values: Settings,
     context_lock: Option<(PaneLayout, Lock)>,
+}
+
+/// Which way a change of a setting goes through its values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Previous,
+    Next,
+}
+
+/// Why a setting could not be written to the file.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum SaveError {
+    #[error("asqr has no config directory to keep settings.toml in")]
+    NoPlace,
+    #[error("{0}")]
+    Io(String),
+    #[error("settings.toml does not parse{}, so it is left as it is", .0.map(|line| format!(" (line {line})")).unwrap_or_default())]
+    DoesNotParse(Option<usize>),
+    #[error("{0} in settings.toml is a table, so the file is left as it is")]
+    NotAValue(&'static str),
 }
 
 /// A store read from the file and what was wrong with the file.
@@ -115,6 +239,118 @@ impl SettingsStore {
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
     }
+
+    /// Which of the values of `setting`, in the order the pane cycles
+    /// through them, is in effect.
+    pub fn choice(&self, setting: Setting) -> usize {
+        self.effective().choice(setting)
+    }
+
+    /// Moves `setting` to its next or previous value, wrapping around at
+    /// the ends, for this run. Says whether it moved: a setting a flag or
+    /// a variable holds does not.
+    pub fn step(&mut self, setting: Setting, direction: Direction) -> bool {
+        if self.lock(setting).is_some() {
+            return false;
+        }
+        let count = setting.choices();
+        let current = self.values.choice(setting);
+        let next = match direction {
+            Direction::Next => (current + 1) % count,
+            Direction::Previous => (current + count - 1) % count,
+        };
+        self.values = self.values.with_choice(setting, next);
+        true
+    }
+
+    /// Writes the value `setting` has now into the settings file.
+    pub fn save(&self, setting: Setting) -> Result<(), SaveError> {
+        let path = self.path.as_deref().ok_or(SaveError::NoPlace)?;
+        write_setting(path, setting, &self.values)
+    }
+}
+
+/// What a new settings file starts with.
+const HEADER: &str =
+    "# asqr settings, written by the settings pane (`,` in asqr) and fine to edit by hand.\n";
+
+/// Sets the key of `setting` in the settings file at `path` to its value
+/// in `values`. The file is read again first, so what the person or
+/// another asqr changed since asqr read it stays, and every comment, key
+/// and blank line the file has stays with it. A file that does not parse
+/// is never written over.
+fn write_setting(path: &Path, setting: Setting, values: &Settings) -> Result<(), SaveError> {
+    let io = |what: &str, error: std::io::Error| {
+        SaveError::Io(format!("cannot {what} {FILE_NAME}: {error}"))
+    };
+    // A file that is a link, as a dotfile manager makes it, stays one: the
+    // file it points to is written.
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let text = match std::fs::read_to_string(&target) {
+        Ok(text) => Some(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(io("read", error)),
+    };
+
+    let key = setting.key();
+    let mut value = values.file_value(setting);
+    let written = match &text {
+        None => {
+            value
+                .decor_mut()
+                .set_suffix(format!("  # {}", setting.allowed()));
+            let mut document = DocumentMut::new();
+            document[key] = Item::Value(value);
+            format!("{HEADER}{document}")
+        }
+        Some(text) => {
+            let mut document = text
+                .parse::<DocumentMut>()
+                .map_err(|error| SaveError::DoesNotParse(line_of(text, error.span())))?;
+            match document.get(key) {
+                None => value
+                    .decor_mut()
+                    .set_suffix(format!("  # {}", setting.allowed())),
+                // The comment on the key's line stays with the new value.
+                Some(item) => match item.as_value() {
+                    Some(old) => *value.decor_mut() = old.decor().clone(),
+                    None => return Err(SaveError::NotAValue(key)),
+                },
+            }
+            // A file with comments and no key keeps them above the new key:
+            // the document would write them after it.
+            let written = if document.as_table().is_empty() && !text.is_empty() {
+                let line = format!(
+                    "{key} = {}  # {}\n",
+                    value.decorated("", ""),
+                    setting.allowed()
+                );
+                let separator = if text.ends_with('\n') { "" } else { "\n" };
+                format!("{text}{separator}{line}")
+            } else {
+                document[key] = Item::Value(value);
+                document.to_string()
+            };
+            // The document writes `\n` for a line it changed, and a file
+            // that used `\r\n` keeps them everywhere.
+            if text.contains("\r\n") {
+                written.replace("\r\n", "\n").replace('\n', "\r\n")
+            } else {
+                written
+            }
+        }
+    };
+
+    let permissions = std::fs::metadata(&target)
+        .ok()
+        .map(|meta| meta.permissions());
+    // Reading a path with no directory above it, the root, failed already.
+    let dir = target
+        .parent()
+        .expect("a settings file lies in a directory");
+    std::fs::create_dir_all(dir).map_err(|error| io("create the directory of", error))?;
+    write_atomically_with(&target, written.as_bytes(), permissions)
+        .map_err(|error| io("write", error))
 }
 
 /// Reads the settings from the file at `path`: a file that is not there
@@ -160,8 +396,8 @@ fn parse(text: &str) -> (Settings, Vec<String>) {
         diff_layout: read_key(
             &document,
             &KeyReading {
-                key: "diff_layout",
-                allowed: "unified or side-by-side",
+                key: Setting::DiffLayout.key(),
+                allowed: Setting::DiffLayout.allowed(),
                 default: (defaults.diff_layout, "unified"),
                 from: diff_layout_from,
             },
@@ -170,8 +406,8 @@ fn parse(text: &str) -> (Settings, Vec<String>) {
         max_question_width: read_key(
             &document,
             &KeyReading {
-                key: "max_question_width",
-                allowed: "80, 100, 120 or \"full\"",
+                key: Setting::MaxQuestionWidth.key(),
+                allowed: Setting::MaxQuestionWidth.allowed(),
                 default: (defaults.max_question_width, "100"),
                 from: reading_width_from,
             },
@@ -180,8 +416,8 @@ fn parse(text: &str) -> (Settings, Vec<String>) {
         context: read_key(
             &document,
             &KeyReading {
-                key: "context",
-                allowed: "auto, beside or below",
+                key: Setting::Context.key(),
+                allowed: Setting::Context.allowed(),
                 default: (defaults.context, "auto"),
                 from: context_from,
             },
@@ -569,5 +805,372 @@ mod tests {
             assert_eq!(store.lock(Setting::DiffLayout), None);
             assert_eq!(store.lock(Setting::MaxQuestionWidth), None);
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Changing and saving
+    // -----------------------------------------------------------------
+
+    /// A store over a settings file holding `text` in a directory of its
+    /// own.
+    fn store_over(text: &str) -> (SettingsStore, std::path::PathBuf, tempfile::TempDir) {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let path = scratch.path().join(FILE_NAME);
+        std::fs::write(&path, text).expect("written");
+        let store = SettingsStore::load(Some(path.clone()), None).store;
+        (store, path, scratch)
+    }
+
+    fn saved_after_next(text: &str, setting: Setting) -> (Result<(), SaveError>, String) {
+        let (mut store, path, _scratch) = store_over(text);
+        assert!(store.step(setting, Direction::Next), "the value changed");
+        let result = store.save(setting);
+        (result, std::fs::read_to_string(path).expect("readable"))
+    }
+
+    #[test]
+    fn a_setting_cycles_through_its_values_and_wraps_at_the_ends() {
+        let mut store = SettingsStore::default();
+        let mut seen = |setting, direction, count| {
+            (0..count)
+                .map(|_| {
+                    assert!(store.step(setting, direction));
+                    store.choice(setting)
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(seen(Setting::DiffLayout, Direction::Next, 3), [1, 0, 1]);
+        assert_eq!(seen(Setting::DiffLayout, Direction::Previous, 2), [0, 1]);
+        assert_eq!(
+            seen(Setting::MaxQuestionWidth, Direction::Next, 4),
+            [2, 3, 0, 1]
+        );
+        assert_eq!(
+            seen(Setting::MaxQuestionWidth, Direction::Previous, 2),
+            [0, 3]
+        );
+        assert_eq!(seen(Setting::Context, Direction::Next, 4), [1, 2, 0, 1]);
+        assert_eq!(seen(Setting::Context, Direction::Previous, 2), [0, 2]);
+        assert_eq!(
+            store.effective(),
+            Settings {
+                diff_layout: DiffLayout::SideBySide,
+                max_question_width: ReadingWidth::Full,
+                context: PaneLayout::Below,
+            }
+        );
+    }
+
+    #[test]
+    fn a_setting_a_flag_or_a_variable_holds_does_not_change() {
+        let mut store = SettingsStore::load(
+            None,
+            Some((PaneLayout::Below, Lock::Variable("ASQR_LAYOUT"))),
+        )
+        .store;
+
+        assert!(!store.step(Setting::Context, Direction::Next));
+        assert!(!store.step(Setting::Context, Direction::Previous));
+
+        assert_eq!(store.effective().context, PaneLayout::Below);
+        assert_eq!(store.choice(Setting::Context), 2, "the value in effect");
+        assert!(
+            store.step(Setting::DiffLayout, Direction::Next),
+            "others do"
+        );
+    }
+
+    #[test]
+    fn a_new_file_gets_a_header_and_the_key_that_changed_with_its_values() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let path = scratch.path().join("asqr").join(FILE_NAME);
+        let mut store = SettingsStore::load(Some(path.clone()), None).store;
+
+        store.step(Setting::MaxQuestionWidth, Direction::Next);
+        store.save(Setting::MaxQuestionWidth).expect("saved");
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("written"),
+            "# asqr settings, written by the settings pane (`,` in asqr) and fine to edit by hand.\n\
+             max_question_width = 120  # 80, 100, 120 or \"full\"\n"
+        );
+        let read = SettingsStore::load(Some(path), None);
+        assert_eq!(read.warnings, Vec::<String>::new());
+        assert_eq!(
+            read.store.effective().max_question_width,
+            ReadingWidth::Columns120
+        );
+    }
+
+    #[test]
+    fn saving_keeps_the_comments_the_unknown_keys_and_the_order() {
+        let text = "# mine\nkeep_files = \"exact\"\n\n[later]\nx = 1\n";
+        let (mut store, path, _scratch) = store_over(text);
+
+        store.step(Setting::Context, Direction::Next);
+        store.save(Setting::Context).expect("saved");
+
+        let written = std::fs::read_to_string(path).expect("readable");
+        assert!(
+            written.starts_with("# mine\nkeep_files = \"exact\"\n"),
+            "{written}"
+        );
+        assert!(written.contains("[later]\nx = 1\n"), "{written}");
+        assert!(written.contains("context = \"beside\""), "{written}");
+    }
+
+    #[test]
+    fn replacing_a_value_keeps_the_comment_on_its_line() {
+        let (result, written) = saved_after_next(
+            "# mine\nother = 1\ndiff_layout = \"unified\"   # my note\n",
+            Setting::DiffLayout,
+        );
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            written,
+            "# mine\nother = 1\ndiff_layout = \"side-by-side\"   # my note\n"
+        );
+    }
+
+    #[test]
+    fn a_second_key_goes_in_without_touching_the_first() {
+        let (result, written) =
+            saved_after_next("diff_layout = \"side-by-side\"\n", Setting::Context);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            written,
+            "diff_layout = \"side-by-side\"\ncontext = \"beside\"  # auto, beside or below\n"
+        );
+    }
+
+    #[test]
+    fn the_file_is_read_again_before_writing_so_other_edits_survive() {
+        let (mut store, path, _scratch) = store_over("");
+        std::fs::write(&path, "context = \"below\"\n# added by hand\n").expect("edited");
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        store.save(Setting::DiffLayout).expect("saved");
+
+        let written = std::fs::read_to_string(path).expect("readable");
+        // A comment after the last key stays at the end of the file.
+        assert_eq!(
+            written,
+            "context = \"below\"\ndiff_layout = \"side-by-side\"  # unified or side-by-side\n# added by hand\n"
+        );
+    }
+
+    #[test]
+    fn a_file_of_comments_keeps_them_above_the_new_key() {
+        for text in ["# my notes\n", "# my notes"] {
+            let (result, written) = saved_after_next(text, Setting::DiffLayout);
+
+            assert_eq!(result, Ok(()), "{text:?}");
+            assert_eq!(
+                written, "# my notes\ndiff_layout = \"side-by-side\"  # unified or side-by-side\n",
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_that_does_not_parse_is_left_as_it_is() {
+        let text = "diff_layout = \"unified\"\ncontext =\n";
+        let (mut store, path, _scratch) = store_over(text);
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        let result = store.save(Setting::DiffLayout);
+
+        assert_eq!(result, Err(SaveError::DoesNotParse(Some(2))));
+        assert_eq!(std::fs::read_to_string(path).expect("readable"), text);
+        assert_eq!(
+            store.effective().diff_layout,
+            DiffLayout::SideBySide,
+            "the choice holds for this run"
+        );
+    }
+
+    #[test]
+    fn a_table_where_a_key_belongs_is_left_as_it_is() {
+        let text = "[context]\nbelow = true\n";
+        let (mut store, path, _scratch) = store_over(text);
+
+        store.step(Setting::Context, Direction::Next);
+        let result = store.save(Setting::Context);
+
+        assert_eq!(result, Err(SaveError::NotAValue("context")));
+        assert_eq!(std::fs::read_to_string(path).expect("readable"), text);
+    }
+
+    #[test]
+    fn a_file_with_crlf_line_ends_keeps_them() {
+        let (result, written) = saved_after_next(
+            "# mine\r\ndiff_layout = \"unified\"\r\n",
+            Setting::DiffLayout,
+        );
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(written, "# mine\r\ndiff_layout = \"side-by-side\"\r\n");
+    }
+
+    #[test]
+    fn without_a_place_for_the_file_saving_says_so() {
+        let mut store = SettingsStore::default();
+
+        store.step(Setting::DiffLayout, Direction::Next);
+
+        assert_eq!(store.save(Setting::DiffLayout), Err(SaveError::NoPlace));
+        assert_eq!(store.effective().diff_layout, DiffLayout::SideBySide);
+    }
+
+    #[test]
+    fn a_save_leaves_no_temp_file_and_a_stale_one_does_not_stop_it() {
+        let (mut store, path, scratch) = store_over("");
+        let stale = scratch.path().join(".asqr-stale.tmp");
+        std::fs::write(&stale, "left by a crash").expect("written");
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        store.save(Setting::DiffLayout).expect("saved");
+
+        let mut names: Vec<_> = std::fs::read_dir(scratch.path())
+            .expect("readable")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .into_string()
+                    .expect("UTF-8")
+            })
+            .collect();
+        names.sort();
+        assert_eq!(names, [".asqr-stale.tmp", FILE_NAME]);
+        assert!(
+            std::fs::read_to_string(path)
+                .expect("readable")
+                .contains("side-by-side")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_file_stays_a_link_and_its_target_is_written() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = scratch.path().join("dotfiles").join("asqr.toml");
+        std::fs::create_dir_all(target.parent().expect("parent")).expect("dir");
+        std::fs::write(&target, "# from my dotfiles\n").expect("written");
+        let link = scratch.path().join("config").join(FILE_NAME);
+        std::fs::create_dir_all(link.parent().expect("parent")).expect("dir");
+        std::os::unix::fs::symlink(&target, &link).expect("linked");
+        let mut store = SettingsStore::load(Some(link.clone()), None).store;
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        store.save(Setting::DiffLayout).expect("saved");
+
+        assert!(std::fs::symlink_metadata(&link).expect("meta").is_symlink());
+        let written = std::fs::read_to_string(&target).expect("readable");
+        assert!(written.starts_with("# from my dotfiles\n"), "{written}");
+        assert!(written.contains("side-by-side"), "{written}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_permissions_of_an_existing_file_stay() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (mut store, path, _scratch) = store_over("");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).expect("chmod");
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        store.save(Setting::DiffLayout).expect("saved");
+
+        let mode = std::fs::metadata(path).expect("meta").permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_that_cannot_be_written_is_an_error_and_the_value_holds() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let dir = scratch.path().join("locked");
+        std::fs::create_dir(&dir).expect("dir");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).expect("chmod");
+        let mut store = SettingsStore::load(Some(dir.join(FILE_NAME)), None).store;
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        let result = store.save(Setting::DiffLayout);
+
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        assert!(matches!(result, Err(SaveError::Io(_))), "{result:?}");
+        assert_eq!(store.effective().diff_layout, DiffLayout::SideBySide);
+        assert!(!dir.join(FILE_NAME).exists());
+    }
+
+    #[test]
+    fn every_value_of_every_setting_reads_back_as_it_was_saved() {
+        for setting in Setting::ALL {
+            for choice in 0..setting.choices() {
+                let scratch = tempfile::tempdir().expect("temp dir");
+                let path = scratch.path().join(FILE_NAME);
+                let mut store = SettingsStore::load(Some(path.clone()), None).store;
+                while store.choice(setting) != choice {
+                    store.step(setting, Direction::Next);
+                }
+
+                store.save(setting).expect("saved");
+
+                let read = SettingsStore::load(Some(path), None);
+                assert_eq!(read.warnings, Vec::<String>::new(), "{setting:?} {choice}");
+                assert_eq!(read.store.choice(setting), choice, "{setting:?} {choice}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_directory_where_the_file_belongs_is_an_error_naming_what_failed() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let mut store = SettingsStore::load(Some(scratch.path().to_path_buf()), None).store;
+        store.step(Setting::DiffLayout, Direction::Next);
+        let unreadable = store.save(Setting::DiffLayout);
+        assert!(
+            matches!(&unreadable, Err(SaveError::Io(text)) if text.starts_with("cannot read settings.toml: ")),
+            "a directory where the file belongs: {unreadable:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_that_cannot_be_made_is_an_error_naming_what_failed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let locked = scratch.path().join("locked");
+        std::fs::create_dir(&locked).expect("dir");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).expect("chmod");
+        let mut store = SettingsStore::load(Some(locked.join("asqr").join(FILE_NAME)), None).store;
+        store.step(Setting::DiffLayout, Direction::Next);
+
+        let result = store.save(Setting::DiffLayout);
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        assert!(
+            matches!(&result, Err(SaveError::Io(text)) if text.starts_with("cannot create the directory of settings.toml: ")),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn what_cannot_be_saved_is_said_in_words() {
+        assert_eq!(
+            SaveError::DoesNotParse(Some(3)).to_string(),
+            "settings.toml does not parse (line 3), so it is left as it is"
+        );
+        assert_eq!(
+            SaveError::DoesNotParse(None).to_string(),
+            "settings.toml does not parse, so it is left as it is"
+        );
     }
 }

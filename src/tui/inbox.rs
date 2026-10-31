@@ -14,7 +14,9 @@ use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 
-use super::{App, AppEffect, EditRequest, Invalid, Notice, Outcome, SessionState, Tone};
+use super::{
+    App, AppEffect, EditRequest, Invalid, Notice, Outcome, SessionState, Tone, saved_text,
+};
 use crate::format::{
     ContextEntry, ParseError, SessionResult, Status, is_valid_session_id, now_rfc3339,
     parse_session, same_session_id, validate,
@@ -56,6 +58,9 @@ pub enum Applied {
     QueuesClosed,
     /// Watch this queue from now on (ADR 86).
     Switch(QueueLocation),
+    /// A setting changed and was saved or not (ADR 92): the screen takes
+    /// the settings of the app.
+    SettingsChanged,
 }
 
 #[derive(Debug)]
@@ -453,6 +458,21 @@ impl Inbox {
             AppEffect::OpenQueues => return Applied::OpenQueues,
             AppEffect::QueuesClosed => return Applied::QueuesClosed,
             AppEffect::Switch(target) => return Applied::Switch(target),
+            AppEffect::SaveSetting(setting) => {
+                // The app changed the value for this run already, so a
+                // failed write only means the file does not have it.
+                let choice = app.settings().choice(setting);
+                match app.settings().save(setting) {
+                    Ok(()) => app.notice(Tone::Success, saved_text(setting, choice)),
+                    Err(error) => app.notice(
+                        Tone::Error,
+                        format!(
+                            "cannot save the setting: {error}; the choice holds until asqr quits"
+                        ),
+                    ),
+                }
+                return Applied::SettingsChanged;
+            }
         }
         Applied::Continue
     }
@@ -554,6 +574,7 @@ mod tests {
     use crate::queue::{
         Archived, Withdrawn, archive_name, drop_session, parse_archive_name, save_draft,
     };
+    use crate::settings::SettingsStore;
 
     const SESSION: &str = r#"{"asqr": 2, "questions": [{"id": "q", "text": "?", "kind": "single",
         "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}]}"#;
@@ -605,6 +626,75 @@ mod tests {
     fn assert_notice(app: &App, tone: Tone, says: impl Fn(&str) -> bool) {
         let notice = app.current_notice().expect("a notice is shown");
         assert!(notice.tone == tone && says(&notice.text), "{notice:?}");
+    }
+
+    /// The settings pane opened on `app`, `j` times down and then one step
+    /// to the right: what the person pressed, as the effect the app gives.
+    fn changed(app: &mut App, rows_down: usize) -> AppEffect {
+        app.handle(KeyEvent::new(KeyCode::Char(','), KeyModifiers::NONE));
+        for _ in 0..rows_down {
+            app.handle(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        }
+        app.handle(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn a_changed_setting_is_written_and_says_so_in_green() {
+        let (scratch, location) = queue();
+        let config = scratch.path().join("settings.toml");
+        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let (mut inbox, mut app) = (Inbox::new(location), App::with_settings(settings));
+        let effect = changed(&mut app, 0);
+
+        let applied = inbox.apply(&mut app, effect);
+
+        assert_eq!(applied, Applied::SettingsChanged);
+        assert!(
+            fs::read_to_string(config)
+                .expect("written")
+                .contains("diff_layout = \"side-by-side\""),
+        );
+        let notice = app.current_notice().expect("a notice");
+        assert_eq!(
+            (notice.tone, notice.text.as_str()),
+            (Tone::Success, "✔ saved diffs open as: side by side")
+        );
+    }
+
+    #[test]
+    fn a_change_that_cannot_be_written_is_red_and_the_value_holds() {
+        let (scratch, location) = queue();
+        let config = scratch.path().join("settings.toml");
+        fs::write(&config, "context =\n").expect("written");
+        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let (mut inbox, mut app) = (Inbox::new(location), App::with_settings(settings));
+        let effect = changed(&mut app, 1);
+
+        let applied = inbox.apply(&mut app, effect);
+
+        assert_eq!(applied, Applied::SettingsChanged);
+        assert_eq!(fs::read_to_string(config).expect("kept"), "context =\n");
+        assert_eq!(
+            app.settings().effective().max_question_width,
+            crate::tui::render::ReadingWidth::Columns120,
+            "the choice holds for this run"
+        );
+        assert_notice(&app, Tone::Error, |text| {
+            text == "cannot save the setting: settings.toml does not parse (line 1), so it is left as it is; the choice holds until asqr quits"
+        });
+    }
+
+    #[test]
+    fn a_change_without_a_place_for_the_file_is_red_too() {
+        let (_scratch, location) = queue();
+        let (mut inbox, mut app) = (Inbox::new(location), App::default());
+        let effect = changed(&mut app, 2);
+
+        inbox.apply(&mut app, effect);
+
+        assert_notice(&app, Tone::Error, |text| {
+            text == "cannot save the setting: asqr has no config directory to keep settings.toml in; the choice holds until asqr quits"
+        });
     }
 
     #[test]

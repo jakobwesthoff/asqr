@@ -19,20 +19,38 @@ pub(crate) fn temp_file_in(dir: &Path) -> io::Result<NamedTempFile> {
         .tempfile_in(dir)
 }
 
-fn filled_temp_file(target: &Path, bytes: &[u8]) -> io::Result<NamedTempFile> {
+fn filled_temp_file(
+    target: &Path,
+    bytes: &[u8],
+    permissions: Option<std::fs::Permissions>,
+) -> io::Result<NamedTempFile> {
     let dir = target
         .parent()
         .filter(|dir| !dir.as_os_str().is_empty())
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "target has no directory"))?;
     let mut temp = temp_file_in(dir)?;
     temp.write_all(bytes)?;
+    if let Some(permissions) = permissions {
+        temp.as_file().set_permissions(permissions)?;
+    }
     temp.as_file().sync_all()?;
     Ok(temp)
 }
 
 /// Writes `bytes` to `target`, replacing what is there.
 pub(crate) fn write_atomically(target: &Path, bytes: &[u8]) -> io::Result<()> {
-    filled_temp_file(target, bytes)?
+    write_atomically_with(target, bytes, None)
+}
+
+/// Writes `bytes` to `target` as [`write_atomically`] does, with the file
+/// carrying `permissions` where given, as when it replaces a file whose
+/// permissions are to stay.
+pub(crate) fn write_atomically_with(
+    target: &Path,
+    bytes: &[u8],
+    permissions: Option<std::fs::Permissions>,
+) -> io::Result<()> {
+    filled_temp_file(target, bytes, permissions)?
         .persist(target)
         .map(drop)
         .map_err(|error| error.error)
@@ -42,7 +60,7 @@ pub(crate) fn write_atomically(target: &Path, bytes: &[u8]) -> io::Result<()> {
 /// with [`io::ErrorKind::AlreadyExists`] and leaves the existing file alone.
 /// Of two writers racing for the same name, exactly one wins.
 pub(crate) fn write_new_atomically(target: &Path, bytes: &[u8]) -> io::Result<()> {
-    filled_temp_file(target, bytes)?
+    filled_temp_file(target, bytes, None)?
         .persist_noclobber(target)
         .map(drop)
         .map_err(|error| error.error)

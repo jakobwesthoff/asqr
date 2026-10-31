@@ -15,11 +15,12 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::scroll::scroll;
 use super::{
     DiffLayout, EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, QueueChoice,
-    REFUSED_NAME, RowCut, SessionState, Switcher, SwitcherKey, TOO_LONG_NAME,
+    REFUSED_NAME, RowCut, SessionState, SettingsKey, SettingsPane, Switcher, SwitcherKey,
+    TOO_LONG_NAME,
 };
 use crate::format::{Answer, ContextEntry, SessionResult, same_session_id};
 use crate::queue::{QueueLocation, WaitingQueue};
-use crate::settings::SettingsStore;
+use crate::settings::{Setting, SettingsStore};
 
 /// How a finished session ends.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,8 @@ pub enum AppEffect {
     OpenQueues,
     /// The queue switcher closed without a switch.
     QueuesClosed,
+    /// Save the value `Setting` has now in the settings file (ADR 92).
+    SaveSetting(Setting),
     /// Watch this queue from now on (ADR 86).
     Switch(QueueLocation),
 }
@@ -72,6 +75,8 @@ pub enum Overlay {
     Intro(usize),
     /// The queue switcher (see [`App::switcher`]).
     Queues,
+    /// The settings pane (see [`App::settings_pane`]).
+    Settings,
 }
 
 /// What kind of news a notice or a session's message is, which decides
@@ -212,6 +217,8 @@ pub struct App {
     diff_layout: DiffLayout,
     /// The settings of this run (ADR 92).
     settings: SettingsStore,
+    /// The open settings pane.
+    pane: Option<SettingsPane>,
 }
 
 impl App {
@@ -370,6 +377,11 @@ impl App {
         self.switcher = Some(Switcher::new(choice));
     }
 
+    /// The open settings pane.
+    pub fn settings_pane(&self) -> Option<&SettingsPane> {
+        self.pane.as_ref()
+    }
+
     /// The open queue switcher.
     pub fn switcher(&self) -> Option<&Switcher> {
         self.switcher.as_ref()
@@ -418,6 +430,9 @@ impl App {
     pub fn overlay(&self) -> Option<Overlay> {
         if self.switcher.is_some() {
             return Some(Overlay::Queues);
+        }
+        if self.pane.is_some() {
+            return Some(Overlay::Settings);
         }
         let state = self.active()?;
         if let Some(scroll) = self.intro
@@ -520,6 +535,22 @@ impl App {
                 }
             };
         }
+        if let Some(pane) = &mut self.pane {
+            let locked = self.settings.lock(pane.setting()).is_some();
+            return match pane.handle(key, locked) {
+                SettingsKey::Stay => AppEffect::None,
+                SettingsKey::Close => {
+                    self.pane = None;
+                    AppEffect::None
+                }
+                SettingsKey::Quit => AppEffect::Quit,
+                SettingsKey::Change(setting, direction) => {
+                    self.settings.step(setting, direction);
+                    self.set_diff_layout(self.settings.effective().diff_layout);
+                    AppEffect::SaveSetting(setting)
+                }
+            };
+        }
         if let Some(scroll) = self.intro {
             return self.intro_key(key, scroll);
         }
@@ -558,6 +589,10 @@ impl App {
             return match key.code {
                 _ if quit => AppEffect::Quit,
                 KeyCode::Char('w') => AppEffect::OpenQueues,
+                KeyCode::Char(',') => {
+                    self.pane = Some(SettingsPane::default());
+                    AppEffect::None
+                }
                 _ => AppEffect::None,
             };
         };
@@ -585,7 +620,7 @@ impl App {
             }
             return AppEffect::None;
         }
-        if self.intro.is_some() || self.list.is_some() {
+        if self.pane.is_some() || self.intro.is_some() || self.list.is_some() {
             return AppEffect::None;
         }
         let Some(state) = self.sessions.get_mut(self.active) else {
@@ -632,6 +667,10 @@ impl App {
             Effect::Open(entry) => AppEffect::Open(entry),
             Effect::Edit(request) => AppEffect::Edit(request),
             Effect::OpenQueues => AppEffect::OpenQueues,
+            Effect::OpenSettings => {
+                self.pane = Some(SettingsPane::default());
+                AppEffect::None
+            }
             Effect::OpenSessionList => {
                 self.list = Some(self.active);
                 AppEffect::None
@@ -757,6 +796,141 @@ mod tests {
             app.current_notice(),
             Some(&Notice::new(Tone::Error, "an invalid session"))
         );
+    }
+
+    // -----------------------------------------------------------------
+    // The settings pane
+    // -----------------------------------------------------------------
+
+    /// An app with the session `diff_state` shows, run with `settings`.
+    fn with_settings(settings: SettingsStore) -> App {
+        let mut app = App::with_settings(settings);
+        app.add(diff_state("diffs"));
+        app
+    }
+
+    fn comma() -> KeyEvent {
+        key(',')
+    }
+
+    #[test]
+    fn the_comma_opens_the_settings_over_a_session_and_over_the_empty_queue() {
+        let mut over_a_session = with_settings(SettingsStore::default());
+        let mut over_nothing = App::default();
+
+        for app in [&mut over_a_session, &mut over_nothing] {
+            assert_eq!(app.handle(comma()), AppEffect::None);
+            assert_eq!(app.overlay(), Some(Overlay::Settings));
+            assert_eq!(app.settings_pane().map(SettingsPane::cursor), Some(0));
+        }
+    }
+
+    #[test]
+    fn the_comma_types_in_a_field() {
+        let mut app = App::default();
+        app.add(SessionState::new(
+            "text",
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "t", "text": "?", "kind": "text"}]}"#,
+            )
+            .expect("test session parses"),
+            None,
+        ));
+
+        app.handle(comma());
+
+        assert_eq!(app.settings_pane(), None);
+    }
+
+    #[test]
+    fn the_pane_takes_the_keys_and_the_comma_closes_it() {
+        let mut app = with_settings(SettingsStore::default());
+        app.handle(comma());
+
+        assert_eq!(app.handle(key('j')), AppEffect::None);
+        assert_eq!(app.settings_pane().map(SettingsPane::cursor), Some(1));
+        assert_eq!(app.handle(key('x')), AppEffect::None);
+        assert!(!app.active().expect("a session").help());
+
+        app.handle(code(KeyCode::Esc));
+        for closing in [comma(), key('q'), code(KeyCode::Esc)] {
+            app.handle(comma());
+            assert!(app.settings_pane().is_some());
+            assert_eq!(app.handle(closing), AppEffect::None);
+            assert_eq!(app.settings_pane(), None, "{closing:?}");
+            assert_eq!(app.overlay(), None);
+        }
+    }
+
+    #[test]
+    fn ctrl_c_quits_from_the_pane() {
+        let mut app = with_settings(SettingsStore::default());
+        app.handle(comma());
+
+        let quit = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+        assert_eq!(app.handle(quit), AppEffect::Quit);
+    }
+
+    #[test]
+    fn right_changes_the_setting_under_the_cursor_and_asks_for_it_to_be_saved() {
+        let mut app = with_settings(SettingsStore::default());
+        app.handle(comma());
+
+        assert_eq!(
+            app.handle(code(KeyCode::Right)),
+            AppEffect::SaveSetting(Setting::DiffLayout)
+        );
+
+        assert_eq!(
+            app.settings().effective().diff_layout,
+            DiffLayout::SideBySide
+        );
+        assert!(
+            app.sessions().iter().all(SessionState::side_by_side),
+            "the open session shows its diff as the setting says"
+        );
+        assert_eq!(app.settings_pane().map(SettingsPane::cursor), Some(0));
+
+        app.handle(key('j'));
+        app.handle(code(KeyCode::Left));
+        assert_eq!(
+            app.settings().effective().max_question_width,
+            crate::tui::render::ReadingWidth::Columns80,
+            "one step back from 100 columns"
+        );
+    }
+
+    #[test]
+    fn a_row_a_flag_or_a_variable_holds_changes_nothing() {
+        let settings = SettingsStore::load(
+            None,
+            Some((
+                crate::tui::render::PaneLayout::Below,
+                crate::settings::Lock::Variable("ASQR_LAYOUT"),
+            )),
+        )
+        .store;
+        let mut app = with_settings(settings.clone());
+        app.handle(comma());
+        app.handle(key('j'));
+        app.handle(key('j'));
+
+        assert_eq!(app.handle(code(KeyCode::Right)), AppEffect::None);
+        assert_eq!(app.handle(code(KeyCode::Left)), AppEffect::None);
+
+        assert_eq!(app.settings(), &settings);
+        assert_eq!(app.current_notice(), None, "no notice either");
+    }
+
+    #[test]
+    fn a_paste_under_the_pane_goes_nowhere() {
+        let mut app = with_settings(SettingsStore::default());
+        app.handle(comma());
+
+        assert_eq!(app.paste("typed"), AppEffect::None);
+
+        assert!(app.settings_pane().is_some());
     }
 
     #[test]

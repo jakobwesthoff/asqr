@@ -140,6 +140,11 @@ impl TabState {
         }
     }
 
+    /// Puts the context where `layout` says from the next draw on.
+    pub(super) fn set_layout(&mut self, layout: PaneLayout) {
+        self.layout = layout;
+    }
+
     /// The state of a tab as tests need it (see [`Viewers::for_tests`]).
     #[cfg(test)]
     pub(super) fn for_tests(layout: PaneLayout, images: Images) -> Self {

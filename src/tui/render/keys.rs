@@ -21,8 +21,7 @@ use crate::tui::{DiffLayout, DrawnDiff, Extent, Focus, Page, Row, SessionState};
 /// Every key, in the 13 lines the help has on the smallest screen.
 const HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "move between the rows"),
-    ("←/→, h/l", "previous and next question"),
-    ("", "in a field, arrows leave it at its edges"),
+    ("←/→, h/l", "prev/next question; in a field, at its edges"),
     ("enter", "pick and go on; open or submit on the review"),
     (
         "space, 1-9",
@@ -37,6 +36,7 @@ const HELP: &[(&str, &str)] = &[
         "L, w, backspace",
         "the sessions; the queues; clear the pick",
     ),
+    (",", "the settings"),
     ("q, ctrl-c", "quit, keeping the draft"),
     ("?, i", "this help; the whole intro"),
 ];
@@ -232,7 +232,22 @@ pub(super) fn dialog_hints() -> Vec<Hint> {
 
 /// The keys over an empty queue.
 pub(super) fn empty_queue_hints() -> Vec<Hint> {
-    vec![hint("w", "queues", Rank::Cursor), QUIT_HINT]
+    vec![
+        hint("w", "queues", Rank::Cursor),
+        hint(",", "settings", Rank::Cursor),
+        QUIT_HINT,
+    ]
+}
+
+/// The keys of the settings pane. `←`/`→` show only where the row under
+/// the cursor can change, which a flag or a variable holding it stops.
+pub(super) fn settings_hints(locked: bool) -> Vec<Hint> {
+    let mut hints = vec![hint("↑/↓", "move", Rank::Cursor)];
+    if !locked {
+        hints.push(hint("←/→", "change", Rank::Cursor));
+    }
+    hints.push(hint("esc", "close", Rank::Leave));
+    hints
 }
 
 /// The keys of the start picker, whose new-queue row is a field while
@@ -1477,6 +1492,54 @@ mod tests {
             lines.iter().find(|line| line.starts_with("pgup/pgdn")),
             Some(&"pgup/pgdn, ctrl-u/ctrl-d scroll by page; by half a page".to_owned())
         );
+    }
+
+    #[test]
+    fn the_general_help_names_the_settings_key_on_a_line_of_its_own() {
+        let lines = smallest_help_lines(&general_help_state());
+
+        assert_eq!(HELP.len(), 13, "the help keeps its 13 lines");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.split_whitespace().collect::<Vec<_>>() == [",", "the", "settings"]),
+            "{lines:#?}"
+        );
+    }
+
+    #[test]
+    fn the_arrows_line_of_the_general_help_says_where_a_field_lets_them_go() {
+        let lines = smallest_help_lines(&general_help_state());
+
+        assert_eq!(
+            lines.iter().find(|line| line.starts_with("←/→, h/l")),
+            Some(&"←/→, h/l   prev/next question; in a field, at its edges".to_owned())
+        );
+        assert!(
+            lines.iter().all(|line| !line.starts_with("in a field")),
+            "{lines:#?}"
+        );
+    }
+
+    #[test]
+    fn the_settings_bar_names_the_arrows_only_where_the_row_can_change() {
+        let bar = |locked| {
+            line_texts(&[key_line(&settings_hints(locked), 80)])[0]
+                .trim_end()
+                .to_owned()
+        };
+
+        assert_eq!(bar(false), " ↑/↓  move   ←/→  change   esc  close");
+        assert_eq!(bar(true), " ↑/↓  move   esc  close");
+    }
+
+    #[test]
+    fn the_empty_queue_bar_names_the_settings_key() {
+        let bar = line_texts(&[key_line(&empty_queue_hints(), 80)])[0]
+            .trim_end()
+            .to_owned();
+
+        assert_eq!(bar, " w  queues   ,  settings   q  quit");
     }
 
     #[test]

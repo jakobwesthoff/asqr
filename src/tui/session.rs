@@ -58,6 +58,8 @@ pub enum Effect {
     OpenSessionList,
     /// Open the queue switcher (ADR 86).
     OpenQueues,
+    /// Open the settings pane (ADR 92).
+    OpenSettings,
     /// Show the session's whole intro, which the header may cut.
     ShowIntro,
     /// Open the focused field in the person's editor (ADR 74).
@@ -1296,7 +1298,7 @@ impl SessionState {
         // Only the keys that move the cursor move the view through the
         // row's range. The keys that act on the row under the cursor bring
         // it back into view first, so the person sees what they did to it;
-        // switching questions does so in `go_to_tab`. `?`, `L`, `w`, `i`,
+        // switching questions does so in `go_to_tab`. `?`, `L`, `w`, `,`, `i`,
         // `o`, `z`, `s` and `q` act on no row, and the keys bound to nothing do
         // nothing, so they leave the view where the person scrolled it.
         if matches!(
@@ -1338,6 +1340,7 @@ impl SessionState {
             }
             KeyCode::Char('L') => Effect::OpenSessionList,
             KeyCode::Char('w') => Effect::OpenQueues,
+            KeyCode::Char(',') => Effect::OpenSettings,
             KeyCode::Char('i') if self.session.intro.is_some() => Effect::ShowIntro,
             KeyCode::Char('o') => self.open(),
             KeyCode::Char('z') => self.show_full_screen(),
@@ -3739,6 +3742,31 @@ mod tests {
         );
         assert_eq!(press(&mut text, "w"), Effect::DraftChanged, "a field");
         assert_eq!(answer(&text, "t").custom.as_deref(), Some("w"));
+    }
+
+    /// `,` opens the settings where `w` opens the queue switcher.
+    #[test]
+    fn the_comma_asks_for_the_settings_where_w_asks_for_the_queues() {
+        let mut state = with_pane();
+        assert_eq!(press(&mut state, ","), Effect::OpenSettings);
+
+        state.handle(code(KeyCode::Tab));
+        assert_eq!(press(&mut state, ","), Effect::None, "the focused pane");
+        state.handle(code(KeyCode::Tab));
+        press(&mut state, "z");
+        assert!(state.full_screen());
+        assert_eq!(press(&mut state, ","), Effect::None, "the full-screen view");
+
+        let mut text = SessionState::new(
+            "text",
+            serde_json::from_str(
+                r#"{"asqr": 2, "questions": [{"id": "t", "text": "?", "kind": "text"}]}"#,
+            )
+            .expect("parses"),
+            None,
+        );
+        assert_eq!(press(&mut text, ","), Effect::DraftChanged, "a field");
+        assert_eq!(answer(&text, "t").custom.as_deref(), Some(","));
     }
 
     #[test]

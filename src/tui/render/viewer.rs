@@ -307,6 +307,11 @@ impl Viewers {
         }
     }
 
+    /// The home folder, which shows as `~` in paths.
+    pub(super) fn home(&self) -> Option<&Path> {
+        self.tools.home.as_deref()
+    }
+
     /// Takes the home folder, for the viewers built from now on.
     pub(super) fn set_home(&mut self, home: Option<PathBuf>) {
         self.tools.home = home;

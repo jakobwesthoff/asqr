@@ -29,6 +29,7 @@ mod parts;
 mod patine_adapter;
 mod problem;
 mod screen;
+mod settings;
 mod source_file;
 mod source_line;
 mod switcher;

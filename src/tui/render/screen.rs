@@ -24,19 +24,21 @@ use super::empty::EmptyQueue;
 use super::header::{header_lines, title_bar};
 use super::keys::{
     dialog_hints, draw_help, empty_queue_hints, intro_hints, key_hints, key_line,
-    key_line_with_version, switcher_hints, with_diff_hint,
+    key_line_with_version, settings_hints, switcher_hints, with_diff_hint,
 };
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{MIN_BELOW_HEIGHT, PaneLayout, ReadingWidth};
 use super::patine_adapter::quote_style;
 use super::problem::{self, Problem, draw_dialog};
+use super::settings::draw_settings;
 use super::source_line::columns;
 use super::switcher::draw_switcher;
 use super::tabs::tab_bar;
 use super::theme;
 use crate::format::ContextEntry;
 use crate::graphics::{Images, KittyBook, PlacedImage, disarm_placeholders};
+use crate::settings::Settings;
 use crate::tui::text_field::FieldShape;
 use crate::tui::{
     App, Extent, Focus, Invalid, Notice, Overlay, PanePage, RowCut, SessionState, Tone,
@@ -200,6 +202,13 @@ impl<'a> View<'a> {
     pub fn reading_width(mut self, reading: ReadingWidth) -> Self {
         self.tab.reading = reading;
         self
+    }
+
+    /// Takes the settings the person changed: the question's width and
+    /// where the context goes show in the next draw.
+    pub fn set_settings(&mut self, settings: &Settings) {
+        self.tab.reading = settings.max_question_width;
+        self.tab.set_layout(settings.context);
     }
 
     /// This view, drawn without colours when `no_color` is set.
@@ -471,7 +480,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 Some(Overlay::SessionList(_)) => {
                     key_hints(state, true, pane_page.map(|shown| shown.page))
                 }
-                Some(Overlay::Help | Overlay::Queues) | None => with_diff_hint(
+                Some(Overlay::Help | Overlay::Queues | Overlay::Settings) | None => with_diff_hint(
                     key_hints(state, false, pane_page.map(|shown| shown.page)),
                     state,
                     pane_page.and_then(|shown| shown.diff),
@@ -515,10 +524,11 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // queue. Any key closes the dialog of an invalid session, and only
     // that, so the keys of what stands behind it would not do what they
     // say.
-    let hints = match (app.invalid_shown(), app.switcher()) {
-        (Some(_), _) => dialog_hints(),
-        (None, Some(switcher)) => switcher_hints(switcher.typing()),
-        (None, None) => hints,
+    let hints = match (app.invalid_shown(), app.switcher(), app.settings_pane()) {
+        (Some(_), _, _) => dialog_hints(),
+        (None, Some(switcher), _) => switcher_hints(switcher.typing()),
+        (None, None, Some(pane)) => settings_hints(app.settings().lock(pane.setting()).is_some()),
+        (None, None, None) => hints,
     };
     let key_bar = match app.active() {
         None => key_line_with_version(&hints, keys.width, view.version),
@@ -534,10 +544,19 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         Some((Overlay::SessionList(cursor), _)) => {
             draw_session_list(area, frame.buffer_mut(), app, cursor);
         }
-        Some((Overlay::Intro(_) | Overlay::Queues, _)) | None => {}
+        Some((Overlay::Intro(_) | Overlay::Queues | Overlay::Settings, _)) | None => {}
     }
     if let Some(switcher) = app.switcher() {
         draw_switcher(area, frame.buffer_mut(), switcher);
+    }
+    if let Some(pane) = app.settings_pane() {
+        draw_settings(
+            behind,
+            frame.buffer_mut(),
+            pane,
+            app.settings(),
+            view.tab.viewers.home(),
+        );
     }
     view.overlay_shown = overlay.is_some();
 
@@ -641,6 +660,7 @@ fn status_line(app: &App, state: Option<&SessionState>, width: u16) -> Line<'sta
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::path::PathBuf;
 
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -2507,7 +2527,10 @@ mod tests {
         assert_eq!(style_at(buf, "broken").fg, Some(Color::Yellow));
         assert_eq!(
             row(buf, 19),
-            format!(" w  queues   q  quit{}asqr 0.0.0", " ".repeat(49)),
+            format!(
+                " w  queues   ,  settings   q  quit{}asqr 0.0.0",
+                " ".repeat(35)
+            ),
             "{backend}"
         );
         assert_eq!(look_at(buf, "w  queues"), (Color::Cyan, Modifier::BOLD));
@@ -2539,7 +2562,7 @@ mod tests {
         let buf = backend.buffer();
 
         assert!(
-            row(buf, 14).starts_with(" w  queues   q  quit"),
+            row(buf, 14).starts_with(" w  queues   ,  settings   q  quit"),
             "{backend}"
         );
         // One blank stands between the version and the right edge.
@@ -4370,6 +4393,36 @@ mod tests {
                 "{reading:?}:\n{backend}"
             );
         }
+    }
+
+    #[test]
+    fn new_settings_show_in_the_next_draw() {
+        let file = png();
+        let image = file.path().to_str().expect("UTF-8 path");
+        let plain = long_question("");
+        let pictured = long_question(&format!(
+            r#""context": [{{"type": "image", "path": {image:?}}}],"#
+        ));
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks());
+        let rightmost = |view: &mut View| {
+            let backend = screen_in(&plain, view, 160, 30);
+            rightmost_text_column(&backend)
+        };
+        let image_start = |view: &mut View| {
+            let backend = screen_in(&pictured, view, 230, 40);
+            *image_cells(&backend).0.start()
+        };
+        assert!((88..=100).contains(&rightmost(&mut view)));
+        assert_eq!(image_start(&mut view), 104, "beside");
+
+        view.set_settings(&Settings {
+            max_question_width: ReadingWidth::Columns80,
+            context: PaneLayout::Below,
+            ..Settings::default()
+        });
+
+        assert!((68..=80).contains(&rightmost(&mut view)), "80 columns");
+        assert!(image_start(&mut view) < 10, "below");
     }
 
     #[test]
@@ -6234,6 +6287,197 @@ mod tests {
         insta::assert_snapshot!("diff_side_by_side_full_screen_120x30", side_by_side);
         let unified = after(&mut app, &mut view, &[KeyCode::Char('s')]);
         insta::assert_snapshot!("diff_unified_full_screen_120x30", unified);
+    }
+
+    // -----------------------------------------------------------------
+    // The settings pane
+    // -----------------------------------------------------------------
+
+    const CONFIG: &str = "/home/me/Library/Application Support/asqr/settings.toml";
+
+    /// The screen of the settings pane in `state`, `width`×`height` big.
+    /// The states are the ones the pane has: the cursor on each row, a
+    /// saved change, a failed one, a row a variable or a flag holds, the
+    /// pane over a session, and without a place for the file.
+    fn settings_screen(state: &str, width: u16, height: u16) -> TestBackend {
+        use crate::settings::{Lock, SettingsStore};
+
+        let lock = |lock, layout| Some((layout, lock));
+        let (settings, session, keys_pressed, notice) = match state {
+            "default" => (Some(None), false, ",", None),
+            "width" => (Some(None), false, ",j", None),
+            "context" => (Some(None), false, ",jj", None),
+            "changed" => (
+                Some(None),
+                false,
+                ",l",
+                Some(Notice::new(
+                    Tone::Success,
+                    "✔ saved diffs open as: side by side",
+                )),
+            ),
+            "over_a_session" => (Some(None), true, ",", None),
+            "locked_variable" => (
+                Some(lock(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Below)),
+                false,
+                ",jj",
+                None,
+            ),
+            "locked_variable_beside" => (
+                Some(lock(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Beside)),
+                false,
+                ",jj",
+                None,
+            ),
+            "locked_variable_auto" => (
+                Some(lock(Lock::Variable("ASQR_LAYOUT"), PaneLayout::Auto)),
+                false,
+                ",jj",
+                None,
+            ),
+            "locked_flag" => (
+                Some(lock(Lock::Flag("--layout"), PaneLayout::Below)),
+                false,
+                ",jj",
+                None,
+            ),
+            "failed" => (
+                Some(None),
+                false,
+                ",l",
+                Some(Notice::new(
+                    Tone::Error,
+                    "cannot save the setting: settings.toml does not parse (line 1), so it is left as it is; the choice holds until asqr quits",
+                )),
+            ),
+            "no_file" => (None, false, ",", None),
+            other => panic!("no state {other}"),
+        };
+        let store = match settings {
+            Some(lock) => SettingsStore::load(Some(PathBuf::from(CONFIG)), lock).store,
+            None => SettingsStore::default(),
+        };
+        let mut app = App::with_settings(store);
+        if session {
+            let session: Session = serde_json::from_str(EXAMPLE).expect("example parses");
+            app.add(SessionState::new("batch", session, None));
+        }
+        keys(&mut app, keys_pressed);
+        if let Some(notice) = notice {
+            app.show(notice);
+        }
+        let mut view = View::for_tests("default", PaneLayout::Auto, Images::half_blocks())
+            .home(Some(PathBuf::from("/home/me")));
+        screen_in(&app, &mut view, width, height)
+    }
+
+    macro_rules! settings_screens {
+        ($($test:ident: $state:literal, $width:literal x $height:literal;)*) => {$(
+            #[test]
+            fn $test() {
+                insta::assert_snapshot!(
+                    concat!("settings_", $state, "_", $width, "x", $height),
+                    settings_screen($state, $width, $height)
+                );
+            }
+        )*};
+    }
+
+    settings_screens! {
+        settings_default_80x24: "default", 80 x 24;
+        settings_default_120x40: "default", 120 x 40;
+        settings_width_80x24: "width", 80 x 24;
+        settings_width_120x40: "width", 120 x 40;
+        settings_context_80x24: "context", 80 x 24;
+        settings_context_120x40: "context", 120 x 40;
+        settings_changed_80x24: "changed", 80 x 24;
+        settings_changed_120x40: "changed", 120 x 40;
+        settings_over_a_session_80x24: "over_a_session", 80 x 24;
+        settings_over_a_session_120x40: "over_a_session", 120 x 40;
+        settings_locked_variable_80x24: "locked_variable", 80 x 24;
+        settings_locked_variable_120x40: "locked_variable", 120 x 40;
+        settings_locked_variable_beside_80x24: "locked_variable_beside", 80 x 24;
+        settings_locked_variable_beside_120x40: "locked_variable_beside", 120 x 40;
+        settings_locked_variable_auto_80x24: "locked_variable_auto", 80 x 24;
+        settings_locked_variable_auto_120x40: "locked_variable_auto", 120 x 40;
+        settings_locked_flag_80x24: "locked_flag", 80 x 24;
+        settings_locked_flag_120x40: "locked_flag", 120 x 40;
+        settings_failed_80x24: "failed", 80 x 24;
+        settings_failed_120x40: "failed", 120 x 40;
+        settings_no_file_80x24: "no_file", 80 x 24;
+        settings_no_file_120x40: "no_file", 120 x 40;
+        settings_locked_variable_60x15: "locked_variable", 60 x 15;
+        settings_failed_60x15: "failed", 60 x 15;
+    }
+
+    #[test]
+    fn the_saved_notice_is_green_and_the_failed_one_red_under_the_pane() {
+        let saved = settings_screen("changed", 80, 24);
+        assert_eq!(
+            look_at(saved.buffer(), "✔ saved diffs open as").0,
+            Color::Green
+        );
+        let failed = settings_screen("failed", 80, 24);
+        assert_eq!(
+            look_at(failed.buffer(), "cannot save the setting").0,
+            Color::Red
+        );
+    }
+
+    #[test]
+    fn the_settings_bar_replaces_the_keys_behind_it_and_drops_the_arrows_on_a_locked_row() {
+        let bar = |state| {
+            let backend = settings_screen(state, 80, 24);
+            let rows = test_support::rows(backend.buffer());
+            rows.last().expect("a key bar").trim_end().to_owned()
+        };
+
+        assert!(bar("default").starts_with(" ↑/↓  move   ←/→  change   esc  close"));
+        assert!(bar("locked_variable").starts_with(" ↑/↓  move   esc  close"));
+        assert!(!bar("locked_variable").contains("change"));
+    }
+
+    #[test]
+    fn the_screen_behind_the_pane_is_dimmed_and_talqi_is_his_outline() {
+        let backend = settings_screen("default", 120, 40);
+        let buf = backend.buffer();
+
+        assert!(
+            buf[find(buf, "asqr · queue")]
+                .modifier
+                .contains(Modifier::DIM),
+            "the title bar is dim"
+        );
+        assert!(
+            !buf[find(buf, "Settings")].modifier.contains(Modifier::DIM),
+            "the frame is not"
+        );
+    }
+
+    #[test]
+    fn the_pane_leaves_the_status_line_and_the_key_bar_free_on_the_smallest_screen() {
+        let backend = settings_screen("failed", 60, 15);
+        let rows = test_support::rows(backend.buffer());
+
+        assert!(rows[13].contains("cannot save the setting"), "{backend}");
+        assert!(rows[14].contains("esc  close"), "{backend}");
+        assert!(
+            rows.iter().any(|row| row.contains("╰")),
+            "the frame's bottom edge is drawn: {backend}"
+        );
+    }
+
+    #[test]
+    fn the_empty_queue_names_the_settings_key_in_its_bar() {
+        let backend = screen(&App::default(), 80, 24);
+        let rows = test_support::rows(backend.buffer());
+
+        assert!(
+            rows.last()
+                .expect("a key bar")
+                .contains("w  queues   ,  settings   q  quit"),
+            "{backend}"
+        );
     }
 
     #[test]

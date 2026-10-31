@@ -98,6 +98,9 @@ directory (`~/Library/Application Support/asqr/` on macOS,
 (`"auto"`, `"beside"` or `"below"`) for where the context goes. A flag or
 an environment variable wins over the file, and a file asqr cannot read
 only costs the settings it holds: the defaults apply, with a warning.
+`,` opens a settings pane that changes them with `←`/`→`, saves each
+change at once and explains the row under the cursor; a setting a flag or
+a variable holds shows as locked.
 
 `asqr wait` exits 0 for a submitted session, 10 when you rejected it, 11
 for an invalid file, 12 when its `--timeout` ran out and 14 when the

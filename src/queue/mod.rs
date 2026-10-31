@@ -19,6 +19,7 @@ mod queues;
 mod withdraw;
 
 pub use archive::*;
+pub(crate) use atomic::write_atomically_with;
 pub use drafts::*;
 pub use drop::*;
 pub use finish::*;
