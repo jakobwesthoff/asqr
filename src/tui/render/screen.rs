@@ -398,7 +398,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // The empty queue keeps a header row, below which Talqi's place is
     // measured.
     let header_height = match app.active() {
-        Some(_) => u16::try_from(header_lines.len()).expect("at most four header lines"),
+        Some(_) => u16::try_from(header_lines.len()).expect("at most five header lines"),
         None => 1,
     };
 
@@ -1075,6 +1075,28 @@ mod tests {
         assert_eq!(look_at(buf, "Pick"), (Color::Reset, Modifier::empty()));
         assert_eq!(row(buf, 3), "", "{backend}");
         assert!(row(buf, 4).contains("☐ 301"), "{backend}");
+    }
+
+    #[test]
+    fn a_session_that_continues_a_draft_says_so_under_from_and_follows() {
+        let session: Session = serde_json::from_str(EXAMPLE).expect("example parses");
+        let mut draft = crate::format::SessionResult::draft("batch", "", Vec::new());
+        draft.carried_from = Some(crate::format::CarriedFrom {
+            id: "alt-rework-3-batch-00".into(),
+            title: Some("Alt rework 3, batch 0".into()),
+        });
+        let mut app = App::default();
+        app.add(SessionState::new("batch", session, Some(&draft)));
+
+        let backend = screen(&app, 110, 32);
+        let buf = backend.buffer();
+
+        assert_eq!(
+            row(buf, 2),
+            r#"       continues your draft of "Alt rework 3, batch 0""#,
+            "{backend}"
+        );
+        assert_eq!(look_at(buf, "continues"), (Color::Reset, Modifier::DIM));
     }
 
     /// A follow-up whose title and `from` are too long to share a line

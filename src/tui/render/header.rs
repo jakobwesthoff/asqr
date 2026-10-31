@@ -143,10 +143,11 @@ fn replay_title_bar(
 }
 
 /// The session header on a terminal of `width` columns, in at most
-/// `spare` lines where it can: `from` and `follows` in one line, the intro
-/// in at most two, then a blank line before the tab bar, all under the
-/// title. With fewer lines to spare the blank line goes first, then intro
-/// lines down to one; the `from` and `follows` line stays.
+/// `spare` lines where it can: `from` and `follows` in one line, the note
+/// that the session continues a draft, the intro in at most two, then a
+/// blank line before the tab bar, all under the title. With fewer lines to
+/// spare the blank line goes first, then intro lines down to one; the
+/// `from` and `follows` line and the note stay.
 ///
 /// A cut intro ends in `… i: more`, as `i` shows all of it, or in
 /// `… esc, i: more` where `i` would be typed or taken by the pane. Its
@@ -172,7 +173,11 @@ pub(super) fn header_lines(
         .map(|line| indented(line, INDENT))
         .collect();
 
-    let meta_rows = usize::from(meta.is_some());
+    let note = carried_note(state, text_width);
+
+    // Both rows stay where the header gives way: the note is the one sign
+    // that the fields are not empty.
+    let meta_rows = usize::from(meta.is_some()) + usize::from(note.is_some());
     let mut intro_rows = intro.len().min(INTRO_LINES);
     let blank = meta_rows + intro_rows < spare;
     while meta_rows + intro_rows > spare && intro_rows > 1 {
@@ -180,7 +185,7 @@ pub(super) fn header_lines(
     }
 
     let more = format!("… {}: more", question_key(state, "i"));
-    let mut lines: Vec<Line<'static>> = meta.into_iter().collect();
+    let mut lines: Vec<Line<'static>> = meta.into_iter().chain(note).collect();
     lines.extend(at_most(intro, intro_rows, &more, INDENT + text_width));
     if blank {
         lines.push(Line::default());
@@ -210,6 +215,20 @@ fn meta_line(state: &SessionState, text_width: usize) -> Option<Line<'static>> {
         let text = cut(&parts.join(" · "), text_width);
         indented(Line::styled(text, theme::secondary()), INDENT)
     })
+}
+
+/// The dim line that says the session continues the draft of an earlier
+/// session, cut with `…` to `text_width`; `None` for a session that does
+/// not. The earlier session shows by its title where it had one, else by
+/// its id.
+fn carried_note(state: &SessionState, text_width: usize) -> Option<Line<'static>> {
+    let from = state.carried_from()?;
+    let name = match from.title.as_deref().and_then(one_line) {
+        Some(title) => format!("\"{title}\""),
+        None => from.id.clone(),
+    };
+    let text = cut(&format!("continues your draft of {name}"), text_width);
+    Some(indented(Line::styled(text, theme::secondary()), INDENT))
 }
 
 /// The first `count` of `lines`; when that cuts some off, the last one
@@ -335,6 +354,104 @@ mod tests {
         // A title of nothing but blanks names nothing.
         state.set_follows_title(Some("  ".to_owned()));
         assert_eq!(meta(&state), "       from agent · follows round-1");
+    }
+
+    /// `session_with(fields)` that continues the draft of `round-1`, which
+    /// had `title`.
+    fn continuing(fields: &str, title: Option<&str>) -> SessionState {
+        let json = format!(
+            r#"{{"asqr": 2, {fields} "questions": [{{"id": "q", "text": "?", "kind": "single",
+                "options": [{{"id": "a", "label": "A"}}]}}]}}"#
+        );
+        let mut draft = crate::format::SessionResult::draft("batch", "q", Vec::new());
+        draft.carried_from = Some(crate::format::CarriedFrom {
+            id: "round-1".into(),
+            title: title.map(str::to_owned),
+        });
+        SessionState::new(
+            "batch",
+            serde_json::from_str(&json).expect("parses"),
+            Some(&draft),
+        )
+    }
+
+    fn header(state: &SessionState, spare: usize) -> Vec<String> {
+        line_texts(&header_lines(
+            state,
+            80,
+            spare,
+            quote_style(false),
+            ReadingWidth::default(),
+        ))
+    }
+
+    #[test]
+    fn a_session_that_continues_a_draft_names_the_old_session_by_its_title() {
+        let state = continuing(
+            r#""from": "agent", "intro": "Pick one.","#,
+            Some("Round one"),
+        );
+
+        assert_eq!(
+            header(&state, 10),
+            [
+                "       from agent",
+                r#"       continues your draft of "Round one""#,
+                "       Pick one.",
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn a_session_that_continues_a_draft_names_an_untitled_old_session_by_its_id() {
+        let state = continuing("", None);
+
+        assert_eq!(
+            header(&state, 10),
+            ["       continues your draft of round-1", ""]
+        );
+    }
+
+    #[test]
+    fn a_title_with_line_breaks_in_the_note_shows_on_one_line() {
+        let state = continuing("", Some("Round\n  one"));
+
+        assert_eq!(
+            header(&state, 10)[0],
+            r#"       continues your draft of "Round one""#
+        );
+    }
+
+    #[test]
+    fn a_session_without_a_carried_draft_has_no_note() {
+        let state = session_with(r#""from": "agent","#);
+
+        assert_eq!(header(&state, 10), ["       from agent", ""]);
+    }
+
+    #[test]
+    fn the_note_stays_where_the_blank_line_and_intro_lines_give_way() {
+        let state = continuing(
+            r#""from": "agent", "intro": "One.\n\nTwo.","#,
+            Some("Round one"),
+        );
+        let meta = "       from agent";
+        let note = r#"       continues your draft of "Round one""#;
+
+        let more = "       … i: more";
+        assert_eq!(header(&state, 5), [meta, note, "       One.", more, ""]);
+        assert_eq!(header(&state, 4), [meta, note, "       One.", more]);
+        assert_eq!(header(&state, 3), [meta, note, "       One.… i: more"]);
+        assert_eq!(header(&state, 0), [meta, note, "       One.… i: more"]);
+    }
+
+    #[test]
+    fn a_long_note_is_cut_to_the_text_width() {
+        let state = continuing("", Some("a title that is far too long for the line"));
+        let lines = header_lines(&state, 30, 10, quote_style(false), ReadingWidth::default());
+
+        assert_eq!(line_texts(&lines)[0], "       continues your draft …");
     }
 
     #[test]

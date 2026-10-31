@@ -29,8 +29,8 @@ use crate::queue::HistoryOutcome;
 
 pub use crate::format::Length;
 use crate::format::{
-    Answer, ContextEntry, Kind, Question, Session, SessionResult, has_note, is_answered,
-    rejected_answers, result_answers, takes_own_text,
+    Answer, CarriedFrom, ContextEntry, Kind, Question, Session, SessionResult, has_note,
+    is_answered, rejected_answers, result_answers, takes_own_text,
 };
 
 /// What the running app has to do after a key.
@@ -319,6 +319,8 @@ pub struct SessionState {
     offset_layouts: HashMap<EntryKey, LayoutTag>,
     /// See [`Self::revision`].
     revision: u64,
+    /// See [`Self::carried_from`].
+    carried_from: Option<CarriedFrom>,
     /// See [`Self::follows_title`].
     follows_title: Option<String>,
     /// See [`Self::seen`].
@@ -410,6 +412,7 @@ impl SessionState {
             offsets: HashMap::new(),
             offset_layouts: HashMap::new(),
             revision: 0,
+            carried_from: draft.and_then(|draft| draft.carried_from.clone()),
             follows_title: None,
             seen: false,
             row_top: None,
@@ -690,6 +693,12 @@ impl SessionState {
     /// What the screen calls the session: its title, else its id.
     pub fn name(&self) -> &str {
         self.session.title.as_deref().unwrap_or(&self.id)
+    }
+
+    /// The session whose draft asqr carried over into this one (spec
+    /// section 4.3), for the note in the header.
+    pub fn carried_from(&self) -> Option<&CarriedFrom> {
+        self.carried_from.as_ref()
     }
 
     /// The title of the session `follows` names, as the inbox found it
@@ -1021,6 +1030,7 @@ impl SessionState {
             .get(current)
             .map_or("", |question| question.id.as_str());
         let mut draft = SessionResult::draft(&self.id, current, self.answers());
+        draft.carried_from = self.carried_from.clone();
         // Kept as typed, so a restored field reads exactly as it was left.
         if !self.session_note.is_empty() {
             draft.note = Some(self.session_note.clone());
@@ -4990,6 +5000,62 @@ mod tests {
 
         assert_eq!(restored.answers(), state.answers());
         assert_eq!(restored.tab(), 1);
+    }
+
+    fn continuing(title: Option<&str>) -> SessionResult {
+        SessionResult {
+            carried_from: Some(CarriedFrom {
+                id: "round-1".into(),
+                title: title.map(str::to_owned),
+            }),
+            ..state().to_draft()
+        }
+    }
+
+    #[test]
+    fn a_draft_that_continues_another_session_says_which() {
+        let draft = continuing(Some("Round one"));
+
+        let restored = SessionState::new(
+            "batch",
+            serde_json::from_str(SESSION).expect("parses"),
+            Some(&draft),
+        );
+
+        assert_eq!(restored.carried_from(), draft.carried_from.as_ref());
+    }
+
+    #[test]
+    fn a_session_without_a_carried_draft_continues_nothing() {
+        assert_eq!(state().carried_from(), None);
+        assert_eq!(state().to_draft().carried_from, None);
+    }
+
+    #[test]
+    fn the_carried_mark_stays_in_every_draft_the_session_saves() {
+        let draft = continuing(Some("Round one"));
+        let mut restored = SessionState::new(
+            "batch",
+            serde_json::from_str(SESSION).expect("parses"),
+            Some(&draft),
+        );
+        press(&mut restored, "1jjjown");
+
+        assert_eq!(restored.to_draft().carried_from, draft.carried_from);
+    }
+
+    #[test]
+    fn the_carried_mark_survives_a_reload_of_the_session_file() {
+        let draft = continuing(None);
+        let mut restored = SessionState::new(
+            "batch",
+            serde_json::from_str(SESSION).expect("parses"),
+            Some(&draft),
+        );
+
+        restored.replace_session(serde_json::from_str(SESSION).expect("parses"));
+
+        assert_eq!(restored.carried_from(), draft.carried_from.as_ref());
     }
 
     /// The test session with the own answer of `single` switched off and

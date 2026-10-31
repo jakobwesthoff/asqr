@@ -67,6 +67,24 @@ pub struct SessionResult {
     /// can carry, such as only a cleared default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<UnsentDraft>,
+
+    /// Drafts only: the session whose draft asqr carried over into this one
+    /// when the asker replaced that session (spec section 4.3). The TUI
+    /// says so in the session header. A result never carries it, so the
+    /// result schema leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub carried_from: Option<CarriedFrom>,
+}
+
+/// The session a draft was carried over from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CarriedFrom {
+    pub id: String,
+
+    /// The title of that session, where it had one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// The answers and the note of a draft that was never sent, as the `draft`
@@ -170,6 +188,7 @@ impl SessionResult {
             current: None,
             answers: Vec::new(),
             draft: None,
+            carried_from: None,
         }
     }
 
@@ -234,6 +253,7 @@ impl SessionResult {
             current: Some(current.to_owned()),
             answers,
             draft: None,
+            carried_from: None,
         }
     }
 

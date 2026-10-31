@@ -522,6 +522,12 @@ that is not blank or a note that is not blank, as when they cleared its
 default, has `cleared: true` on its answer. The field appears only in
 drafts, and the result schema leaves it out. It is new within format
 version 2: asqr 0.14.0 and earlier ignore it (ADR 77).
+A draft that continues the draft of an earlier session has `carried_from`
+with the `id` and, where that session had one, the `title` of the session
+it continues. The TUI shows it as a note in the header (section 7.2) and
+writes it into every draft it saves for the session. The field appears
+only in drafts, and the result schema leaves it out. It is new within
+format version 2: asqr 0.15.0 and earlier ignore it.
 It is written on every change while the session waits in the inbox; a
 change to a session whose file has left the inbox writes no draft. The
 look at the inbox and the write run under the drafts lock (section 5.6).
@@ -1958,7 +1964,10 @@ has context (section 7.4, ADRs 30 and 31):
   whole title and the queue do not both fit, the queue goes, then the
   title is cut and ends in `…`. The count always shows.
 - Under the title, from its first column: `from` and `follows` in one
-  dim line, `from <from> · follows <follows>`, cut with `…`; then the
+  dim line, `from <from> · follows <follows>`, cut with `…`; then, for a
+  session that continues another's draft, a dim line `continues your
+  draft of "<title>"` (the id in place of the quoted title where the
+  earlier session had none), cut with `…` (section 4.3); then the
   intro in the text colour, wrapped at the reading width, at most two
   lines; then a blank line before the tab bar. A cut intro ends in
   `… i: more`, and `i` shows the whole intro (section 7.6). While a
@@ -1977,7 +1986,7 @@ has context (section 7.4, ADRs 30 and 31):
 - On a low terminal the header gives way while the tab's area would
   have fewer than 15 rows, the rows a context pane below the question
   needs: first the blank line, then intro lines down to one. The `from`
-  and `follows` line stays.
+  and `follows` line and the `continues your draft` line stay.
 - The tab bar lists every question by its `header` (or id) with `☒`
   once it is answered or its default would be sent and a dim `☐` while
   it is not, an info item with a

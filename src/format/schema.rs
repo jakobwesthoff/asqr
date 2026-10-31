@@ -71,6 +71,20 @@ mod tests {
     }
 
     #[test]
+    fn the_result_schema_leaves_out_what_only_drafts_carry() {
+        let schema = result_schema();
+
+        let top = schema["properties"].as_object().expect("properties");
+        let answer = schema["$defs"]["Answer"]["properties"]
+            .as_object()
+            .expect("answer properties");
+        assert!(!top.contains_key("carried_from"));
+        assert!(!answer.contains_key("custom_unpicked"));
+        assert!(!answer.contains_key("cleared"));
+        assert!(schema["$defs"].get("CarriedFrom").is_none());
+    }
+
+    #[test]
     fn the_session_schema_file_lists_info_as_a_kind() {
         // The file agents check against, not the derived schema, which
         // follows the types by itself.

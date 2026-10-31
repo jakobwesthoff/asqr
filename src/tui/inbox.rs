@@ -1264,6 +1264,24 @@ mod tests {
     }
 
     #[test]
+    fn a_waiting_session_continues_the_draft_it_was_given() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let mut draft = SessionResult::draft("batch", "q", Vec::new());
+        draft.carried_from = Some(crate::format::CarriedFrom {
+            id: "round-1".into(),
+            title: Some("Round one".into()),
+        });
+        save_draft(&location, &draft).expect("saved");
+        let (mut inbox, mut app) = (Inbox::new(location), App::default());
+
+        inbox.sync(&mut app).expect("synced");
+
+        let state = app.active().expect("loaded");
+        assert_eq!(state.carried_from(), draft.carried_from.as_ref());
+    }
+
+    #[test]
     fn a_draft_that_cannot_be_saved_becomes_a_notice() {
         let (_scratch, location) = queue();
         put(&location, "batch.json", SESSION);
