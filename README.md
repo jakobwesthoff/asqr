@@ -81,7 +81,9 @@ with the keyboard: `↑`/`↓` and `←`/`→` (or `hjkl`) move, `enter` picks,
 typing goes straight into the answer fields, `ctrl-g` opens a field in
 your editor (`VISUAL` or `EDITOR`), `n` adds a note, and the
 last tab reviews everything before you submit or reject. `?` shows every
-key. `q` quits; your answers so far are kept as a draft.
+key. `q` quits; your answers so far are kept as a draft. While asqr still
+keeps the files of finished sessions, quitting waits up to 10 seconds for
+it, and ctrl-c lets go of what is left.
 
 Questions keep to a width of 100 columns, or 80, 120 or the whole terminal
 as the settings file says. Context the asker attached, an
@@ -100,7 +102,10 @@ directory (`~/Library/Application Support/asqr/` on macOS,
 `100`, `120` or `"full"`) for the widest a question gets, `context`
 (`"auto"`, `"beside"` or `"below"`) for where the context goes, and
 `keep_files` (`"compact"`, `"exact"` or `"off"`) for what asqr copies of
-the files a session showed when you finish it. `ASQR_KEEP_FILES` sets the
+the files a session showed when you finish it: `compact`, the default,
+keeps images as WebP copies about a fifth of their size and other files as
+they are, `exact` keeps them byte for byte, and `off` keeps none and
+records only each file's size and checksum. `ASQR_KEEP_FILES` sets the
 last one from the environment. A flag or an environment variable wins
 over the file, and a file asqr cannot read
 only costs the settings it holds: the defaults apply, with a warning.
@@ -109,16 +114,27 @@ change at once and explains the row under the cursor; a setting a flag or
 a variable holds shows as locked.
 
 `asqr wait` exits 0 for a submitted session, 10 when you rejected it, 11
-for an invalid file, 12 when its `--timeout` ran out and 14 when the
-asker took the session back with `asqr withdraw`, so scripts can branch
+for an invalid file, 12 when its `--timeout` ran out, 13 when no result will come, such as for
+an id no queue has, and 14 when the asker took the session back with `asqr withdraw`, so scripts can branch
 on it. `asqr --help` lists every command.
 
 Sessions wait in a queue: a directory with an inbox, an outbox for the
 results, drafts and an archive. The default queue lives in the
 platform's data directory; `--queue <name>` or `ASQR_QUEUE` keeps
-projects apart, and `asqr paths` shows where everything is.
+projects apart, `--dir <path>` or `ASQR_DIR` uses a directory of your own
+as the queue, which asqr names by its absolute path, and `asqr paths` shows
+where everything is.
 Among them are asqr's log file and its settings file; `ASQR_LOG=debug`
-adds debug lines to the log.
+adds debug lines to the log. The log moves aside at 1 MiB, and a later
+rotation compresses the old logs.
+
+Finished sessions and results older than 30 days are compressed into one
+zip per queue and month, such as `archive/2026-10.zip`, by the asqr that
+starts watching the queue, and compaction removes the loose copies the zip
+holds. `asqr compact` does it by hand. Only `asqr prune` deletes sessions
+and results: `asqr prune --older-than 90d` lists what lies in months older
+than that, and the named queues that hold nothing, and removes them only
+with `--yes`.
 
 Inside tmux, asqr and the agents in the same tmux session use one queue
 without any setup: the one asqr pinned in the session, at first the one
@@ -179,6 +195,10 @@ while it runs and puts the pane's setting back when it quits.
   filesystems (NFS, Dropbox, iCloud Drive) are not supported.
 - macOS and Linux. Windows may work but is not tested.
 - The terminal needs at least 60×15 cells.
+- Large texts are cut or lose their formatting: Markdown over 1 MiB shows
+  as plain text, code and diffs over 1 MiB without highlighting,
+  highlighting stops after line 50,000, and asqr shows the first 8 MiB of
+  a file and the first 500,000 lines of a text.
 
 ## Documentation
 
