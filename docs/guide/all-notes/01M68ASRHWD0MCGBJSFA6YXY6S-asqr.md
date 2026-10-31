@@ -34,6 +34,11 @@ way.
   [Install and a first session](01M68ASRJ527YVE41S9V50YXQW-install-and-a-first-session.md),
   then [the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md) and the pages
   after it.
+- To have your agent ask you, read
+  [How an agent asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md) and
+  [Set up Claude Code](01M68C6WTY7EK8Q9RB1MCWSFM3-set-up-claude-code.md).
+  [What agents can ask](01M68C6WV57K25ZD05875QJY73-what-agents-can-ask.md)
+  shows what a session can hold.
 - To keep the questions of projects apart, or to change how asqr shows
   things, read [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) and
   [Settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).

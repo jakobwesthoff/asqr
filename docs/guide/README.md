@@ -27,6 +27,12 @@ reading order. The pictures are in `pictures/`.
 - [Settings](all-notes/01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
 - [Notifications, the terminal and tmux](all-notes/01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
 
+### Agents
+
+- [How an agent asks](all-notes/01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
+- [Set up Claude Code](all-notes/01M68C6WTY7EK8Q9RB1MCWSFM3-set-up-claude-code.md)
+- [What agents can ask](all-notes/01M68C6WV57K25ZD05875QJY73-what-agents-can-ask.md)
+
 ### Reference
 
 - [Keys](all-notes/01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md)
