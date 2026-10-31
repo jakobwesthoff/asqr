@@ -10,7 +10,8 @@ reading order. The pictures are in `pictures/`.
 ### Start
 
 - [asqr](all-notes/01M68ASRHWD0MCGBJSFA6YXY6S-asqr.md)
-- [Install and a first session](all-notes/01M68ASRJ527YVE41S9V50YXQW-install-and-a-first-session.md)
+- [Get started](all-notes/01M68ASRJ527YVE41S9V50YXQW-get-started.md)
+- [Common questions](all-notes/01M690YKZXCMGCA31H3HTHFYJE-common-questions.md)
 
 ### Answering
 
@@ -31,7 +32,7 @@ reading order. The pictures are in `pictures/`.
 ### Agents
 
 - [How an agent asks](all-notes/01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
-- [Set up Claude Code](all-notes/01M68C6WTY7EK8Q9RB1MCWSFM3-set-up-claude-code.md)
+- [The skill and other agents](all-notes/01M68C6WTY7EK8Q9RB1MCWSFM3-the-skill-and-other-agents.md)
 - [What agents can ask](all-notes/01M68C6WV57K25ZD05875QJY73-what-agents-can-ask.md)
 
 ### Reference
