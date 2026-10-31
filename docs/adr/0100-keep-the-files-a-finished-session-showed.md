@@ -69,6 +69,13 @@ replaces one type. Rejected: the WebP call inlined in the archiving code.
 - The Exif orientation of a picture is applied to its pixels before it is
   encoded. The WebP copy carries no Exif chunk, so a viewer would not turn
   it.
+- The ICC profile of the original is embedded in the WebP copy, so its
+  colours keep their meaning. A profile for another colour space than RGB
+  (CMYK, grey), or one too short to name its colour space, cannot describe
+  the RGBA pixels the copy is made from, and the image stays as it is.
+  Measured on the 127 images of the corpus: 17 carry a profile (all RGB,
+  none CMYK or grey, none oriented by Exif), which costs 20,416 bytes in
+  the copies, 0.05% of their 37.8 MB.
 - A picture of more than 32 Mpixel (32 x 1024 x 1024) stays as it is. The
   re-encoding holds the decoded picture at 4 bytes a pixel and, to
   compare, the decoded copy of the result, so 32 Mpixel is 256 MiB of
@@ -235,7 +242,9 @@ source that ships in the crate, with the `cc` crate, so a source build
 needs a C compiler (the README says so). Its pre-generated bindings are
 used, so building needs no libclang. asqr calls the encoder
 (`WebPEncodeRGBA`) through a small wrapper, which copies the output into a
-`Vec` and frees it with `WebPFree`; images are decoded through `image`.
+`Vec` and frees it with `WebPFree`, and the mux API (`WebPMuxSetImage`,
+`WebPMuxSetChunk`, `WebPMuxAssemble`) to embed the ICC profile, through a
+wrapper that deletes the mux on every path; images are decoded through `image`.
 The `webp` crate was not used: it pins `libwebp-sys` 0.9, which builds
 libwebp 1.3.1, older than the release that fixed CVE-2023-4863. `check.yml`
 builds both musl targets of the release with `--locked`.

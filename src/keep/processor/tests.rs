@@ -599,3 +599,88 @@ fn an_ico_without_a_readable_count_counts_as_several_pictures() {
     assert!(!has_several_pictures(ImageFormat::Ico, b"\0\0\x01\0\x01\0"));
     assert!(has_several_pictures(ImageFormat::Ico, b"\0\0\x01\0\x02\0"));
 }
+
+// =========================================================
+// Colour profiles
+// =========================================================
+
+/// The smallest ICC profile that names `space` as its colour space: the
+/// 128-byte header and an empty tag table.
+fn icc_profile(space: &[u8; 4]) -> Vec<u8> {
+    let mut profile = vec![0u8; 132];
+    profile[..4].copy_from_slice(&132u32.to_be_bytes());
+    profile[16..20].copy_from_slice(space);
+    profile[20..24].copy_from_slice(b"XYZ ");
+    profile[36..40].copy_from_slice(b"acsp");
+    profile
+}
+
+fn png_with_profile(picture: &RgbaImage, profile: Vec<u8>) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut encoder = image::codecs::png::PngEncoder::new(&mut bytes);
+    image::ImageEncoder::set_icc_profile(&mut encoder, profile).expect("PNG takes a profile");
+    image::ImageEncoder::write_image(
+        encoder,
+        picture.as_raw(),
+        picture.width(),
+        picture.height(),
+        ExtendedColorType::Rgba8,
+    )
+    .expect("encodes");
+    bytes
+}
+
+fn profile_of(webp: &[u8]) -> Option<Vec<u8>> {
+    image::codecs::webp::WebPDecoder::new(Cursor::new(webp))
+        .expect("a WebP")
+        .icc_profile()
+        .expect("reads")
+}
+
+#[test]
+fn the_colour_profile_of_an_image_is_embedded_in_the_webp_copy() {
+    let profile = icc_profile(b"RGB ");
+    let original = png_with_profile(&photo_like(64, 64), profile.clone());
+
+    let processed = compact(&original, "/tmp/x/display-p3.png");
+
+    assert_eq!(processed.extension, "webp");
+    assert_eq!(profile_of(&processed.bytes), Some(profile));
+    assert_eq!(decoded(&processed.bytes).dimensions(), (64, 64));
+}
+
+#[test]
+fn an_image_without_a_profile_gets_none() {
+    let original = png(&photo_like(64, 64));
+
+    let processed = compact(&original, "/tmp/x/plain.png");
+
+    assert_eq!(processed.extension, "webp");
+    assert_eq!(profile_of(&processed.bytes), None);
+}
+
+#[test]
+fn an_image_with_a_profile_that_is_not_for_rgb_stays_as_it_is() {
+    for space in [b"CMYK", b"GRAY"] {
+        let original = png_with_profile(&photo_like(64, 64), icc_profile(space));
+
+        let processed = compact(&original, "/tmp/x/print.png");
+
+        assert_eq!(processed.extension, "png", "{space:?}");
+        assert_eq!(processed.bytes, original, "{space:?}");
+    }
+}
+
+#[test]
+fn a_profile_too_short_to_name_its_colour_space_keeps_the_original() {
+    let original = png_with_profile(&photo_like(64, 64), vec![0; 20]);
+
+    let processed = compact(&original, "/tmp/x/broken.png");
+
+    assert_eq!(processed.bytes, original);
+}
+
+#[test]
+fn a_profile_cannot_be_embedded_in_something_that_is_no_webp() {
+    assert!(embed_icc_profile(b"not a webp", &icc_profile(b"RGB ")).is_err());
+}

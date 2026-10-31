@@ -160,12 +160,19 @@ pub const MAX_PIXELS: u64 = 32 * 1024 * 1024;
 
 impl<E: ImageEncoder> Processor for WebpImages<E> {
     fn process(&self, original: Vec<u8>, name: &str) -> Processed {
-        let Some(rgba) = decode_for_reencoding(&original, self.max_pixels) else {
+        let Some(Decoded { rgba, profile }) = decode_for_reencoding(&original, self.max_pixels)
+        else {
             return AsIs.process(original, name);
         };
-        let Ok(encoded) = self.encoder.encode_webp(&rgba, WEBP_QUALITY) else {
+        let Ok(mut encoded) = self.encoder.encode_webp(&rgba, WEBP_QUALITY) else {
             return AsIs.process(original, name);
         };
+        if let Some(profile) = &profile {
+            match embed_icc_profile(&encoded, profile) {
+                Ok(profiled) => encoded = profiled,
+                Err(_) => return AsIs.process(original, name),
+            }
+        }
         let Ok(round_trip) = image::load_from_memory_with_format(&encoded, ImageFormat::WebP)
         else {
             return AsIs.process(original, name);
@@ -195,7 +202,7 @@ const MAX_DECODE_BYTES: u64 = 512 * 1024 * 1024;
 /// of an ICO. The size is read from the header first, so a
 /// picture libwebp cannot encode, or one of more than `max_pixels`, is not
 /// decoded.
-fn decode_for_reencoding(original: &[u8], max_pixels: u64) -> Option<RgbaImage> {
+fn decode_for_reencoding(original: &[u8], max_pixels: u64) -> Option<Decoded> {
     match image::guess_format(original).ok()? {
         ImageFormat::WebP | ImageFormat::Gif => return None,
         format @ (ImageFormat::Tiff | ImageFormat::Ico) => {
@@ -237,9 +244,105 @@ fn decode_for_reencoding(original: &[u8], max_pixels: u64) -> Option<RgbaImage> 
     // The orientation is applied to the pixels, as the WebP copy carries no
     // Exif chunk that a viewer would turn it by.
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    // The WebP copy gets the profile of the original, so the colours keep
+    // their meaning. A profile for another colour space than RGB (CMYK or
+    // grey) does not fit the RGBA the copy is made from, and one too short
+    // to name its space cannot be told to fit, so those images stay as they
+    // are.
+    let profile = decoder.icc_profile().ok()?;
+    if let Some(profile) = &profile
+        && profile.get(ICC_COLOUR_SPACE) != Some(b"RGB ")
+    {
+        return None;
+    }
     let mut picture = DynamicImage::from_decoder(decoder).ok()?;
     picture.apply_orientation(orientation);
-    Some(picture.into_rgba8())
+    Some(Decoded {
+        rgba: picture.into_rgba8(),
+        profile,
+    })
+}
+
+/// The pixels of a picture and the colour profile it came with.
+struct Decoded {
+    rgba: RgbaImage,
+    profile: Option<Vec<u8>>,
+}
+
+/// Where an ICC profile names its data colour space: four bytes at offset
+/// 16 of its header.
+const ICC_COLOUR_SPACE: std::ops::Range<usize> = 16..20;
+
+/// A libwebp mux object, deleted when it goes out of scope so that every
+/// path out of [`embed_icc_profile`] frees it.
+struct Mux(std::ptr::NonNull<libwebp_sys::WebPMux>);
+
+impl Mux {
+    fn new() -> Result<Self, String> {
+        std::ptr::NonNull::new(libwebp_sys::WebPMuxNew())
+            .map(Mux)
+            .ok_or_else(|| "libwebp could not make a mux".to_owned())
+    }
+}
+
+impl Drop for Mux {
+    fn drop(&mut self) {
+        // SAFETY: the pointer came from `WebPMuxNew`, is not shared and is
+        // deleted only here.
+        unsafe { libwebp_sys::WebPMuxDelete(self.0.as_ptr()) };
+    }
+}
+
+fn mux_result(step: &str, error: libwebp_sys::WebPMuxError) -> Result<(), String> {
+    if error == libwebp_sys::WebPMuxError::WEBP_MUX_OK {
+        Ok(())
+    } else {
+        Err(format!("libwebp could not {step}: {error:?}"))
+    }
+}
+
+/// Puts `profile` into the WebP file `webp` as its ICC profile, through
+/// libwebp's mux API. The result is a new file; `webp` is left as it is.
+pub fn embed_icc_profile(webp: &[u8], profile: &[u8]) -> Result<Vec<u8>, String> {
+    let mux = Mux::new()?;
+    let image = libwebp_sys::WebPData {
+        bytes: webp.as_ptr(),
+        size: webp.len(),
+    };
+    let chunk = libwebp_sys::WebPData {
+        bytes: profile.as_ptr(),
+        size: profile.len(),
+    };
+    // SAFETY: `mux` is a live mux. `image` and `chunk` point at slices that
+    // outlive the calls, and `copy_data` is 1, so the mux copies them and
+    // keeps no pointer into them. `"ICCP"` is a NUL-terminated chunk name.
+    unsafe {
+        mux_result(
+            "set the image",
+            libwebp_sys::WebPMuxSetImage(mux.0.as_ptr(), &image, 1),
+        )?;
+        mux_result(
+            "set the profile",
+            libwebp_sys::WebPMuxSetChunk(mux.0.as_ptr(), c"ICCP".as_ptr(), &chunk, 1),
+        )?;
+    }
+    let mut assembled = libwebp_sys::WebPData {
+        bytes: std::ptr::null(),
+        size: 0,
+    };
+    // SAFETY: `mux` is live and `assembled` is a valid place for the data
+    // the call sets.
+    let assembling = unsafe { libwebp_sys::WebPMuxAssemble(mux.0.as_ptr(), &mut assembled) };
+    let result = mux_result("assemble the file", assembling).map(|()| {
+        // SAFETY: on success `assembled` holds `size` bytes that libwebp
+        // allocated and that stay valid until `WebPDataClear` below.
+        unsafe { std::slice::from_raw_parts(assembled.bytes, assembled.size) }.to_vec()
+    });
+    // SAFETY: `assembled` is either untouched (null, size 0) or holds the
+    // allocation of the assembled file, which `WebPDataClear` releases; it
+    // is not used afterwards.
+    unsafe { libwebp_sys::WebPDataClear(&mut assembled) };
+    result
 }
 
 /// Whether `original`, a file of `format`, holds more than one picture, of

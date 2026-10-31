@@ -38,7 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sessions waiting to be kept hold at most 256 MiB of file content in
   memory together.
   A photo's Exif orientation is applied to the WebP copy, and a TIFF with
-  several pages or an ICO with several images is kept as it is.
+  several pages or an ICO with several images is kept as it is. The WebP
+  copy of an image carries its colour profile; an image with a CMYK or
+  grey profile is kept as it is.
 - asqr keeps four settings in `settings.toml` in its config directory
   (`~/Library/Application Support/asqr/` on macOS, `$XDG_CONFIG_HOME/asqr/`
   on Linux): how a diff opens (`diff_layout`), the widest a question gets
