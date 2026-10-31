@@ -21,6 +21,12 @@ reading order. The pictures are in `pictures/`.
 - [Review and submit](all-notes/01M68BT9BMFVCVEAACWR03B827-review-and-submit.md)
 - [Less obvious keys](all-notes/01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md)
 
+### Queues and settings
+
+- [Queues](all-notes/01M68C1XV58STWHBH179QYXPZR-queues.md)
+- [Settings](all-notes/01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
+- [Notifications, the terminal and tmux](all-notes/01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
+
 ### Reference
 
 - [Keys](all-notes/01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md)

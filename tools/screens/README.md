@@ -148,6 +148,9 @@ scene `id` other than the session's own is an error. A session whose
 
 The help and the empty queue show `asqr <version>`. After the version
 bump, `just screens` draws every picture again with the new version.
+The pictures the guide in `docs/guide` shows are drawn by
+`just guide-pictures`, which writes every scene into
+`docs/guide/pictures` and removes the `index.md` of the run.
 
 ## The look
 
