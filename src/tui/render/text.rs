@@ -150,7 +150,9 @@ fn rendered(
 mod tests {
     use super::super::patine_adapter::quote_style;
     use super::super::source_line::columns;
-    use super::super::test_support::{LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS};
+    use super::super::test_support::{
+        LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS, logged,
+    };
     use ratatui::style::{Color, Modifier, Style};
 
     use super::*;
@@ -265,48 +267,16 @@ mod tests {
         assert_eq!(PARSER_CALLS.get(), FAILED_TEXTS + 2, "forgotten again");
     }
 
-    /// Where the log of a thread goes to in a test.
-    #[derive(Clone, Default)]
-    struct Logged(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-    impl std::io::Write for Logged {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .expect("not poisoned")
-                .extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logged {
-        type Writer = Logged;
-
-        fn make_writer(&'a self) -> Logged {
-            self.clone()
-        }
-    }
-
     #[test]
     fn a_text_the_parser_fails_on_is_logged_once_without_the_text() {
-        let logged = Logged::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(logged.clone())
-            .with_ansi(false)
-            .finish();
-
-        tracing::subscriber::with_default(subscriber, || {
+        // `logged` keeps this test independent of the tests beside it, which
+        // may reach the `warn!` first without a subscriber.
+        let log = logged(|| {
             for _ in 0..3 {
                 field_lines_with(parser_panics, "secret words", 20, 20, quote_style(false));
             }
         });
 
-        let log = String::from_utf8(logged.0.lock().expect("not poisoned").clone())
-            .expect("the log is UTF-8");
         assert_eq!(log.lines().count(), 1, "{log}");
         assert!(
             log.contains("the Markdown parser panicked; showing the text as plain text"),
