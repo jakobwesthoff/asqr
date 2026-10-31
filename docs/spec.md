@@ -2842,8 +2842,26 @@ live session has `Review`.
   does, the tally of answered, skipped and defaulted questions, and the
   session's note, a dash where there is none. A rejected session adds the
   reason. There is no Submit button and no field.
-- The key bar names `↑/↓ move`, `←/→ question`, `tab context` where a
-  pane shows, `? help` and `q quit`.
+- A file the session showed is drawn from its kept copy and named in the
+  pane's header by the name it had. Where the archive holds no copy to
+  show, a card stands in its place, with the original path: a red card for
+  a file that was missing or unreadable when the session finished (`no
+  copy, no fingerprint`, or the reason), a warning card for a file that
+  was not kept (size, modification time and the first and last digits of
+  the SHA-256, and why where it was too large), and a red card for a kept
+  copy that is gone from the archive or does not hash to its name.
+- The pane's bottom rule says what became of the file after the lines
+  shown: `kept copy · 213 KB · d details`, `no copy · d details`,
+  `fingerprint only · d details` or `damaged copy · d details`.
+- `d`, from the question or from the pane, opens a frame with where the
+  kept copy lies and the bundle it is stored in, the original path, the
+  size of the original and of the copy in bytes, the modification time and
+  the SHA-256 of the original and of the copy. Any key closes it. It opens
+  only for an entry that names a file the archive recorded; a diff names
+  two and has none.
+- The key bar names `↑/↓ move`, `←/→ question`, `d details` where the entry
+  shown has a recorded file, `tab context` where a pane shows, `? help` and
+  `q quit`. The help lists the keys of a replay.
 
 ## 8. Context
 

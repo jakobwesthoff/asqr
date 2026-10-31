@@ -14,6 +14,7 @@ mod ansi;
 mod code;
 mod content;
 mod context;
+mod details;
 mod diff;
 mod dim;
 mod elsewhere;

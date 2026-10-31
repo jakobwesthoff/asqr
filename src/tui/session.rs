@@ -280,6 +280,8 @@ pub struct SessionState {
     read_only: bool,
     /// What the screen shows of a replay besides the session.
     replay_info: Option<ReplayInfo>,
+    /// The details of the file shown are open (`d` in a replay).
+    details: bool,
     /// The current tab; `session.questions.len()` is the review.
     tab: usize,
     row: usize,
@@ -383,6 +385,7 @@ impl SessionState {
             working,
             read_only,
             replay_info: None,
+            details: false,
             tab,
             row: 0,
             focus: Focus::None,
@@ -432,6 +435,26 @@ impl SessionState {
     /// a session being answered.
     pub fn replay_info(&self) -> Option<&ReplayInfo> {
         self.replay_info.as_ref()
+    }
+
+    /// What the archive recorded about the file the entry shown names, in
+    /// a replay.
+    pub fn shown_file(&self) -> Option<&crate::queue::ReplayFile> {
+        let (_, entry) = self.shown_entry()?;
+        let path = super::entry_path(entry)?;
+        self.replay_info.as_ref()?.file_at(path)
+    }
+
+    /// Whether the details of the file shown are open.
+    pub fn details_open(&self) -> bool {
+        self.details
+    }
+
+    /// `d`: opens the details of the file shown, where the archive
+    /// recorded one.
+    fn open_details(&mut self) -> Effect {
+        self.details = self.shown_file().is_some();
+        Effect::None
     }
 
     /// Whether this is a finished session shown again: no key changes an
@@ -1123,6 +1146,11 @@ impl SessionState {
 
     fn handle_key(&mut self, key: KeyEvent) -> Effect {
         self.message = None;
+        // Any key closes the details, and only that.
+        if self.details {
+            self.details = false;
+            return Effect::None;
+        }
         if self.help {
             self.help = false;
             return Effect::None;
@@ -1169,6 +1197,7 @@ impl SessionState {
                 }
                 KeyCode::Char('o') if !control => self.open(),
                 KeyCode::Char('s') if !control => self.switch_side_by_side(),
+                KeyCode::Char('d') if !control && self.read_only => self.open_details(),
                 _ => {
                     self.scroll_pane(key, true);
                     Effect::None
@@ -1402,6 +1431,7 @@ impl SessionState {
             KeyCode::Char('w') => Effect::OpenQueues,
             KeyCode::Char(',') => Effect::OpenSettings,
             KeyCode::Char('i') if self.session.intro.is_some() => Effect::ShowIntro,
+            KeyCode::Char('d') if self.read_only => self.open_details(),
             KeyCode::Char('o') => self.open(),
             KeyCode::Char('z') => self.show_full_screen(),
             KeyCode::Char('s') => self.switch_side_by_side(),

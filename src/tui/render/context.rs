@@ -21,7 +21,7 @@ use ratatui::widgets::Widget;
 use super::problem::Severity;
 use super::source_line::columns;
 use super::theme;
-use super::viewer::{Shape, Viewers};
+use super::viewer::{ContentSize, Shape, Viewer, Viewers};
 use super::wrap::cut;
 use crate::format::ContextEntry;
 use crate::graphics::PlacedImage;
@@ -73,14 +73,25 @@ pub(super) fn draw_pane(
         alone: state.full_screen_alone(),
         side_by_side: state.side_by_side(),
     };
-    let (viewer, size) = viewers.laid_out_shaped(
-        state.id(),
-        key,
-        entry,
-        (body.width, body.height),
-        shape,
-        quote,
-    );
+    // A replay tells about a file it cannot show in a card of its own.
+    let replay_file = state.shown_file();
+    let mut card = replay_file
+        .zip(state.replay_info())
+        .and_then(|(file, info)| super::details::card_for(file, info));
+    let (viewer, size): (&mut dyn Viewer, ContentSize) = match &mut card {
+        Some(card) => {
+            let size = card.lay_out(body.width, body.height);
+            (card, size)
+        }
+        None => viewers.laid_out_shaped(
+            state.id(),
+            key,
+            entry,
+            (body.width, body.height),
+            shape,
+            quote,
+        ),
+    };
     // Content reports lines wider than the body only where it cuts them, so
     // its size alone says whether the pane scrolls sideways.
     let page = Page {
@@ -116,7 +127,16 @@ pub(super) fn draw_pane(
     // colour, so the person sees where the keys go.
     let focused = state.pane_focused();
     if let Some(header) = parts.header {
-        header_line(entry, header.width, viewer.failed(), focused, ledge).render(header, buf);
+        let replayed_name = replay_file.and_then(|file| replayed_name(entry, file));
+        header_line(
+            entry,
+            replayed_name.as_deref(),
+            header.width,
+            viewer.failed(),
+            focused,
+            ledge,
+        )
+        .render(header, buf);
     }
     if let Some(edge) = parts.edge {
         for y in edge.top()..edge.bottom() {
@@ -124,7 +144,17 @@ pub(super) fn draw_pane(
         }
     }
     if let Some(bottom) = parts.bottom {
-        bottom_line(page, offset, bottom.width, !focused, focused, ledge).render(bottom, buf);
+        let words = replay_file.map(super::details::bottom_words);
+        bottom_line(
+            page,
+            offset,
+            bottom.width,
+            !focused,
+            focused,
+            ledge,
+            words.as_deref(),
+        )
+        .render(bottom, buf);
     }
     Some(DrawnPane {
         page,
@@ -229,6 +259,7 @@ fn lines(focused: bool) -> Style {
 /// mark take the focus fill and the rule the focus colour.
 fn header_line(
     entry: &ContextEntry,
+    name: Option<&str>,
     width: u16,
     failed: bool,
     focused: bool,
@@ -246,7 +277,7 @@ fn header_line(
     // The lead, a blank on each side of the name and at least one `─` of
     // the rule after it.
     let room = usize::from(width).saturating_sub(columns(lead) + 3 + mark_width);
-    let name = cut(&entry_name(entry), room);
+    let name = cut(&name.map_or_else(|| entry_name(entry), str::to_owned), room);
     let run = usize::from(width).saturating_sub(columns(lead) + 2 + mark_width + columns(&name));
 
     let title: Vec<Span<'static>> = match mark {
@@ -283,6 +314,9 @@ fn header_line(
 /// first to drop its `tab` hint on a narrow terminal, which leaves the
 /// bottom rule the only place that names it. The hint goes before the
 /// position would have to be cut.
+///
+/// `words` is what a replay says of the file, after the position; where
+/// they do not fit with it, they stand alone.
 fn bottom_line(
     page: Page,
     offset: Offset,
@@ -290,6 +324,7 @@ fn bottom_line(
     offer_tab: bool,
     focused: bool,
     ledge: Ledge,
+    words: Option<&str>,
 ) -> Line<'static> {
     let (lead, end) = match ledge {
         Ledge::Beside => ("╰", "─"),
@@ -307,6 +342,21 @@ fn bottom_line(
     // The lead, at least one `─`, a blank on each side of the text and the
     // end.
     let room = width.saturating_sub(columns(lead) + 3 + columns(end));
+    if let Some(words) = words {
+        let with_position = position
+            .as_ref()
+            .map(|position| format!("{position} · {words}"));
+        let text = match with_position {
+            Some(both) if columns(&both) <= room => both,
+            _ => cut(words, room),
+        };
+        let run = width.saturating_sub(columns(lead) + 2 + columns(&text) + columns(end));
+        return Line::from(vec![
+            Span::styled(format!("{lead}{}", "─".repeat(run)), lines(focused)),
+            Span::styled(format!(" {text} "), theme::secondary()),
+            Span::styled(end, lines(focused)),
+        ]);
+    }
     let text = match position {
         Some(position) if offered => {
             let with_tab = format!("{position} · tab");
@@ -334,6 +384,25 @@ fn bottom_line(
         Span::styled(format!(" {text} "), theme::secondary()),
         Span::styled(end, lines(focused)),
     ])
+}
+
+/// What a replay's header calls the file: the name it had when the
+/// session showed it, unless the entry has a title of its own. The copy's
+/// name would be a hash.
+fn replayed_name(entry: &ContextEntry, file: &crate::queue::ReplayFile) -> Option<String> {
+    let titled = match entry {
+        ContextEntry::Image(image) => image.title.is_some(),
+        ContextEntry::Code(code) => code.title.is_some(),
+        ContextEntry::Markdown(markdown) => markdown.title.is_some(),
+        ContextEntry::Ansi(ansi) => ansi.title.is_some(),
+        ContextEntry::Diff(_) => true,
+    };
+    if titled {
+        return None;
+    }
+    Path::new(&file.original_path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
 }
 
 /// What the header calls the entry: its `title`, the file name of its
@@ -525,7 +594,16 @@ mod tests {
 
     #[test]
     fn the_header_names_the_entry_by_title_file_name_or_kind() {
-        let header = |json: &str| text(&header_line(&entry(json), 30, false, false, Ledge::Beside));
+        let header = |json: &str| {
+            text(&header_line(
+                &entry(json),
+                None,
+                30,
+                false,
+                false,
+                Ledge::Beside,
+            ))
+        };
 
         let cases = [
             (
@@ -559,7 +637,7 @@ mod tests {
 
     #[test]
     fn beside_the_header_is_a_dim_rule_with_the_name_set_in_bold() {
-        let line = header_line(&log(), 30, false, false, Ledge::Beside);
+        let line = header_line(&log(), None, 30, false, false, Ledge::Beside);
 
         assert_eq!(
             line.spans,
@@ -573,7 +651,7 @@ mod tests {
 
     #[test]
     fn below_the_header_rule_has_no_corner() {
-        let line = header_line(&log(), 30, false, false, Ledge::Below);
+        let line = header_line(&log(), None, 30, false, false, Ledge::Below);
 
         assert_eq!(text(&line), format!("── Log {}", "─".repeat(23)));
         assert_eq!(line.spans[0], Span::styled("──", Style::new().dim()));
@@ -586,7 +664,7 @@ mod tests {
         );
         // Of 30 columns the corner, the blanks and one `─` take 5.
         for (ledge, lead) in [(Ledge::Beside, "╭─"), (Ledge::Below, "──")] {
-            let line = text(&header_line(&titled, 30, false, false, ledge));
+            let line = text(&header_line(&titled, None, 30, false, false, ledge));
             assert_eq!(
                 line,
                 format!("{lead} A very long title for a … ─"),
@@ -599,7 +677,7 @@ mod tests {
         let wide = entry(
             r#"{"type": "code", "title": "a日本語のとても長いタイトルです", "content": "x"}"#,
         );
-        let line = text(&header_line(&wide, 30, false, false, Ledge::Beside));
+        let line = text(&header_line(&wide, None, 30, false, false, Ledge::Beside));
         assert_eq!(line, "╭─ a日本語のとても長いタイ… ──");
         assert_eq!(columns(&line), 30);
     }
@@ -610,7 +688,7 @@ mod tests {
             r#"{"type": "code", "title": "A very long title for a short line", "path": "/x.rs"}"#,
         );
 
-        let line = header_line(&titled, 30, true, false, Ledge::Beside);
+        let line = header_line(&titled, None, 30, true, false, Ledge::Beside);
         assert_eq!(text(&line), "╭─ ✗ A very long title for … ─");
         let mark = line
             .spans
@@ -619,7 +697,7 @@ mod tests {
             .expect("a mark");
         assert_eq!(mark, &Span::styled("✗ ", Style::new().red().bold()));
 
-        let focused = header_line(&titled, 30, true, true, Ledge::Beside);
+        let focused = header_line(&titled, None, 30, true, true, Ledge::Beside);
         let mark = focused
             .spans
             .iter()
@@ -654,7 +732,7 @@ mod tests {
     fn the_bottom_rule_says_which_lines_show_and_offers_tab() {
         let taller = page(10, 31, 20);
         let bottom = |offer_tab: bool, ledge: Ledge| {
-            bottom_line(taller, Offset::default(), 30, offer_tab, false, ledge)
+            bottom_line(taller, Offset::default(), 30, offer_tab, false, ledge, None)
         };
 
         let line = bottom(true, Ledge::Beside);
@@ -688,6 +766,7 @@ mod tests {
             true,
             false,
             Ledge::Beside,
+            None,
         );
 
         assert_eq!(text(&line), format!("╰{} tab ─", "─".repeat(23)));
@@ -697,7 +776,7 @@ mod tests {
     fn the_bottom_rule_stays_without_text_when_the_entry_fits() {
         let fits = page(10, 3, 20);
         let bottom = |offer_tab: bool, ledge: Ledge| {
-            bottom_line(fits, Offset::default(), 30, offer_tab, false, ledge)
+            bottom_line(fits, Offset::default(), 30, offer_tab, false, ledge, None)
         };
 
         for offer_tab in [true, false] {
@@ -724,6 +803,7 @@ mod tests {
                 true,
                 false,
                 Ledge::Beside,
+                None,
             ))
         };
 

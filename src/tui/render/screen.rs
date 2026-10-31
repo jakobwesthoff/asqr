@@ -18,6 +18,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use super::content::{TabState, draw_tab};
 use super::context::{DrawnPane, Ledge, draw_pane};
+use super::details;
 use super::dim::dim_behind;
 use super::elsewhere::other_queues_line;
 use super::empty::EmptyQueue;
@@ -534,8 +535,13 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // queue. Any key closes the dialog of an invalid session, and only
     // that, so the keys of what stands behind it would not do what they
     // say.
+    let details = app
+        .active()
+        .filter(|state| state.details_open())
+        .and_then(|state| state.shown_file().zip(state.replay_info()));
     let hints = match (app.invalid_shown(), app.switcher(), app.settings_pane()) {
         (Some(_), _, _) => dialog_hints(),
+        _ if details.is_some() => dialog_hints(),
         (None, Some(switcher), _) => switcher_hints(switcher.typing()),
         (None, None, Some(pane)) => settings_hints(app.settings().lock(pane.setting()).is_some()),
         (None, None, None) => hints,
@@ -558,6 +564,9 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     }
     if let Some(switcher) = app.switcher() {
         draw_switcher(area, frame.buffer_mut(), switcher);
+    }
+    if let Some((file, info)) = details {
+        details::draw_details(behind, frame.buffer_mut(), file, info);
     }
     if let Some(pane) = app.settings_pane() {
         draw_settings(

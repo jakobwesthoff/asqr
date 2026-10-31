@@ -168,9 +168,13 @@ const FRAME_COLUMNS: u16 = 4;
 /// card framed in the error colour with the error's mark and the reason,
 /// then the file's name and its folder (ADR 49).
 pub(super) struct Card {
+    severity: Severity,
     reason: String,
     name: String,
     folder: String,
+    /// The lines of a card that is told in its own words, a replay's, in
+    /// place of the file's name and folder.
+    lines: Vec<String>,
     /// The content as the last lay-out drew it: the card, framed, in the
     /// body's width and the body's lines, or the card's where it is
     /// taller. A frame cannot be drawn from a line in its middle, so the
@@ -184,9 +188,29 @@ impl Card {
     pub(super) fn error(reason: impl Into<String>, path: &str, home: Option<&Path>) -> Self {
         let (name, folder) = name_and_folder(&shown_path(path, home));
         Card {
+            severity: Severity::Error,
             reason: reason.into(),
             name,
             folder,
+            lines: Vec::new(),
+            drawn: Buffer::empty(Rect::default()),
+        }
+    }
+
+    /// A card of `severity` that says `headline` and then `lines`, in
+    /// place of a file's name and folder: what a replay tells about a file
+    /// it cannot show.
+    pub(super) fn told(
+        severity: Severity,
+        headline: impl Into<String>,
+        lines: Vec<String>,
+    ) -> Self {
+        Card {
+            severity,
+            reason: headline.into(),
+            name: String::new(),
+            folder: String::new(),
+            lines,
             drawn: Buffer::empty(Rect::default()),
         }
     }
@@ -194,13 +218,19 @@ impl Card {
     /// The rows inside the frame for `width` columns: the headline under
     /// the mark, a blank row, the name, then the folder.
     fn rows_for(&self, width: usize) -> Vec<Line<'static>> {
-        let strong = Severity::Error.style().bold();
+        let strong = self.severity.style().bold();
         let headline = Line::from(vec![
-            Span::styled(format!("{} ", Severity::Error.mark()), strong),
+            Span::styled(format!("{} ", self.severity.mark()), strong),
             Span::styled(self.reason.clone(), strong),
         ]);
         let mut rows = wrap(headline, width, 0, 2);
         rows.push(Line::default());
+        if !self.lines.is_empty() {
+            for line in &self.lines {
+                rows.extend(wrap(Line::from(line.clone()), width, 0, 0));
+            }
+            return rows;
+        }
         rows.extend(wrap(Line::from(self.name.clone()), width, 0, 0));
         rows.extend(
             folder_rows(&self.folder, width)
@@ -256,7 +286,7 @@ impl Viewer for Card {
         self.drawn = Buffer::empty(Rect::new(0, 0, width, tall));
         let block = Block::bordered()
             .border_type(BorderType::Rounded)
-            .border_style(Severity::Error.style())
+            .border_style(self.severity.style())
             .padding(Padding::horizontal(1));
         let at = at.intersection(self.drawn.area);
         let inside = block.inner(at);
@@ -283,7 +313,7 @@ impl Viewer for Card {
     }
 
     fn failed(&self) -> bool {
-        true
+        self.severity == Severity::Error
     }
 }
 

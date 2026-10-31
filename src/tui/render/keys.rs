@@ -42,6 +42,18 @@ const HELP: &[(&str, &str)] = &[
 ];
 
 /// The keys of the focused context pane.
+const REPLAY_HELP: &[(&str, &str)] = &[
+    ("↑/↓, k/j", "move between the rows"),
+    ("←/→, h/l", "previous/next question"),
+    ("enter", "next question; on the result, open a question"),
+    ("tab", "move into the context pane and back"),
+    ("pgup/pgdn, ctrl-u/ctrl-d", "scroll by page; by half a page"),
+    ("o, z, s", "open an entry; full screen; diff side by side"),
+    ("d", "details of a kept file"),
+    ("q, ctrl-c", "quit"),
+    ("?, i", "this help; the whole intro"),
+];
+
 const PANE_HELP: &[(&str, &str)] = &[
     ("↑/↓, k/j", "scroll by line"),
     ("←/→, h/l", "scroll sideways where lines are cut"),
@@ -97,6 +109,8 @@ pub(super) fn draw_help(area: Rect, buf: &mut Buffer, state: &SessionState, vers
         (FULL_SCREEN_HELP, "Keys of the full-screen view")
     } else if state.pane_focused() {
         (PANE_HELP, "Keys of the context pane")
+    } else if state.is_read_only() {
+        (REPLAY_HELP, "Keys of a replay")
     } else {
         (HELP, "Keys")
     };
@@ -359,7 +373,12 @@ fn all_key_hints(state: &SessionState, list: bool) -> Vec<Hint> {
         return vec![hint("any key", "close", Rank::Leave)];
     }
     if state.is_read_only() {
-        return vec![cursor("↑/↓", "move"), QUESTION_HINT, HELP_HINT, QUIT_HINT];
+        let mut hints = vec![cursor("↑/↓", "move"), QUESTION_HINT];
+        if state.shown_file().is_some() {
+            hints.push(cursor("d", "details"));
+        }
+        hints.extend([HELP_HINT, QUIT_HINT]);
+        return hints;
     }
     let row = state.rows().get(state.row()).copied();
     let kind = state.question().map(|question| question.kind);

@@ -108,6 +108,12 @@ rows, `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` keep their meaning.
   colour. The cursor still browses every option, since the option under it
   shows its own context. A withdrawn session's draft shows dim, with
   `◀ draft` on the option it picked.
+- A file the archive could not read, did not keep or no longer holds a
+  good copy of shows a card with the original path: red for a missing,
+  unreadable or damaged file, a warning for a file that was not kept, with
+  its size, time and fingerprint. The pane's bottom rule says what became
+  of the file, and `d` opens a frame with the copy, the original path,
+  size, time and SHA-256.
 - The last tab is `Result`. It says how the session ended, lists one line
   per answer and shows the note and, for a rejection, the reason.
 - While sessions wait in the queue, the title bar counts them and the

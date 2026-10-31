@@ -39,6 +39,8 @@ fn info(outcome: HistoryOutcome) -> ReplayInfo {
         outcome,
         finished: "Thu 29 Oct 16:41".to_owned(),
         files: HashMap::<String, ReplayFile>::new(),
+        bundle: None,
+        zone: jiff::tz::TimeZone::UTC,
     }
 }
 
@@ -531,4 +533,480 @@ fn a_note_that_was_never_written_shows_as_a_dash() {
     let text = rows(screen(&app, 120, 30).buffer()).join("\n");
 
     assert!(text.contains("✎ Note to the asker: —"), "{text}");
+}
+
+// =========================================================
+// Files: cards, the bottom rule and the details
+// =========================================================
+
+const SHA: &str = "9f2c61d0b7e3a4c8d1e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7e2b41a6";
+
+fn record(state: &str) -> ReplayFile {
+    ReplayFile {
+        original_path: "/tmp/claude-501/ci-run-8841/build.log".to_owned(),
+        state: state.to_owned(),
+        sha256: None,
+        size: None,
+        modified: None,
+        kept_size: None,
+        reason: None,
+        copy: None,
+        damaged: None,
+    }
+}
+
+/// A replay of a session whose one question shows the code entry `path`,
+/// with `file` as what the archive recorded about it.
+fn file_app(path: &str, file: ReplayFile, bundle: Option<&str>) -> App {
+    let session: Session = serde_json::from_value(serde_json::json!({
+        "asqr": 2, "title": "CI failure on main",
+        "questions": [{"id": "fix", "text": "Which fix first?", "kind": "single",
+            "options": [{"id": "a", "label": "Pin"}, {"id": "b", "label": "Retry"}],
+            "context": [{"type": "code", "path": path}]}]
+    }))
+    .expect("parses");
+    let mut info = info(HistoryOutcome::Sent);
+    info.files.insert(path.to_owned(), file);
+    info.bundle = bundle.map(str::to_owned);
+    let mut app = App::default();
+    app.add(SessionState::replay("ci", session, None).with_replay_info(info));
+    app
+}
+
+fn text_of(app: &App, width: u16, height: u16) -> String {
+    rows(screen(app, width, height).buffer()).join("\n")
+}
+
+#[test]
+fn a_missing_file_gets_the_red_card_with_its_original_path() {
+    let file = record("missing");
+    let app = file_app(&file.original_path.clone(), file, None);
+
+    let backend = screen(&app, 80, 24);
+    let text = rows(backend.buffer()).join("\n");
+
+    assert!(
+        text.contains("✗ Missing when the session finished"),
+        "{text}"
+    );
+    assert!(text.contains("build.log"), "{text}");
+    assert!(text.contains("/tmp/claude-501/ci-run-8841"), "{text}");
+    assert!(
+        text.contains("asqr could not read it: no copy, no fingerprint"),
+        "{text}"
+    );
+    assert_eq!(
+        style_at(backend.buffer(), "✗ Missing").fg,
+        theme::error().fg
+    );
+}
+
+#[test]
+fn an_unreadable_file_gives_its_reason() {
+    let mut file = record("unreadable");
+    file.reason = Some("permission denied".to_owned());
+    let app = file_app(&file.original_path.clone(), file, None);
+
+    let text = text_of(&app, 80, 24);
+
+    assert!(
+        text.contains("✗ Could not be read when the session finished"),
+        "{text}"
+    );
+    assert!(
+        text.contains("asqr could not read it: permission denied"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_file_that_was_not_kept_gets_the_warning_card_with_its_fingerprint() {
+    let mut file = record("not_kept");
+    file.sha256 = Some(SHA.to_owned());
+    file.size = Some(1_420);
+    file.modified = Some("2026-10-28T13:02:00Z".to_owned());
+    let app = file_app(&file.original_path.clone(), file, None);
+
+    let backend = screen(&app, 80, 24);
+    let text = rows(backend.buffer()).join("\n");
+
+    assert!(
+        text.contains("! Not kept, only the fingerprint was recorded"),
+        "{text}"
+    );
+    assert!(text.contains("1.4 KB"), "{text}");
+    assert!(text.contains("sha256 9f2c61d0b7e3a4c8…7e2b41a6"), "{text}");
+    assert_eq!(
+        style_at(backend.buffer(), "! Not kept").fg,
+        theme::warning().fg
+    );
+}
+
+#[test]
+fn a_file_over_the_limit_says_why_it_was_not_kept() {
+    let mut file = record("not_kept");
+    file.size = Some(70_000_000);
+    file.reason = Some("larger than 64 MiB".to_owned());
+    let app = file_app(&file.original_path.clone(), file, None);
+
+    let text = text_of(&app, 80, 24);
+
+    assert!(text.contains("larger than 64 MiB"), "{text}");
+    assert!(text.contains("70 MB"), "{text}");
+}
+
+#[test]
+fn a_damaged_copy_gets_the_red_card() {
+    let mut file = record("kept");
+    file.damaged = Some("the kept copy is damaged".to_owned());
+    file.copy = Some(format!("files/{SHA}.webp"));
+    let app = file_app(&format!("files/{SHA}.webp"), file, None);
+
+    let text = text_of(&app, 80, 24);
+
+    assert!(text.contains("✗ The kept copy is damaged"), "{text}");
+    assert!(
+        text.contains("original /tmp/claude-501/ci-run-8841/build.log"),
+        "{text}"
+    );
+}
+
+#[test]
+fn the_pane_header_names_the_original_file_not_the_copy() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let copy = dir.path().join(format!("{SHA}.dat"));
+    std::fs::write(&copy, "all:\n").expect("written");
+    let mut file = record("kept");
+    file.original_path = "/work/Makefile".to_owned();
+    file.kept_size = Some(5);
+    file.copy = Some(format!("files/{SHA}.dat"));
+    let app = file_app(copy.to_str().expect("UTF-8"), file, None);
+
+    let text = text_of(&app, 120, 30);
+
+    assert!(text.contains(" Makefile "), "{text}");
+    assert!(!text.contains(".dat"), "{text}");
+}
+
+#[test]
+fn the_bottom_rule_says_what_became_of_the_file() {
+    let rule = |file: ReplayFile, path: &str| {
+        let text = text_of(&file_app(path, file, None), 120, 30);
+        text.lines()
+            .find(|line| line.contains("d details"))
+            .map(str::to_owned)
+            .unwrap_or(text)
+    };
+    let dir = tempfile::tempdir().expect("temp dir");
+    let copy = dir.path().join("x.txt");
+    std::fs::write(&copy, "x").expect("written");
+    let mut kept = record("kept");
+    kept.kept_size = Some(213_456);
+    let mut not_kept = record("not_kept");
+    not_kept.sha256 = Some(SHA.to_owned());
+
+    assert!(rule(kept, copy.to_str().expect("UTF-8")).contains(" kept copy · 213 KB · d details "));
+    assert!(rule(record("missing"), "/tmp/gone.log").contains(" no copy · d details "));
+    assert!(rule(not_kept, "/tmp/gone.log").contains(" fingerprint only · d details "));
+}
+
+#[test]
+fn d_opens_the_details_of_the_file_and_any_key_closes_them() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let copy = dir.path().join("x.txt");
+    std::fs::write(&copy, "x").expect("written");
+    let mut file = record("kept");
+    file.original_path = "/work/hero-b.png".to_owned();
+    file.sha256 = Some(SHA.to_owned());
+    file.size = Some(213_456);
+    file.kept_size = Some(41_207);
+    file.modified = Some("2026-10-29T16:40:11Z".to_owned());
+    file.copy = Some(format!("files/{SHA}.webp"));
+    let mut app = file_app(copy.to_str().expect("UTF-8"), file, Some("2026-10.zip"));
+    let before = text_of(&app, 120, 30);
+
+    app.handle(key(KeyCode::Char('d')));
+    let open = text_of(&app, 120, 30);
+
+    assert!(!before.contains("SHA-256"), "{before}");
+    assert!(open.contains("Kept copy"), "{open}");
+    assert!(open.contains(&format!("files/{SHA}.webp")), "{open}");
+    assert!(
+        open.lines()
+            .any(|line| line.contains("Stored in") && line.contains("2026-10.zip")),
+        "{open}"
+    );
+    assert!(open.contains("/work/hero-b.png"), "{open}");
+    assert!(open.contains("213456 bytes (kept 41207 bytes)"), "{open}");
+    assert!(open.contains("Thu 29 Oct 16:40"), "{open}");
+    assert!(
+        open.lines()
+            .any(|line| line.contains("SHA-256") && line.contains(SHA)),
+        "{open}"
+    );
+
+    app.handle(key(KeyCode::Char('x')));
+    assert!(!text_of(&app, 120, 30).contains("SHA-256"));
+}
+
+#[test]
+fn d_on_an_entry_without_a_record_opens_nothing() {
+    let mut app = replay_app(HistoryOutcome::Sent);
+
+    app.handle(key(KeyCode::Char('d')));
+
+    assert!(!text_of(&app, 120, 30).contains("SHA-256"));
+}
+
+#[test]
+fn the_key_bar_names_d_where_a_file_has_details() {
+    let file = record("missing");
+    let app = file_app(&file.original_path.clone(), file, None);
+
+    let bar = rows(screen(&app, 120, 30).buffer())[29].clone();
+
+    assert!(bar.contains("d  details"), "{bar}");
+}
+
+#[test]
+fn the_help_of_a_replay_lists_the_keys_that_work() {
+    let mut app = replay_app(HistoryOutcome::Sent);
+    app.handle(key(KeyCode::Char('?')));
+
+    let text = text_of(&app, 120, 30);
+
+    assert!(text.contains("details of a kept file"), "{text}");
+    assert!(
+        !text.contains("toggle an option") && !text.contains("write a note"),
+        "{text}"
+    );
+}
+
+// =========================================================
+// Whole screens with a file
+// =========================================================
+
+/// A replay whose question shows `entry`, with the files the archive
+/// recorded.
+fn app_showing(
+    entry: serde_json::Value,
+    files: Vec<(String, ReplayFile)>,
+    bundle: Option<&str>,
+) -> App {
+    let session: Session = serde_json::from_value(serde_json::json!({
+        "asqr": 2, "title": "README hero image, round 2",
+        "from": "claude-code, asqr-site",
+        "questions": [{"id": "hero", "header": "Hero", "text": "Which hero image should the README use?",
+            "kind": "single",
+            "options": [{"id": "a", "label": "Dark terminal"}, {"id": "b", "label": "Light card"}],
+            "context": [entry]}]
+    }))
+    .expect("parses");
+    let answers = vec![Answer {
+        selected: vec!["b".to_owned()],
+        ..Answer::new("hero")
+    }];
+    let draft = SessionResult::draft("hero-2", "hero", answers);
+    let mut info = info(HistoryOutcome::Sent);
+    info.files.extend(files);
+    info.bundle = bundle.map(str::to_owned);
+    let mut app = App::default();
+    app.add(SessionState::replay("hero-2", session, Some(&draft)).with_replay_info(info));
+    app
+}
+
+/// A small picture in a file of `dir`.
+fn picture(dir: &std::path::Path) -> std::path::PathBuf {
+    let path = dir.join(format!("{SHA}.png"));
+    let mut image = image::RgbaImage::from_pixel(64, 40, image::Rgba([240, 228, 190, 255]));
+    for x in 8..40 {
+        for y in 10..16 {
+            image.put_pixel(x, y, image::Rgba([150, 130, 110, 255]));
+        }
+    }
+    image.save(&path).expect("saved");
+    path
+}
+
+#[test]
+fn replay_kept_image_screens() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = picture(dir.path()).to_str().expect("UTF-8").to_owned();
+    let mut file = record("kept");
+    file.original_path = "/tmp/claude-501/hero-b.png".to_owned();
+    file.kept_size = Some(213_456);
+    file.copy = Some(format!("files/{SHA}.png"));
+    for (width, height) in [(80, 24), (120, 30)] {
+        let app = app_showing(
+            serde_json::json!({"type": "image", "path": path}),
+            vec![(path.clone(), file.clone())],
+            None,
+        );
+        insta::assert_snapshot!(
+            format!("replay_kept_image_{width}x{height}"),
+            screen(&app, width, height)
+        );
+    }
+}
+
+#[test]
+fn replay_missing_screens() {
+    let file = record("missing");
+    let path = file.original_path.clone();
+    for (width, height) in [(80, 24), (120, 30)] {
+        let app = app_showing(
+            serde_json::json!({"type": "code", "path": path}),
+            vec![(path.clone(), file.clone())],
+            None,
+        );
+        insta::assert_snapshot!(
+            format!("replay_missing_{width}x{height}"),
+            screen(&app, width, height)
+        );
+    }
+}
+
+#[test]
+fn replay_not_kept_screens() {
+    let mut file = record("not_kept");
+    file.original_path = "/tmp/claude-501/changelog-short.md".to_owned();
+    file.sha256 = Some(SHA.to_owned());
+    file.size = Some(1_420);
+    file.modified = Some("2026-10-28T13:02:00Z".to_owned());
+    let path = file.original_path.clone();
+    for (width, height) in [(80, 24), (120, 30)] {
+        let app = app_showing(
+            serde_json::json!({"type": "markdown", "path": path}),
+            vec![(path.clone(), file.clone())],
+            None,
+        );
+        insta::assert_snapshot!(
+            format!("replay_not_kept_{width}x{height}"),
+            screen(&app, width, height)
+        );
+    }
+}
+
+#[test]
+fn replay_details_screens() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = picture(dir.path()).to_str().expect("UTF-8").to_owned();
+    let mut file = record("kept");
+    file.original_path = "/tmp/claude-501/hero-b.png".to_owned();
+    file.sha256 = Some(SHA.to_owned());
+    file.size = Some(213_456);
+    file.kept_size = Some(41_207);
+    file.modified = Some("2026-10-29T16:40:11Z".to_owned());
+    file.copy = Some(format!("files/{SHA}.png"));
+    for (width, height) in [(80, 24), (120, 30)] {
+        let mut app = app_showing(
+            serde_json::json!({"type": "image", "path": path}),
+            vec![(path.clone(), file.clone())],
+            Some("2026-10.zip"),
+        );
+        app.handle(key(KeyCode::Char('d')));
+        insta::assert_snapshot!(
+            format!("replay_details_{width}x{height}"),
+            screen(&app, width, height)
+        );
+    }
+}
+
+#[test]
+fn a_pane_taller_than_its_body_names_the_lines_before_the_words() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let copy = dir.path().join("long.txt");
+    std::fs::write(
+        &copy,
+        (1..=200).map(|n| format!("line {n}\n")).collect::<String>(),
+    )
+    .expect("written");
+    let mut file = record("kept");
+    file.kept_size = Some(1_800);
+    let app = file_app(copy.to_str().expect("UTF-8"), file, None);
+
+    let text = text_of(&app, 120, 30);
+
+    let rule = text
+        .lines()
+        .find(|line| line.contains("d details"))
+        .expect("a rule");
+    assert!(
+        rule.contains(" of 200 · kept copy · 1.8 KB · d details "),
+        "{rule}"
+    );
+}
+
+#[test]
+fn the_entrys_own_title_names_the_pane_not_the_original_file() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let copy = dir.path().join("x.txt");
+    std::fs::write(&copy, "x").expect("written");
+    let mut file = record("kept");
+    file.original_path = "/work/build.log".to_owned();
+    let app = app_showing(
+        serde_json::json!({"type": "ansi", "path": copy, "title": "The CI log"}),
+        vec![(copy.to_str().expect("UTF-8").to_owned(), file)],
+        None,
+    );
+
+    let text = text_of(&app, 120, 30);
+
+    assert!(text.contains(" The CI log "), "{text}");
+    assert!(!text.contains("build.log"), "{text}");
+}
+
+#[test]
+fn the_details_of_a_file_that_was_not_kept_or_is_damaged_say_why() {
+    let details = |file: ReplayFile| {
+        let path = file
+            .copy
+            .clone()
+            .unwrap_or_else(|| file.original_path.clone());
+        let mut app = file_app(&path, file, None);
+        app.handle(key(KeyCode::Char('d')));
+        text_of(&app, 120, 30)
+    };
+    let mut over = record("not_kept");
+    over.size = Some(70_000_000);
+    over.reason = Some("larger than 64 MiB".to_owned());
+    let mut damaged = record("kept");
+    damaged.copy = Some(format!("files/{SHA}.webp"));
+    damaged.damaged = Some("the kept copy is damaged".to_owned());
+
+    let over = details(over);
+    let damaged = details(damaged);
+
+    assert!(
+        over.contains("Size      70000000 bytes") || over.contains("70000000 bytes"),
+        "{over}"
+    );
+    assert!(
+        over.contains("Reason") && over.contains("larger than 64 MiB"),
+        "{over}"
+    );
+    assert!(
+        damaged.contains("Problem") && damaged.contains("the kept copy is damaged"),
+        "{damaged}"
+    );
+}
+
+#[test]
+fn a_kept_file_without_a_recorded_size_still_names_itself() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let copy = dir.path().join("x.txt");
+    std::fs::write(&copy, "x").expect("written");
+    let file = record("kept");
+
+    let text = text_of(
+        &file_app(copy.to_str().expect("UTF-8"), file, None),
+        120,
+        30,
+    );
+
+    assert!(
+        text.lines()
+            .any(|line| line.contains("─ kept copy · d details ")),
+        "{text}"
+    );
 }
