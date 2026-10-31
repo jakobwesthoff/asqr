@@ -4,7 +4,7 @@ tags: [guide/queues]
 site:
   order: 2
 ---
-asqr has three settings. You change them in asqr with `,`, and asqr keeps
+asqr has four settings. You change them in asqr with `,`, and asqr keeps
 them in a file.
 
 ## The settings pane
@@ -26,15 +26,21 @@ what the setting does and what its value means.
 | `Diffs open as` | How a diff shows when you come to it. `s` still switches the diff you look at. | `one column` (default), `side by side` |
 | `Max question width` | The widest a question's text gets. A narrower terminal gets a narrower text. | `80 columns`, `100 columns` (default), `120 columns`, `full width` |
 | `Context` | Where the files, images and diffs that come with a question show. | `beside or below` (default), `always beside`, `always below` |
+| `Keep files` | Whether asqr copies the files a session showed into its archive when you finish it, so a replay can show them later. | `compact copies` (default), `exact copies`, `no copies` |
+
+What `Keep files` keeps is on the page about
+[keeping files](01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md).
 
 A change applies at once. The question's width and the place of the context
 change from the next draw. The layout diffs open in changes for every
-session, except for a diff you switched with `s`, which keeps its layout.
+session, except for a diff you switched with `s`, which keeps its layout. A
+change of `Keep files` applies to the next session you finish.
 
 After a change the status line says what came of the save:
 
 ```
 ✔ saved diffs open as: side by side
+✔ saved keep files: compact copies
 ✗ cannot save the setting: <reason>; the choice holds until asqr quits
 ```
 
@@ -43,9 +49,9 @@ does not have it.
 
 ## A setting a flag or a variable holds
 
-`--layout` and `ASQR_LAYOUT` hold the `Context` setting. Its row then shows
-the value in effect, dim, with `set by --layout` or `set by ASQR_LAYOUT`
-beside it, and `←`/`→` do nothing there. The text under the rule says what
+`--layout` and `ASQR_LAYOUT` hold the `Context` setting, and `ASQR_KEEP_FILES`
+holds `Keep files`. A held row shows the value in effect, dim, with `set by
+--layout`, `set by ASQR_LAYOUT` or `set by ASQR_KEEP_FILES` beside it, and `←`/`→` do nothing there. The text under the rule says what
 holds the row and what to do.
 
 ![The settings pane with the Context row held by --layout](../pictures/settings-locked.png)
@@ -64,9 +70,12 @@ key may be left out:
 | `diff_layout` | `"unified"`, `"side-by-side"` | `"unified"` |
 | `max_question_width` | `80`, `100`, `120`, `"full"` | `100` |
 | `context` | `"auto"`, `"beside"`, `"below"` | `"auto"` |
+| `keep_files` | `"compact"`, `"exact"`, `"off"` | `"compact"` |
 
 A flag wins over a variable, a variable over the file and the file over the
-default. Only `context` has a flag and a variable.
+default. `context` has a flag and a variable, `--layout` and `ASQR_LAYOUT`.
+`keep_files` has a variable, `ASQR_KEEP_FILES`. The other two settings have
+neither.
 
 The pane writes only the key it changes. It reads the file again before
 each write, so a change you made in an editor stays, and the file keeps its

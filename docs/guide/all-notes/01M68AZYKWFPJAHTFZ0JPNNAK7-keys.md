@@ -102,6 +102,19 @@ the question behind it. `z`, `esc`, `tab` and `q` leave it.
   change the value and save it at once, `esc`, `q` and `,` close it and
   `ctrl-c` quits asqr.
 
+## In a replay
+
+A [replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
+shows a finished session, so most keys that change something do nothing.
+
+- `space`, `1` to `9`, `n`, `backspace`, `L`, `w`, `,`, `ctrl-g`, typing and
+  paste do nothing. No key saves a draft or sends a result.
+- `enter` moves to the next question and, from the last, to `Result`.
+- `d`, from the question or from the pane, opens the details of the file
+  the entry shows. Any key closes them.
+- The movement keys, `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` keep
+  their meaning.
+
 ## In a field
 
 The own-answer row, a text answer, a note, the session note and the
