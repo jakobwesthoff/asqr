@@ -1,0 +1,35 @@
+caption = "A replay draws a file from its kept copy"
+columns = 120
+rows = 30
+
+[[sessions]]
+file = "../../../examples/sessions/archived-fetch.json"
+
+[replay]
+reference = "H3WQ8N5X"
+outcome = "sent"
+finished = "Thu 29 Oct 16:41"
+bundle = "2026-10.zip"
+
+[[replay.files]]
+path = "../files/fetch.txt"
+original_path = "/tmp/review/fetch.rs"
+state = "kept"
+sha256 = "9f2c61d0b7e3a4c8d1e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7e2b41a6"
+size = 713
+kept_size = 713
+modified = "2026-10-29T16:40:11Z"
+copy = "files/9f2c61d0b7e3a4c8d1e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7e2b41a6.rs"
+
+[[replay.files]]
+path = "../files/notes.md"
+original_path = "/tmp/review/notes.md"
+state = "not_kept"
+sha256 = "5b1e0c7a9d2f4e8b3a6c1d0f7e9b2a4c8d5e3f1a0b7c6d9e2f4a8b1c3d5e7f90"
+size = 213456
+modified = "2026-10-29T16:38:02Z"
+
+[[replay.files]]
+path = "../files/test.log"
+original_path = "/tmp/review/test.log"
+state = "missing"

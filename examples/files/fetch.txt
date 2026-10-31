@@ -1,0 +1,24 @@
+use std::time::Duration;
+
+/// How often a failed request is tried again before its error is returned.
+const MAX_TRIES: u32 = 3;
+
+/// The wait before the first retry. Each further retry waits twice as long.
+const FIRST_WAIT: Duration = Duration::from_millis(100);
+
+pub fn fetch(url: &str) -> Result<Response, FetchError> {
+    let mut wait = FIRST_WAIT;
+    let mut last = None;
+    for _ in 0..MAX_TRIES {
+        match get(url) {
+            Ok(response) => return Ok(response),
+            Err(error) if error.is_temporary() => {
+                std::thread::sleep(wait);
+                wait *= 2;
+                last = Some(error);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last.expect("the loop ran at least once"))
+}

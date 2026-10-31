@@ -2975,6 +2975,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "image",
+ "jiff",
  "proc-macro2",
  "ratatui",
  "serde",

@@ -9,24 +9,31 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
-use asqr::format::same_session_id;
+use std::collections::HashMap;
+
+use anyhow::{Context, Result, anyhow};
+use asqr::format::{Answer, SessionResult, Status, same_session_id};
 use asqr::graphics::{CellSize, Graphics, Images};
+use asqr::queue::{HistoryOutcome, ReplayFile};
 use asqr::queue::{QueueLocation, WaitingQueue};
-use asqr::settings::{Lock, SettingsStore};
+use asqr::settings::{Lock, Locks, SettingsStore};
+use asqr::tui::ReplayInfo;
 use asqr::tui::render::{Drawn, Glyphs, PaneLayout, View, draw, draw_picker};
 use asqr::tui::{
     App, AppEffect, Invalid, Notice, Outcome, PanePage, Place, QueueChoice, QueueRow, REFUSED_NAME,
     SessionState, Switcher, SwitcherKey, TOO_LONG_NAME, TakenQueue, Tone,
 };
 use clap::CommandFactory;
+use jiff::tz::TimeZone;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::fonts::{CELL_HEIGHT, CELL_WIDTH};
-use crate::scene::{ContextHeldBy, Emblem, Key, Layout, Scene, load_sessions};
+use crate::scene::{
+    ContextHeldBy, Emblem, Key, Layout, ReplayOutcome, ReplayScene, Scene, load_sessions,
+};
 
 // =====================================================================
 // One frame
@@ -255,7 +262,13 @@ pub fn play(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<Buffer> {
     }
     let mut app = App::with_settings(settings_store(scene));
     for state in load_sessions(scene, scene_file)? {
-        app.add(state);
+        match &scene.replay {
+            Some(replay) => {
+                app.add(replayed(state, replay, scene, scene_file)?);
+                app.set_replay_waiting(replay.waiting);
+            }
+            None => app.add(state),
+        }
     }
     for invalid in &scene.invalid {
         app.report_invalid(Invalid {
@@ -334,6 +347,115 @@ pub fn play(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<Buffer> {
     Ok(picture)
 }
 
+/// `state` as a finished session shown again, as `asqr replay` builds it
+/// (`Replay::state` in `src/cli/replay.rs`): filled in with the answers of
+/// the scene's result, and told what the archive recorded.
+fn replayed(
+    state: SessionState,
+    replay: &ReplayScene,
+    scene: &Scene,
+    scene_file: &Path,
+) -> Result<SessionState> {
+    let base = scene_file.parent().unwrap_or(Path::new(""));
+    let session_dir = base
+        .join(&scene.sessions[0].file)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+    let result = match &replay.result {
+        Some(file) => {
+            let file = base.join(file);
+            let bytes = std::fs::read(&file)
+                .with_context(|| format!("reading the result {}", file.display()))?;
+            Some(
+                serde_json::from_slice::<SessionResult>(&bytes)
+                    .with_context(|| format!("reading the result {}", file.display()))?,
+            )
+        }
+        None => None,
+    };
+    let draft = result
+        .as_ref()
+        .and_then(|result| draft_of(state.session(), result));
+
+    // The archive keys each file by the path the session names it at, which
+    // `asqr ask` made absolute against the session file.
+    let files = replay
+        .files
+        .iter()
+        .map(|file| {
+            let at = std::path::absolute(session_dir.join(&file.path))
+                .with_context(|| format!("making {} absolute", file.path))?;
+            let recorded = ReplayFile {
+                original_path: file.original_path.clone(),
+                state: file.state.clone(),
+                sha256: file.sha256.clone(),
+                size: file.size,
+                modified: file.modified.clone(),
+                kept_size: file.kept_size,
+                reason: file.reason.clone(),
+                copy: file.copy.clone(),
+                damaged: file.damaged.clone(),
+            };
+            Ok((at.to_string_lossy().into_owned(), recorded))
+        })
+        .collect::<Result<HashMap<_, _>>>()?;
+
+    let info = ReplayInfo {
+        reference: replay.reference.clone(),
+        outcome: match replay.outcome {
+            ReplayOutcome::Sent => HistoryOutcome::Sent,
+            ReplayOutcome::Rejected => HistoryOutcome::Rejected,
+            ReplayOutcome::Error => HistoryOutcome::Error,
+            ReplayOutcome::Withdrawn => HistoryOutcome::Withdrawn,
+            ReplayOutcome::NoResult => HistoryOutcome::NoResult,
+        },
+        finished: replay.finished.clone(),
+        files,
+        bundle: replay.bundle.clone(),
+        // UTC, so the times of the files read the same on every machine.
+        zone: TimeZone::UTC,
+    };
+    Ok(
+        SessionState::replay(state.id(), state.session().clone(), draft.as_ref())
+            .with_replay_info(info),
+    )
+}
+
+/// The answers a replay fills a session with, as `draft_of` in
+/// `src/queue/replay.rs` takes them from a result: those of a sent or a
+/// rejected result and the unsent draft of a withdrawn one. A skipped
+/// answer is marked cleared, so a default does not show as picked.
+fn draft_of(session: &asqr::format::Session, result: &SessionResult) -> Option<SessionResult> {
+    let (answers, note, reason) = match result.status {
+        Status::Submitted | Status::Cancelled => (
+            result.answers.clone(),
+            result.note.clone(),
+            result.reason.clone(),
+        ),
+        Status::Withdrawn => {
+            let unsent = result.draft.as_ref()?;
+            (unsent.answers.clone(), unsent.note.clone(), None)
+        }
+        Status::Error | Status::Draft => return None,
+    };
+    let answers = answers
+        .into_iter()
+        .map(|answer| Answer {
+            cleared: answer.cleared || answer.skipped,
+            ..answer
+        })
+        .collect();
+    let first = session
+        .questions
+        .first()
+        .map_or("", |question| question.id.as_str());
+    let mut draft = SessionResult::draft(&result.id, first, answers);
+    draft.note = note;
+    draft.reason = reason;
+    Some(draft)
+}
+
 /// The settings a run of `scene` has: the file the scene names, if any, and
 /// the `Context` setting held at the scene's `layout`.
 fn settings_store(scene: &Scene) -> SettingsStore {
@@ -352,7 +474,11 @@ fn settings_store(scene: &Scene) -> SettingsStore {
         };
         (layout, lock)
     });
-    SettingsStore::load(file.path.clone(), held).store
+    let locks = Locks {
+        context: held,
+        ..Locks::default()
+    };
+    SettingsStore::load(file.path.clone(), locks).store
 }
 
 /// The start picker of `scene` (spec section 7.1) after its keys. The keys
@@ -863,6 +989,146 @@ mod tests {
 
         assert!(beside_pane <= beside_hint + 1, "beside by default");
         assert!(below_pane > below_hint, "below after the change");
+    }
+
+    const SENT: &str = "[replay]\nreference = \"H3WQ8N5X\"\noutcome = \"sent\"\n\
+        finished = \"Thu 29 Oct 16:41\"\nresult = \"../results/release-sent.json\"\n";
+    const WITHDRAWN: &str = "[replay]\nreference = \"D0M6Z4TB\"\noutcome = \"withdrawn\"\n\
+        finished = \"Thu 29 Oct 11:20\"\nresult = \"../results/release-withdrawn.json\"\n";
+    const FETCH: &str = "[[sessions]]\nfile = \"../../../examples/sessions/archived-fetch.json\"\n";
+
+    /// A replay of the fetcher session, with the files `files` records.
+    fn fetch_replay(keys: &str, files: &str) -> String {
+        scene_with(
+            keys,
+            &format!(
+                "{FETCH}[replay]\nreference = \"H3WQ8N5X\"\noutcome = \"sent\"\n\
+                 finished = \"Thu 29 Oct 16:41\"\n{files}"
+            ),
+        )
+    }
+
+    const KEPT_CODE: &str = "[[replay.files]]\npath = \"../files/fetch.txt\"\n\
+        original_path = \"/tmp/review/fetch.rs\"\nstate = \"kept\"\n\
+        sha256 = \"9f2c61d0b7e3a4c8d1e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7e2b41a6\"\n\
+        size = 713\nkept_size = 713\nmodified = \"2026-10-29T16:40:11Z\"\n";
+
+    #[test]
+    fn a_replay_is_read_only_and_says_so_in_the_title_and_the_status_line() {
+        let buf = screen(&scene_with("", &format!("{RELEASE}{SENT}")));
+
+        let shown = text(&buf);
+        assert!(shown.contains("asqr ◷ read-only"), "{shown}");
+        assert!(shown.contains("replay H3WQ8N5X"), "{shown}");
+        assert!(
+            shown.contains("◷ replay · sent Thu 29 Oct 16:41 · read-only"),
+            "{shown}"
+        );
+    }
+
+    #[test]
+    fn a_replay_fills_in_the_answers_of_the_result_and_keys_change_none() {
+        let before = screen(&scene_with("", &format!("{RELEASE}{SENT}")));
+        let after = screen(&scene_with(
+            "\"j\", \"space\", \"2\"",
+            &format!("{RELEASE}{SENT}"),
+        ));
+
+        assert!(
+            text(&before).contains("(•) 1. Publish now"),
+            "{}",
+            text(&before)
+        );
+        assert!(!text(&after).contains("(•) 2."), "{}", text(&after));
+    }
+
+    #[test]
+    fn the_last_tab_of_a_replay_is_the_result() {
+        let buf = screen(&scene_with(
+            "\"enter\", \"enter\", \"enter\"",
+            &format!("{RELEASE}{SENT}"),
+        ));
+
+        let shown = text(&buf);
+        assert!(shown.contains("Result"), "{shown}");
+        assert!(shown.contains("Sent Thu 29 Oct 16:41"), "{shown}");
+        assert!(shown.contains("Startup is twice as fast."), "{shown}");
+    }
+
+    #[test]
+    fn a_withdrawn_session_marks_the_unsent_pick_as_a_draft() {
+        let buf = screen(&scene_with("", &format!("{RELEASE}{WITHDRAWN}")));
+
+        let shown = text(&buf);
+        assert!(shown.contains("◀ draft"), "{shown}");
+        assert!(shown.contains("dim is your unsent draft"), "{shown}");
+    }
+
+    #[test]
+    fn the_waiting_sessions_are_counted_in_a_replay() {
+        let buf = screen(&scene_with("", &format!("{RELEASE}{SENT}waiting = 2\n")));
+
+        assert!(text(&buf).contains("2 waiting"), "{}", text(&buf));
+    }
+
+    #[test]
+    fn d_shows_the_details_of_a_kept_file() {
+        let buf = screen(&fetch_replay("\"d\"", KEPT_CODE));
+
+        let shown = text(&buf);
+        assert!(shown.contains("/tmp/review/fetch.rs"), "{shown}");
+        assert!(
+            shown.contains("SHA-256   9f2c61d0b7e3a4c8d1e5f607"),
+            "{shown}"
+        );
+    }
+
+    #[test]
+    fn a_file_the_archive_did_not_keep_shows_a_card_with_its_original_path() {
+        let buf = screen(&fetch_replay(
+            "\"right\"",
+            "[[replay.files]]\npath = \"../files/notes.md\"\n\
+             original_path = \"/tmp/review/notes.md\"\nstate = \"not_kept\"\n\
+             sha256 = \"9f2c61d0b7e3a4c8d1e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7e2b41a6\"\n\
+             size = 213456\nmodified = \"2026-10-29T16:40:11Z\"\n",
+        ));
+
+        assert!(
+            text(&buf).contains("/tmp/review/notes.md"),
+            "{}",
+            text(&buf)
+        );
+    }
+
+    #[test]
+    fn a_file_that_was_missing_shows_the_red_card() {
+        let buf = screen(&fetch_replay(
+            "\"right\", \"right\"",
+            "[[replay.files]]\npath = \"../files/test.log\"\n\
+             original_path = \"/tmp/review/test.log\"\nstate = \"missing\"\n",
+        ));
+
+        assert!(
+            text(&buf).contains("no copy, no fingerprint"),
+            "{}",
+            text(&buf)
+        );
+    }
+
+    #[test]
+    fn a_replay_needs_a_session_and_an_outcome_it_knows() {
+        let none = parse_scene(&scene_with("", SENT)).expect_err("a replay without a session");
+        let unknown = parse_scene(&scene_with(
+            "",
+            &format!("{RELEASE}[replay]\nreference = \"X\"\noutcome = \"lost\"\nfinished = \"\"\n"),
+        ))
+        .expect_err("an outcome nobody knows");
+
+        assert!(
+            format!("{none:#}").contains("a replay needs a session"),
+            "{none:#}"
+        );
+        assert!(format!("{unknown:#}").contains("lost"), "{unknown:#}");
     }
 
     const PICKER: &str = "start_picker = true\n[switcher]\nroot = \"/data/asqr\"\n\

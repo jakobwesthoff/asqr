@@ -1,0 +1,12 @@
+{
+  "asqr": 2,
+  "id": "release-0-2-0",
+  "status": "submitted",
+  "submitted_at": "2026-10-29T16:41:09+00:00",
+  "session_sha256": "0b7af853270911da0703acd0ad93371681c078f649738c6a1d852b3590e83813",
+  "answers": [
+    { "question": "go", "selected": ["yes"] },
+    { "question": "channels", "selected": ["changelog"], "defaulted": true },
+    { "question": "highlights", "custom": "Startup is twice as fast." }
+  ]
+}
