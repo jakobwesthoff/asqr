@@ -56,6 +56,43 @@ holds the row and what to do.
 
 ![The settings pane with the Context row held by --layout](../pictures/settings-locked.png)
 
+## The first start
+
+The first time `asqr` or `asqr watch` starts and no settings file exists,
+asqr shows a first-start screen before it reads the queue. It asks how
+`Keep files` is set, writes `settings.toml` with the answer and does not
+ask again.
+
+![The first-start screen, which asks whether asqr keeps the files a session showed](../pictures/first-start.png)
+
+The screen has the frame of the queue switcher, titled `First start`. Its
+footer names the file it writes, with `~` for your home folder. Inside are
+the question `Keep copies of the files a session showed you?`, the three
+values of `Keep files` with their explanations, `compact copies` picked and
+marked `◀ default`, the button `[ Save and start ]` and the line `q quits
+without writing; the next start asks again.`
+
+- `↑`/`↓` or `k`/`j` move the cursor.
+- `enter` or `space` on a value picks it, and `enter` then moves the cursor
+  to the button.
+- `enter` on the button writes `keep_files` only, as the pane does, and
+  asqr starts on the queue. The status line then shows `✔ saved keep files:
+  <value>`.
+- `q` and `ctrl-c` quit and write nothing, so the next start asks again.
+- Every other key does nothing, and a paste goes nowhere.
+
+A save that fails shows the red notice of the pane. The value holds for
+this run, no file is written, and the next start asks again. Sessions that
+arrive while the screen is up show after you answer, without a bell or
+notification. A terminal smaller than 60 columns by 15 rows shows the
+message that asqr needs at least that size instead of the screen.
+
+The screen is skipped, and nothing is written, when a settings file exists,
+whatever it holds, when `ASQR_KEEP_FILES` is set, on a platform without a
+config directory, and for `asqr replay` and every other command. Only
+`asqr`, `asqr watch` and the terminal form of `asqr replay` read the
+settings file.
+
 ## The settings file
 
 asqr keeps the settings in `settings.toml` in the platform's config
@@ -82,8 +119,10 @@ each write, so a change you made in an editor stays, and the file keeps its
 comments and the keys asqr does not know. asqr never writes over a file it
 cannot parse, or one nobody may write to.
 
-A file that is not there gives every default. A file asqr cannot read, or
-cannot parse, gives every default as well, with a warning in the log. The
-status line shows the warning when asqr starts, unless a notice shows
-already. A key with a value that is none of the listed ones costs only that
-setting, which takes its default.
+A file that is not there gives every default and no warning, and at the
+start of `asqr` and `asqr watch` it brings up the first-start screen. A file
+asqr cannot read, or cannot parse, gives every default, with a warning in
+the log. The status line shows the warning when asqr starts, unless a notice
+shows already. A key with a value that is none of the listed ones costs only
+that setting, which takes its default. A key asqr does not know, a table
+too, is ignored, and a warning in the log names it.

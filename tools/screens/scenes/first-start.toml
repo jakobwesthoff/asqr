@@ -1,0 +1,8 @@
+caption = "The first-start screen, which asks whether asqr keeps the files a session showed"
+columns = 80
+rows = 24
+home = "/home/someone"
+first_start = true
+
+[settings]
+path = "/home/someone/.config/asqr/settings.toml"

@@ -94,6 +94,7 @@ tmux_session = "ntropy"
 | `[[switcher.queues]]` `waiting`, `watched` | The sessions waiting in it (default 0) and whether this asqr watches it (default false). |
 | `[[switcher.taken]]` `name`, `tmux_session` | A queue another asqr watches, and the tmux session it runs in. |
 | `start_picker` | `true` draws asqr's start picker (spec 7.1) over the `[switcher]`'s queues instead of asqr's screen; the keys go to the picker. Needs a `[switcher]`. Default `false`. |
+| `first_start` | `true` draws asqr's first-start screen (spec 7.1) instead of asqr's screen; the keys go to it. Needs a `[settings]` `path`, which its footer names, and `home` to show it with `~`. Default `false`. |
 | `[[invalid]]` `id`, `errors` | A session file asqr answered with an error, and each problem it had, as the dialog shows them. |
 | `[replay]` `reference`, `outcome`, `finished` | Shows the scene's one session as `asqr replay` shows a finished one (spec 7.11): the REF `asqr history` prints, how it ended (`sent`, `rejected`, `error`, `withdrawn` or `none`) and when, as the status line writes it, such as `Thu 29 Oct 16:41`. The scene lists exactly one `[[sessions]]`. |
 | `[replay]` `result` | A result file in the result format, relative to the scene file, whose answers fill the session in: those of a sent or rejected result, the unsent draft of a withdrawn one. Examples are in `tools/screens/results/`. |
@@ -123,7 +124,8 @@ seconds, before the next key.
 
 A key that would make asqr quit, open an entry, open an editor or switch
 the queue is an error, and so is a key that takes a queue in the start
-picker: a picture cannot show what follows it. A key that finishes a
+picker, and so is one that quits or presses the button of the first-start
+screen: a picture cannot show what follows it. A key that finishes a
 session removes it from the screen with the notice asqr shows (`✔ sent`,
 `✗ rejected`) and writes no result. A key that saves a draft writes none;
 the picture shows the answer all the same. A change in the settings pane

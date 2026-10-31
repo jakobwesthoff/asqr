@@ -53,7 +53,7 @@ lists its four keys and explains the pane that writes them.
 | `ASQR_QUEUE` | The named queue, like `--queue`. |
 | `ASQR_DIR` | The queue directory, like `--dir`. |
 | `ASQR_LAYOUT` | Where the context pane goes: `auto`, `beside` or `below`, like `--layout`. |
-| `ASQR_KEEP_FILES` | What asqr keeps of the files a finished session showed: `compact`, `exact` or `off`. It wins over the settings file. |
+| `ASQR_KEEP_FILES` | What asqr keeps of the files a finished session showed: `compact`, `exact` or `off`. It wins over the settings file, and a set value skips the first-start screen. |
 | `ASQR_LOG` | Which events reach the log. |
 | `NO_COLOR` | Any value but the empty one makes the TUI draw without colours. |
 | `VISUAL`, `EDITOR` | The editor that `ctrl-g` opens. |

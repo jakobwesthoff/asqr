@@ -33,7 +33,16 @@ Open a terminal of its own and start asqr:
 asqr
 ```
 
-Leave it running. With nothing waiting it says "Nothing to answer. New
+The first time asqr starts and has no settings file, it asks one question
+before anything else: whether it keeps copies of the files a session
+showed. Pick a value with `↑`/`↓` and `enter`, then press `enter` on
+`[ Save and start ]`. The
+[settings page](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
+describes the screen.
+
+![The first-start screen, which asks whether asqr keeps the files a session showed](../pictures/first-start.png)
+
+Leave asqr running. With nothing waiting it says "Nothing to answer. New
 sessions show up here as soon as they arrive."
 
 ![The empty queue with Talqi, and sessions waiting in another queue](../pictures/empty-queue.png)

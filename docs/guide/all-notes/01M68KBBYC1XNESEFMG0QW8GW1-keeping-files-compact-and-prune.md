@@ -54,7 +54,9 @@ or does not show the same picture.
 You change the setting in the [settings pane](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md),
 on the row `Keep files`, or in `settings.toml`. The variable
 `ASQR_KEEP_FILES` set to `compact`, `exact` or `off` wins over the file and
-locks the row. A change applies to the next session you finish.
+locks the row. A change applies to the next session you finish. The first
+time asqr starts without a settings file, it asks the value on a
+[first-start screen](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
 
 ![The settings pane on its Keep files row](../pictures/settings-keep-files.png)
 
