@@ -1789,6 +1789,76 @@ mod tests {
         assert!(inbox.keeper().is_some(), "the new inbox keeps files too");
     }
 
+    /// A finish whose files are still being kept when the person switches
+    /// queues: the switch neither drops the job nor waits for it, and the
+    /// old queue's archived session records its files once the job runs.
+    #[test]
+    fn a_switch_neither_drops_nor_waits_for_the_old_queues_keeping_job() {
+        let mut harness = two_queues();
+        let picture = harness.scratch.path().join("shown.txt");
+        fs::write(&picture, "what the person saw\n").expect("written");
+        let session = serde_json::json!({
+            "asqr": 2,
+            "questions": [{"id": "q", "text": "?", "kind": "text",
+                "context": [{"type": "code", "path": picture}]}]
+        });
+        fs::write(
+            harness.location.inbox().join("shown.json"),
+            session.to_string(),
+        )
+        .expect("written");
+        // The job waits for `release`, so the switch below runs while it is
+        // still queued.
+        let (release, gate) = mpsc::channel::<()>();
+        let gate = std::sync::Mutex::new(gate);
+        let keeper = KeepWorker::new_with(move |job| {
+            gate.lock().expect("lock").recv().expect("released");
+            let _ = crate::keep::apply::keep(&job, &|| {});
+        });
+        let (mut app, mut inbox) = start_with_keeper(
+            harness.location.clone(),
+            SettingsStore::default(),
+            Some(keeper.clone()),
+        )
+        .expect("started");
+        let finish = crate::tui::AppEffect::Finish {
+            id: "shown".to_owned(),
+            outcome: crate::tui::Outcome::Submitted {
+                answers: Vec::new(),
+                note: None,
+            },
+        };
+        inbox.apply(&mut app, finish);
+        let old = harness.location.clone();
+
+        harness
+            .run_started(&mut app, &mut inbox, switch_to_work())
+            .expect("runs");
+        assert_eq!(inbox.location(), &work(&harness), "the switch happened");
+        release.send(()).expect("sends");
+        keeper.idle();
+
+        let archived: Vec<_> = fs::read_dir(old.archive())
+            .expect("archive")
+            .map(|entry| entry.expect("entry").path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .collect();
+        let found = archived
+            .iter()
+            .filter_map(|path| fs::read(path).ok())
+            .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .find(|json| json.get("archived").is_some())
+            .expect("the old queue's archived session records its files");
+        let kept = found["questions"][0]["context"][0]["path"]
+            .as_str()
+            .expect("a path");
+        assert!(kept.starts_with("files/"), "{kept}");
+        assert!(old.archive().join(kept).is_file());
+    }
+
     #[test]
     fn a_start_without_a_keeper_keeps_no_files() {
         let harness = two_queues();
