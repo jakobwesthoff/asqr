@@ -117,13 +117,13 @@ Text fields (`intro`, question `text`, option `label` and option
 
 - `id` (required, unique within the session), `text` (required),
   `header` (optional, a short label for the question's tab).
-- `kind`: `single` (pick one), `multi` (pick several, with optional `min`
+- `kind` (required): `single` (pick one), `multi` (pick several, with optional `min`
   and `max`), `text` (typed answer, no options) or `info` (shows its text
   and context and takes no answer). New kinds are added within format
   version 2, so an asqr can meet a kind a newer asqr knows (section 3.4).
 - `options` (required for `single` and `multi`, not allowed for `text`
   and `info`):
-  each option has an `id` (unique within the question), a `label`, the
+  each option has an `id` (unique within the question), a `label` (required), the
   short handle the person picks the option by, shown in full and
   wrapped, an optional `description` of any length shown in full and
   wrapped, an
@@ -218,7 +218,9 @@ given, and a `null` counts as missing.
 Paths, for every type:
 
 - A path is absolute. `asqr ask` resolves relative paths against the
-  file it was given and drops absolute ones. A file dropped by hand must
+  file it was given and leaves absolute ones as they are. It joins the
+  path to the file's directory and does not canonicalise it, so `..` and
+  symlinks stay. A file dropped by hand must
   not use relative paths (section 3.4 lists the warning).
 - asqr reads a file when it first shows it, not when the session
   arrives.
@@ -278,7 +280,9 @@ type: map, expected a sequence`, and a `context` that is no list adds
 `context is a list with one entry: wrap the entry in [ ]`. For a field
 inside a context entry, the path ends at the entry, as in
 `questions[0].context[0]: invalid type: null, expected a string` for a
-`path` of `null`. Several problems are joined with `; `.
+`path` of `null`. Several problems are joined with `; `. A file whose top
+level is no object, and a file without `asqr`, are shape errors too, not
+the version error.
 
 Unknown fields are ignored when parsing, so later format versions can
 add optional fields.
@@ -328,7 +332,11 @@ add optional fields.
   item, which is ignored, as every question takes a note (section 3.2).
 
 `asqr validate <file>` prints `<file>: valid` and exits with 0, or lists
-every error and exits with 11. Warnings never fail it. A file that is
+every error and exits with 11. It prints each problem on stderr, warnings
+first, as `warning: <path>: <problem>` or `error: <path>: <problem>`. A
+version error carries the path `asqr`, as in `error: asqr: unsupported
+format version 2.0`; a shape error without a field path reads `error: not
+a session file: ...`. Warnings never fail it. A file that is
 not JSON, or not shaped like a session, exits with 11 as well; a file
 that cannot be read exits with 1.
 
@@ -611,11 +619,13 @@ patch ansi`, else `dat`. A reader accepts only names of exactly this
 form, so a path edited by hand, `files/../x` for one, is never opened. A
 file shown by several sessions is stored once per place: once loose and
 once in each month bundle that holds a session showing it. Under
-`compact` an image is re-encoded as WebP with its Exif orientation applied
-to the pixels and the original's ICC profile embedded. A WebP, a GIF, an animated PNG, a TIFF with several pages,
-an ICO with several images and a picture of more than 32 million pixels
-are kept as they are, as is an image with a profile for another colour
-space than RGB, and any image whose re-encoding is not smaller or does not
+`compact` an image is re-encoded as lossy WebP at quality 90 with its Exif
+orientation applied to the pixels and the original's ICC profile
+embedded. A WebP, a GIF, an animated PNG, a TIFF with several pages,
+an ICO with several images and a picture of more than 32 × 1024 × 1024
+pixels are kept as they are, as is a picture with a side over 16383 or
+one whose decoded form would need more than 512 MiB, an image with a
+profile for another colour space than RGB, and any image whose re-encoding is not smaller or does not
 show the same picture.
 
 The archived session is the JSON the person saw, with one object added
@@ -675,7 +685,8 @@ The default root is the platform's data directory:
 - `--dir <path>` or `ASQR_DIR` is the queue directory itself, the one
   with `inbox/` inside.
 - `--queue` together with `--dir` is a usage error, and so are
-  `ASQR_QUEUE` and `ASQR_DIR` together. Empty variables count as unset.
+  `ASQR_QUEUE` and `ASQR_DIR` together. Empty variables count as unset,
+  and so do values that are not UTF-8.
 - Flags win over environment variables as a whole (`--dir` with
   `ASQR_QUEUE` set is fine), environment variables win over the tmux
   session (below), and the tmux session wins over the default. A
@@ -686,7 +697,8 @@ The default root is the platform's data directory:
 
 Inside tmux, asqr pairs with the agents of the same tmux session (ADR
 85). When neither a flag nor a variable chose the queue, a command that
-works on a queue (every one but `new`, `validate`, `schema` and `skill`)
+works on a queue (every one but `new`, `validate`, `schema`, `skill` and
+`queues`)
 asks tmux about the pane it runs in, `TMUX_PANE`, with one call:
 `display-message -p -t <pane> '#{session_name}'` and `show-environment
 -t <pane>`. Then:
@@ -722,7 +734,9 @@ Commands log the sessions they drop, finish, archive or prune into
 `asqr.log` in the platform's cache directory (ADR 15). Draft saves are
 not logged. A log that cannot be written never stops a command.
 
-`asqr.log` rotates at 1 MiB (ADR 91). A process that opens the log and
+`asqr.log` rotates at 1 MiB (ADR 91). The process that rotates holds a
+lock on `asqr.rotate.lock` in the same directory, so two processes never
+move a log from the same size check. A process that opens the log and
 finds it at or above that size moves it to `asqr-<UTC timestamp>.log`
 in the same directory, such as `asqr-20261030T120348Z.log`, and starts a
 new `asqr.log`. A later rotation compresses a moved log as gzip into
@@ -759,8 +773,9 @@ read `RUST_LOG`.
 The TUI reads settings from `settings.toml` in the platform's config
 directory (ADR 92): `~/Library/Application Support/asqr/settings.toml`
 on macOS, `$XDG_CONFIG_HOME/asqr/settings.toml` (usually
-`~/.config/asqr/settings.toml`) on Linux. Only `asqr` and `asqr watch`
-read it; every other command leaves it alone. It is a TOML file with
+`~/.config/asqr/settings.toml`) on Linux. Only `asqr`, `asqr watch` and
+the terminal form of `asqr replay` read it; every other command leaves
+it alone. It is a TOML file with
 four keys, each of which may be left out:
 
 | Key | Values | Default | Setting |
@@ -818,8 +833,10 @@ are not supported: the lock is per host (section 5.6).
 ### 5.4 What the watcher considers
 
 asqr only considers files named `inbox/<stem>.json` whose stem is a
-valid id. Everything else is ignored and logged once per run: `*.tmp`,
-dotfiles, editor swap and backup files, `.DS_Store`.
+valid id. A `.json` file with an invalid stem is archived (section 5.8).
+Every other name is ignored and logged once per run: `*.tmp`, dotfiles,
+editor swap and backup files, `.DS_Store`, a `.JSON` file and a file
+named just `.json`.
 
 - Waiting sessions are ordered by file modification time (the drop
   time), with the id as the tie-break.
@@ -845,7 +862,9 @@ dotfiles, editor swap and backup files, `.DS_Store`.
 
 What `ask` drops is a copy of the asker's file: pretty-printed, with the
 `id` filled in, the paths of context entries made absolute and any
-`note` removed from its questions and info items (section 3.2). A
+`note` removed from its questions and info items (section 3.2). Its keys
+are in sorted order, it ends with a newline, and `archived` and `shown`
+are removed (section 3). A
 released asqr that watches the queue reads `note` as a boolean: asqr
 0.13.1 and earlier turn the note off for `"note": false`, and any
 released asqr refuses a `note` that is no boolean. The asker's own file
@@ -951,7 +970,7 @@ One asqr instance per queue. On start the TUI opens `<queue>/lock` and
 takes an exclusive advisory lock on it (flock on Unix).
 
 - A lock that stays held for about 200 ms means another instance runs.
-  asqr prints "another asqr is watching this queue (pid <pid> on
+  asqr prints "error: another asqr is watching this queue (pid <pid> on
   <host>)" and exits with 1, "(pid <pid> on <host>, tmux session
   <session>)" where the holder's tmux pane still belongs to a session.
   Any other error is a plain failure.
@@ -1154,7 +1173,7 @@ or a lock that stays taken is left for the next run and named in the
 output. An entry already in the bundle under the same name with other
 content keeps its loose file. Temp files that a writer left in
 `archive/` or `archive/files/` and that were last written more than 24
-hours ago are removed.
+hours ago are removed. Temp files in other directories stay.
 
 The kept files (section 5.1) of the sessions it bundles go into the bundle
 with them, as `files/<sha256>.<ext>` entries. They are read from
@@ -1185,7 +1204,9 @@ chosen queue it says so on stderr and exits with 1, under `--all` it
 names the queue and goes on. A queue that has no directory is not
 created and counts as nothing to compact. Each bundle that took in
 entries prints as `<month>.zip: <n> sessions, <n> results, <n> replaced
-results`; without any, `nothing to compact` is printed. A skipped month
+results`, with only the nonzero parts and the singular for 1, as in
+`2024-05.zip: 2 sessions, 1 result, 1 replaced result`; under `--all`
+each line starts with `<queue>: `. Without any, `nothing to compact` is printed. A skipped month
 makes the exit code 1.
 
 - `asqr prune --older-than <age>` and `asqr prune --session <ref>` (below)
@@ -1340,6 +1361,9 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr prune --session <ref> [--yes]` | lists, and with `--yes` deletes, one finished session by its REF, with the kept files only it showed (section 5.9) |
 | `asqr skill [<part> \| --install <dir>]` | prints the skill's core or one of its parts, or writes the skill to `<dir>/asqr/` (section 9) |
 
+`asqr --version` and `asqr -V` print the version, `asqr -h` and `asqr
+--help` print the usage, and `asqr help` prints it as a command.
+
 ### 6.2 Flags and environment
 
 Every command takes `--queue` or `--dir` (section 5.2). `--no-notify`,
@@ -1464,7 +1488,10 @@ holder, or `null`), `waiting` (a list of `{id, draft_has_answers}`),
 `answered` (a list of `{id, status}`, with `status` `null` for a result
 that cannot be read; a withdrawn session is listed here with `status`
 `withdrawn`) and `answered_total`. The text form shows the same,
-with "watched by: nobody" when no asqr watches.
+with "watched by: nobody" when no asqr watches. A waiting session whose
+draft has answers reads `(draft with answers)` after its id, and an
+answered row whose result cannot be read shows `unreadable` where the
+JSON has `null`.
 
 Results stay in the outbox or, once they left it, in the month bundles
 (section 5.1) until they are pruned, so `status` lists only part of
@@ -1490,8 +1517,12 @@ month bundles and the asqr watching it, with the tmux session of that asqr where
 pane (section 5.6) and tmux still knows it. A queue whose files cannot
 be read counts as empty and unwatched; the rows of the TUI's switcher
 and picker count the outbox alone; a root whose queues cannot be
-listed is a failure. `--queue` and `--dir` change nothing here. The
-text form:
+listed is a failure. On a platform without a data directory, `queues`,
+`history --all` and `compact --all` fail with exit code 1 and `error: no
+platform data directory found, so there are no named queues`, and the
+search of `replay` for a reference with `error: no platform data
+directory found, so there are no queues to search`. `--queue` and
+`--dir` change nothing here. The text form:
 
 ```
 QUEUE       WAITING  ANSWERED  WATCHED BY
@@ -1534,7 +1565,9 @@ Open one with: asqr replay <REF>
   session whose result carries an unsent `draft`.
 - FILES counts the files the archived session recorded (section 5.1):
   `3 kept`, `1 of 2 gone` (missing or unreadable when it was finished),
-  `2 not kept`, and `-` for a session that shows none or records none.
+  `2 not kept`, `1 of 3 not kept` where some files were kept and some
+  not, and `-` for a session that shows none or records none. A gone
+  file takes precedence over a file not kept.
 - TITLE is the session's `title`, its id without one. Each control
   character in it, an escape or a newline included, is printed as U+FFFD
   so that an agent's title cannot move the cursor or change the terminal.
@@ -1552,7 +1585,10 @@ Open one with: asqr replay <REF>
   is not given, and must be at least 1. `--since <age>` keeps the sessions
   archived within that age, in the units of `status --since`. The header
   reads `finished (10 of 52):` when the limit cut the list, `finished
-  (4 in 3d):` with `--since` and `finished (3):` otherwise.
+  (4 in 3d):` with `--since` and `finished (3):` otherwise; both
+  together read `finished (10 of 52 in 3d):`. The age is shown in the
+  largest unit that holds it exactly, so `--since 24h` reads `1d` and
+  `--since 7d` reads `1w`.
 - `--all` lists every queue under the root (section 5.2), the queue in use
   first and the others by name, one block each; `--limit` and `--since`
   apply per queue. A queue given by `--dir` is listed first and the
@@ -1716,8 +1752,9 @@ A result's JSON ends without a newline. When a hint follows a printed
 result, stderr gets an empty line first, so the hint starts a line of
 its own where the two streams are shown together.
 
-Order: after a drop, the warning about who watches (section 5.5) comes
-first, then the line for a variable beside the session's pin, then the
+Order: after a drop, the notice that it replaced the waiting session
+(section 5.5) comes right after the drop, then the warning about who
+watches (section 5.5), then the line for a variable beside the session's pin, then the
 line for a withdrawn `draft`, then the one for warnings or the reminder
 to wait. Under `--wait`, the first
 comes before the id, and the one for warnings only when the wait ends
@@ -1809,9 +1846,11 @@ before the id.
 ### 7.1 Starting and quitting
 
 `asqr` (or `asqr watch`) starts on the queue chosen by section 5.2. It
-needs a terminal on stdin and stdout; otherwise it prints "asqr needs a
-terminal" and exits with 1. It takes the queue lock (section 5.6),
-creates the queue's directories and compacts the queue (section 5.9).
+needs a terminal on stdin and stdout; otherwise it prints "error: asqr
+needs a terminal; run it in a terminal of its own" and exits with 1. It
+takes the queue lock (section 5.6), creates the queue's directories and
+compacts the queue (section 5.9) before it looks for the terminal, so a
+start without one has done all three.
 
 Outside tmux, with no queue chosen by a flag or a variable, and with a
 queue besides `default` under the data directory that no other asqr
@@ -1823,11 +1862,13 @@ cursor starts on `default` where no other asqr watches it, else on the
 first queue it may watch, else on the new-queue row. The footer follows
 the cursor as outside tmux in the switcher. `enter` takes the queue
 under the cursor, or the one named on the new-queue row, as a switch
-takes it, and asqr runs on it; a queue another asqr took meanwhile, or
+takes it (compacting that queue), and asqr runs on it; a queue another asqr took meanwhile, or
 one that cannot be watched or read, leaves the picker open with the
 switch's notice in its status line (section 7.9). `q` and `ctrl-c` quit,
 and so do SIGTERM, SIGINT and SIGHUP; on the new-queue row `q` types,
-and `esc` stops typing there and does nothing elsewhere.
+and `esc` stops typing there and does nothing elsewhere. While the
+new-queue row has the keys, the key bar is the switcher's typing bar,
+`enter  create   esc  stop typing`, with the version at its right end.
 
 Inside tmux, on a named queue, asqr pins its queue in its tmux session
 once it runs: `tmux set-environment -t <pane> ASQR_SESSION_QUEUE
@@ -1923,7 +1964,8 @@ has context (section 7.4, ADRs 30 and 31):
   needs: first the blank line, then intro lines down to one. The `from`
   and `follows` line stays.
 - The tab bar lists every question by its `header` (or id) with `☒`
-  once it is answered and a dim `☐` while it is not, an info item with a
+  once it is answered or its default would be sent and a dim `☐` while
+  it is not, an info item with a
   dim `ℹ`, and `✔ Review` last. The current tab is bold in the primary colour, and the line under
   the bar is heavy (`━`) and in the primary colour under it, thin and dim
   elsewhere. When the tabs do not fit, the bar scrolls around the current
@@ -1994,7 +2036,8 @@ has context (section 7.4, ADRs 30 and 31):
   switcher closes and every 5 seconds; a queue that cannot be read
   counts as empty. Where the line does not fit, a single queue's name is
   cut from its start down to 12 columns, then the queues read `other
-  queues`, then the line reads `N wait elsewhere`; `w  queues` stays.
+  queues`, then the line reads `N wait elsewhere` (`1 waits elsewhere`
+  for one session); `w  queues` stays.
 - The key bar shows the keys that work where the cursor is; they change
   inside a field. Each key is bold in the primary colour and its
   description dim, without a fill. Hints that do not fit its width are
@@ -2010,8 +2053,8 @@ has context (section 7.4, ADRs 30 and 31):
 
 - The colours (ADR 37) are the terminal's named colours, so its theme
   decides how they look: cyan as the primary colour, yellow for the
-  focus, green and red for the length counter and the fills of changed
-  diff lines, yellow,
+  focus, green, yellow and red for the length counter, green and red
+  for the fills of changed diff lines, yellow,
   red and green for notices and messages by their kind, dim for
   secondary text.
 - The row under the cursor, a field's head under it while the field
@@ -2194,7 +2237,8 @@ has context (section 7.4, ADRs 30 and 31):
   VTE, Konsole, Alacritty, Rio and Contour, from the versions ADR 43
   names) get Talqi in sextants, every other terminal in quadrant
   blocks. Inside tmux, the terminal of the client tmux draws for
-  decides; inside GNU screen or Zellij, Talqi is drawn in quadrant
+  decides, and Talqi is drawn in quadrant blocks where tmux gives no
+  answer; inside GNU screen or Zellij, Talqi is drawn in quadrant
   blocks. There is no setting for it.
 - The key bar names `w  queues`, which opens the queue switcher, `,
   settings`, which opens the settings pane (both section 7.6), and `q
@@ -2262,7 +2306,9 @@ On an option row (vim style plus arrows):
     `.diff` added, or `diff.diff`. Its sides are read and compared as the
     pane reads and compares them (section 8.5). The header names the file
     as `a/<name>` and `b/<name>`, a side the entry leaves out as
-    `/dev/null`. Each note the pane shows about a side cut by a limit or
+    `/dev/null`. `<name>` is the whole `name` or `title`, each `\` and
+    control character turned into `_` and a leading `/` removed, or
+    `file` where the entry has neither. Each note the pane shows about a side cut by a limit or
     about line endings comes first, as a line of its own above the
     header. A side that cannot be read writes nothing, and the notice
     "cannot open <file>: old side: <reason>" names the side.
@@ -2367,7 +2413,7 @@ Overlays and dialogs:
 - The session list (`L`) lists every waiting session in queue order
   (section 5.4) and switches between them: `↑`/`↓` or `k`/`j` move,
   `enter` switches to the session, `esc` or `L` close the list, and `q`
-  quits asqr.
+  quits asqr. Its key bar reads `↑/↓  move   enter  open   esc  close`.
 - The queue switcher (`w`, ADR 86) opens where `L` opens the session
   list and over the empty queue; in a field `w` types, and the focused
   pane and the full-screen view take it. The general help names it on
@@ -2421,7 +2467,7 @@ Overlays and dialogs:
     open, as wide as its rows and every row's footer; a long new name
     widens it up to the screen.
   - The switch takes the new queue's lock, makes its directories,
-    watches its inbox and reads it, saves the draft of every session of
+    compacts it (section 5.9), watches its inbox and reads it, saves the draft of every session of
     the old queue that holds an answer, and only then lets go of the old
     queue. Inside tmux it pins a named queue in the session of asqr's
     pane last (ADR 85). The status line says what came of it (section
@@ -2600,7 +2646,9 @@ line (ADR 36).
   terminal sends until 150 ms pass without input, at most for a second,
   as an answer to a query the editor sent the terminal would reach asqr
   as keys; keys typed then are dropped too. While the editor runs asqr
-  does nothing else: what happens in the queue meanwhile shows after it.
+  does nothing else: what happens in the queue meanwhile shows after it,
+  and SIGINT is ignored. SIGTERM and SIGHUP quit asqr after the editor
+  has ended.
   The file holds the field's text, then:
 
   ```
@@ -2656,9 +2704,10 @@ and colour is only added on top:
 - `182/125 !!` above `warn`
 
 The length counts characters, a line break as one. The number after the
-slash is the end of the target range, or `warn` without a target. Green
-within the target, yellow above it, red above `warn`. Input is never
-refused.
+slash is the end of the target range, or `warn` without a target. A
+`length` with neither shows a bare count, always at the within-target
+level. Green within the target, yellow above it, red above `warn`.
+Input is never refused.
 
 ### 7.8 The review tab
 
@@ -2749,7 +2798,12 @@ keeps the session and shows its own notice instead.
     0.39.0, which shows the percentage in the tab's title. Windows
     Terminal names no version, so one before 1.6 is not told apart.
     Every other terminal, and one whose version cannot be read, gets
-    nothing: several show any OSC 9 as a desktop notification.
+    nothing: several show any OSC 9 as a desktop notification. GNU screen
+    (`TERM` starting with `screen`) and Zellij get nothing whatever else
+    is set. A terminal that sets `TERM_PROGRAM` is judged by it alone.
+    Where `TERM_PROGRAM` is unset, `LC_TERMINAL=iTerm2` counts as iTerm2
+    with the version of `LC_TERMINAL_VERSION`, as over ssh, and
+    `WT_SESSION` counts as Windows Terminal.
   - Ghostty clears the bar after a while without an update, so it gets
     the progress again every second while one shows.
   - Inside tmux the client's terminal decides, from its answer to
@@ -3443,12 +3497,15 @@ warning for it.
   its SGR sequences set: bold (`1`), dim (`2`), italic (`3`), underlined
   (`4`, also `21` and the underline styles `4:1` to `4:5`, all drawn as
   a single underline), reversed (`7`) and crossed out (`9`), each
-  switched off by `22` (bold and dim), `23`, `24`, `27` and `29`. The
+  switched off by `22` (bold and dim), `23`, `24` (`4:0` too), `27` and
+  `29`. The
   named colours, `30` to `37` and `90` to `97` and the backgrounds `40`
   to `47` and `100` to `107`, are the slots 0 to 15 of the terminal's
   palette, so they follow the person's theme. `38` and `48` take `5;n`
   for slot `n` of 256, where the slots 0 to 15 are those of the named
-  colours, and `2;r;g;b` for an RGB colour, written with `;` or `:`.
+  colours, and `2;r;g;b` for an RGB colour, written with `;` or `:`; the
+  colon form also takes a colour-space number after the `2`, as in
+  `38:2:cs:r:g:b`, which asqr ignores.
   `0`, or no parameter, resets everything, `39` and `49` the colours. A
   style holds until a sequence changes it, across line ends too.
 - Every other parameter is skipped: blink, hidden, fonts, overline, the
@@ -3490,7 +3547,10 @@ installing it is possible but in most cases not needed. `asqr skill
 --install <dir>` takes a skills root, writes `<dir>/asqr/SKILL.md`,
 replaces `<dir>/asqr/references/` whole and leaves any other file in
 `<dir>/asqr/` alone, so `asqr skill --install .claude/skills` works and
-running it again replaces an older copy, parts included.
+running it again replaces an older copy, parts included. It prints
+`installed <path>` on stdout for `SKILL.md` and each part as it is
+written. When writing fails it prints `error: cannot install the skill
+into <dir>/asqr: <error>` and exits with 1.
 
 `asqr ask` and `asqr validate` look for installed copies of the skill and
 print one hint on stderr (section 6.7) when a copy is older than the asqr
@@ -3562,7 +3622,7 @@ apply on one branch of the work, and stays under 30,000 bytes. The core's first 
 to read it to its last line and names that line, `End of the asqr
 skill.`; each part starts by naming the core and ends with a line of its
 own. The core names each part by its path and by `asqr skill <part>`,
-in a list at the top and at the step that needs it.
+in a list at the top, and again at a step that needs it.
 
 The skill teaches, in the core unless a part is named:
 
