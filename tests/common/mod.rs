@@ -14,6 +14,11 @@ use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
 
+/// How long, in milliseconds, asqr waits for a stand-in `tmux` in the
+/// tests. The stand-in is a script that took 650 ms to start beside a
+/// second test run, longer than the 500 ms tmux gets in use.
+pub const STAND_IN_PATIENCE_MS: &str = "30000";
+
 pub struct Sandbox {
     home: tempfile::TempDir,
 }
@@ -56,6 +61,7 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
             .env("XDG_CONFIG_HOME", self.home.path().join(".config"))
+            .env(asqr::pairing::TIMEOUT_VARIABLE, STAND_IN_PATIENCE_MS)
             .env_remove("ASQR_QUEUE")
             .env_remove("ASQR_DIR")
             .env_remove("ASQR_LOG")
@@ -82,6 +88,7 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
             .env("XDG_CONFIG_HOME", self.home.path().join(".config"))
+            .env(asqr::pairing::TIMEOUT_VARIABLE, STAND_IN_PATIENCE_MS)
             .env_remove("ASQR_QUEUE")
             .env_remove("ASQR_DIR")
             .env_remove("ASQR_LOG")

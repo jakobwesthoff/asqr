@@ -113,6 +113,22 @@ fn the_pin_wins_over_the_session_name() {
     assert_eq!(queue, "asqr-todos");
 }
 
+/// A script cannot start and answer within a millisecond, so a tmux that
+/// gets that long is given up on however quickly the stand-in answers.
+#[test]
+fn the_timeout_the_test_variable_sets_is_the_one_tmux_gets() {
+    let sandbox = Sandbox::new();
+    let tmux = StandInTmux::new(&sandbox);
+
+    let (queue, stderr) = queue_of(
+        tmux.asqr(&sandbox, "my work")
+            .env(asqr::pairing::TIMEOUT_VARIABLE, "1"),
+    );
+
+    assert_eq!(queue, "default");
+    assert_eq!(stderr, "");
+}
+
 #[test]
 fn an_unreachable_tmux_uses_the_default_queue_without_a_word() {
     let sandbox = Sandbox::new();

@@ -12,6 +12,7 @@
 //! the tmux they may run in.
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -29,6 +30,34 @@ pub const SESSION_QUEUE: &str = "ASQR_SESSION_QUEUE";
 /// that does not answer within a hundred times that is taken as gone,
 /// and no command waits on a hung tmux longer.
 pub const TMUX_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// The variable through which a debug build takes another timeout than
+/// [`TMUX_TIMEOUT`], in milliseconds. The tests' stand-in `tmux` is a
+/// script that took 650 ms to start beside a second test run, longer than
+/// tmux gets in use; the tests set the variable so the stand-in is not
+/// given up on.
+pub const TIMEOUT_VARIABLE: &str = "ASQR_TEST_TMUX_TIMEOUT_MS";
+
+/// The longest timeout the variable may set. Beyond what `Instant` can add
+/// to now, the wait would panic; ten minutes is far past any test.
+const LONGEST_TIMEOUT_MS: u64 = 600_000;
+
+/// How long tmux gets to answer given the value of [`TIMEOUT_VARIABLE`]:
+/// the milliseconds it holds in a debug build, and [`TMUX_TIMEOUT`] when
+/// it is unset, not a positive number of milliseconds, or in a release
+/// build.
+fn timeout_from(variable: Option<&OsStr>, debug_build: bool) -> Duration {
+    if !debug_build {
+        return TMUX_TIMEOUT;
+    }
+    variable
+        .and_then(OsStr::to_str)
+        .and_then(|milliseconds| milliseconds.parse::<u64>().ok())
+        .filter(|milliseconds| *milliseconds > 0)
+        .map_or(TMUX_TIMEOUT, |milliseconds| {
+            Duration::from_millis(milliseconds.min(LONGEST_TIMEOUT_MS))
+        })
+}
 
 /// Where this process runs, as far as pairing goes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -84,7 +113,10 @@ impl Default for SystemTmux {
     fn default() -> Self {
         SystemTmux {
             program: PathBuf::from("tmux"),
-            timeout: TMUX_TIMEOUT,
+            timeout: timeout_from(
+                std::env::var_os(TIMEOUT_VARIABLE).as_deref(),
+                cfg!(debug_assertions),
+            ),
         }
     }
 }
@@ -604,6 +636,10 @@ mod tests {
     // Running tmux
     // -----------------------------------------------------------------
 
+    /// The timeout of the tests that run a real script, which beside a
+    /// second test run may need longer than [`TMUX_TIMEOUT`] to start.
+    const PATIENT: Duration = Duration::from_secs(30);
+
     /// An executable script with `body` in a fresh directory.
     fn script(body: &str) -> (tempfile::TempDir, PathBuf) {
         use std::os::unix::fs::PermissionsExt;
@@ -618,7 +654,7 @@ mod tests {
     #[test]
     fn answers_what_tmux_printed() {
         let (_dir, program) = script(r#"echo "$*""#);
-        let tmux = SystemTmux::at(program, TMUX_TIMEOUT);
+        let tmux = SystemTmux::at(program, PATIENT);
 
         assert_eq!(
             tmux.run(Some("/tmp/sock"), &["display-message", "-p", "x"]),
@@ -629,7 +665,7 @@ mod tests {
     #[test]
     fn a_failing_tmux_is_a_failure_with_its_message() {
         let (_dir, program) = script("echo 'no server running' >&2\nexit 1");
-        let tmux = SystemTmux::at(program, TMUX_TIMEOUT);
+        let tmux = SystemTmux::at(program, PATIENT);
 
         assert_eq!(
             tmux.run(None, &["display-message"]),
@@ -665,7 +701,7 @@ mod tests {
     #[test]
     fn a_tmux_ended_by_a_signal_is_a_failure() {
         let (_dir, program) = script("kill -9 $$");
-        let tmux = SystemTmux::at(program, TMUX_TIMEOUT);
+        let tmux = SystemTmux::at(program, PATIENT);
 
         assert_eq!(
             tmux.run(None, &["display-message"]),
@@ -696,9 +732,48 @@ mod tests {
     fn the_system_tmux_is_tmux_on_the_path_with_the_timeout() {
         let tmux = SystemTmux::default();
 
+        // A run that exports the variable, as the tests of the binary do,
+        // changes the timeout, not the program.
         assert_eq!(
             (tmux.program, tmux.timeout),
-            (PathBuf::from("tmux"), TMUX_TIMEOUT)
+            (
+                PathBuf::from("tmux"),
+                timeout_from(
+                    std::env::var_os(TIMEOUT_VARIABLE).as_deref(),
+                    cfg!(debug_assertions)
+                )
+            )
         );
+    }
+
+    fn timeout_given(variable: &str) -> Duration {
+        timeout_from(Some(OsStr::new(variable)), true)
+    }
+
+    #[test]
+    fn a_debug_build_takes_the_milliseconds_of_the_variable() {
+        assert_eq!(timeout_given("30000"), Duration::from_secs(30));
+        assert_eq!(timeout_given("1"), Duration::from_millis(1));
+    }
+
+    #[test]
+    fn a_value_beyond_ten_minutes_counts_as_ten_minutes() {
+        assert_eq!(
+            timeout_given("18446744073709551615"),
+            Duration::from_secs(600)
+        );
+    }
+
+    #[test]
+    fn a_release_build_ignores_the_variable() {
+        assert_eq!(timeout_from(Some(OsStr::new("30000")), false), TMUX_TIMEOUT);
+    }
+
+    #[test]
+    fn a_variable_that_is_no_positive_number_of_milliseconds_is_ignored() {
+        for value in ["", "0", "abc", "-1", "1.5", "30 s"] {
+            assert_eq!(timeout_given(value), TMUX_TIMEOUT, "{value:?}");
+        }
+        assert_eq!(timeout_from(None, true), TMUX_TIMEOUT);
     }
 }

@@ -142,6 +142,12 @@ impl Tui {
         command.env("XDG_DATA_HOME", sandbox.home().join(".local/share"));
         command.env("XDG_CACHE_HOME", sandbox.home().join(".cache"));
         command.env("XDG_CONFIG_HOME", sandbox.home().join(".config"));
+        // The stand-in tmux below may start slowly beside a second test
+        // run, and asqr would give it up at the 500 ms it has in use.
+        command.env(
+            asqr::pairing::TIMEOUT_VARIABLE,
+            common::STAND_IN_PATIENCE_MS,
+        );
         command.env_remove("ASQR_QUEUE");
         command.env_remove("ASQR_LAYOUT");
         command.env_remove("ASQR_DIR");
