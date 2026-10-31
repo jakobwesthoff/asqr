@@ -120,23 +120,6 @@ prints it and ends, and your agent reads your answers and notes and goes
 on. [How an agent asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
 shows the session file an agent writes and the result it reads.
 
-## Try it without an agent
-
-In a second terminal, or a second pane of the same tmux session, ask the
-session that `asqr new` prints. It has three questions: a single choice, a
-multiple choice and a typed answer.
-
-```sh
-asqr new > questions.json
-id=$(asqr ask questions.json)
-asqr wait "$id"
-```
-
-`asqr ask` checks the file, drops it into the queue and prints the
-session's id. `asqr wait` blocks until you have submitted, then prints the
-result as JSON. Its exit code is 0 for a submitted session and 10 for one
-you rejected. `asqr result "$id"` looks once and does not wait.
-
 ## Next
 
 - [Common questions](01M690YKZXCMGCA31H3HTHFYJE-common-questions.md)
