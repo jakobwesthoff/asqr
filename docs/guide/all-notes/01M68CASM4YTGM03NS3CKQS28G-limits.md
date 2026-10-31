@@ -55,7 +55,9 @@ asqr cuts or simplifies what is large:
 ## What asqr does not have
 
 - Networking, several people on one queue, and sockets.
-- An MCP server.
+- An MCP server. Agents ask through commands and files, as
+  [Common questions](01M690YKZXCMGCA31H3HTHFYJE-common-questions.md)
+  explains.
 - `asqr answer`, answering one file in the current terminal without a
   queue.
 - Partial submits.

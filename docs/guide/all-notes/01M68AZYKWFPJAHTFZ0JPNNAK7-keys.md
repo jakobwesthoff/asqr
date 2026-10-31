@@ -40,13 +40,14 @@ These keys work on the rows of a question and its options.
 - Inside a field, every key that produces text types, so `n`, `q` and
   the others type there until you press `esc`.
 
-The pages that explain these keys: `i` is on
-[the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md), `n`, `space`, the
+The pages that explain these keys: [answering a
+session](01M6916HYT9Z4N422AX47A8JQH-answering-a-session.md) has the common
+ones, `i` is on [the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md), `n`, `space`, the
 digits and `backspace` are on
 [questions and answers](01M68BT9AXJNJQR45K1FBR9VTG-questions-and-answers.md),
-`tab` is on [the context pane](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md),
-`o`, `z` and `s` are on
-[looking at an entry](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md),
+`tab`, `o`, `z` and `s` are on [context: files, diffs and
+images](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md) and
+[the context pane in detail](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md),
 `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` are on
 [less obvious keys](01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md), `L`
 and `w` are on [queues](01M68C1XV58STWHBH179QYXPZR-queues.md) and `,` is on

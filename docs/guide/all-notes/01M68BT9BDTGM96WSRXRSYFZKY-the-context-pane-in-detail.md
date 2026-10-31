@@ -108,9 +108,12 @@ it cell by cell and drops every other escape sequence.
 Terminals that support the Kitty graphics protocol (Ghostty, kitty), the
 iTerm2 protocol (iTerm2, WezTerm) or Sixel show an image inline. Other
 terminals get a coarse rendering in blocks. Inside tmux, images reach the
-terminal only when tmux passes escape sequences through: put
-`set -g allow-passthrough all` into your tmux configuration. Without it
+terminal only when tmux passes escape sequences through, and without that
 asqr shows images as coarse blocks.
+
+> [!TIP]
+> Inside tmux, put `set -g allow-passthrough all` into your tmux
+> configuration, so images reach your terminal.
 
 asqr scales an image to fill the pane as far as its proportions allow. An
 entry the asker marked with `"enlarge": false` keeps its natural size and
