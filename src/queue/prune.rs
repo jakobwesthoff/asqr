@@ -10,59 +10,89 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use super::names::entries_if_present;
-use super::{QueueLocation, list_queues, lock_drafts, parse_archive_name, try_lock_queue};
+use super::{
+    DRAFTS_LOCK_ATTEMPTS, Month, QueueLocation, list_queues, lock_drafts, parse_archive_name,
+    try_lock_queue,
+};
 
-/// Removes archive entries archived more than `older_than` before `now`,
-/// judged by the ULID in their name, and returns what was removed.
+/// The archive entries and month bundles older than `older_than` at `now`,
+/// removed when `remove` is set and only listed otherwise, as a sorted
+/// list of their paths.
 ///
-/// Results in the outbox belong to the asker, so they are only removed with
-/// `include_results`, going by their modification time, and then unread
-/// ones go as well. Files in the archive that are not archive entries stay.
+/// An entry is old once all of its month is: its month ends before the
+/// cutoff. A loose archive entry is judged by the month of the ULID in its
+/// name, the same as the bundle it would be in, so what goes does not
+/// depend on whether the compaction has run. Results in the outbox are
+/// never removed, and neither are files in the archive that are no
+/// entries or bundles.
+///
+/// Removing takes the drafts lock, under which the compaction renames
+/// bundles and removes loose files, so a bundle that is removed here does
+/// not come back.
 pub fn prune(
     location: &QueueLocation,
     older_than: Duration,
-    include_results: bool,
     now: SystemTime,
+    remove: bool,
 ) -> io::Result<Vec<PathBuf>> {
+    prune_with(location, older_than, now, remove, DRAFTS_LOCK_ATTEMPTS)
+}
+
+/// [`prune`] that tries the drafts lock `lock_attempts` times.
+pub fn prune_with(
+    location: &QueueLocation,
+    older_than: Duration,
+    now: SystemTime,
+    remove: bool,
+    lock_attempts: u32,
+) -> io::Result<Vec<PathBuf>> {
+    // Taking the lock would make a queue that is not there.
+    if !location.dir().is_dir() {
+        return Ok(Vec::new());
+    }
     let cutoff = now
         .checked_sub(older_than)
         .unwrap_or(SystemTime::UNIX_EPOCH);
-    let mut removed = Vec::new();
+    let old = |month: Month| month.end() <= cutoff;
+    let _lock = if remove {
+        Some(lock_drafts(location, lock_attempts)?)
+    } else {
+        None
+    };
 
+    let mut found = Vec::new();
     for entry in entries_if_present(&location.archive())? {
-        let archived = entry
-            .file_name()
-            .to_str()
-            .and_then(parse_archive_name)
-            .map(|parsed| parsed.ulid.datetime());
-        if archived.is_some_and(|archived| archived < cutoff) {
-            std::fs::remove_file(entry.path())?;
-            removed.push(entry.path());
+        let name = entry.file_name();
+        let name = name.to_str().unwrap_or_default();
+        let month = match parse_archive_name(name) {
+            Some(parsed) => Some(Month::of(parsed.ulid)),
+            None => name
+                .strip_suffix(".zip")
+                .and_then(|month| month.parse().ok()),
+        };
+        if month.is_some_and(old) {
+            found.push(entry.path());
         }
     }
-
-    if include_results {
-        for entry in entries_if_present(&location.outbox())? {
-            if entry.metadata()?.modified()? < cutoff {
-                std::fs::remove_file(entry.path())?;
-                removed.push(entry.path());
-            }
+    found.sort();
+    if remove {
+        for path in &found {
+            remove_if_present(std::fs::remove_file(path))?;
         }
     }
-
-    removed.sort();
-    Ok(removed)
+    Ok(found)
 }
 
 /// Removes every named queue under `root` that no asqr watches and that
-/// holds no file, and returns their directories. Its lock files, `lock`
+/// holds no file, or only lists them when `remove` is not set, and
+/// returns their directories. Its lock files, `lock`
 /// and `drafts.lock`, hold no session data and do not count. A queue that
 /// cannot be locked at once, or holds anything, stays.
 ///
 /// Both locks are held while the queue goes, and the lock files are
 /// removed while they are held, so a process that waits on one finds its
 /// file gone and takes the lock anew on a fresh queue (ADR 85).
-pub fn prune_empty_queues(root: &Path) -> io::Result<Vec<PathBuf>> {
+pub fn prune_empty_queues(root: &Path, remove: bool) -> io::Result<Vec<PathBuf>> {
     let mut removed = Vec::new();
     for summary in list_queues(root)? {
         let location = summary.location;
@@ -80,17 +110,19 @@ pub fn prune_empty_queues(root: &Path) -> io::Result<Vec<PathBuf>> {
         if !holds_nothing(&location)? {
             continue;
         }
-        for dir in [
-            location.inbox(),
-            location.outbox(),
-            location.drafts(),
-            location.archive(),
-        ] {
-            remove_if_present(std::fs::remove_dir(dir))?;
+        if remove {
+            for dir in [
+                location.inbox(),
+                location.outbox(),
+                location.drafts(),
+                location.archive(),
+            ] {
+                remove_if_present(std::fs::remove_dir(dir))?;
+            }
+            std::fs::remove_file(location.drafts_lock_file())?;
+            std::fs::remove_file(location.lock_file())?;
+            std::fs::remove_dir(location.dir())?;
         }
-        std::fs::remove_file(location.drafts_lock_file())?;
-        std::fs::remove_file(location.lock_file())?;
-        std::fs::remove_dir(location.dir())?;
         removed.push(location.dir().to_path_buf());
     }
     Ok(removed)
@@ -130,7 +162,10 @@ mod tests {
     use ulid::Ulid;
 
     use super::*;
-    use crate::queue::{Archived, archive_name, lock_drafts};
+    use crate::queue::{
+        Archived, EntryKind, EntryName, Month, NewEntry, add_entries, archive_name, bundle_path,
+        lock_drafts,
+    };
 
     const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -143,17 +178,6 @@ mod tests {
         let location = QueueLocation::at(scratch.path().join("queue"));
         location.create_layout().expect("layout");
         (scratch, location)
-    }
-
-    fn archive_entry(location: &QueueLocation, id: &str, age: Duration, kind: Archived) -> String {
-        let time = now() - age;
-        let millis = time
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("after epoch")
-            .as_millis() as u64;
-        let name = archive_name(id, Ulid::from_parts(millis, 7), kind);
-        fs::write(location.archive().join(&name), "{}").expect("written");
-        name
     }
 
     fn result_aged(location: &QueueLocation, id: &str, age: Duration) -> String {
@@ -184,49 +208,109 @@ mod tests {
         names
     }
 
-    #[test]
-    fn removes_archive_entries_older_than_the_duration() {
-        let (_scratch, location) = queue();
-        let old_session = archive_entry(&location, "old", 40 * DAY, Archived::Session);
-        let old_result = archive_entry(&location, "old", 35 * DAY, Archived::Result);
-        let recent = archive_entry(&location, "recent", 2 * DAY, Archived::Session);
-        fs::write(location.archive().join("not-an-entry.txt"), "").expect("written");
+    /// The bundle of `month` holding one session.
+    fn bundle_of(location: &QueueLocation, month: Month) {
+        let name = EntryName {
+            kind: EntryKind::Session,
+            id: "a".to_owned(),
+            ulid: Ulid::from_parts(millis(month.start()), 1),
+        };
+        add_entries(
+            location,
+            month,
+            &[NewEntry {
+                name,
+                bytes: b"{}".to_vec(),
+            }],
+            now(),
+        )
+        .expect("bundled");
+    }
 
-        let removed = prune(&location, 30 * DAY, false, now()).expect("prunes");
+    fn millis(time: SystemTime) -> u64 {
+        time.duration_since(SystemTime::UNIX_EPOCH)
+            .expect("after the epoch")
+            .as_millis() as u64
+    }
 
-        assert_eq!(
-            removed,
-            [
-                location.archive().join(&old_session),
-                location.archive().join(&old_result)
-            ]
-        );
-        assert_eq!(
-            names(&location.archive()),
-            ["not-an-entry.txt".to_owned(), recent]
-        );
+    fn at(text: &str) -> SystemTime {
+        SystemTime::from(text.parse::<jiff::Timestamp>().expect("a timestamp"))
+    }
+
+    fn loose_at(location: &QueueLocation, id: &str, when: &str) -> PathBuf {
+        let name = archive_name(id, Ulid::from_parts(millis(at(when)), 7), Archived::Session);
+        let path = location.archive().join(name);
+        fs::write(&path, "{}").expect("written");
+        path
     }
 
     #[test]
-    fn leaves_the_outbox_alone_unless_asked() {
+    fn removes_a_bundle_once_all_of_its_month_is_older_than_the_age() {
         let (_scratch, location) = queue();
-        let unread = result_aged(&location, "unread", 40 * DAY);
+        let september = Month::new(2026, 9).expect("a month");
+        let october = Month::new(2026, 10).expect("a month");
+        bundle_of(&location, september);
+        bundle_of(&location, october);
+        // September ends at 2026-10-01T00:00:00Z; the age puts the cutoff
+        // exactly there.
+        let now = at("2026-10-31T00:00:00Z");
 
-        prune(&location, 30 * DAY, false, now()).expect("prunes");
+        let removed = prune(&location, 30 * DAY, now, true).expect("prunes");
+
+        assert_eq!(removed, [bundle_path(&location, september)]);
+        assert!(bundle_path(&location, october).is_file());
+    }
+
+    #[test]
+    fn keeps_a_bundle_whose_month_ends_one_second_after_the_cutoff() {
+        let (_scratch, location) = queue();
+        let september = Month::new(2026, 9).expect("a month");
+        bundle_of(&location, september);
+
+        let removed = prune(&location, 30 * DAY, at("2026-10-30T23:59:59Z"), true).expect("prunes");
+
+        assert_eq!(removed, Vec::<PathBuf>::new());
+        assert!(bundle_path(&location, september).is_file());
+    }
+
+    #[test]
+    fn treats_a_loose_entry_like_its_months_bundle() {
+        let (_scratch, location) = queue();
+        let early = loose_at(&location, "early", "2026-10-02T10:00:00Z");
+        let late = loose_at(&location, "late", "2026-09-10T10:00:00Z");
+        fs::write(location.archive().join("not-an-entry.txt"), "").expect("written");
+        // Cutoff 2026-10-16: September is entirely older, October is not.
+        let now = at("2026-11-15T00:00:00Z");
+
+        let removed = prune(&location, 30 * DAY, now, true).expect("prunes");
+
+        assert_eq!(removed, std::slice::from_ref(&late));
+        assert!(early.exists());
+        assert!(!late.exists());
+        assert!(location.archive().join("not-an-entry.txt").exists());
+    }
+
+    #[test]
+    fn a_dry_run_lists_what_it_would_remove_and_removes_nothing() {
+        let (_scratch, location) = queue();
+        let loose = loose_at(&location, "old", "2026-08-10T10:00:00Z");
+        bundle_of(&location, Month::new(2026, 7).expect("a month"));
+
+        let listed = prune(&location, 30 * DAY, now(), false).expect("prunes");
+
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        assert!(loose.exists());
+        assert!(bundle_path(&location, Month::new(2026, 7).expect("a month")).exists());
+    }
+
+    #[test]
+    fn leaves_the_outbox_alone() {
+        let (_scratch, location) = queue();
+        let unread = result_aged(&location, "unread", 400 * DAY);
+
+        prune(&location, 30 * DAY, now(), true).expect("prunes");
 
         assert_eq!(names(&location.outbox()), [unread]);
-    }
-
-    #[test]
-    fn removes_old_results_when_asked() {
-        let (_scratch, location) = queue();
-        let old = result_aged(&location, "old", 40 * DAY);
-        let recent = result_aged(&location, "recent", DAY);
-
-        let removed = prune(&location, 30 * DAY, true, now()).expect("prunes");
-
-        assert_eq!(removed, [location.outbox().join(old)]);
-        assert_eq!(names(&location.outbox()), [recent]);
     }
 
     #[test]
@@ -235,9 +319,20 @@ mod tests {
         let location = QueueLocation::at(scratch.path().join("unused"));
 
         assert_eq!(
-            prune(&location, DAY, true, now()).expect("prunes"),
+            prune(&location, 30 * DAY, now(), true).expect("prunes"),
             Vec::<std::path::PathBuf>::new()
         );
+    }
+
+    #[test]
+    fn a_busy_drafts_lock_stops_a_prune_that_removes() {
+        let (_scratch, location) = queue();
+        loose_at(&location, "old", "2026-08-10T10:00:00Z");
+        let _held = lock_drafts(&location, 1).expect("locked");
+
+        let failed = prune_with(&location, 30 * DAY, now(), true, 1);
+
+        assert_eq!(failed.expect_err("busy").kind(), io::ErrorKind::WouldBlock);
     }
 
     // -----------------------------------------------------------------
@@ -259,10 +354,21 @@ mod tests {
         let scratch = tempfile::tempdir().expect("temp dir");
         let stray = used(scratch.path(), "asqr-todo");
 
-        let removed = prune_empty_queues(scratch.path()).expect("prunes");
+        let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
 
         assert_eq!(removed, [stray.dir().to_path_buf()]);
         assert!(!stray.dir().exists());
+    }
+
+    #[test]
+    fn a_dry_run_lists_a_queue_that_holds_nothing_and_keeps_it() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let stray = used(scratch.path(), "asqr-todo");
+
+        let listed = prune_empty_queues(scratch.path(), false).expect("lists");
+
+        assert_eq!(listed, [stray.dir().to_path_buf()]);
+        assert!(stray.inbox().is_dir());
     }
 
     #[test]
@@ -273,7 +379,7 @@ mod tests {
             let file = location.dir().join(place).join("left.json");
             fs::write(&file, "{}").expect("written");
 
-            let removed = prune_empty_queues(scratch.path()).expect("prunes");
+            let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
 
             assert_eq!(removed, Vec::<PathBuf>::new(), "a file in {place}");
             fs::remove_file(&file).expect("removed again");
@@ -286,7 +392,7 @@ mod tests {
         let watched = used(scratch.path(), "work");
         let _held = crate::queue::lock_queue(&watched, None).expect("locks");
 
-        let removed = prune_empty_queues(scratch.path()).expect("prunes");
+        let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
 
         assert_eq!(removed, Vec::<PathBuf>::new());
         assert!(watched.inbox().is_dir());
@@ -298,7 +404,7 @@ mod tests {
         let busy = used(scratch.path(), "work");
         let _held = lock_drafts(&busy, 1).expect("locks");
 
-        let removed = prune_empty_queues(scratch.path()).expect("prunes");
+        let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
 
         assert_eq!(removed, Vec::<PathBuf>::new());
         assert!(busy.inbox().is_dir());
@@ -308,7 +414,7 @@ mod tests {
     fn the_default_queue_before_its_first_use_is_no_removed_queue() {
         let scratch = tempfile::tempdir().expect("temp dir");
 
-        let removed = prune_empty_queues(scratch.path()).expect("prunes");
+        let removed = prune_empty_queues(scratch.path(), true).expect("prunes");
 
         assert_eq!(removed, Vec::<PathBuf>::new());
         assert!(!scratch.path().join("queues").exists(), "nothing made");
@@ -318,7 +424,7 @@ mod tests {
     fn a_drop_after_the_removal_makes_the_queue_again() {
         let scratch = tempfile::tempdir().expect("temp dir");
         let location = used(scratch.path(), "work");
-        prune_empty_queues(scratch.path()).expect("prunes");
+        prune_empty_queues(scratch.path(), true).expect("prunes");
 
         crate::queue::drop_session(&location, "batch", b"{}", false).expect("dropped");
 

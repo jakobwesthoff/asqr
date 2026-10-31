@@ -1044,14 +1044,28 @@ entries prints as `<month>.zip: <n> sessions, <n> results, <n> replaced
 results`; without any, `nothing to compact` is printed. A skipped month
 makes the exit code 1.
 
-- `asqr prune --older-than <duration>` removes archive entries older than
-  the duration, going by the ULID in their name. A duration is a whole
-  number with one unit, `s`, `m`, `h`, `d` or `w`, such as `30d`. Names
-  are parsed from the end, since the ULID is a fixed 26 characters and
-  ids may contain `.`. A malformed duration is a usage error.
-- `--results` also removes files in the outbox last modified before the
-  duration. Its help text says plainly that unread results are removed
-  too.
+- `asqr prune --older-than <age>` is the only way asqr deletes sessions
+  and results. An age is a whole number with one unit, `d` (days), `w`
+  (weeks), `mo` (months of 30 days) or `y` (years of 365 days), such as
+  `90d`, and at least 30 days. The units `s`, `m` and `h` are refused as
+  a usage error that names `d`, `w`, `mo` and `y`, and so is an age
+  below 30 days. A month bundle (section 5.1) is deleted once all of its
+  month is older than the age, so an entry goes with its month. A loose
+  archive entry is judged the same way by the month of the ULID in its
+  name, which is parsed from the end, since the ULID is a fixed 26
+  characters and ids may contain `.`; what goes does not depend on
+  whether the compaction has run. Results in the outbox are never
+  deleted, and files in `archive/` that are no entries or bundles stay.
+- Without `--yes`, `prune` deletes nothing: it prints `would remove
+  <path>` for each file and queue it would delete, then `nothing was
+  removed; run again with --yes to remove these`, or `nothing to remove`.
+  It never asks. With `--yes` it deletes and prints each as `removed
+  <path>`. Deleting takes the drafts lock (section 5.6), which the
+  compaction holds while it renames a bundle, so a deleted bundle does
+  not come back.
+- `--results` is a usage error that names the new form: asqr moves
+  results older than 30 days into the archive, and `prune --older-than`
+  deletes them there with their month.
 - Drafts are never pruned.
 - `prune` also removes every named queue under the root (section 5.2)
   that no asqr watches and that holds no file: its four directories are
@@ -1059,11 +1073,10 @@ makes the exit code 1.
   hold no session data and do not count. It takes both locks without
   waiting and skips a queue where either is taken, removes the four
   directories and then the lock files while it holds them, and the
-  queue's directory last; each removed queue prints as `removed
-  <directory>`. The default queue goes too when it holds nothing, and is
+  queue's directory last; each queue prints like a file does, as `would
+  remove <directory>` or `removed <directory>`. The default queue goes too when it holds nothing, and is
   made again on its next use. Which queues go does not depend on
   `--queue` or `--dir`.
-- Both print every file they remove, as `removed <path>`.
 
 ### 5.10 Withdrawing a session
 
@@ -1142,7 +1155,7 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
 | `asqr compact [--all]` | bundles sessions and results older than 30 days into month bundles (section 5.9) |
-| `asqr prune --older-than <duration> [--results]` | section 5.9 |
+| `asqr prune --older-than <age> [--yes]` | lists, and with `--yes` deletes, archive entries and bundles of months older than the age (section 5.9) |
 | `asqr skill [<part> \| --install <dir>]` | prints the skill's core or one of its parts, or writes the skill to `<dir>/asqr/` (section 9) |
 
 ### 6.2 Flags and environment
@@ -1267,7 +1280,7 @@ them:
   `submitted_at` goes by its file's modification time. Results finished
   at the same time are ordered by id.
 - `--since <age>` keeps the results finished within that age. The age
-  has the form of `prune --older-than` (section 5.9).
+  is a whole number with one unit, `s`, `m`, `h`, `d` or `w`, such as `2h`.
 - `--limit <count>` lists at most that many, 10 when it is not given.
   `--all` lists every result and cannot be combined with `--limit`.
 - `answered_total` counts the results `--since` keeps, before the limit

@@ -69,12 +69,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   new `ask` of its id. `asqr result <id>` still prints it from the
   archive until the new session is answered.
 
-- `asqr result`, `wait`, `status`, `withdraw` and `queues` also read the
-  month bundles of the archive, `archive/<YYYY-MM>.zip`. A result that
-  left the outbox is printed from its bundle as it was written, and
-  `status` lists bundled results among the answered sessions. The header
-  of a session that `follows` another shows the title of a bundled
-  session too.
+- `asqr prune --older-than` takes the units `d`, `w`, `mo` and `y`, at
+  least 30 days, and deletes the month bundles and archive entries of
+  months that are entirely older than the age. Without `--yes` it only
+  lists what it would delete and says to run it again with `--yes`. This
+  covers the removal of named queues that hold nothing too.
+- A result older than 30 days leaves the outbox, so it no longer stops a
+  new `ask` of its id. `asqr result <id>` still prints it from the
+  archive until the new session is answered.
+
+### Removed
+
+- `asqr prune --results`, and the units `s`, `m` and `h` of `--older-than`:
+  using them is a usage error that names the new form. Results in the
+  outbox are no longer deleted by `prune`.
 
 ### Fixed
 

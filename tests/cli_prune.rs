@@ -6,28 +6,63 @@
 
 mod common;
 
-use asqr::format::{SessionResult, now_rfc3339};
-use asqr::queue::{QueueLocation, finish, session_sha256};
-use common::{Sandbox, stdout};
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
-fn asked_and_answered(sandbox: &Sandbox, id: &str) {
-    let file = sandbox.file(
-        &format!("{id}.json"),
-        &format!(r#"{{"asqr": 2, "id": "{id}", "questions": [{{"id": "q", "text": "?", "kind": "text"}}]}}"#),
-    );
-    sandbox
-        .asqr_in_queue(&["ask"])
-        .arg(&file)
-        .assert()
-        .success();
-    let path = sandbox.queue_dir().join("inbox").join(format!("{id}.json"));
-    let sha = session_sha256(&std::fs::read(&path).expect("waiting"));
-    finish(
-        &QueueLocation::at(sandbox.queue_dir()),
-        &path,
-        &SessionResult::submitted(id, &sha, &now_rfc3339(), None, Vec::new()),
+use asqr::queue::{
+    Archived, EntryKind, EntryName, Month, NewEntry, QueueLocation, add_entries, archive_name,
+    bundle_path,
+};
+use common::{Sandbox, stderr, stdout};
+use ulid::Ulid;
+
+fn queue(sandbox: &Sandbox) -> QueueLocation {
+    let location = QueueLocation::at(sandbox.queue_dir());
+    location.create_layout().expect("layout");
+    location
+}
+
+fn ago(days: u64) -> SystemTime {
+    SystemTime::now() - Duration::from_secs(days * 24 * 60 * 60)
+}
+
+fn ulid_at(time: SystemTime) -> Ulid {
+    let millis = time
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_millis() as u64;
+    Ulid::from_parts(millis, 1)
+}
+
+/// A session archived loose `days` ago.
+fn loose(location: &QueueLocation, id: &str, days: u64) -> PathBuf {
+    let path = location
+        .archive()
+        .join(archive_name(id, ulid_at(ago(days)), Archived::Session));
+    std::fs::write(&path, "{}").expect("written");
+    path
+}
+
+/// The bundle of the month `days` ago, holding one session; its path.
+fn bundle(location: &QueueLocation, days: u64) -> PathBuf {
+    let ulid = ulid_at(ago(days));
+    let month = Month::of(ulid);
+    let name = EntryName {
+        kind: EntryKind::Session,
+        id: "a".to_owned(),
+        ulid,
+    };
+    add_entries(
+        location,
+        month,
+        &[NewEntry {
+            name,
+            bytes: b"{}".to_vec(),
+        }],
+        SystemTime::now(),
     )
-    .expect("finished");
+    .expect("bundled");
+    bundle_path(location, month)
 }
 
 fn count(sandbox: &Sandbox, dir: &str) -> usize {
@@ -37,54 +72,145 @@ fn count(sandbox: &Sandbox, dir: &str) -> usize {
 }
 
 #[test]
-fn removes_archive_entries_and_prints_them() {
+fn without_yes_prune_lists_what_it_would_remove_and_removes_nothing() {
     let sandbox = Sandbox::new();
-    asked_and_answered(&sandbox, "done");
+    let location = queue(&sandbox);
+    let entry = loose(&location, "old", 400);
+    let zip = bundle(&location, 800);
 
     let output = sandbox
-        .asqr_in_queue(&["prune", "--older-than", "0s"])
+        .asqr_in_queue(&["prune", "--older-than", "90d"])
         .output()
         .expect("runs");
 
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let printed = stdout(&output);
     assert!(
-        stdout(&output).starts_with("removed "),
-        "{}",
-        stdout(&output)
+        printed.contains(&format!("would remove {}\n", entry.display()))
+            && printed.contains(&format!("would remove {}\n", zip.display())),
+        "{printed}"
     );
-    assert_eq!(count(&sandbox, "archive"), 0);
-    assert_eq!(
-        count(&sandbox, "outbox"),
-        1,
-        "results stay without --results"
+    assert!(
+        printed.ends_with("nothing was removed; run again with --yes to remove these\n"),
+        "{printed}"
     );
+    assert!(entry.exists() && zip.exists());
 }
 
 #[test]
-fn removes_results_only_when_asked() {
+fn with_yes_prune_removes_and_prints_what_it_removed() {
     let sandbox = Sandbox::new();
-    asked_and_answered(&sandbox, "done");
+    let location = queue(&sandbox);
+    let entry = loose(&location, "old", 400);
+    let zip = bundle(&location, 800);
+    let young = loose(&location, "young", 2);
 
-    sandbox
-        .asqr_in_queue(&["prune", "--older-than", "0s", "--results"])
-        .assert()
-        .success();
+    let output = sandbox
+        .asqr_in_queue(&["prune", "--older-than", "90d", "--yes"])
+        .output()
+        .expect("runs");
 
-    assert_eq!(count(&sandbox, "outbox"), 0);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let printed = stdout(&output);
+    assert!(
+        printed.contains(&format!("removed {}\n", entry.display()))
+            && printed.contains(&format!("removed {}\n", zip.display())),
+        "{printed}"
+    );
+    assert!(!entry.exists() && !zip.exists());
+    assert!(young.exists());
 }
 
 #[test]
-fn keeps_what_is_younger_than_the_age() {
+fn a_dry_run_with_nothing_to_remove_says_so() {
     let sandbox = Sandbox::new();
-    asked_and_answered(&sandbox, "done");
+    let location = queue(&sandbox);
+    loose(&location, "young", 2);
 
     let output = sandbox
         .asqr_in_queue(&["prune", "--older-than", "30d"])
         .output()
         .expect("runs");
 
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(stdout(&output), "nothing to remove\n");
+}
+
+#[test]
+fn removing_nothing_prints_nothing() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    loose(&location, "young", 2);
+
+    let output = sandbox
+        .asqr_in_queue(&["prune", "--older-than", "30d", "--yes"])
+        .output()
+        .expect("runs");
+
     assert_eq!(stdout(&output), "");
     assert_eq!(count(&sandbox, "archive"), 1);
+}
+
+#[test]
+fn the_outbox_is_never_pruned() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    std::fs::write(location.outbox().join("old.json"), "{}").expect("written");
+
+    sandbox
+        .asqr_in_queue(&["prune", "--older-than", "30d", "--yes"])
+        .assert()
+        .success();
+
+    assert_eq!(count(&sandbox, "outbox"), 1);
+}
+
+#[test]
+fn results_is_a_usage_error_naming_the_new_form() {
+    let output = Sandbox::new()
+        .asqr_in_queue(&["prune", "--older-than", "30d", "--results"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("--results is gone")
+            && stderr(&output).contains("asqr prune --older-than"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn the_units_seconds_minutes_and_hours_are_usage_errors() {
+    for age in ["30s", "90m", "12h"] {
+        let output = Sandbox::new()
+            .asqr_in_queue(&["prune", "--older-than", age])
+            .output()
+            .expect("runs");
+
+        assert_eq!(output.status.code(), Some(2), "{age}");
+        assert!(
+            stderr(&output).contains("d, w, mo or y"),
+            "{}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn an_age_below_30_days_is_a_usage_error() {
+    let output = Sandbox::new()
+        .asqr_in_queue(&["prune", "--older-than", "29d"])
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("at least 30 days"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]
@@ -98,25 +224,36 @@ fn a_malformed_age_is_a_usage_error() {
 }
 
 #[test]
+fn status_since_still_takes_hours_and_minutes() {
+    let sandbox = Sandbox::new();
+    queue(&sandbox);
+
+    for age in ["2h", "30m", "45s"] {
+        sandbox
+            .asqr_in_queue(&["status", "--since", age])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
 fn fails_when_the_archive_cannot_be_read() {
     let sandbox = Sandbox::new();
-    asked_and_answered(&sandbox, "done");
+    queue(&sandbox);
     let archive = sandbox.queue_dir().join("archive");
     std::fs::remove_dir_all(&archive).expect("removed");
     std::fs::write(&archive, "not a directory").expect("written");
 
     let output = sandbox
-        .asqr_in_queue(&["prune", "--older-than", "0s"])
+        .asqr_in_queue(&["prune", "--older-than", "30d"])
         .output()
         .expect("runs");
 
     assert_eq!(output.status.code(), Some(1));
 }
 
-#[test]
-fn removes_a_named_queue_that_holds_nothing_and_prints_it() {
-    let sandbox = Sandbox::new();
-    // A mistyped queue name made a queue on its first use.
+/// A named queue that holds nothing, made by a mistyped name; its path.
+fn stray_queue(sandbox: &Sandbox) -> String {
     let output = sandbox
         .asqr()
         .args(["--queue", "asqr-todo", "status"])
@@ -131,10 +268,37 @@ fn removes_a_named_queue_that_holds_nothing_and_prints_it() {
     let paths: serde_json::Value = serde_json::from_str(&stdout(&paths)).expect("JSON");
     let stray = paths["queue"].as_str().expect("a queue").to_owned();
     std::fs::create_dir_all(std::path::Path::new(&stray).join("inbox")).expect("made");
+    stray
+}
+
+#[test]
+fn a_dry_run_lists_a_named_queue_that_holds_nothing_and_keeps_it() {
+    let sandbox = Sandbox::new();
+    let stray = stray_queue(&sandbox);
 
     let output = sandbox
         .asqr()
         .args(["prune", "--older-than", "30d"])
+        .output()
+        .expect("runs");
+
+    assert!(output.status.success());
+    assert!(
+        stdout(&output).starts_with(&format!("would remove {stray}\n")),
+        "{}",
+        stdout(&output)
+    );
+    assert!(std::path::Path::new(&stray).exists());
+}
+
+#[test]
+fn removes_a_named_queue_that_holds_nothing_and_prints_it() {
+    let sandbox = Sandbox::new();
+    let stray = stray_queue(&sandbox);
+
+    let output = sandbox
+        .asqr()
+        .args(["prune", "--older-than", "30d", "--yes"])
         .output()
         .expect("runs");
 

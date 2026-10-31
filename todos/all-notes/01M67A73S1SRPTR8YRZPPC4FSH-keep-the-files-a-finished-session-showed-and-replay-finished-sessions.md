@@ -2,7 +2,6 @@
 title: "Keep the files a finished session showed, and replay finished sessions"
 kind: feature
 component: queue
-status: blocked
 origin: request
 tags: [ux]
 ---
@@ -169,15 +168,22 @@ give the archive a read-only viewer so it can be looked at.
   of its own, so the replay shows the copy and the person sees where it
   came from.
 - Copies are stored under their hash, so a file shown by several
-  sessions is kept once, and go into the same month bundle as the
-  sessions that showed them (todo 01M67993BS7SNZZ8VVRET8FKYP).
+  sessions is kept once, and go into the month bundle as
+  `files/<sha256>.<ext>`: that prefix is reserved in the bundle layout
+  (spec 5.1, ADR 96), and adding entries needs no change to the
+  existing ones.
 - asqr reads a shown file within its usual limits (images up to 64 MiB,
   text up to 8 MiB); a file it cannot read is recorded as missing in the
   archived session, not an error.
-- The replay reads the month bundles directly.
+- The replay reads the month bundles directly, through the module
+  `queue::bundle` (`list_entries`, `read_entry`, `newest_session`), which
+  `status`, `result` and `withdraw` use too. A bundle is rewritten as
+  `prepare_bundle`, `still_current` under the drafts lock and `commit`
+  do (module docs of `src/queue/bundle.rs`); `prune --session` rewrites
+  a bundle the same way.
+- A result lies in the month it was finished in and its session in the
+  month it was archived, which can be a later one, so the replay pairs a
+  session with its result across bundles by `session_sha256`, not by
+  assuming one bundle holds both.
 - Every re-encoded image is decoded back (`image` decodes WebP); when
   that fails, the original is kept instead.
-
-## Relations
-
-- Depends on: [Bundle and compress finished sessions and old results per month](01M67993BS7SNZZ8VVRET8FKYP-bundle-and-compress-finished-sessions-and-old-results-per-month.md)

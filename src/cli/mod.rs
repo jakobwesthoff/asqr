@@ -205,14 +205,20 @@ enum Command {
         all: bool,
     },
 
-    /// Remove archived sessions, and with --results old results too.
+    /// List, and with --yes remove, archived sessions and results of
+    /// months older than an age.
     Prune {
-        /// Remove what is older than this age, such as 30d, 12h or 2w.
-        #[arg(long, value_name = "AGE", value_parser = prune::parse_age)]
+        /// Remove what lies in months older than this age, such as 90d, 2w
+        /// or 6mo: days, weeks (w), months of 30 days (mo) or years of 365
+        /// days (y), at least 30d.
+        #[arg(long, value_name = "AGE", value_parser = prune::parse_prune_age)]
         older_than: Duration,
 
-        /// Also remove results in the outbox, unread ones included.
+        /// Remove; without it, prune only lists what it would remove.
         #[arg(long)]
+        yes: bool,
+
+        #[arg(long, hide = true)]
         results: bool,
     },
 
@@ -491,10 +497,17 @@ fn dispatch(
         ),
         Command::Queues { json } => queues::run(root.as_deref(), tmux, json),
         Command::Compact { all } => compact::run(&location, root.as_deref(), all),
+        Command::Prune { results: true, .. } => {
+            eprintln!(
+                "error: --results is gone: asqr moves results older than 30 days into the archive, where `asqr prune --older-than <age>` removes them with their month"
+            );
+            Exit::Usage
+        }
         Command::Prune {
             older_than,
-            results,
-        } => prune::run(&location, root.as_deref(), older_than, results),
+            yes,
+            results: false,
+        } => prune::run(&location, root.as_deref(), older_than, yes),
         Command::Skill { part, install } => skill::run(part.as_deref(), install.as_deref()),
         Command::Validate { file } => format::run_validate(&file),
         Command::Schema { result } => format::run_schema(result),
@@ -1429,7 +1442,7 @@ mod tests {
     fn prune_without_a_data_directory_prunes_the_queue_directory_alone() {
         let scratch = tempfile::tempdir().expect("temp dir");
         let dir = scratch.path().to_str().expect("UTF-8 temp path");
-        let cli = Cli::try_parse_from(["asqr", "--dir", dir, "prune", "--older-than", "1d"])
+        let cli = Cli::try_parse_from(["asqr", "--dir", dir, "prune", "--older-than", "30d"])
             .expect("parses");
 
         let exit = dispatch(cli, Environment::default(), &Unasked, None, None, |_| {
