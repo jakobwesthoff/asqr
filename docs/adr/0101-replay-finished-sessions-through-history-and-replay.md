@@ -104,7 +104,12 @@ rows, `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` keep their meaning.
 - The status line at rest says what the screen is, when the session ended
   and how, and what the colours mean. A notice replaces it for as long as
   it lasts and the title bar keeps the mark.
-- The last tab is `Result`.
+- Unpicked options are dim and the pick keeps its mark in the primary
+  colour. The cursor still browses every option, since the option under it
+  shows its own context. A withdrawn session's draft shows dim, with
+  `◀ draft` on the option it picked.
+- The last tab is `Result`. It says how the session ended, lists one line
+  per answer and shows the note and, for a rejection, the reason.
 - While sessions wait in the queue, the title bar counts them and the
   status line says where to answer. The replay does not notify and has no
   key that hands the session over.

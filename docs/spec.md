@@ -2817,10 +2817,10 @@ live session has `Review`.
   empty.
 - The title bar reads `asqr ◷ read-only` followed by the title, the mark
   in the warning colour without a fill. It is part of the bar, so every
-  state of the screen shows it. At the right end stand `<queue> · replay
-  <REF>` dim and, while sessions wait in the queue, `▲ <n> waiting` in the
-  warning colour; where the bar is too narrow the queue and the reference
-  go before the title is cut or the count is.
+  state of the screen shows it. At the right end, dim, stand `<queue> ·
+  replay <REF>` and, while sessions wait in the queue, ` · <n> waiting`;
+  where the bar is too narrow the queue and the reference go before the
+  title is cut, and the count stays.
 - The status line at rest is in the warning colour: `◷ replay · sent Thu
   29 Oct 16:41 · read-only · only your answers stand out`. `rejected` and
   `error` replace `sent` for those results, `withdrawn` ends in `dim is
@@ -2828,7 +2828,20 @@ live session has `Review`.
   archived <time>`. While sessions wait it ends in `<n> waiting, answer in
   the asqr that watches the queue` instead. A notice replaces the line for
   as long as it lasts.
-- The tab of the result carries `✔`, or `↩` for a withdrawn session.
+- The options the person did not pick are dim and the pick keeps its
+  `(•)` or `[x]` in the primary colour. The cursor still moves over every
+  option, so the context of each shows, and the row under it keeps the
+  focus fill. For a withdrawn session everything the draft picked is dim
+  too, and the picked option ends in `◀ draft`, as a default ends in `◀
+  default`.
+- The tab of the result carries `✔`, or `↩` for a withdrawn session. It
+  opens with one line on how the session ended (`Sent <time>`, `Rejected
+  <time>`, `Ended in an error <time>`, `Withdrawn <time>, the answers
+  below were never sent`, or `No result answers this session`), then
+  lists every question with its answer as the review of section 7.8
+  does, the tally of answered, skipped and defaulted questions, and the
+  session's note, a dash where there is none. A rejected session adds the
+  reason. There is no Submit button and no field.
 - The key bar names `↑/↓ move`, `←/→ question`, `tab context` where a
   pane shows, `? help` and `q quit`.
 

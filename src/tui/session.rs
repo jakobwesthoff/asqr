@@ -25,6 +25,7 @@ use super::{
     EditRequest, FieldAbout, FieldKey, FieldName, FieldShape, Leave, Notice, Offset, Page,
     QuestionAbout, TextField, Tone, holds_scissors,
 };
+use crate::queue::HistoryOutcome;
 
 pub use crate::format::Length;
 use crate::format::{
@@ -887,6 +888,18 @@ impl SessionState {
     pub fn rows(&self) -> Vec<Row> {
         if self.on_review() {
             let questions = (0..self.session.questions.len()).map(Row::Question);
+            // A replay has no button to press and no reason to give, only
+            // the note, and the reason of a rejection to read.
+            if self.read_only {
+                let rejected = self
+                    .replay_info
+                    .as_ref()
+                    .is_some_and(|replay| replay.outcome == HistoryOutcome::Rejected);
+                return questions
+                    .chain([Row::Note])
+                    .chain(rejected.then_some(Row::Reject))
+                    .collect();
+            }
             return questions
                 .chain([Row::Submit, Row::Note, Row::Reject])
                 .collect();

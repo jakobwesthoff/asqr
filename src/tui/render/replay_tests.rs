@@ -26,9 +26,9 @@ const SESSION: &str = r#"{"asqr": 2, "title": "README hero image, round 2",
     "questions": [
     {"id": "hero", "header": "Hero", "text": "Which hero image should the README use?", "kind": "single",
      "options": [
-       {"id": "a", "label": "A  Dark terminal", "description": "The queue switcher in Ghostty."},
+       {"id": "a", "label": "A Dark terminal", "description": "The queue switcher in Ghostty."},
        {"id": "b", "label": "B  Light card", "description": "One session on a cream card."},
-       {"id": "c", "label": "C  Split", "description": "Terminal left, card right."}]},
+       {"id": "c", "label": "C Split", "description": "Terminal left, card right."}]},
     {"id": "badges", "header": "Badges", "text": "Which badges?", "kind": "multi",
      "options": [{"id": "ci", "label": "CI"}, {"id": "lic", "label": "Licence"}]}
 ]}"#;
@@ -55,7 +55,9 @@ fn replay_app(outcome: HistoryOutcome) -> App {
             ..Answer::new("badges")
         },
     ];
-    let draft = SessionResult::draft("hero-2", "hero", answers);
+    let mut draft = SessionResult::draft("hero-2", "hero", answers);
+    draft.note = Some("thanks".to_owned());
+    draft.reason = Some("not this round".to_owned());
     let mut app = App::default();
     app.add(SessionState::replay("hero-2", session, Some(&draft)).with_replay_info(info(outcome)));
     app
@@ -234,7 +236,7 @@ fn waiting_sessions_are_counted_in_the_title_bar_and_the_status_line_says_where_
     let backend = screen(&app, 120, 30);
 
     assert!(
-        row(backend.buffer(), 0).ends_with("default · replay 7C3FA19K  ▲ 2 waiting"),
+        row(backend.buffer(), 0).ends_with("default · replay 7C3FA19K · 2 waiting"),
         "{}",
         row(backend.buffer(), 0)
     );
@@ -243,8 +245,9 @@ fn waiting_sessions_are_counted_in_the_title_bar_and_the_status_line_says_where_
         "◷ replay · sent Thu 29 Oct 16:41 · read-only · 2 waiting, answer in the asqr that watches the queue"
     );
     assert_eq!(
-        style_at(backend.buffer(), "▲ 2 waiting").fg,
-        theme::warning().fg
+        style_at(backend.buffer(), "2 waiting").add_modifier,
+        theme::secondary().add_modifier,
+        "dim, as the count of a live title bar"
     );
 }
 
@@ -271,7 +274,7 @@ fn a_narrow_bar_gives_up_the_queue_before_the_title_or_the_count() {
         title.starts_with(" asqr ◷ read-only  README hero image"),
         "{title}"
     );
-    assert!(title.ends_with("▲ 1 waiting"), "{title}");
+    assert!(title.ends_with("1 waiting"), "{title}");
 }
 
 #[test]
@@ -307,4 +310,225 @@ fn the_time_is_written_as_a_weekday_a_date_and_the_minute() {
         crate::tui::replay_time_text(time, &jiff::tz::TimeZone::UTC),
         "Thu 29 Oct 16:41"
     );
+}
+
+// =========================================================
+// The options
+// =========================================================
+
+fn dim(buf: &ratatui::buffer::Buffer, text: &str) -> bool {
+    buf[find(buf, text)].modifier.contains(Modifier::DIM)
+}
+
+#[test]
+fn unpicked_options_are_dim_and_the_pick_is_not() {
+    let mut app = replay_app(HistoryOutcome::Sent);
+    // The cursor stands on the first option, so the pick is not the row
+    // the fill covers.
+    let backend = screen(&app, 120, 30);
+    let buf = backend.buffer();
+
+    assert!(dim(buf, "( ) 3."), "an unpicked option is dim");
+    assert!(dim(buf, "C Split"), "its label too");
+    assert!(!dim(buf, "(•) 2."), "the pick is not dim");
+    assert_eq!(look_at(buf, "(•)").0, theme::chosen().fg.expect("a colour"));
+    app.handle(key(KeyCode::Down));
+}
+
+#[test]
+fn the_cursor_row_keeps_its_fill_on_an_unpicked_option() {
+    let backend = screen(&replay_app(HistoryOutcome::Sent), 120, 30);
+    let buf = backend.buffer();
+
+    // The cursor starts on the first option, which is not the pick.
+    let cell = &buf[find(buf, "A Dark terminal")];
+
+    assert!(
+        cell.modifier.contains(Modifier::REVERSED),
+        "the cursor row is filled"
+    );
+    assert!(!cell.modifier.contains(Modifier::DIM), "and not dim");
+}
+
+#[test]
+fn a_withdrawn_draft_shows_dim_with_its_marker_on_the_pick() {
+    let mut app = replay_app(HistoryOutcome::Withdrawn);
+    // Off the pick, so the pick row is not under the fill.
+    app.handle(key(KeyCode::Up));
+    app.handle(key(KeyCode::Down));
+    app.handle(key(KeyCode::Down));
+    app.handle(key(KeyCode::Down));
+    let backend = screen(&app, 120, 30);
+    let buf = backend.buffer();
+
+    let marked = rows(buf)
+        .into_iter()
+        .find(|row| row.contains("B Light card"))
+        .expect("a row");
+
+    assert!(marked.trim_end().ends_with("◀ draft"), "{marked}");
+    assert!(dim(buf, "(•) 2."), "the draft is dim, the pick too");
+    assert_eq!(
+        rows(buf)
+            .iter()
+            .filter(|row| row.contains("◀ draft"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_sent_answer_has_no_draft_marker() {
+    let backend = screen(&replay_app(HistoryOutcome::Sent), 120, 30);
+
+    assert!(
+        !rows(backend.buffer())
+            .iter()
+            .any(|row| row.contains("◀ draft"))
+    );
+}
+
+// =========================================================
+// The result tab
+// =========================================================
+
+fn result_tab(outcome: HistoryOutcome) -> Vec<String> {
+    let mut app = replay_app(outcome);
+    app.handle(key(KeyCode::Right));
+    app.handle(key(KeyCode::Right));
+    let backend = screen(&app, 120, 30);
+    rows(backend.buffer())
+}
+
+#[test]
+fn the_result_tab_says_how_it_ended_and_lists_the_answers_and_the_note() {
+    let rows = result_tab(HistoryOutcome::Sent);
+    let text = rows.join("\n");
+
+    assert!(text.contains("Sent Thu 29 Oct 16:41"), "{text}");
+    assert!(
+        text.contains("Hero") && text.contains("B Light card"),
+        "{text}"
+    );
+    assert!(
+        text.contains("answered 2 · skipped 0 · defaulted 0"),
+        "{text}"
+    );
+    assert!(text.contains("✎ Note to the asker: thanks"), "{text}");
+    assert!(
+        !text.contains("[ Submit ]") && !text.contains("Reject"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_rejected_result_shows_its_reason() {
+    let text = result_tab(HistoryOutcome::Rejected).join("\n");
+
+    assert!(text.contains("Rejected Thu 29 Oct 16:41"), "{text}");
+    assert!(
+        text.contains("✗ Rejected, reason: not this round"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_withdrawn_result_says_the_draft_was_never_sent() {
+    let text = result_tab(HistoryOutcome::Withdrawn).join("\n");
+
+    assert!(
+        text.contains("Withdrawn Thu 29 Oct 16:41, the answers below were never sent"),
+        "{text}"
+    );
+    assert!(!text.contains("Rejected, reason"), "{text}");
+}
+
+#[test]
+fn a_session_without_a_result_says_so_on_the_result_tab() {
+    let text = result_tab(HistoryOutcome::NoResult).join("\n");
+
+    assert!(text.contains("No result answers this session"), "{text}");
+}
+
+// =========================================================
+// Whole screens
+// =========================================================
+
+/// The cursor stands on the option a withdrawn draft picked, as a person
+/// who moved to the pick would see it.
+fn on_the_pick(app: &mut App) {
+    app.handle(key(KeyCode::Down));
+}
+
+#[test]
+fn replay_withdrawn_screens() {
+    for (width, height) in [(80, 24), (120, 30)] {
+        let mut app = replay_app(HistoryOutcome::Withdrawn);
+        on_the_pick(&mut app);
+        app.handle(key(KeyCode::Down));
+        insta::assert_snapshot!(
+            format!("replay_withdrawn_{width}x{height}"),
+            screen(&app, width, height)
+        );
+    }
+}
+
+#[test]
+fn replay_sent_screens() {
+    for (width, height) in [(80, 24), (120, 30)] {
+        let app = replay_app(HistoryOutcome::Sent);
+        insta::assert_snapshot!(
+            format!("replay_sent_{width}x{height}"),
+            screen(&app, width, height)
+        );
+    }
+}
+
+#[test]
+fn replay_result_tab_screens() {
+    for (width, height) in [(80, 24), (120, 30)] {
+        let mut app = replay_app(HistoryOutcome::Sent);
+        app.handle(key(KeyCode::Right));
+        app.handle(key(KeyCode::Right));
+        insta::assert_snapshot!(
+            format!("replay_result_tab_{width}x{height}"),
+            screen(&app, width, height)
+        );
+    }
+}
+
+#[test]
+fn replay_no_color_screen() {
+    let mut view =
+        View::for_tests("default", PaneLayout::Auto, Images::half_blocks()).no_color(true);
+
+    insta::assert_snapshot!(
+        "replay_no_color_120x30",
+        screen_in(&replay_app(HistoryOutcome::Sent), &mut view, 120, 30)
+    );
+}
+
+#[test]
+fn an_error_result_says_it_ended_in_an_error() {
+    let text = result_tab(HistoryOutcome::Error).join("\n");
+
+    assert!(
+        text.contains("Ended in an error Thu 29 Oct 16:41"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_note_that_was_never_written_shows_as_a_dash() {
+    let session: Session = serde_json::from_str(SESSION).expect("parses");
+    let mut app = App::default();
+    app.add(
+        SessionState::replay("hero-2", session, None).with_replay_info(info(HistoryOutcome::Sent)),
+    );
+    app.handle(key(KeyCode::Right));
+    app.handle(key(KeyCode::Right));
+
+    let text = rows(screen(&app, 120, 30).buffer()).join("\n");
+
+    assert!(text.contains("✎ Note to the asker: —"), "{text}");
 }

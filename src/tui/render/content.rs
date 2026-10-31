@@ -30,6 +30,7 @@ use super::viewer::Viewers;
 use super::wrap::{cut_spans, indented, trim_end, wrap};
 use crate::format::{Choice, Kind, Length, has_text};
 use crate::graphics::Images;
+use crate::queue::HistoryOutcome;
 use crate::tui::text_field::{FieldShape, TextField, counted_lines, resting_lines};
 use crate::tui::{Focus, Row, RowCut, RowTop, SessionState, has_context};
 
@@ -56,10 +57,25 @@ const DEFAULT_MARKER: &str = "◀ default";
 /// text before it.
 const MARKER_GAP: usize = 2;
 
+/// What stands at the right end of the first line of the option a
+/// withdrawn session's draft had picked.
+const DRAFT_MARKER: &str = "◀ draft";
+
 /// The columns the marker of a default option takes from the end of its
 /// first line, its gap included.
 fn marker_room() -> usize {
     columns(DEFAULT_MARKER) + MARKER_GAP
+}
+
+/// The columns `marker` takes from the end of the first line of its
+/// option, its gap included.
+fn room_for(marker: Option<&str>) -> usize {
+    marker.map_or(0, |marker| columns(marker) + MARKER_GAP)
+}
+
+/// Whether `span` is one of the markers an option's first line ends in.
+fn is_marker(span: &Span<'_>) -> bool {
+    span.content == DEFAULT_MARKER || span.content == DRAFT_MARKER
 }
 
 /// Lines of a tab and where the row under the cursor sits among them.
@@ -589,7 +605,15 @@ fn question_content(
         .flatten()
         .enumerate()
         .map(|(index, option)| {
-            let room = if option.default { marker_room() } else { 0 };
+            let draft_pick = answer.selected.contains(&option.id)
+                && state
+                    .replay_info()
+                    .is_some_and(|replay| replay.outcome == HistoryOutcome::Withdrawn);
+            let room = if option.default || draft_pick {
+                marker_room()
+            } else {
+                0
+            };
             label_rows(
                 &option.label,
                 option_prefix_width(index),
@@ -644,19 +668,40 @@ fn question_content(
                     mark(question.kind, chosen),
                     Span::styled(format!(" {}. ", option_index + 1), theme::secondary()),
                 ];
-                let lines = option_lines(
+                // The option a withdrawn draft picked says so; the asker's
+                // default keeps its own marker elsewhere.
+                let draft_pick = chosen
+                    && state
+                        .replay_info()
+                        .is_some_and(|replay| replay.outcome == HistoryOutcome::Withdrawn);
+                let marker = if draft_pick {
+                    Some(DRAFT_MARKER)
+                } else {
+                    option.default.then_some(DEFAULT_MARKER)
+                };
+                let mut lines = option_lines(
                     head,
                     &labels[option_index],
                     description_column,
                     option,
+                    marker,
                     width,
                     filled,
                     quote,
                 );
-                let ends_in_marker = lines[0]
-                    .spans
-                    .last()
-                    .is_some_and(|span| span.content == DEFAULT_MARKER);
+                // A replay dims what the person did not pick, and all of a
+                // draft they never sent. The row under the cursor keeps
+                // its fill.
+                if state.is_read_only() && !filled && (draft_pick || !chosen) {
+                    for line in &mut lines {
+                        for span in &mut line.spans {
+                            if !is_marker(span) {
+                                span.style = span.style.patch(theme::secondary());
+                            }
+                        }
+                    }
+                }
+                let ends_in_marker = lines[0].spans.last().is_some_and(is_marker);
                 if ends_in_marker {
                     content.marked.push(content.lines.len());
                 }
@@ -872,18 +917,20 @@ fn line_columns(line: &Line) -> usize {
 /// rendered for the columns from there to the end and so wrapped under its
 /// own start; without one, it goes on the lines below the label's, from
 /// `DESCRIPTION_INDENT` on. The description's quotes show in `quote`. An
-/// option with `default: true` ends its first line in `DEFAULT_MARKER` at
-/// the right edge where the line has room for it.
+/// option with a `marker` ends its first line in it at the right edge
+/// where the line has room for it.
+#[allow(clippy::too_many_arguments)]
 fn option_lines(
     head: Vec<Span<'static>>,
     label: &LabelRows,
     description_column: Option<usize>,
     option: &Choice,
+    marker: Option<&'static str>,
     width: usize,
     filled: bool,
     quote: QuoteStyle,
 ) -> Vec<Line<'static>> {
-    let (description, marked) = (option.description.as_deref(), option.default);
+    let (description, marked) = (option.description.as_deref(), marker.is_some());
     let fill = |spans: Vec<Span<'static>>| -> Vec<Span<'static>> {
         if filled {
             spans.into_iter().map(theme::focus_span).collect()
@@ -901,8 +948,8 @@ fn option_lines(
     // An empty or blank description renders to no lines at all. Beside the
     // label, a default's description ends the first row, so it leaves the
     // marker its room there.
-    let room = if marked && description_column.is_some() {
-        marker_room()
+    let room = if description_column.is_some() {
+        room_for(marker)
     } else {
         0
     };
@@ -929,12 +976,13 @@ fn option_lines(
         // shows no marker. The trailing blanks are left out of `used`, so
         // the blank after the number counts into the gap where no label
         // stands beside it.
-        if used + marker_room() <= width {
+        if used + room_for(marker) <= width {
             // Under the focus fill the row stays one colour up to the
             // marker. A description takes no fill, so after one the blanks
             // stay plain and only the marker takes it.
-            let blanks = Span::from(" ".repeat(width - used - columns(DEFAULT_MARKER)));
-            let marker = Span::styled(DEFAULT_MARKER, theme::default_marker());
+            let text = marker.expect("a marked option has its marker");
+            let blanks = Span::from(" ".repeat(width - used - columns(text)));
+            let marker = Span::styled(text, theme::default_marker());
             kept.push(if filled && !described {
                 theme::focus_span(blanks)
             } else {
@@ -1015,15 +1063,27 @@ fn field_cursor(field: &TextField, shape: &FieldShape, shown: bool) -> TextCurso
     }
 }
 
+/// The first line of the result tab of a replay: how the session ended.
+fn result_headline(replay: &crate::tui::ReplayInfo) -> String {
+    let when = &replay.finished;
+    match replay.outcome {
+        HistoryOutcome::Sent => format!("Sent {when}"),
+        HistoryOutcome::Rejected => format!("Rejected {when}"),
+        HistoryOutcome::Error => format!("Ended in an error {when}"),
+        HistoryOutcome::Withdrawn => {
+            format!("Withdrawn {when}, the answers below were never sent")
+        }
+        HistoryOutcome::NoResult => "No result answers this session".to_owned(),
+    }
+}
+
 fn review_content(state: &SessionState, width: usize, quote: QuoteStyle) -> Content {
+    let headline = match state.replay_info() {
+        Some(replay) => result_headline(replay),
+        None => "Review your answers, then submit or reject.".to_owned(),
+    };
     let mut content = Content {
-        lines: vec![
-            Line::styled(
-                "Review your answers, then submit or reject.",
-                theme::secondary(),
-            ),
-            Line::default(),
-        ],
+        lines: vec![Line::styled(headline, theme::secondary()), Line::default()],
         cursor: (0, 0),
         shape: None,
         text_cursor: None,
@@ -1103,6 +1163,33 @@ fn review_content(state: &SessionState, width: usize, quote: QuoteStyle) -> Cont
                 let lines = vec![Line::default(), tally, Line::default(), button];
                 (lines, None)
             }
+            // A replay's note and reason are text to read, under the tally
+            // that stands where a live session has its button.
+            Row::Note if state.is_read_only() => {
+                let counts = state.counts();
+                let words = |text: &str| Span::styled(text.to_owned(), theme::secondary());
+                let number = |count: usize| Span::styled(count.to_string(), theme::strong());
+                let tally = Line::from(vec![
+                    words("answered "),
+                    number(counts.answered),
+                    words(" · skipped "),
+                    number(counts.skipped),
+                    words(" · defaulted "),
+                    number(counts.defaulted),
+                ]);
+                let mut lines = vec![Line::default(), tally, Line::default()];
+                lines.extend(read_only_text(
+                    "✎ Note to the asker: ",
+                    state.session_note(),
+                    width,
+                    filled,
+                ));
+                (lines, None)
+            }
+            Row::Reject if state.is_read_only() => (
+                read_only_text("✗ Rejected, reason: ", state.reject_reason(), width, filled),
+                None,
+            ),
             Row::Note => {
                 let head = format!("{}✎ Note to the asker (optional): ", pointer(current));
                 let row = field_row(head, state.session_note());
@@ -1120,6 +1207,25 @@ fn review_content(state: &SessionState, width: usize, quote: QuoteStyle) -> Cont
         content.push_row(lines, current, text_cursor);
     }
     content
+}
+
+/// A line of a replay's result tab: `head`, then `text` as it was typed,
+/// wrapped to `width`, or a dash where nothing was. The head is under the
+/// focus fill where `filled`.
+fn read_only_text(head: &str, text: &str, width: usize, filled: bool) -> Vec<Line<'static>> {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = if text.is_empty() {
+        "—".to_owned()
+    } else {
+        text
+    };
+    let head = Span::from(format!("  {head}"));
+    let head = if filled {
+        theme::focus_span(head)
+    } else {
+        head
+    };
+    wrap(Line::from(vec![head, Span::from(text)]), width, 0, 0)
 }
 
 #[cfg(test)]

@@ -91,9 +91,9 @@ pub(super) fn title_bar(
 const READ_ONLY_MARK: &str = " ◷ read-only";
 
 /// The title bar of a replay: `asqr`, the mark, the session's title and,
-/// dim at the right end, the queue and the reference, then in the warning
-/// colour how many sessions wait. The title is cut before the right end
-/// goes, and the right end before the count.
+/// dim at the right end, the queue, the reference and how many sessions
+/// wait. The queue and the reference go before the title is cut, and the
+/// count stays.
 fn replay_title_bar(
     state: &SessionState,
     replay: &ReplayInfo,
@@ -105,20 +105,27 @@ fn replay_title_bar(
     let start = INDENT + columns(READ_ONLY_MARK);
     let text_width = text_width(width, reading).saturating_sub(columns(READ_ONLY_MARK));
     let title = one_line(state.name()).unwrap_or_default();
-    let named = format!("{queue} · replay {} ", replay.reference);
     let count = if waiting > 0 {
-        format!(" ▲ {waiting} waiting ")
+        format!("{waiting} waiting ")
     } else {
         String::new()
+    };
+    let named = format!("{queue} · replay {} ", replay.reference);
+    let whole = if count.is_empty() {
+        named.clone()
+    } else {
+        format!("{queue} · replay {} · {count}", replay.reference)
     };
 
     let whole_title = columns(&title).min(text_width);
-    let named = if start + whole_title + GAP + columns(&named) + columns(&count) <= width {
-        named
+    // Where the queue and the reference do not fit with the title, they go
+    // and the count stays.
+    let right_text = if start + whole_title + GAP + columns(&whole) <= width {
+        whole
     } else {
-        String::new()
+        count
     };
-    let right = columns(&named) + columns(&count);
+    let right = columns(&right_text);
     let title = cut(
         &title,
         text_width.min(width.saturating_sub(start + GAP + right)),
@@ -131,8 +138,7 @@ fn replay_title_bar(
         Span::from("  "),
         Span::styled(title, theme::title()),
         Span::from(" ".repeat(blanks)),
-        Span::styled(named, theme::secondary()),
-        Span::styled(count, theme::warning()),
+        Span::styled(right_text, theme::secondary()),
     ])
 }
 
