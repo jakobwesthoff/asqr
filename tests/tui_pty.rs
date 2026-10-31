@@ -614,6 +614,36 @@ fn a_session_that_arrives_on_the_first_start_shows_after_the_answer() {
     tui.wait_for("Pick a fruit");
 }
 
+/// A queue whose inbox cannot be read ends asqr with the error, and the
+/// session's agents stay where they were: nobody watches that queue.
+#[test]
+fn a_failed_first_read_of_the_inbox_leaves_the_pin_as_it_was() {
+    if rustix::process::geteuid().is_root() {
+        // Root reads a directory whatever its mode says.
+        return;
+    }
+    let sandbox = Sandbox::new();
+    let location = asqr::queue::QueueLocation::named(&sandbox.data_dir(), "work");
+    location.create_layout().expect("layout");
+    std::fs::set_permissions(location.inbox(), std::fs::Permissions::from_mode(0o000))
+        .expect("made unreadable");
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--queue", "work", "--no-notify"],
+        PASSTHROUGH_ON,
+        &[("TMUX_PANE", "%7")],
+    );
+    tui.answer_the_query(NO_GRAPHICS);
+
+    let exit = tui.wait_for_exit();
+
+    std::fs::set_permissions(location.inbox(), std::fs::Permissions::from_mode(0o755))
+        .expect("made readable again");
+    assert_eq!(exit, 1, "the failed read ends asqr");
+    let commands = std::fs::read_to_string(sandbox.home().join(TMUX_COMMANDS)).unwrap_or_default();
+    assert!(!commands.contains("set-environment"), "{commands}");
+}
+
 #[test]
 fn quitting_the_first_start_still_pins_the_queue() {
     let sandbox = Sandbox::new();

@@ -1942,12 +1942,13 @@ new-queue row has the keys, the key bar is the switcher's typing bar,
 
 The first time `asqr` or `asqr watch` starts with no settings file (section
 5.2), it shows the first-start screen (ADR 106), with the terminal set up
-and before the start picker and before the first read of the queue. A
+and before the start picker and before the first read of the inbox. A
 settings file that is there never triggers it, whatever it holds. Neither
 does a set `ASQR_KEEP_FILES`, which decides `keep_files` already: then
-nothing is asked and nothing is written. Neither does a missing config
-directory, `asqr replay`, which finishes no session and keeps no files, nor
-any other command.
+nothing is asked and nothing is written. Neither does a platform without a
+config directory (no home), `asqr replay`, which finishes no session and
+keeps no files, nor any other command. Sessions that arrive while the
+screen is up show after the answer, without an alert.
 
 - The screen is the queue switcher's frame of section 7.6 under a title line
   that reads `asqr`, titled `First start`, 72 columns wide, or as wide as the
@@ -1983,9 +1984,8 @@ any other command.
 
 Inside tmux, on a named queue, asqr pins its queue in its tmux session
 once it runs: `tmux set-environment -t <pane> ASQR_SESSION_QUEUE
-<queue>` (ADR 85), before the first-start screen where that shows, so
-quitting the screen leaves the pin as any quit does. It does so on every
-start, also for a queue that
+<queue>` (ADR 85), once the queue is read, or when the first-start
+screen is quit. It does so on every start, also for a queue that
 came from the session's name, and `asqr --queue default` pins the
 default queue. A queue given by `--dir` or `ASQR_DIR` is not pinned,
 and neither is the default queue taken because tmux did not answer. A

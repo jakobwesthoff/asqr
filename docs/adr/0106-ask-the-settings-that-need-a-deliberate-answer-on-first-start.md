@@ -27,8 +27,9 @@ no settings file
   writes the file and does not ask again. `keep_files` is the only setting
   it asks.
 - The screen shows after the terminal is set up, before the start picker
-  (ADR 86) and before the first read of the queue. The tmux pin (ADR 85) is
-  set before it.
+  (ADR 86) and before the first read of the inbox. Sessions that arrive
+  meanwhile show after the answer, without an alert. The tmux pin (ADR 85)
+  is set once the queue is read, and also when the screen is quit.
 - The screen is the queue switcher's frame, titled `First start`, with
   `writes <path of settings.toml>` on its bottom edge. It holds the lead
   `Before your first session, one setting needs your answer. Press , later

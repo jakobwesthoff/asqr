@@ -1,0 +1,18 @@
+---
+source: src/tui/render/first_start.rs
+expression: "drawn(&screen, 59, 14)"
+---
+"asqr needs at least 60×15; this terminal is 59×14.         "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "
+"                                                           "

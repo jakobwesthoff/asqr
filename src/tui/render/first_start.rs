@@ -18,7 +18,7 @@ use ratatui::widgets::Widget;
 use super::keys::{first_start_hints, key_line_with_version};
 use super::overlay::{overlay_block, popup};
 use super::parts::POINTER;
-use super::screen::shorten_from_left;
+use super::screen::{draw_too_small, shorten_from_left};
 use super::source_line::columns;
 use super::theme;
 use super::wrap::wrap;
@@ -65,6 +65,9 @@ pub fn draw_first_start(
     version: &str,
     no_color: bool,
 ) {
+    if draw_too_small(frame) {
+        return;
+    }
     let area = frame.area();
     let [title, middle, _, keys] = Layout::vertical([
         Constraint::Length(1),
@@ -509,7 +512,7 @@ mod tests {
 
     #[test]
     fn a_short_screen_keeps_the_button_and_the_line_about_quitting_in_view() {
-        for (width, height) in [(60, 15), (80, 23), (80, 12)] {
+        for (width, height) in [(60, 15), (80, 23), (80, 15)] {
             let text = frame_text(&drawn(&pressed(&NO_COPIES_AND_BUTTON), width, height));
 
             assert!(
@@ -539,6 +542,31 @@ mod tests {
             );
         }
         assert!(find(buf, "(•)") != find(buf, "( )"));
+    }
+
+    #[test]
+    fn a_terminal_below_the_minimum_size_gets_the_message_and_no_frame() {
+        let screen = FirstStart::default();
+
+        for (width, height) in [(59, 15), (60, 14), (59, 14)] {
+            let backend = drawn(&screen, width, height);
+
+            let text = backend.to_string();
+            assert!(
+                text.contains(&format!(
+                    "asqr needs at least 60×15; this terminal is {width}×{height}."
+                )),
+                "{width}x{height}\n{text}"
+            );
+            assert!(!text.contains("First start"), "{width}x{height}\n{text}");
+        }
+        insta::assert_snapshot!("first_start_too_small_59x14", drawn(&screen, 59, 14));
+        assert!(
+            !drawn(&screen, 60, 15)
+                .to_string()
+                .contains("asqr needs at least"),
+            "the minimum size draws the frame"
+        );
     }
 
     #[test]

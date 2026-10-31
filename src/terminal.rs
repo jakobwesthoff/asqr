@@ -313,19 +313,7 @@ fn run_tui(
     // pauses while another program has the terminal.
     let keys = KeyReader::spawn(CrosstermEvents, sender);
 
-    // The pin goes in once the TUI runs, so a start that failed earlier
-    // leaves the session's agents where they were (ADR 85), and before the
-    // first-start screen, so quitting it leaves the pin as any quit does. A
-    // pin tmux refuses leaves asqr as outside tmux, without a word.
-    if let Mode::Watch(watch) = &*mode
-        && let Some(pin) = watch.pin()
-        && let Err(TmuxFailure(reason)) =
-            pairing::pin(&SystemTmux::default(), &pin.pane, &pin.queue)
-    {
-        tracing::info!(reason, "tmux did not take the pin");
-    }
-
-    // The first start asks before anything reads the queue, so what the
+    // The first start asks before anything reads the inbox, so what the
     // first read hands on, such as the files of a session finished before
     // the last quit, is kept as the answer says (ADR 106).
     let mut first_start = None;
@@ -340,7 +328,12 @@ fn run_tui(
             config.home.as_deref(),
             config.no_color,
         )? {
-            FirstStartEnd::Quit => return Ok(()),
+            // Quitting is a run of the TUI that watches the queue, so
+            // the pin goes in as it does for any quit.
+            FirstStartEnd::Quit => {
+                pin_queue(mode);
+                return Ok(());
+            }
             FirstStartEnd::Answered { store, notice } => {
                 config.settings = store;
                 first_start = Some(notice);
@@ -472,6 +465,7 @@ fn run_tui(
     if let Some(path) = std::env::var_os("ASQR_TEST_PANIC_ON_LOAD") {
         view = view.panicking_on_load(path);
     }
+    pin_queue(mode);
     run(
         &mut terminal,
         &mut app,
@@ -481,6 +475,20 @@ fn run_tui(
         &mut host,
         &mut opened,
     )
+}
+
+/// Pins the queue of `mode` in its tmux session, where it has one to pin.
+/// The pin goes in once the queue is taken and read, so a start that failed
+/// earlier leaves the session's agents where they were (ADR 85). A pin tmux
+/// refuses leaves asqr as outside tmux, without a word.
+fn pin_queue(mode: &Mode<'_>) {
+    if let Mode::Watch(watch) = mode
+        && let Some(pin) = watch.pin()
+        && let Err(TmuxFailure(reason)) =
+            pairing::pin(&SystemTmux::default(), &pin.pane, &pin.queue)
+    {
+        tracing::info!(reason, "tmux did not take the pin");
+    }
 }
 
 /// Sends [`Event::QueuesTick`] on a thread of its own at once and then
