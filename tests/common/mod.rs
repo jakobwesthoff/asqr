@@ -54,6 +54,16 @@ impl Sandbox {
         }
     }
 
+    /// The temp directory of the sandbox. The files `o` writes and the
+    /// removal of old ones at the start of a replay happen under it, so
+    /// they never touch the temp directory of the machine running the
+    /// tests.
+    pub fn temp_dir(&self) -> PathBuf {
+        let dir = self.home.path().join("tmp");
+        std::fs::create_dir_all(&dir).expect("temp dir of the sandbox");
+        dir
+    }
+
     /// A queue directory inside the sandbox, for `--dir`.
     pub fn queue_dir(&self) -> PathBuf {
         self.home.path().join("queue")
@@ -71,6 +81,7 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
             .env("XDG_CONFIG_HOME", self.home.path().join(".config"))
+            .env("TMPDIR", self.temp_dir())
             .env(asqr::pairing::TIMEOUT_VARIABLE, STAND_IN_PATIENCE_MS)
             .env_remove("ASQR_QUEUE")
             .env_remove("ASQR_DIR")
@@ -98,6 +109,7 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.home.path().join(".local/share"))
             .env("XDG_CACHE_HOME", self.home.path().join(".cache"))
             .env("XDG_CONFIG_HOME", self.home.path().join(".config"))
+            .env("TMPDIR", self.temp_dir())
             .env(asqr::pairing::TIMEOUT_VARIABLE, STAND_IN_PATIENCE_MS)
             .env_remove("ASQR_QUEUE")
             .env_remove("ASQR_DIR")

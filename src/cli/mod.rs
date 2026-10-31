@@ -318,6 +318,11 @@ pub struct Environment {
     /// The multiplexer `TMUX` and `TMUX_PANE` name, through which asqr
     /// pairs with the agents of the same session (ADR 85).
     pub multiplexer: Multiplexer,
+    /// The directory the files `o` writes go under, and where the start of
+    /// a replay removes the directories of earlier runs. Unset, it is the
+    /// user's directory in the system's temp directory; tests give their
+    /// own so they never touch it.
+    pub opened_dir: Option<PathBuf>,
 }
 
 /// Reads the [`Environment`] of this process.
@@ -354,6 +359,7 @@ fn environment_from(lookup: impl Fn(&str) -> Option<OsString>) -> Environment {
             variable("TMUX").as_deref(),
             variable("TMUX_PANE").as_deref(),
         ),
+        opened_dir: None,
     }
 }
 
@@ -617,6 +623,7 @@ fn dispatch_with(
                 config,
                 no_color: environment.no_color,
                 home: environment.home,
+                opened_dir: environment.opened_dir,
             },
             replay_ui,
         ),
@@ -1783,6 +1790,47 @@ mod tests {
             "the time of the result"
         );
         assert!(!no_color && no_home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_replay_sweeps_the_directory_it_is_given_and_no_other() {
+        use std::os::unix::fs::DirBuilderExt;
+
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let reference = finished_in(scratch.path());
+        let base = scratch.path().join("opened");
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&base)
+            .expect("made");
+        let ended = base.join("run-ended");
+        std::fs::create_dir(&ended).expect("made");
+        std::fs::File::open(&ended)
+            .expect("opens")
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(2 * 24 * 60 * 60))
+            .expect("aged");
+        let cli =
+            Cli::try_parse_from(["asqr", "replay", &reference.to_lowercase()]).expect("parses");
+        let environment = Environment {
+            opened_dir: Some(base),
+            ..Environment::default()
+        };
+
+        dispatch_with(
+            cli,
+            environment,
+            &Unasked,
+            Some(scratch.path().to_path_buf()),
+            None,
+            |_| panic!("no queue is watched"),
+            |mut replay| {
+                let _ = replay.take_opened();
+                Exit::Cancelled
+            },
+        );
+
+        assert!(!ended.exists(), "the start removed the old run directory");
     }
 
     #[test]

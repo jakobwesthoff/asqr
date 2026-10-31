@@ -136,9 +136,7 @@ impl Tui {
         command.env("HOME", sandbox.home());
         // The files `o` writes, and the start's removal of old ones, stay
         // in the sandbox.
-        let tmp = sandbox.home().join("tmp");
-        std::fs::create_dir_all(&tmp).expect("tmp dir");
-        command.env("TMPDIR", &tmp);
+        command.env("TMPDIR", sandbox.temp_dir());
         command.env("XDG_DATA_HOME", sandbox.home().join(".local/share"));
         command.env("XDG_CACHE_HOME", sandbox.home().join(".cache"));
         command.env("XDG_CONFIG_HOME", sandbox.home().join(".config"));
@@ -2193,6 +2191,10 @@ fn archived_text(dir: &std::path::Path) -> String {
 }
 
 #[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the gate that holds the keeping job exists in debug builds only"
+)]
 fn quitting_names_the_files_still_being_kept_on_the_normal_screen_and_waits_for_them() {
     let sandbox = Sandbox::new();
     let gate = sandbox.home().join("keep-gate");
@@ -2220,6 +2222,10 @@ fn quitting_names_the_files_still_being_kept_on_the_normal_screen_and_waits_for_
 }
 
 #[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the gate that holds the keeping job exists in debug builds only"
+)]
 fn ctrl_c_while_the_files_are_kept_lets_go_of_them() {
     let sandbox = Sandbox::new();
     let gate = sandbox.home().join("keep-gate");

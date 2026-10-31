@@ -291,3 +291,33 @@ fn a_session_found_beside_an_unreadable_bundle_warns_naming_the_bundle() {
         "{text}"
     );
 }
+
+/// A replay starts by removing the directories of earlier runs from the
+/// temp directory. The sandbox must be the one it sweeps, never the
+/// machine's.
+#[cfg(unix)]
+#[test]
+fn a_replay_in_the_sandbox_sweeps_the_sandbox_temp_directory() {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let reference = archive(&location, "a", "A", 1, 0x1234_5678_9abc);
+    let uid = fs::metadata(sandbox.home()).expect("metadata").uid();
+    let base = sandbox.home().join("tmp").join(format!("asqr-{uid}"));
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&base)
+        .expect("made");
+    let ended = base.join("run-ended");
+    fs::create_dir(&ended).expect("made");
+    fs::File::open(&ended)
+        .expect("opens")
+        .set_modified(SystemTime::now() - 2 * DAY)
+        .expect("aged");
+
+    replay(&sandbox, &["replay", &reference]);
+
+    assert!(!ended.exists(), "the sandbox's temp directory was swept");
+}

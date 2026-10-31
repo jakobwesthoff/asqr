@@ -876,14 +876,24 @@ mod tests {
     /// A replay of a session answered with `a`, beside the queue of the
     /// harness, which has two sessions waiting.
     fn replaying(harness: &Harness) -> (App, Inbox) {
+        replaying_with(harness, SESSION, std::collections::HashMap::new())
+    }
+
+    /// [`replaying`] a session `text` whose files the archive recorded as
+    /// `files`.
+    fn replaying_with(
+        harness: &Harness,
+        text: &str,
+        files: std::collections::HashMap<String, crate::queue::ReplayFile>,
+    ) -> (App, Inbox) {
         harness.put("waiting-1");
         harness.put("waiting-2");
-        let session: crate::format::Session = serde_json::from_str(SESSION).expect("parses");
+        let session: crate::format::Session = serde_json::from_str(text).expect("parses");
         let state = SessionState::replay("old", session, None).with_replay_info(ReplayInfo {
             reference: "7C3FA19K".to_owned(),
             outcome: crate::queue::HistoryOutcome::Sent,
             finished: "Thu 29 Oct 16:41".to_owned(),
-            files: std::collections::HashMap::new(),
+            files,
             bundle: None,
             zone: jiff::tz::TimeZone::UTC,
         });
@@ -995,17 +1005,66 @@ mod tests {
     }
 
     #[test]
-    fn a_replay_quits_on_q_and_opens_what_o_names() {
+    fn a_replay_quits_on_q() {
         let mut harness = Harness::new();
         let (mut app, mut inbox) = replaying(&harness);
 
         let ran = harness.run_started(
             &mut app,
             &mut inbox,
-            vec![key(KeyCode::Char('q')), key(KeyCode::Char('j'))],
+            vec![key(KeyCode::Char('q')), key(KeyCode::Char('o'))],
         );
 
         assert!(ran.is_ok());
+        assert_eq!(harness.host.opened.len(), 0, "nothing after q is read");
+    }
+
+    #[test]
+    fn a_replay_opens_what_o_names_from_its_kept_copy() {
+        let mut harness = Harness::new();
+        let copy = harness.scratch_file("cat.png", b"not decoded here");
+        let session = SESSION.replace("/nowhere/cat.png", &copy);
+        let kept = crate::queue::ReplayFile {
+            original_path: "/pictures/cat.png".to_owned(),
+            state: "kept".to_owned(),
+            sha256: None,
+            size: None,
+            modified: None,
+            kept_size: None,
+            reason: None,
+            copy: Some("files/abc.png".to_owned()),
+            damaged: None,
+        };
+        let (mut app, mut inbox) = replaying_with(
+            &harness,
+            &session,
+            std::collections::HashMap::from([(copy.clone(), kept)]),
+        );
+
+        harness
+            .run_started(
+                &mut app,
+                &mut inbox,
+                vec![key(KeyCode::Char('o')), key(KeyCode::Char('q'))],
+            )
+            .expect("runs");
+
+        assert_eq!(harness.host.opened, [copy]);
+    }
+
+    #[test]
+    fn a_replay_opens_nothing_for_a_file_the_archive_has_no_copy_of() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) = replaying(&harness);
+
+        harness
+            .run_started(
+                &mut app,
+                &mut inbox,
+                vec![key(KeyCode::Char('o')), key(KeyCode::Char('q'))],
+            )
+            .expect("runs");
+
         assert_eq!(harness.host.opened.len(), 0);
     }
 

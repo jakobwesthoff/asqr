@@ -92,6 +92,7 @@ pub(super) struct ReplayRequest<'a> {
     pub config: Option<PathBuf>,
     pub no_color: bool,
     pub home: Option<PathBuf>,
+    pub opened_dir: Option<PathBuf>,
 }
 
 pub(super) fn run(
@@ -105,6 +106,7 @@ pub(super) fn run(
         config,
         no_color,
         home,
+        opened_dir,
     } = request;
     let (entry, unreadable) = match find_entry(location, root, reference) {
         Ok(found) => found,
@@ -118,7 +120,7 @@ pub(super) fn run(
 
     // The copies of the files go into the directory of this run, which `o`
     // and the viewers read afterwards.
-    let mut opened = OpenedFiles::in_temp_dir();
+    let mut opened = opened_dir.map_or_else(OpenedFiles::in_temp_dir, OpenedFiles::in_dir);
     let loaded = match load_replay(&entry, &mut |name, bytes| opened.extract(name, bytes)) {
         Ok(loaded) => loaded,
         Err(error) => {

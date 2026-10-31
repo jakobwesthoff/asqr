@@ -184,12 +184,18 @@ fn gate_from(variable: Option<&OsStr>, debug_build: bool) -> Option<PathBuf> {
 
 /// Waits until `gate` exists, at most `patience`, and says whether it does.
 fn wait_for_gate(gate: &Path, patience: Duration) -> bool {
+    wait_for_gate_with(gate, patience, &|| thread::sleep(Duration::from_millis(10)))
+}
+
+/// [`wait_for_gate`] with what happens between two looks at the file
+/// given, so a test can step through the waiting.
+fn wait_for_gate_with(gate: &Path, patience: Duration, between: &dyn Fn()) -> bool {
     let deadline = Instant::now() + patience;
     while !gate.exists() {
         if Instant::now() >= deadline {
             return false;
         }
-        thread::sleep(Duration::from_millis(10));
+        between();
     }
     true
 }

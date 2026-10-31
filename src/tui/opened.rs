@@ -81,7 +81,13 @@ impl OpenedFiles {
     /// directory, after the directories of earlier runs that may go are
     /// removed.
     pub fn in_temp_dir() -> Self {
-        let opened = Self::under(base_dir());
+        Self::in_dir(base_dir())
+    }
+
+    /// The files under `base`, after the directories of earlier runs that
+    /// may go are removed.
+    pub fn in_dir(base: PathBuf) -> Self {
+        let opened = Self::under(base);
         opened.sweep();
         opened
     }

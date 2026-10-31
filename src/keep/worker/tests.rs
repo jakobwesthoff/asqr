@@ -323,14 +323,23 @@ fn a_held_job_goes_on_once_the_file_exists_and_not_before() {
     let scratch = tempfile::tempdir().expect("temp dir");
     let gate = scratch.path().join("open");
     let waiting = gate.clone();
-    let (started, running) = mpsc::channel();
+    let (polled, looked) = mpsc::channel();
+    let (go_on, may_look_again) = mpsc::channel::<()>();
     let waiter = std::thread::spawn(move || {
-        started.send(()).expect("sends");
-        wait_for_gate(&waiting, Duration::from_secs(30))
+        wait_for_gate_with(&waiting, Duration::from_secs(30), &|| {
+            polled.send(()).expect("sends");
+            may_look_again.recv().expect("told to look again");
+        })
     });
-    running.recv().expect("the waiter started");
 
+    // The waiter looked, found no file and has not come back: a gate that
+    // opens at once never gets here.
+    looked
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the waiter looked and found the gate shut");
+    assert!(!waiter.is_finished(), "the waiter went on without the file");
     std::fs::write(&gate, "").expect("written");
+    go_on.send(()).expect("sends");
 
     assert!(waiter.join().expect("joined"), "the file ended the wait");
 }
