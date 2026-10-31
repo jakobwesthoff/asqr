@@ -26,6 +26,7 @@ reading order. The pictures are in `pictures/`.
 - [Queues](all-notes/01M68C1XV58STWHBH179QYXPZR-queues.md)
 - [Settings](all-notes/01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
 - [Notifications, the terminal and tmux](all-notes/01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
+- [Finished sessions: history and replay](all-notes/01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
 
 ### Agents
 
@@ -38,6 +39,7 @@ reading order. The pictures are in `pictures/`.
 - [Keys](all-notes/01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md)
 - [Commands](all-notes/01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md)
 - [Files, variables and the log](all-notes/01M68CASKVXFA54B7MJHTKFFGW-files-variables-and-the-log.md)
+- [Keeping files, compact and prune](all-notes/01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md)
 - [Limits](all-notes/01M68CASM4YTGM03NS3CKQS28G-limits.md)
 
 ## As a website

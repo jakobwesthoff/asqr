@@ -15,13 +15,14 @@ person how asqr looks and how to work with it, and no step-by-step
 description of setting it up with an agent. The tool that draws the
 guide's pictures exists: `tools/screens`, run with `just screens`
 (ADR 89, its README in `tools/screens/README.md`). The guide is written
-as the ntropy vault `docs/guide`: 18 pages from the start page to the
-limits, 36 pictures that `just guide-pictures` draws from the scenes in
+as the ntropy vault `docs/guide`: 20 pages from the start page to the
+limits, 44 pictures that `just guide-pictures` draws from the scenes in
 `tools/screens/scenes/`, and two checks, `tests/guide_keys.rs` (the key
 table against spec 7.6, keys only) and `tests/guide_links.rs` (table of
 contents, links, pictures). The scene tool draws the sent notice, the
 start picker, the invalid-session dialog and the settings pane with its
-file path and a held row. What remains is below.
+file path and a held row, and a finished session shown again as
+`asqr replay` shows it. What remains is below.
 
 ## What remains
 
@@ -31,10 +32,6 @@ file path and a held row. What remains is below.
   (`examples/sessions/mascot-poses.json` has none).
 - Ligatures as Ghostty shapes them with `calt`/`clig`/`liga`; needs a
   pure-Rust shaper such as rustybuzz.
-- The pages on history and replay of finished sessions, and a page for
-  the files a finished session showed, once they are on main; the rows
-  for their commands in the pages Keys, Commands and Files, variables
-  and the log.
 - The website: a Pages workflow that exports `docs/guide` with
   `ntropy --vault docs/guide -n site -o dist --strict`, and a site theme.
   The start page is both the site's front page and the landing note of

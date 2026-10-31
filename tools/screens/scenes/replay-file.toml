@@ -16,8 +16,8 @@ path = "../files/fetch.txt"
 original_path = "/tmp/review/fetch.rs"
 state = "kept"
 sha256 = "9f2c61d0b7e3a4c8d1e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7e2b41a6"
-size = 713
-kept_size = 713
+size = 765
+kept_size = 765
 modified = "2026-10-29T16:40:11Z"
 copy = "files/9f2c61d0b7e3a4c8d1e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7e2b41a6.rs"
 
