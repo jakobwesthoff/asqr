@@ -16,7 +16,11 @@ terminal. This page names the parts of the screen from the top down.
    number of sessions waiting, such as `default · 1 waiting`.
 2. **The sender.** Under the title, a dim line says who sent the session
    (`from release script`) and, where the session names one, which earlier
-   session it follows.
+   session it follows. A session that continues the draft of one it
+   replaced adds a dim line of its own, `continues your draft of "<title>"`,
+   with the id where the earlier session had no title. [Review and
+   submit](01M68BT9BMFVCVEAACWR03B827-review-and-submit.md) says when that
+   happens.
 3. **The intro.** The session's introduction, at most two lines. A longer
    intro is cut and ends in `… i: more`, and `i` shows all of it.
 4. **The tab bar.** One tab for every question, named by the question's

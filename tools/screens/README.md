@@ -85,6 +85,8 @@ tmux_session = "ntropy"
 | `keys` | The keys pressed, in order. Default: none. |
 | `[[sessions]]` `file` | A session file, relative to the scene file. |
 | `[[sessions]]` `id` | The session's id. Default: the session's own `id`, else the file's name without `.json`. |
+| `[sessions.carried_from]` `id`, `title` | The earlier session whose draft the session continues (spec 4.3). The header says `continues your draft of "<title>"`, or names the id where there is no `title`. |
+| `replaced` | The title of the session the person had open, which the scene's first session replaced by continuing its draft: the status line shows asqr's information notice for it (spec 7.9). The first session needs a `carried_from`. |
 | `[[elsewhere]]` `queue`, `waiting` | A queue no asqr watches and how many sessions wait in it. |
 | `[switcher]` `tmux_session` | The tmux session asqr runs in. Without it, asqr runs outside tmux. |
 | `[switcher]` `root` | The directory of the named queues, where the switcher offers a new queue. Required when a row has a `name`. |

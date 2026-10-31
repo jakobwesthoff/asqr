@@ -1,0 +1,11 @@
+caption = "A session that continues the draft of the one it replaced: the header note and the information notice"
+columns = 120
+rows = 24
+replaced = "Cache choice for thumbnails"
+
+[[sessions]]
+file = "../../../examples/sessions/decide-before-implementing.json"
+
+[sessions.carried_from]
+id = "thumbnail-cache"
+title = "Cache choice for thumbnails"

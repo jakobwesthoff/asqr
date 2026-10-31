@@ -10,7 +10,10 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use asqr::format::{make_context_paths_absolute, parse_session, same_session_id, validate};
+use asqr::format::{
+    CarriedFrom, SessionResult, make_context_paths_absolute, parse_session, same_session_id,
+    validate,
+};
 use asqr::tui::SessionState;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde::Deserialize;
@@ -49,6 +52,10 @@ pub struct Scene {
     #[serde(default)]
     pub invalid: Vec<InvalidSession>,
     pub settings: Option<SettingsFile>,
+    /// The title of the session the person had open, which the scene's
+    /// first session replaced by continuing its draft: the status line
+    /// shows the information notice asqr gives for it (spec section 7.9).
+    pub replaced: Option<String>,
     /// Shows the scene's one session as `asqr replay` shows a finished
     /// session (spec section 7.11).
     pub replay: Option<ReplayScene>,
@@ -137,6 +144,19 @@ pub enum Emblem {
 pub struct SessionEntry {
     pub file: PathBuf,
     pub id: Option<String>,
+    /// The earlier session whose draft this one continues, which the
+    /// header names (spec section 4.3).
+    pub carried_from: Option<CarriedFromEntry>,
+}
+
+/// The session a scene's session continues the draft of.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CarriedFromEntry {
+    pub id: String,
+    /// The earlier session's title; the header names it by its id without
+    /// one.
+    pub title: Option<String>,
 }
 
 /// A queue no asqr watches in which sessions wait.
@@ -354,6 +374,14 @@ pub fn parse_scene(text: &str) -> Result<Scene> {
     if scene.replay.is_some() && scene.sessions.len() != 1 {
         anyhow::bail!("a replay needs a session: the scene lists exactly one [[sessions]]");
     }
+    if scene.replaced.is_some()
+        && !scene
+            .sessions
+            .first()
+            .is_some_and(|s| s.carried_from.is_some())
+    {
+        anyhow::bail!("`replaced` needs a first session with `carried_from`");
+    }
     if scene.start_picker && scene.switcher.is_none() {
         anyhow::bail!("`start_picker` needs a [switcher] with the queues to pick from");
     }
@@ -379,7 +407,7 @@ pub fn load_sessions(scene: &Scene, scene_file: &Path) -> Result<Vec<SessionStat
     let mut sessions: Vec<SessionState> = Vec::new();
     for entry in &scene.sessions {
         let file = base.join(&entry.file);
-        let state = load_session(&file, entry.id.as_deref())
+        let state = load_session(&file, entry.id.as_deref(), entry.carried_from.as_ref())
             .with_context(|| format!("reading the session {}", file.display()))?;
         if sessions
             .iter()
@@ -392,7 +420,11 @@ pub fn load_sessions(scene: &Scene, scene_file: &Path) -> Result<Vec<SessionStat
     Ok(sessions)
 }
 
-fn load_session(file: &Path, id: Option<&str>) -> Result<SessionState> {
+fn load_session(
+    file: &Path,
+    id: Option<&str>,
+    carried_from: Option<&CarriedFromEntry>,
+) -> Result<SessionState> {
     let bytes = std::fs::read(file)?;
     let mut raw: serde_json::Value = serde_json::from_slice(&bytes)?;
     make_context_paths_absolute(&mut raw, file);
@@ -410,7 +442,15 @@ fn load_session(file: &Path, id: Option<&str>) -> Result<SessionState> {
         let errors: Vec<String> = errors.iter().map(ToString::to_string).collect();
         anyhow::bail!("{}", errors.join("; "));
     }
-    Ok(SessionState::new(id, session, None))
+    let draft = carried_from.map(|from| {
+        let mut draft = SessionResult::draft(&id, "", Vec::new());
+        draft.carried_from = Some(CarriedFrom {
+            id: from.id.clone(),
+            title: from.title.clone(),
+        });
+        draft
+    });
+    Ok(SessionState::new(id, session, draft.as_ref()))
 }
 
 #[cfg(test)]
@@ -461,7 +501,8 @@ mod tests {
             scene.sessions,
             [SessionEntry {
                 file: "../../../examples/sessions/release-checklist.json".into(),
-                id: None
+                id: None,
+                carried_from: None
             }]
         );
         assert_eq!(
@@ -494,6 +535,37 @@ mod tests {
                 name: "ntropy".to_owned(),
                 tmux_session: Some("ntropy".to_owned())
             }]
+        );
+    }
+
+    #[test]
+    fn a_session_that_continues_a_draft_reads_with_the_replaced_title() {
+        let scene = parse_scene(&format!(
+            "{SIZE}replaced = \"Round one\"\n\
+             [[sessions]]\nfile = \"one.json\"\n\
+             [sessions.carried_from]\nid = \"round-1\"\ntitle = \"Round one\"\n"
+        ))
+        .expect("the scene parses");
+
+        assert_eq!(scene.replaced.as_deref(), Some("Round one"));
+        assert_eq!(
+            scene.sessions[0].carried_from,
+            Some(CarriedFromEntry {
+                id: "round-1".to_owned(),
+                title: Some("Round one".to_owned())
+            })
+        );
+    }
+
+    #[test]
+    fn a_replaced_title_needs_a_session_that_continues_a_draft() {
+        let error = error_of(&format!(
+            "{SIZE}replaced = \"Round one\"\n[[sessions]]\nfile = \"one.json\"\n"
+        ));
+
+        assert!(
+            error.contains("`replaced` needs a first session with `carried_from`"),
+            "{error}"
         );
     }
 
