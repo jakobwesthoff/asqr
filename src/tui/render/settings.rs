@@ -16,13 +16,15 @@ use ratatui::widgets::Widget;
 
 use super::overlay::{overlay_block, popup};
 use super::parts::POINTER;
-use super::problem::shown_path;
 use super::screen::shorten_from_left;
 use super::source_line::columns;
 use super::theme;
 use super::wrap::wrap;
 use crate::settings::{Setting, SettingsStore};
-use crate::tui::{SettingsPane, about, label, lock_label, lock_text, meaning, value_name};
+use crate::tui::{
+    SettingsPane, about, absolute_with_home_as_tilde, label, lock_label, lock_text, meaning,
+    value_name,
+};
 
 /// The frame's width unless a path makes it wider or the screen narrower.
 const WIDTH: usize = 72;
@@ -57,7 +59,7 @@ pub(super) fn draw_settings(
 ) {
     let path = store
         .path()
-        .map(|path| shown_path(&path.to_string_lossy(), home));
+        .map(|path| absolute_with_home_as_tilde(path, home));
     let most = usize::from(area.width.saturating_sub(2));
     let wanted = path.as_ref().map_or(0, |path| columns(path) + FOOTER_EDGE);
     let width = WIDTH.max(wanted).min(most);
