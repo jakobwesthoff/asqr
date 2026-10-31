@@ -160,6 +160,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The errors of `asqr replay` for a reference that is too short, too long,
   no REF, ends no session or ends several start with `error: ` like those
   of every other command. Before, they started with `asqr: `.
+- The start picker shows "asqr needs at least 60×15; this terminal is
+  W×H." on a smaller terminal, as the session screen does. Before, it drew
+  its frame into whatever room there was.
 
 ## [0.15.0] - 2026-10-30
 

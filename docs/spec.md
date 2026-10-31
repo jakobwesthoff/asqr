@@ -2165,7 +2165,8 @@ has context (section 7.4, ADRs 30 and 31):
   above the first row or below the last row into view (below), dialogs
   never exceed the screen, and
   below 60×15 asqr shows "asqr needs at least 60×15; this terminal is
-  W×H." instead of the layout. Back at a larger size, the context
+  W×H." instead of the layout, the start picker's included. Back at a
+  larger size, the context
   pane's focus and the full-screen view are as they were.
 - When the question or the review does not show all its rows, a dim
   `↑ more` on its first row says that rows are cut off above, and a dim

@@ -17,7 +17,7 @@ use super::keys::{key_line_with_version, picker_hints};
 use super::overlay::{overlay_block, popup};
 use super::parts::POINTER;
 use super::problem;
-use super::screen::shorten_from_left;
+use super::screen::{draw_too_small, shorten_from_left};
 use super::source_line::columns;
 use super::theme;
 use crate::queue::DEFAULT_QUEUE;
@@ -45,6 +45,9 @@ const FOOTER_EDGE: usize = 5;
 /// in the title line, the queues in the middle, `notice` in the status
 /// line and the picker's keys with `version` in the key bar.
 pub fn draw_picker(frame: &mut Frame, picker: &Switcher, notice: Option<&Notice>, version: &str) {
+    if draw_too_small(frame) {
+        return;
+    }
     let area = frame.area();
     let [title, _, status, keys] = Layout::vertical([
         Constraint::Length(1),
@@ -681,6 +684,48 @@ mod tests {
                 .modifier
                 .contains(Modifier::DIM)
         );
+    }
+
+    /// The start picker drawn at `width`×`height`.
+    fn picker_at(width: u16, height: u16) -> ratatui::backend::TestBackend {
+        let mut choice = choice(Place::Outside);
+        choice.rows[1].watched = false;
+        let picker = Switcher::picker(choice);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
+                .expect("terminal");
+        terminal
+            .draw(|frame| draw_picker(frame, &picker, None, "asqr 0.0.0"))
+            .expect("draws");
+        terminal.backend().clone()
+    }
+
+    #[test]
+    fn a_picker_below_the_minimum_size_says_what_asqr_needs() {
+        // The text fits on one line at these sizes; narrower terminals
+        // wrap it, as the session screen's does.
+        for (width, height) in [(59, 24), (80, 14), (50, 10)] {
+            let screen = picker_at(width, height).to_string();
+
+            assert!(
+                screen.contains(&format!(
+                    "asqr needs at least 60×15; this terminal is {width}×{height}."
+                )),
+                "{width}×{height}: {screen}"
+            );
+            assert!(
+                !screen.contains("move   enter"),
+                "{width}×{height}: {screen}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_picker_at_the_minimum_size_draws_the_queues() {
+        let screen = picker_at(60, 15).to_string();
+
+        assert!(screen.contains("asqr-todos"), "{screen}");
+        assert!(!screen.contains("asqr needs at least"), "{screen}");
     }
 
     #[test]

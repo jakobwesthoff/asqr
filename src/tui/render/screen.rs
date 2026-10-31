@@ -339,6 +339,23 @@ pub fn draw(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     drawn
 }
 
+/// Fills `frame` with the message that asqr needs more room and returns
+/// true when the frame is below [`MIN_WIDTH`]×[`MIN_HEIGHT`]. Every screen
+/// of the TUI, the start picker included, stops there instead of drawing
+/// its layout.
+pub(super) fn draw_too_small(frame: &mut Frame) -> bool {
+    let area = frame.area();
+    if area.width >= MIN_WIDTH && area.height >= MIN_HEIGHT {
+        return false;
+    }
+    let text = format!(
+        "asqr needs at least {MIN_WIDTH}×{MIN_HEIGHT}; this terminal is {}×{}.",
+        area.width, area.height
+    );
+    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
+    true
+}
+
 fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // Whatever returns early draws no pane and no overlay.
     view.overlay_shown = false;
@@ -351,12 +368,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     // pane, so a panic of a load ends asqr on the frame it woke.
     view.tab.viewers.collect();
     let area = frame.area();
-    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-        let text = format!(
-            "asqr needs at least {MIN_WIDTH}×{MIN_HEIGHT}; this terminal is {}×{}.",
-            area.width, area.height
-        );
-        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), area);
+    if draw_too_small(frame) {
         return Drawn {
             row_cut: Some(None),
             ..Drawn::default()
