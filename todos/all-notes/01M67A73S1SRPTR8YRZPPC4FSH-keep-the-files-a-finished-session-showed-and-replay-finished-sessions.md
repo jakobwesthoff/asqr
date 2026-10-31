@@ -74,9 +74,17 @@ give the archive a read-only viewer so it can be looked at.
   `plans/image-format-research/findings.md`): unless that research turns
   up something new and clearly better, asqr builds on libwebp now, so
   the pickup re-check above is done. On 127 session images at quality
-  90, `libwebpop` matched `cwebp` (19.0% of the originals, mean SSIM
-  0.9857); `tola-webp` 0.8.1 (MIT) and `otf-pixels-codec-webp` were not
-  yet compared at matched SSIM; `jixel` is a pure-Rust JPEG XL encoder.
+  90, measured at the mean SSIM `cwebp -q 90` reaches (0.9857, 18.96%
+  of the originals): `libwebpop` 0.1.0 18.97% (BSD-3, released
+  2026-10-25, 15 downloads, its licence statement unsure);
+  `otf-pixels-codec-webp` 20.4%; `tola-webp` 0.8.1 20.6% (MIT, five
+  times faster than cwebp); JPEG XL through `jixel` 17.9% at its slow
+  setting, 20 times slower, and jxl-oxide decodes 9 of 127 of those
+  files wrongly; AVIF through `ravif` 25% smaller on a 42-image subset,
+  13 times slower, and `image` decodes it only through dav1d (C).
+  Nothing was clearly better, so libwebp stays (lead, 2026-10-31, under
+  the owner's standing answer). `libwebpop` is the first candidate to
+  swap in behind the processor trait once it has matured.
 - **Every kept file passes through a processing step behind a trait**
   (Jakob, 2026-10-31): before a shown file goes into the archive, a
   processor chosen by the entry's kind (image, Markdown, code, ANSI,
