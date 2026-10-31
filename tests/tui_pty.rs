@@ -77,8 +77,31 @@ impl Tui {
         Self::start_with(sandbox, queue, tmux_state, &[])
     }
 
-    /// Like [`Tui::start`], with the variables in `environment` set.
+    /// Like [`Tui::start`], with the variables in `environment` set. The
+    /// sandbox gets an empty settings file first, unless it has one, so
+    /// asqr does not ask the first start (ADR 106).
     fn start_with(
+        sandbox: &Sandbox,
+        queue: &[&str],
+        tmux_state: &str,
+        environment: &[(&str, &str)],
+    ) -> Self {
+        std::fs::create_dir_all(sandbox.config_dir()).expect("config dir");
+        let created = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(sandbox.config_dir().join("settings.toml"));
+        match created {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => panic!("settings file: {error}"),
+        }
+        Self::start_first_time(sandbox, queue, tmux_state, environment)
+    }
+
+    /// Like [`Tui::start_with`], and leaves the settings file as it is in
+    /// the sandbox, which is no file at the first start.
+    fn start_first_time(
         sandbox: &Sandbox,
         queue: &[&str],
         tmux_state: &str,
@@ -394,6 +417,225 @@ fn the_settings_pane_changes_a_setting_and_keeps_it_in_the_file() {
     tui.press(",");
     tui.wait_for("Nothing to answer");
     assert!(!tui.screen().contains("Diffs open as"), "{}", tui.screen());
+}
+
+// ---------------------------------------------------------------------
+// The first start (ADR 106)
+// ---------------------------------------------------------------------
+
+const FIRST_START_QUESTION: &str = "Keep copies of the files a session showed you?";
+
+fn settings_file(sandbox: &Sandbox) -> std::path::PathBuf {
+    sandbox.config_dir().join("settings.toml")
+}
+
+#[test]
+fn the_first_start_asks_once_and_writes_the_file() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let queue = ["--dir", dir.to_str().expect("UTF-8")];
+    let mut tui = Tui::start_first_time(&sandbox, &queue, "off\t1\t", &[]);
+
+    tui.wait_for(FIRST_START_QUESTION);
+    assert!(!settings_file(&sandbox).exists(), "nothing is written yet");
+    tui.send("\r");
+    tui.wait_for("enter  save");
+    tui.send("\r");
+
+    tui.wait_for("saved keep files: compact copies");
+    tui.wait_for("Nothing to answer");
+    let written = std::fs::read_to_string(settings_file(&sandbox)).expect("the file is written");
+    assert!(written.starts_with("# asqr settings"), "{written}");
+    assert!(written.contains("keep_files = \"compact\""), "{written}");
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+
+    let again = Tui::start_first_time(&sandbox, &queue, "off\t1\t", &[]);
+    again.wait_for("Nothing to answer");
+    assert!(
+        !again.screen().contains("First start"),
+        "{}",
+        again.screen()
+    );
+}
+
+#[test]
+fn quitting_the_first_start_writes_nothing_and_the_next_start_asks_again() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let queue = ["--dir", dir.to_str().expect("UTF-8")];
+    let mut tui = Tui::start_first_time(&sandbox, &queue, "off\t1\t", &[]);
+    tui.wait_for(FIRST_START_QUESTION);
+    tui.press("j");
+
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    assert!(!settings_file(&sandbox).exists());
+    let again = Tui::start_first_time(&sandbox, &queue, "off\t1\t", &[]);
+    again.wait_for(FIRST_START_QUESTION);
+}
+
+#[test]
+fn a_held_keep_files_variable_skips_the_first_start_and_writes_nothing() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let tui = Tui::start_first_time(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+        &[("ASQR_KEEP_FILES", "exact")],
+    );
+
+    tui.wait_for("Nothing to answer");
+
+    assert!(!tui.screen().contains("First start"), "{}", tui.screen());
+    assert!(!settings_file(&sandbox).exists());
+}
+
+#[test]
+fn a_settings_file_without_keep_files_skips_the_first_start() {
+    let sandbox = Sandbox::new();
+    std::fs::create_dir_all(sandbox.config_dir()).expect("config dir");
+    std::fs::write(settings_file(&sandbox), "diff_layout = \"unified\"\n").expect("settings file");
+    let dir = sandbox.queue_dir();
+    let tui = Tui::start_first_time(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+        &[],
+    );
+
+    tui.wait_for("Nothing to answer");
+
+    assert!(!tui.screen().contains("First start"), "{}", tui.screen());
+    assert_eq!(
+        std::fs::read_to_string(settings_file(&sandbox)).expect("still there"),
+        "diff_layout = \"unified\"\n"
+    );
+}
+
+#[test]
+fn a_replay_never_asks_the_first_start() {
+    let sandbox = Sandbox::new();
+    let location = asqr::queue::QueueLocation::named(&sandbox.data_dir(), "work");
+    location.create_layout().expect("layout");
+    let ulid = ulid::Ulid::from_parts(1_700_000_000_000, 0x1234_5678_9abc);
+    let name = asqr::queue::archive_name("replayed", ulid, asqr::queue::Archived::Session);
+    std::fs::write(
+        location.archive().join(name),
+        r#"{"asqr": 2, "id": "replayed", "title": "Replayed session", "questions": [{"id": "q", "text": "Pick a fruit", "kind": "text"}]}"#,
+    )
+    .expect("archived");
+    let text = ulid.to_string();
+    let reference = text[text.len() - 8..].to_lowercase();
+    let tui = Tui::start_first_time(&sandbox, &["replay", &reference], "off\t1\t", &[]);
+
+    tui.wait_for("Replayed session");
+
+    assert!(!tui.screen().contains("First start"), "{}", tui.screen());
+    assert!(!settings_file(&sandbox).exists());
+}
+
+#[test]
+fn a_first_start_that_cannot_write_says_so_and_goes_on() {
+    if rustix::process::geteuid().is_root() {
+        // Root writes into a directory whatever its mode says.
+        return;
+    }
+    let sandbox = Sandbox::new();
+    std::fs::create_dir_all(sandbox.config_dir()).expect("config dir");
+    std::fs::set_permissions(sandbox.config_dir(), std::fs::Permissions::from_mode(0o555))
+        .expect("made read-only");
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start_first_time(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+        &[],
+    );
+    tui.wait_for(FIRST_START_QUESTION);
+
+    tui.send("\r");
+    tui.send("\r");
+
+    tui.wait_for("cannot save the setting");
+    tui.wait_for("Nothing to answer");
+    assert!(!settings_file(&sandbox).exists());
+    tui.press("q");
+    assert_eq!(tui.wait_for_exit(), 0);
+    std::fs::set_permissions(sandbox.config_dir(), std::fs::Permissions::from_mode(0o755))
+        .expect("made writable again");
+}
+
+#[test]
+fn the_first_start_comes_before_the_start_picker() {
+    let sandbox = Sandbox::new();
+    ask_into(&sandbox, "other", "first");
+    let mut tui =
+        Tui::start_first_time(&sandbox, &["--no-notify"], PASSTHROUGH_ON, &[("TMUX", "")]);
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for(FIRST_START_QUESTION);
+    assert!(!tui.screen().contains("enter  watch"), "{}", tui.screen());
+
+    tui.send("\r");
+    tui.send("\r");
+
+    tui.wait_for("enter  watch");
+    assert!(settings_file(&sandbox).exists());
+    tui.press("j");
+    tui.send("\r");
+    tui.wait_for("Pick a fruit");
+    tui.wait_for("saved keep files: compact copies");
+}
+
+#[test]
+fn a_session_that_arrives_on_the_first_start_shows_after_the_answer() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start_first_time(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8")],
+        "off\t1\t",
+        &[],
+    );
+    tui.wait_for(FIRST_START_QUESTION);
+    let file = sandbox.file("arrived.json", &SESSION.replace("pty-test", "arrived"));
+    sandbox
+        .asqr()
+        .args(["--dir", dir.to_str().expect("UTF-8"), "ask"])
+        .arg(&file)
+        .assert()
+        .success();
+
+    tui.send("\r");
+    tui.send("\r");
+
+    tui.wait_for("Pick a fruit");
+}
+
+#[test]
+fn quitting_the_first_start_still_pins_the_queue() {
+    let sandbox = Sandbox::new();
+    let mut tui = Tui::start_first_time(
+        &sandbox,
+        &["--queue", "work", "--no-notify"],
+        PASSTHROUGH_ON,
+        &[("TMUX_PANE", "%7")],
+    );
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for(FIRST_START_QUESTION);
+
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let commands =
+        std::fs::read_to_string(sandbox.home().join(TMUX_COMMANDS)).expect("tmux was run");
+    let pins: Vec<&str> = commands
+        .lines()
+        .filter(|command| command.starts_with("set-environment"))
+        .collect();
+    assert_eq!(pins, ["set-environment -t %7 ASQR_SESSION_QUEUE work"]);
 }
 
 #[test]

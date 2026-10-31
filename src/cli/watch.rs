@@ -76,6 +76,12 @@ impl Watch {
         &self.settings
     }
 
+    /// Whether the TUI asks the first-start screen before it shows a queue
+    /// (see [`SettingsStore::asks_first_start`]).
+    pub fn asks_first_start(&self) -> bool {
+        self.settings.asks_first_start()
+    }
+
     /// What was wrong with the settings file, for the status line.
     pub fn settings_warnings(&self) -> &[String] {
         &self.warnings

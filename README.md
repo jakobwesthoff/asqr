@@ -111,7 +111,10 @@ over the file, and a file asqr cannot read
 only costs the settings it holds: the defaults apply, with a warning.
 `,` opens a settings pane that changes them with `←`/`→`, saves each
 change at once and explains the row under the cursor; a setting a flag or
-a variable holds shows as locked.
+a variable holds shows as locked. The first time asqr starts with no
+settings file, it asks what to keep of the files a session showed and writes
+the file; `q` quits without answering, and the next start asks again. A set
+`ASQR_KEEP_FILES` skips the question.
 
 `asqr wait` exits 0 for a submitted session, 10 when you rejected it, 11
 for an invalid file, 12 when its `--timeout` ran out, 13 when no result will come, such as for

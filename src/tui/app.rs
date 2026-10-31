@@ -272,6 +272,15 @@ impl App {
         }
     }
 
+    /// Shows what the first start's save came to. A write that failed
+    /// always shows. The confirmation shows only where no other notice
+    /// does, as the status line holds one.
+    pub fn show_first_start_notice(&mut self, notice: Notice) {
+        if notice.tone == Tone::Error || self.notice.is_none() {
+            self.show(notice);
+        }
+    }
+
     /// Adds a session at the end of the queue. A session whose id is known
     /// already is a replaced file: it takes the place of the open one and
     /// keeps the answers that still fit.
@@ -796,6 +805,57 @@ mod tests {
                 "settings.toml: 3 problems, the defaults apply (see the log)"
             ))
         );
+    }
+
+    #[test]
+    fn the_confirmation_of_the_first_start_shows_where_no_notice_does() {
+        let mut app = App::default();
+
+        app.show_first_start_notice(Notice::new(
+            Tone::Success,
+            "✔ saved keep files: compact copies",
+        ));
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(
+                Tone::Success,
+                "✔ saved keep files: compact copies"
+            ))
+        );
+    }
+
+    #[test]
+    fn the_confirmation_of_the_first_start_leaves_a_notice_already_showing() {
+        let mut app = App::default();
+        app.notice(Tone::Warning, "a session was archived unanswered");
+
+        app.show_first_start_notice(Notice::new(
+            Tone::Success,
+            "✔ saved keep files: compact copies",
+        ));
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(
+                Tone::Warning,
+                "a session was archived unanswered"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_write_of_the_first_start_that_failed_always_shows() {
+        let mut app = App::default();
+        app.notice(Tone::Warning, "a session was archived unanswered");
+        let failed = Notice::new(
+            Tone::Error,
+            "cannot save the setting: settings.toml is read-only; the choice holds until asqr quits",
+        );
+
+        app.show_first_start_notice(failed.clone());
+
+        assert_eq!(app.current_notice(), Some(&failed));
     }
 
     #[test]

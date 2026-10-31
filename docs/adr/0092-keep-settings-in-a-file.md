@@ -14,6 +14,8 @@ the reading width is a setting
 
 Amended by [100. Keep the files a finished session showed](0100-keep-the-files-a-finished-session-showed.md)
 
+Amended by [106. Ask the settings that need a deliberate answer on first start](0106-ask-the-settings-that-need-a-deliberate-answer-on-first-start.md)
+
 ## Context
 
 - ADR 15 has settings come from flags and environment variables only,

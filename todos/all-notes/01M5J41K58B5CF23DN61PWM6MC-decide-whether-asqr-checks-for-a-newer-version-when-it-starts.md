@@ -41,9 +41,8 @@ To be worked out; none is decided.
 
 The user's direction, not final:
 
-- The automatic check belongs together with user preferences (todo
-  01M623QGQXR4ERM34GYV8H6DVR, Ask the settings that need a deliberate
-  answer on first start), which it needs: on the first start asqr
+- The automatic check belongs together with user preferences (the
+  first-start screen, ADR 106), which it needs: on the first start asqr
   would ask whether it may look for updates automatically, at start and
   at intervals while it runs for a long time, as torchsnap does.
 - A possible first step before the preferences exist: the check itself,
@@ -57,9 +56,9 @@ The user's direction, not final:
 ## Decided so far (Jakob, 2026-10-30, in the chat)
 
 - **asqr asks on first start whether it may look for newer versions,
-  with "no" preselected,** and keeps the answer as a setting (todo
-  01M623QGQXR4ERM34GYV8H6DVR: the first-start screen; the settings
-  file and the settings pane exist). Each check sends only `asqr/<version>` as its
+  with "no" preselected,** and keeps the answer as a setting (the
+  first-start screen, ADR 106, the settings file and the settings pane
+  exist). Each check sends only `asqr/<version>` as its
   `User-Agent`, never queue content or paths. The spec's "no network"
   (`docs/spec.md:34-35`, and "Networking" under "Not in asqr yet")
   changes with an ADR to "no network unless the person allows it". No
@@ -79,7 +78,32 @@ The user's direction, not final:
 - **Where the notice shows needs a design round with rendered ideas:**
   somewhere the person sees easily and cannot miss.
 - **Parked for now (Jakob):** only the decisions above are recorded;
-  the work waits for the settings and the design round.
+  the work waits for the design round.
+
+## The first-start screen it joins
+
+The screen exists (`src/tui/first_start.rs`, ADR 106) and asks
+`keep_files` only. It iterates the `QUESTIONS` array, which has one entry,
+and keeps one picked value per question, so the update question is a second
+entry with its own text and a `Setting`. What the screen asks is decided
+as follows:
+
+- The screen shows when no settings file exists, and a file that exists
+  never triggers it. A setting added to the screen gets no second
+  trigger: a person who has a file written by an earlier asqr is not
+  asked it. A setting that an environment variable or a flag holds is
+  decided; `keep_files` skips the whole screen when `ASQR_KEEP_FILES` is
+  set. What a held second setting does to the screen is not decided.
+- Each new setting is a key of `settings.toml`, a row of the settings pane
+  with its agreed texts and, where an environment variable or a flag can
+  override it, a locked row.
+- The first-start drafts of the design study (the first-start mockup)
+  ask the update question as "Look for newer versions when asqr
+  starts?" with the line "Each check sends only asqr/0.14.0, never queue
+  content or paths." and the values `yes` ("asks GitHub, sending only
+  asqr/0.14.0") and `no` ("never asks"). They preselect `yes`; the decision
+  above preselects `no`. The texts are not final and are written together
+  with Jakob when this is built, as the keep-files texts were.
 
 ## Open questions
 
@@ -94,8 +118,8 @@ The user's direction, not final:
 
 ## Re-checked (Jakob, 2026-10-31, in the chat)
 
-Kept parked until the first-start screen (todo
-01M623QGQXR4ERM34GYV8H6DVR) is built. Where the notice shows, what it
+Kept parked until the first-start screen was built, which it now is
+(ADR 106). Where the notice shows, what it
 says and how often asqr checks are discussed when this todo is taken
 up, not before. The options put to Jakob that day, for then: the notice
 in the empty queue's key bar beside the version, a line of its own above
@@ -106,5 +130,4 @@ with the time of the last check kept in a file.
 
 ## Revisit when
 
-The first-start screen exists (todo 01M623QGQXR4ERM34GYV8H6DVR), and the
-notice's design round has run.
+The notice's design round has run.

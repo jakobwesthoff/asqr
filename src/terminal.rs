@@ -33,10 +33,11 @@ use asqr::settings::SettingsStore;
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
 use asqr::tui::{
-    Alerts, Clock, Event, EventSource, Held, Host, InboxWatcher, KeepAlive, KeyReader, OpenedFiles,
-    ProgressTerminal, QueueChoice, Refusal, SleepClock, Switcher, Taken, alert, opener_failure,
-    pick_queue, prepare_switch, progress_sequence, progress_terminal, queue_choice, queue_label,
-    run, spawn_reaped, start_replay, start_with_keeper, take_picked_with_keeper, watch_inbox,
+    Alerts, Clock, Event, EventSource, FirstStartEnd, Held, Host, InboxWatcher, KeepAlive,
+    KeyReader, OpenedFiles, ProgressTerminal, QueueChoice, Refusal, SleepClock, Switcher, Taken,
+    alert, ask_first_start, opener_failure, pick_queue, prepare_switch, progress_sequence,
+    progress_terminal, queue_choice, queue_label, run, spawn_reaped, start_replay,
+    start_with_keeper, take_picked_with_keeper, watch_inbox,
 };
 use ratatui::crossterm::event::{
     self, DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
@@ -179,13 +180,14 @@ fn run_tui(
     sender: mpsc::Sender<Event>,
     events: &mpsc::Receiver<Event>,
 ) -> anyhow::Result<()> {
-    let config = RunConfig::of(mode);
+    let mut config = RunConfig::of(mode);
     let inbox_events = sender.clone();
-    // A queue chosen at the start is held already. Its watcher comes first
-    // and the first scan second, so no file can arrive unseen in between
-    // (spec section 5.4). The start picker takes its queue the same way,
-    // once the terminal is set up and the person picked one.
-    let started = match &mut *mode {
+    // A queue chosen at the start is held already, with its watcher. The
+    // first scan comes second, once the terminal is set up and the first
+    // start is answered, so no file can arrive unseen in between (spec
+    // section 5.4). The start picker takes its queue the same way, once
+    // the person picked one.
+    let held = match &mut *mode {
         Mode::Watch(watch) => match watch.take_lock() {
             Some(lock) => {
                 let location = watch.location().clone();
@@ -194,16 +196,10 @@ fn run_tui(
                     let _ = changes.send(Event::InboxChanged);
                 })
                 .context("watching the inbox")?;
-                let (app, inbox) =
-                    start_with_keeper(location.clone(), watch.settings().clone(), keeper.cloned())?;
-                Some(Taken {
-                    held: Held {
-                        location,
-                        lock,
-                        watcher,
-                    },
-                    app,
-                    inbox,
+                Some(Held {
+                    location,
+                    lock,
+                    watcher,
                 })
             }
             None => None,
@@ -317,34 +313,68 @@ fn run_tui(
     // pauses while another program has the terminal.
     let keys = KeyReader::spawn(CrosstermEvents, sender);
 
-    let (location, lock, watcher, mut app, mut inbox, mut opened) = match (started, &mut *mode) {
+    // The pin goes in once the TUI runs, so a start that failed earlier
+    // leaves the session's agents where they were (ADR 85), and before the
+    // first-start screen, so quitting it leaves the pin as any quit does. A
+    // pin tmux refuses leaves asqr as outside tmux, without a word.
+    if let Mode::Watch(watch) = &*mode
+        && let Some(pin) = watch.pin()
+        && let Err(TmuxFailure(reason)) =
+            pairing::pin(&SystemTmux::default(), &pin.pane, &pin.queue)
+    {
+        tracing::info!(reason, "tmux did not take the pin");
+    }
+
+    // The first start asks before anything reads the queue, so what the
+    // first read hands on, such as the files of a session finished before
+    // the last quit, is kept as the answer says (ADR 106).
+    let mut first_start = None;
+    if let Mode::Watch(watch) = &*mode
+        && watch.asks_first_start()
+    {
+        match ask_first_start(
+            &mut terminal,
+            events,
+            VERSION,
+            &config.settings,
+            config.home.as_deref(),
+            config.no_color,
+        )? {
+            FirstStartEnd::Quit => return Ok(()),
+            FirstStartEnd::Answered { store, notice } => {
+                config.settings = store;
+                first_start = Some(notice);
+            }
+        }
+    }
+
+    let (location, lock, watcher, mut app, mut inbox, mut opened) = match (held, &mut *mode) {
         (
-            Some(Taken {
-                held:
-                    Held {
-                        location,
-                        lock,
-                        watcher,
-                    },
-                app,
-                inbox,
+            Some(Held {
+                location,
+                lock,
+                watcher,
             }),
             _,
-        ) => (
-            location,
-            Some(lock),
-            Some(watcher),
-            app,
-            inbox,
-            // The files `o` wrote in earlier runs that may go are removed
-            // here, under the queue's lock.
-            OpenedFiles::in_temp_dir(),
-        ),
+        ) => {
+            let (app, inbox) =
+                start_with_keeper(location.clone(), config.settings.clone(), keeper.cloned())?;
+            (
+                location,
+                Some(lock),
+                Some(watcher),
+                app,
+                inbox,
+                // The files `o` wrote in earlier runs that may go are
+                // removed here, under the queue's lock.
+                OpenedFiles::in_temp_dir(),
+            )
+        }
         (None, Mode::Watch(watch)) => {
             let choice = watch
                 .pick()
                 .expect("a watch without a lock carries the picker's queues");
-            let settings = watch.settings().clone();
+            let settings = config.settings.clone();
             let keeper = keeper.cloned();
             let picked = pick_queue(
                 &mut terminal,
@@ -396,6 +426,9 @@ fn run_tui(
         }
     };
     app.report_settings_problems(&config.warnings);
+    if let Some(notice) = first_start {
+        app.show_first_start_notice(notice);
+    }
     let queue = queue_label(&location, config.home.as_deref());
     let mut host = TerminalHost {
         alerts: config.alerts,
@@ -438,16 +471,6 @@ fn run_tui(
     #[cfg(debug_assertions)]
     if let Some(path) = std::env::var_os("ASQR_TEST_PANIC_ON_LOAD") {
         view = view.panicking_on_load(path);
-    }
-    // The pin goes in once the TUI runs, so a start that failed earlier
-    // leaves the session's agents where they were (ADR 85). A pin tmux
-    // refuses leaves asqr as outside tmux, without a word.
-    if let Mode::Watch(watch) = &*mode
-        && let Some(pin) = watch.pin()
-        && let Err(TmuxFailure(reason)) =
-            pairing::pin(&SystemTmux::default(), &pin.pane, &pin.queue)
-    {
-        tracing::info!(reason, "tmux did not take the pin");
     }
     run(
         &mut terminal,

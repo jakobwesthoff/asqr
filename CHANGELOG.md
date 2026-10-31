@@ -67,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hold as locked. A file asqr cannot read costs
   only the settings it holds, with a warning in the log and the status
   line. `asqr paths` names the file.
+- The first time `asqr` or `asqr watch` starts with no settings file, it
+  asks whether and how asqr keeps the files a finished session showed, on a
+  first-start screen in the queue switcher's frame, and writes
+  `settings.toml` with the answer. `q` and `ctrl-c` quit without writing, so
+  the next start asks again. A set `ASQR_KEEP_FILES`, a settings file that
+  is there, `asqr replay` and every other command skip the screen.
 - Finished sessions and results older than 30 days are compressed into
   one zip per queue and month, `archive/2026-10.zip`, by the asqr that
   starts watching or switches to a queue. Nothing is deleted but the

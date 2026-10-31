@@ -856,6 +856,63 @@ mod tests {
         (exit, started)
     }
 
+    /// Whether watching with `environment` asks the first start, for a
+    /// settings file at `config`, which need not be there.
+    fn asks_in(config: Option<PathBuf>, environment: Environment) -> bool {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let queue = scratch.path().join("queue");
+        let cli = Cli::try_parse_from(["asqr", "--dir", queue.to_str().expect("UTF-8 temp path")])
+            .expect("parses");
+        let mut asks = None;
+        let exit = dispatch(cli, environment, &Unasked, None, config, |watch| {
+            asks = Some(watch.asks_first_start());
+            Exit::Success
+        });
+        assert_eq!(exit, Exit::Success);
+        asks.expect("the TUI started")
+    }
+
+    #[test]
+    fn watching_asks_the_first_start_where_the_settings_file_is_missing() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let missing = scratch.path().join("asqr").join("settings.toml");
+
+        assert!(asks_in(Some(missing.clone()), Environment::default()));
+        assert!(!missing.exists(), "asking writes nothing");
+    }
+
+    #[test]
+    fn watching_never_asks_the_first_start_where_the_settings_file_is_there() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let config = scratch.path().join("settings.toml");
+        for text in ["", "context = \"below\"\n", "context =\n"] {
+            std::fs::write(&config, text).expect("written");
+
+            assert!(
+                !asks_in(Some(config.clone()), Environment::default()),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn watching_never_asks_the_first_start_where_the_variable_holds_keep_files() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let missing = scratch.path().join("settings.toml");
+        let environment = Environment {
+            keep_files: Some("off".into()),
+            ..Environment::default()
+        };
+
+        assert!(!asks_in(Some(missing.clone()), environment));
+        assert!(!missing.exists(), "nothing is written");
+    }
+
+    #[test]
+    fn watching_never_asks_the_first_start_without_a_place_for_the_file() {
+        assert!(!asks_in(None, Environment::default()));
+    }
+
     const FILE: &str = "diff_layout = \"side-by-side\"\nmax_question_width = 120\ncontext = \"beside\"\nkeep_files = \"exact\"\n";
 
     #[test]
@@ -1029,6 +1086,53 @@ mod tests {
         assert_eq!(reads_for("watch"), 1, "watching reads the file once");
         for command in ["paths", "new", "status"] {
             assert_eq!(reads_for(command), 0, "{command} leaves the file alone");
+        }
+    }
+
+    #[test]
+    fn the_commands_agents_call_never_start_the_tui_nor_make_the_settings_file() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let config = scratch.path().join("asqr").join("settings.toml");
+        let queue = scratch.path().join("queue");
+        let queue = queue.to_str().expect("UTF-8 temp path");
+        let session = scratch.path().join("session.json");
+        let session = session.to_str().expect("UTF-8 temp path");
+        let commands: [&[&str]; 8] = [
+            &["paths"],
+            &["new"],
+            &["status"],
+            &["history"],
+            &["ask", session],
+            &["wait", "no-such-session", "--timeout", "0"],
+            &["result", "no-such-session"],
+            &["withdraw", "no-such-session"],
+        ];
+
+        for command in commands {
+            let mut argv = vec!["asqr", "--dir", queue];
+            argv.extend(command);
+            let cli = Cli::try_parse_from(argv).expect("parses");
+            let before = crate::settings::file_reads_on_this_thread();
+            let mut started = false;
+            dispatch(
+                cli,
+                Environment::default(),
+                &Unasked,
+                None,
+                Some(config.clone()),
+                |_| {
+                    started = true;
+                    Exit::Success
+                },
+            );
+
+            assert!(!started, "{command:?} starts no TUI");
+            assert_eq!(
+                crate::settings::file_reads_on_this_thread(),
+                before,
+                "{command:?}"
+            );
+            assert!(!config.exists(), "{command:?} makes no settings file");
         }
     }
 

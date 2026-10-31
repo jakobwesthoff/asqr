@@ -831,8 +831,10 @@ four keys, each of which may be left out:
   parse is never written over, nor is one without write permission for
   anyone, and a missing one is created with its directory and a comment
   above the key.
-- A file that is not there gives every default and says nothing. A file
-  that cannot be read or does not parse gives every default. A key whose
+- A file that is not there gives every default and says nothing; at the
+  start of `asqr` and `asqr watch` it also has the first-start screen ask
+  `keep_files` and write the file (section 7.1, ADR 106). A file that cannot
+  be read or does not parse gives every default. A key whose
   value is none of those in the table gives that setting's default and
   leaves the other settings as the file has them. A key asqr does not
   know, a table included, is ignored, and the warning names it. Each case
@@ -1922,8 +1924,8 @@ start without one has done all three.
 
 Outside tmux, with no queue chosen by a flag or a variable, and with a
 queue besides `default` under the data directory that no other asqr
-watches, asqr shows the start picker first (ADR 86), before it takes a
-lock. It is the queue switcher's frame of section 7.6 under a title
+watches, asqr shows the start picker (ADR 86), after the first-start
+screen where that shows, before it takes a lock. It is the queue switcher's frame of section 7.6 under a title
 line that reads `asqr`, without `◀ this asqr`, with the key bar `↑/↓
 move   enter  watch   q  quit` and asqr's version at its right end. The
 cursor starts on `default` where no other asqr watches it, else on the
@@ -1938,9 +1940,52 @@ and `esc` stops typing there and does nothing elsewhere. While the
 new-queue row has the keys, the key bar is the switcher's typing bar,
 `enter  create   esc  stop typing`, with the version at its right end.
 
+The first time `asqr` or `asqr watch` starts with no settings file (section
+5.2), it shows the first-start screen (ADR 106), with the terminal set up
+and before the start picker and before the first read of the queue. A
+settings file that is there never triggers it, whatever it holds. Neither
+does a set `ASQR_KEEP_FILES`, which decides `keep_files` already: then
+nothing is asked and nothing is written. Neither does a missing config
+directory, `asqr replay`, which finishes no session and keeps no files, nor
+any other command.
+
+- The screen is the queue switcher's frame of section 7.6 under a title line
+  that reads `asqr`, titled `First start`, 72 columns wide, or as wide as the
+  footer needs up to the screen. The footer on the bottom edge reads `writes
+  <path>`, the settings file's path with `~` for the home folder; a path that
+  does not fit loses its start behind `…`.
+- Inside, from the top: the lead `Before your first session, one setting
+  needs your answer. Press , later to change it.`, a blank row, the question
+  `Keep copies of the files a session showed you?` in bold, and the dim line
+  `Files a session shows are often temporary. Replay can show them later only
+  if a copy was kept.` Then the three values of `Keep files` (section 7.6) as
+  rows, `(•)` before the one picked and `( )` before the others, each followed
+  by its text from the footer table of section 7.6, dim, and `◀ default` at
+  the right end of the row of `compact copies`, which is picked at the start.
+  Then a blank row, the button `[ Save and start ]`, a blank row and the dim
+  line `q quits without writing; the next start asks again.`
+- The cursor starts on the picked value. The row under the cursor has the
+  pointer and the focus fill, and the button, which has a fill of its own,
+  has the pointer. A frame taller than the rows between the title line and
+  the status line shows the rows that keep the cursor's row with its text in
+  view, or the button down to the last line.
+- `↑`/`↓` and `k`/`j` move, `enter` or `space` on a value picks it, and
+  `enter` then moves the cursor to the button. `enter` on the button writes
+  `keep_files` only, as the pane does (section 5.2), and asqr starts on the
+  queue. `q` and `ctrl-c`, SIGTERM, SIGINT and SIGHUP quit and write nothing,
+  so the next start asks again. Every other key does nothing, and a paste
+  goes nowhere. The key bar reads `↑/↓  move   enter  pick   q  quit`, on the
+  button `enter  save`, with asqr's version at its right end.
+- After the save the status line shows `✔ saved keep files: <value>` as the
+  pane does, unless another notice shows already. A save that fails shows the
+  red notice the pane shows (section 7.9) and always shows; the chosen value
+  holds for this run, no file is written, and the next start asks again.
+
 Inside tmux, on a named queue, asqr pins its queue in its tmux session
 once it runs: `tmux set-environment -t <pane> ASQR_SESSION_QUEUE
-<queue>` (ADR 85). It does so on every start, also for a queue that
+<queue>` (ADR 85), before the first-start screen where that shows, so
+quitting the screen leaves the pin as any quit does. It does so on every
+start, also for a queue that
 came from the session's name, and `asqr --queue default` pins the
 default queue. A queue given by `--dir` or `ASQR_DIR` is not pinned,
 and neither is the default queue taken because tmux did not answer. A
