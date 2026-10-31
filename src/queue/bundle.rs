@@ -400,15 +400,28 @@ fn entries_of(
     Ok(entries)
 }
 
-/// The content of the entry `name` of the bundle of `month`. The zip
-/// checks the entry's checksum while it is read.
-pub fn read_entry(
-    location: &QueueLocation,
-    month: Month,
-    name: &str,
-) -> Result<Vec<u8>, BundleError> {
-    let path = bundle_path(location, month);
-    read_entry_of(&mut open(&path)?, &path, name)
+/// A bundle opened for reading several entries, so its directory is
+/// parsed once.
+pub struct BundleReader {
+    archive: ZipArchive<File>,
+    path: PathBuf,
+}
+
+impl BundleReader {
+    /// Opens the bundle of `month`.
+    pub fn open(location: &QueueLocation, month: Month) -> Result<BundleReader, BundleError> {
+        let path = bundle_path(location, month);
+        Ok(BundleReader {
+            archive: open(&path)?,
+            path,
+        })
+    }
+
+    /// The content of the entry `name`. The zip checks the entry's
+    /// checksum while it is read.
+    pub fn read(&mut self, name: &str) -> Result<Vec<u8>, BundleError> {
+        read_entry_of(&mut self.archive, &self.path, name)
+    }
 }
 
 fn read_entry_of(
@@ -423,6 +436,15 @@ fn read_entry_of(
     file.read_to_end(&mut bytes)
         .map_err(|error| BundleError::io(path, error))?;
     Ok(bytes)
+}
+
+/// The content of the entry `name` of the bundle of `month`.
+pub fn read_entry(
+    location: &QueueLocation,
+    month: Month,
+    name: &str,
+) -> Result<Vec<u8>, BundleError> {
+    BundleReader::open(location, month)?.read(name)
 }
 
 /// What the archive says about the result of a session whose file is in

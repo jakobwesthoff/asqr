@@ -162,3 +162,15 @@ pub fn is_kept_name(name: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
 }
+
+/// The `shown.state` of every place the archived `session` names a file
+/// at, in the order the places lie; `None` for a place without a record.
+pub fn shown_states(session: &[u8]) -> Vec<Option<String>> {
+    let Ok(mut raw) = serde_json::from_slice::<Value>(session) else {
+        return Vec::new();
+    };
+    places_mut(&mut raw)
+        .into_iter()
+        .map(|(_, object)| object["shown"]["state"].as_str().map(str::to_owned))
+        .collect()
+}
