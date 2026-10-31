@@ -70,6 +70,13 @@ pub struct Month {
 }
 
 impl Month {
+    /// The last month that has a bundle: the end of 9999-12 would be in a
+    /// year that dates cannot hold.
+    const LAST: Month = Month {
+        year: 9998,
+        month: 12,
+    };
+
     /// The month `month` (1 to 12) of `year`, or `None` for another month
     /// number.
     pub fn new(year: i32, month: u8) -> Option<Month> {
@@ -81,12 +88,15 @@ impl Month {
         Month::of_time(ulid.datetime())
     }
 
+    /// The UTC month `time` falls in. A time past the last month a bundle
+    /// can be named after falls in that month.
     pub fn of_time(time: SystemTime) -> Month {
         let zoned = zoned_utc(time);
-        Month {
+        let month = Month {
             year: i32::from(zoned.year()),
             month: u8::try_from(zoned.month()).expect("a month number is 1 to 12"),
-        }
+        };
+        month.min(Month::LAST)
     }
 
     /// The first instant of the month.
@@ -144,13 +154,16 @@ impl FromStr for Month {
             year.parse().map_err(|_| ())?,
             month.parse().map_err(|_| ())?,
         )
+        .filter(|month| *month <= Month::LAST)
         .ok_or(())
     }
 }
 
 fn zoned_utc(time: SystemTime) -> jiff::Zoned {
+    // ULIDs and files date from after the epoch, so a time dates cannot
+    // hold lies too far ahead.
     jiff::Timestamp::try_from(time)
-        .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+        .unwrap_or(jiff::Timestamp::MAX)
         .to_zoned(TimeZone::UTC)
 }
 

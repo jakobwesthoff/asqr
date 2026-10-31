@@ -1033,3 +1033,34 @@ fn an_entry_with_another_timestamp_field_has_no_bundling_time() {
 
     assert_eq!(listed[0].bundled_at, None);
 }
+
+#[test]
+fn a_month_name_with_a_year_past_the_last_month_with_an_end_is_no_month() {
+    // The end of 9999-12 would be in the year 10000.
+    assert!("9999-12".parse::<Month>().is_err());
+    assert!("9999-01".parse::<Month>().is_err());
+    assert_eq!(
+        "9998-12"
+            .parse::<Month>()
+            .map(|month| month.end() > month.start()),
+        Ok(true)
+    );
+}
+
+#[test]
+fn a_bundle_named_after_the_year_9999_is_ignored_like_any_unknown_name() {
+    let (_scratch, location) = queue();
+    fs::write(location.archive().join("9999-12.zip"), "").expect("written");
+
+    assert_eq!(list_months(&location).expect("listed"), Vec::<Month>::new());
+}
+
+#[test]
+fn a_time_past_the_last_month_falls_in_the_last_month() {
+    let far = Ulid::from_parts((1 << 48) - 1, 0);
+
+    let month = Month::of(far);
+
+    assert_eq!(month.to_string(), "9998-12");
+    assert!(month.end() > month.start());
+}

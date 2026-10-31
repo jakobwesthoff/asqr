@@ -579,7 +579,8 @@ result, the ULID is built from the time the result was finished and the
 SHA-256 of its bytes: the finish time is its `submitted_at`, else the
 modification time of its file. A result therefore lies in the month it
 was finished in, and its session in the month it was archived, which can
-be a later one. Entries of other names are listed and left alone.
+be a later one. Entries of other names are listed and left alone. A file whose name has a
+year above 9998 is no bundle.
 
 Every entry records the time it was bundled in an extra field with the
 id `0xA5C1`: four bytes of Unix seconds in UTC, little endian. An entry

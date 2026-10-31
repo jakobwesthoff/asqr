@@ -318,6 +318,18 @@ mod tests {
     }
 
     #[test]
+    fn a_bundle_named_after_the_year_9999_stays_and_is_no_panic() {
+        let (_scratch, location) = queue();
+        let odd = location.archive().join("9999-12.zip");
+        fs::write(&odd, "").expect("written");
+
+        let removed = prune(&location, 30 * DAY, now(), true).expect("prunes");
+
+        assert_eq!(removed, Vec::<PathBuf>::new());
+        assert!(odd.exists());
+    }
+
+    #[test]
     fn leaves_the_outbox_alone() {
         let (_scratch, location) = queue();
         let unread = result_aged(&location, "unread", 400 * DAY);
