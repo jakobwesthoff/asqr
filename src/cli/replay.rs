@@ -11,8 +11,8 @@ use jiff::tz::TimeZone;
 
 use super::Exit;
 use crate::queue::{
-    EntryPlace, EntryRef, LoadedReplay, QueueLocation, Resolution, bundle_path, describe_entry,
-    load_replay, resolve_reference,
+    BundleError, EntryPlace, EntryRef, LoadedReplay, QueueLocation, Resolution, bundle_path,
+    describe_entry, load_replay, resolve_reference,
 };
 use crate::settings::{Locks, SettingsStore};
 use crate::tui::{OpenedFiles, ReplayInfo, SessionState, replay_time_text};
@@ -105,10 +105,15 @@ pub(super) fn run(
         no_color,
         home,
     } = request;
-    let entry = match find_entry(location, root, reference) {
-        Ok(entry) => entry,
+    let (entry, unreadable) = match find_entry(location, root, reference) {
+        Ok(found) => found,
         Err(exit) => return exit,
     };
+    // The readable bundles name exactly one session, so it is shown; the
+    // warning tells that the search left some bundles out.
+    for error in &unreadable {
+        eprintln!("warning: {error}; its sessions could not be searched for this REF");
+    }
 
     // The copies of the files go into the directory of this run, which `o`
     // and the viewers read afterwards.
@@ -135,13 +140,14 @@ pub(super) fn run(
 }
 
 /// The finished session `reference` names in the queues under `root` and
-/// in `location` where that is a directory given by `--dir`, or the exit
-/// to end with after the reason has been printed.
+/// in `location` where that is a directory given by `--dir`, with the
+/// bundles that could not be searched, or the exit to end with after the
+/// reason has been printed.
 pub(super) fn find_entry(
     location: &QueueLocation,
     root: Option<&Path>,
     reference: &str,
-) -> Result<EntryRef, Exit> {
+) -> Result<(EntryRef, Vec<BundleError>), Exit> {
     // A queue given as a directory outside the data directory is searched
     // only when it is named.
     let extra = location.root().is_none().then_some(location);
@@ -190,7 +196,7 @@ pub(super) fn find_entry(
             return Err(Exit::Failure);
         }
     };
-    Ok(entry)
+    Ok((entry, resolved.unreadable))
 }
 
 /// One line for each of `candidates`, the newest first: the reference, the

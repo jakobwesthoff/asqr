@@ -270,3 +270,24 @@ fn walk(dir: &std::path::Path) -> Vec<String> {
     }
     found
 }
+
+#[test]
+fn a_session_found_beside_an_unreadable_bundle_warns_naming_the_bundle() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let reference = archive(&location, "a", "A", 1, 0x1234_5678_9abc);
+    fs::write(location.archive().join("2019-01.zip"), "no zip").expect("written");
+
+    let output = replay(&sandbox, &["replay", &reference]);
+
+    let text = stderr(&output);
+    let warning = text.lines().next().expect("a line");
+    assert!(
+        warning.starts_with("warning: cannot read ") && warning.contains("2019-01.zip"),
+        "{text}"
+    );
+    assert!(
+        warning.ends_with("its sessions could not be searched for this REF"),
+        "{text}"
+    );
+}

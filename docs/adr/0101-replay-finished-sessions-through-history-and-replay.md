@@ -51,7 +51,9 @@ verb says. A bare `asqr history` is the list.
   under the data directory and the queue `--dir` names. A reference too
   short, too long or with a letter no ULID holds is a usage error. No
   match or several matches end with exit code 1, the latter listing the
-  candidates. The replay never ends with 10 to 14.
+  candidates. A single match opens even when a bundle cannot be read,
+  after a warning on stderr that names each such bundle, since the
+  search left it out. The replay never ends with 10 to 14.
 - It takes no lock and writes nothing into the queue, so it runs beside
   the asqr that watches it. It reuses the run loop of the terminal UI with
   an inbox that only counts the sessions waiting in the queue, so no
@@ -70,7 +72,9 @@ verb says. A bare `asqr history` is the list.
   from both. The bundle is written anew without the session and without
   the kept files only it showed, in one hold of the drafts lock, and
   removed when nothing remains in it. A bundle or a loose session that
-  cannot be read is an error and nothing is removed. The result of the session stays.
+  cannot be read is an error and nothing is removed, and so is any bundle
+  of the searched queues that cannot be read, since it may hold a second
+  session with the same reference. The result of the session stays.
 - `prune --older-than` removes the loose kept files of the loose sessions
   it removes that no loose session that stays shows, and loose kept files
   no loose session shows whose own modification time is before the cutoff;

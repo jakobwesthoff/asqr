@@ -120,10 +120,18 @@ pub(super) fn run_session(
     reference: &str,
     yes: bool,
 ) -> Exit {
-    let entry = match find_entry(location, root, reference) {
-        Ok(entry) => entry,
+    let (entry, unreadable) = match find_entry(location, root, reference) {
+        Ok(found) => found,
         Err(exit) => return exit,
     };
+    // A bundle that cannot be read may hold a second session with this
+    // REF, and a delete must hit exactly one.
+    if !unreadable.is_empty() {
+        for error in &unreadable {
+            eprintln!("error: cannot prune the session while a bundle cannot be read: {error}");
+        }
+        return Exit::Failure;
+    }
     let removals = match prune_session(&entry, yes) {
         Ok(removals) => removals,
         Err(error) => {

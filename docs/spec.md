@@ -1231,7 +1231,10 @@ makes the exit code 1.
   nothing is left in it. The result of the session stays. It prints and
   asks as `--older-than` does, a bundle entry as `<bundle>: <name>`. A
   bundle or a loose session that cannot be read is an error, exit code 1,
-  and nothing is removed. Named queues that hold nothing are not removed.
+  and nothing is removed. So is any bundle of the queues searched for the
+  reference that cannot be read, since it may hold a second session with
+  the same reference: each is named in `error: cannot prune the session
+  while a bundle cannot be read: <error>`, for the dry run as well. Named queues that hold nothing are not removed.
 - `--results` is a usage error that names the new form: asqr moves
   results older than 30 days into the archive, and `prune --older-than`
   deletes them there with their month.
@@ -1568,6 +1571,9 @@ entry's archive ULID, of which 6 or more are accepted, in any case.
   no ULID holds (`I`, `L`, `O`, `U`), is a usage error (exit code 2). A
   reference that ends no session, or whose bundle cannot be read, ends
   with exit code 1 and names the bundle where one could not be read. A
+  reference that ends exactly one session while a bundle cannot be read
+  opens it, after a `warning: <error>; its sessions could not be searched
+  for this REF` line on stderr for each such bundle. A
   reference that ends several sessions ends with exit code 1 and lists
   them, each with its REF, queue, the time it was archived and its title,
   newest first, so a longer reference can name one.

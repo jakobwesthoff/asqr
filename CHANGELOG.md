@@ -14,8 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dry run lists what would go, and `--yes` removes it. `asqr prune
   --older-than` now removes the kept files of the sessions it removes, and
   kept files no session shows that are older than the age. Both stop with
-  an error, removing nothing, when a loose session cannot be read. A loose copy that a
-  bundled session shows and its bundle lacks stays.
+  an error, removing nothing, when a loose session cannot be read. A
+  loose copy that a bundled session shows and its bundle lacks stays.
+  `--session` also refuses, naming it, while a bundle cannot be read.
 - `asqr replay <ref>` opens a finished session of the archive, by the
   reference `asqr history` prints, read-only: its answers are filled in,
   the options not picked are dim, the files the session showed come from
@@ -24,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing into the queue and runs beside the asqr that watches it. It never
   shows a file from disk in place of what the session showed: a path the
   archive has no record of, on either side of a diff too, shows a card,
-  and `o` opens only kept copies.
+  and `o` opens only kept copies. A bundle that cannot be read is named
+  in a warning on stderr.
 - `asqr history` lists the finished sessions of the queue, newest first,
   with a reference for each, when it ended, how it ended, what became of
   the files it showed and its title. `--all` covers every queue under the

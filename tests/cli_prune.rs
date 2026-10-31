@@ -564,3 +564,45 @@ fn prune_session_in_a_busy_queue_is_an_error_and_removes_nothing() {
     );
     assert!(path.exists());
 }
+
+#[test]
+fn prune_session_refuses_while_a_bundle_cannot_be_read_and_names_it() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    let (path, reference) = loose_distinct(&location, "old", 3);
+    std::fs::write(location.archive().join("2019-01.zip"), "no zip").expect("written");
+
+    let output = prune_session(&sandbox, &["--session", &reference, "--yes"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output)
+            .starts_with("error: cannot prune the session while a bundle cannot be read: "),
+        "{}",
+        stderr(&output)
+    );
+    assert!(
+        stderr(&output).contains("2019-01.zip"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(path.exists());
+}
+
+#[test]
+fn the_prune_session_dry_run_refuses_while_a_bundle_cannot_be_read_too() {
+    let sandbox = Sandbox::new();
+    let location = queue(&sandbox);
+    let (_, reference) = loose_distinct(&location, "old", 3);
+    std::fs::write(location.archive().join("2019-01.zip"), "no zip").expect("written");
+
+    let output = prune_session(&sandbox, &["--session", &reference]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("2019-01.zip"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(stdout(&output).is_empty(), "{}", stdout(&output));
+}
