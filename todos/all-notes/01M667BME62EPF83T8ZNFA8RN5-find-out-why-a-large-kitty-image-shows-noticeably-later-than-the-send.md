@@ -3,6 +3,7 @@ title: "Find out why a large Kitty image shows noticeably later than the send ti
 kind: investigation
 component: tui
 status: needs-discussion
+horizon: someday
 origin: discussion
 tags: [ux, field-test]
 ---
@@ -79,3 +80,15 @@ recommendation first:
   per case and terminal, the cause of each gap, and a decision whether
   asqr changes, a fix being its own todo; a threshold Jakob sets and a
   fix that meets it; a written explanation without measuring.
+
+## Re-checked (Jakob, 2026-10-31, in the chat)
+
+Kept parked until Jakob has time for the screen recordings, which only
+he can make. Rejected: resuming now in two parts (an agent changes the
+demo, then Jakob records about four runs). The questions on the cases,
+terminals, measurement and the result that closes the todo come when it
+is taken up.
+
+## Revisit when
+
+Jakob has time to record the demo runs in a real terminal.

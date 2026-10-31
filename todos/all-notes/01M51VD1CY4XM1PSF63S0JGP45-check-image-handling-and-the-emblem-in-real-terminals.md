@@ -2,6 +2,7 @@
 title: "Check image handling and the emblem in real terminals"
 kind: chore
 component: tui
+status: blocked
 origin: implementation
 tags: [ux, field-test]
 ---
@@ -81,3 +82,16 @@ attached, and a tmux before 3.4 if one is at hand.
 
 The same list is in the logbook
 `~/playground/2026_10_15_asqr-maskottchen/99-manuelle-pruefung.md`.
+
+## Decision (Jakob, 2026-10-31, in the chat)
+
+The checks wait for the final ratatui-image 12.0.0, as this todo says;
+asqr pins 12.0.0-rc.3. Rejected: running them on rc.3 now and repeating
+only the query rows later. Until then the overlay dimming (ADR 84) and
+the replay (ADR 101) stay unchecked in real terminals. The other
+questions prepared on 2026-10-31 (the emblem in quadrant-only terminals
+such as Terminal.app, images under an overlay) come with the results.
+
+## Relations
+
+- Depends on: [Move ratatui-image from 12.0.0-rc.3 to its final release](01M6217WNNH2P5GF1545D08C2Z-move-ratatui-image-from-12-0-0-rc-3-to-its-final-release.md)

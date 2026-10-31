@@ -2,7 +2,6 @@
 title: "Decide how the TUI structures its widgets, key handling and layout feedback"
 kind: investigation
 component: tui
-status: needs-discussion
 origin: discussion
 ---
 # Decide how the TUI structures its widgets, key handling and layout feedback
@@ -135,6 +134,16 @@ The agent's view in the discussion, not decided by Jakob:
 - Option 1 is worth doing; option 2 when the configurable key map
   comes; option 3 only if the feedback through `Drawn` causes bugs;
   option 4 is the cheaper way to shrink `Drawn` if that is wanted.
+
+## Decision (Jakob, 2026-10-31, in the chat)
+
+Write the rule as an ADR and change no code: the ADR names the three
+layers and says when a screen region is a widget, a helper function or a
+viewer, so new drawing work follows one rule without a refactor now.
+The keys stay fixed (ADR 8), and the layout feedback through `Drawn`
+stays as it is. Rejected: the ADR plus moving the regions to widgets one
+at a time; keeping the todo parked. The open questions below are settled
+by this.
 
 ## Open questions
 
