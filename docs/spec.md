@@ -2870,6 +2870,13 @@ blank lines only shows "empty", or the notes of its cut. An image's
 caption follows the same rule. The warning for such an entry (section
 3.4) says it shows as plain text.
 
+A Markdown text the Markdown parser panics on (ADR 98) shows as plain text
+the same way, below a dim "Markdown failed: shown as plain text", which
+comes before the notes of a cut as well. The panic does not end asqr and
+reaches neither the terminal nor the screen; the log gets a warning. An
+image's caption follows the same rule. `ask` and `validate` give no
+warning for it.
+
 ### 8.8 Images
 
 - Terminals that support the Kitty graphics protocol (Ghostty, kitty),

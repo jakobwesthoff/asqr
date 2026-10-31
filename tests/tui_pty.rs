@@ -1724,6 +1724,47 @@ fn a_slow_entry_shows_loading_then_itself() {
     assert_eq!(tui.wait_for_exit(), 0);
 }
 
+/// A Markdown entry the Markdown parser panics on shows as plain text
+/// below a note, and asqr goes on. `markdown` 1.0.0 panics on an unclosed
+/// fence in a numbered item that a bullet follows; where a later version
+/// handles that text, another text that panics takes its place here, and
+/// the tests of the viewer keep the fallback pinned with a renderer that
+/// panics on any text.
+#[test]
+fn a_markdown_entry_the_parser_panics_on_shows_as_plain_text_and_asqr_goes_on() {
+    let sandbox = Sandbox::new();
+    let dir = sandbox.queue_dir();
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--dir", dir.to_str().expect("UTF-8"), "--no-notify"],
+        "off\t1\t",
+        &[],
+    );
+    tui.wait_for("Nothing to answer");
+    let session = SESSION.replace(
+        r#""kind": "single","#,
+        r#""kind": "single", "context": [{"type": "markdown", "content": "1. ~~~\n*"}],"#,
+    );
+    let file = sandbox.file("session.json", &session);
+    sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .assert()
+        .success();
+
+    tui.wait_for("Markdown failed: shown as plain text");
+    tui.wait_for("1. ~~~");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let log = read_log(&sandbox.log_path());
+    assert!(
+        log.contains("the Markdown parser panicked; showing the text as plain text"),
+        "{log}"
+    );
+    assert!(!log.contains("1. ~~~"), "the log holds no text: {log}");
+}
+
 /// Inside tmux 3.4 or later, asqr sets `allow-passthrough all` for its
 /// pane once the terminal answered as one with Kitty graphics, so images
 /// and their deletes pass while the pane is hidden, and puts the pane's

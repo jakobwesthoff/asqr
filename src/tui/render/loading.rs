@@ -443,6 +443,22 @@ pub fn loader_panicked(info: &PanicHookInfo) -> bool {
     true
 }
 
+/// Runs `work`, the rendering of text that may make a parser panic, and
+/// hands back its panic as a message instead of letting it go on.
+///
+/// The panic hook of the binary gives the terminal back and ends asqr
+/// unless the thread is marked as running a job ([`loader_panicked`]). The
+/// mark is set here for the call, so a panic that is contained never
+/// reaches the terminal, on the drawing thread as well as on a loading
+/// thread. Taking the message ends the hook's note of it, which a later
+/// panic of the thread would otherwise report.
+pub(super) fn contain<T>(work: impl FnOnce() -> T) -> Result<T, String> {
+    let was_loading = LOADING.replace(true);
+    let outcome = catch_unwind(AssertUnwindSafe(work));
+    LOADING.set(was_loading);
+    outcome.map_err(|payload| panic_message(payload.as_ref()))
+}
+
 /// The message of a job's panic: as the hook noted it, with its place,
 /// or else as the panic gave it.
 fn panic_message(payload: &(dyn Any + Send)) -> String {
@@ -651,6 +667,46 @@ mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
+    }
+
+    #[test]
+    fn contain_hands_back_what_the_work_made_and_lets_the_hook_know_it_runs() {
+        assert_eq!(contain(|| LOADING.get()), Ok(true));
+        assert!(!LOADING.get(), "the thread runs no job afterwards");
+    }
+
+    #[test]
+    fn contain_hands_back_the_message_of_a_panic() {
+        let answer = contain(|| -> u8 { panic!("boom") });
+
+        assert_eq!(answer, Err("boom".to_owned()));
+        assert!(!LOADING.get(), "the thread runs no job afterwards");
+    }
+
+    /// The binary's hook notes where a job panicked and the job takes the
+    /// note out; a caught panic takes it too, so that no stale note names
+    /// a later panic. Unit tests run without the hook, so the closure
+    /// plays it.
+    #[test]
+    fn contain_takes_the_note_the_hook_made() {
+        let answer = contain(|| -> u8 {
+            NOTED.set(Some("noted at x.rs:1".to_owned()));
+            panic!("boom")
+        });
+
+        assert_eq!(answer, Err("noted at x.rs:1".to_owned()));
+        assert_eq!(NOTED.take(), None);
+    }
+
+    /// Inside a job the thread keeps running it after a contained panic.
+    #[test]
+    fn contain_leaves_a_running_job_running() {
+        LOADING.set(true);
+
+        let _ = contain(|| -> u8 { panic!("boom") });
+
+        assert!(LOADING.get());
+        LOADING.set(false);
     }
 
     #[test]

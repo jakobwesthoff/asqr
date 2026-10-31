@@ -11,11 +11,12 @@
 
 use std::path::Path;
 
-use patine::{QuoteStyle, RenderOptions};
+use patine::{QuoteStyle, RenderOptions, StyledLine};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
 
+use super::loading::contain;
 use super::patine_adapter::{markdown_rows, plain_rows};
 use super::source_file::{
     Cut, LineBreaks, Source, Unreadable, between_cut_notes, inline, read_source,
@@ -49,8 +50,28 @@ pub(super) fn caption(text: &str, quote: QuoteStyle) -> Markdown {
     document(inline(text, LineBreaks::Any), quote)
 }
 
-/// What heads a text too large to render, above the notes of a cut.
-const PLAIN_NOTE: Note = Note::new("over 1 MiB: shown as plain text");
+/// Why a text shows as plain text instead of rendered Markdown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Plain {
+    /// The text is more than 1 MiB.
+    TooLarge,
+    /// The Markdown parser panicked on the text.
+    ParserFailed,
+}
+
+impl Plain {
+    /// What heads the plain text, above the notes of a cut.
+    fn note(self) -> Note {
+        match self {
+            Plain::TooLarge => Note::new("over 1 MiB: shown as plain text"),
+            Plain::ParserFailed => Note::new("Markdown failed: shown as plain text"),
+        }
+    }
+}
+
+/// Renders Markdown to styled lines for a width. Tests put a renderer in
+/// its place that panics on any text.
+type Render = fn(&str, usize, &RenderOptions) -> Vec<StyledLine>;
 
 /// The size above which a text shows as plain text instead of rendered
 /// Markdown: the size the warning about a large entry counts.
@@ -102,7 +123,8 @@ fn document_within(source: Source, quote: QuoteStyle, limit: usize) -> Markdown 
     let blank = text.trim().is_empty();
     let source = if blank { String::new() } else { text };
     Markdown {
-        plain: !blank && (size > limit || source.len() > limit),
+        plain: (!blank && (size > limit || source.len() > limit)).then_some(Plain::TooLarge),
+        render: patine::render_lines_with,
         source,
         cut,
         // A document keeps patine's defaults, where a single newline joins
@@ -119,9 +141,11 @@ fn document_within(source: Source, quote: QuoteStyle, limit: usize) -> Markdown 
 /// The Markdown of an entry with the rows it was last laid out into.
 pub(super) struct Markdown {
     source: String,
-    /// Whether `source` is too large to render and shows as plain text,
-    /// wrapped to the width, below [`PLAIN_NOTE`].
-    plain: bool,
+    /// Why `source` shows as plain text, wrapped to the width, below the
+    /// note of that reason, if it does.
+    plain: Option<Plain>,
+    /// How the Markdown is rendered.
+    render: Render,
     /// The limit that ended `source`, the start of a longer text.
     cut: Option<Cut>,
     /// How patine renders `source`.
@@ -137,6 +161,13 @@ pub(super) struct Markdown {
 enum Row {
     Text(SourceLine),
     Note(Note),
+}
+
+impl Markdown {
+    /// The source as plain text, wrapped to `columns`.
+    fn plain_text(&self, columns: usize) -> Vec<SourceLine> {
+        plain_rows(&patine::highlight(&self.source, None), columns)
+    }
 }
 
 impl Viewer for Markdown {
@@ -158,17 +189,32 @@ impl Viewer for Markdown {
         // The rows of the width before are dropped first, so that they
         // and the new ones never sit in memory together.
         self.rows = Vec::new();
-        let text = if self.plain {
-            plain_rows(&patine::highlight(&self.source, None), columns)
-        } else {
-            markdown_rows(
-                &patine::render_lines_with(&self.source, columns, &self.options),
-                columns,
-            )
+        let text = match self.plain {
+            Some(_) => self.plain_text(columns),
+            None => match contain(|| {
+                markdown_rows(
+                    &(self.render)(&self.source, columns, &self.options),
+                    columns,
+                )
+            }) {
+                Ok(rendered) => rendered,
+                Err(message) => {
+                    // The parser's panic message names a place in its code,
+                    // never the text.
+                    tracing::warn!(
+                        panic = message,
+                        "the Markdown parser panicked; showing the text as plain text"
+                    );
+                    // Kept for the widths that follow, which would panic
+                    // the same way.
+                    self.plain = Some(Plain::ParserFailed);
+                    self.plain_text(columns)
+                }
+            },
         };
         self.rows = self
             .plain
-            .then_some(Row::Note(PLAIN_NOTE))
+            .map(|plain| Row::Note(plain.note()))
             .into_iter()
             .chain(between_cut_notes(
                 self.cut,
@@ -516,6 +562,103 @@ mod tests {
         assert_eq!(row(&buf, 0), PLAIN_NOTE);
         assert_eq!(row(&buf, 1), "first 500,000 lines shown", "524,289 lines");
         assert_eq!(row(&buf, 2), "x");
+    }
+
+    // -----------------------------------------------------------------
+    // Plain text where the parser panics
+    // -----------------------------------------------------------------
+
+    const PARSER_NOTE: &str = "Markdown failed: shown as plain text";
+
+    thread_local! {
+        /// How often the renderer that panics was asked on this thread.
+        static PARSER_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    fn parser_panics(_: &str, _: usize, _: &RenderOptions) -> Vec<StyledLine> {
+        PARSER_CALLS.set(PARSER_CALLS.get() + 1);
+        panic!("the parser panics");
+    }
+
+    /// The Markdown `text`, whose renderer panics.
+    fn failing(text: &str) -> Markdown {
+        let mut markdown = document(source(text), quote_style(false));
+        markdown.render = parser_panics;
+        markdown
+    }
+
+    #[test]
+    fn a_parser_panic_shows_the_text_as_plain_text_below_a_note() {
+        let mut viewer = failing(MIXED);
+
+        let buf = drawn(&mut viewer, 40, 3, Offset::default());
+
+        assert_eq!(row(&buf, 0), PARSER_NOTE);
+        assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
+        assert_eq!(row(&buf, 1), "**bold** and `code`");
+        assert!(!buf[(2, 1)].modifier.contains(Modifier::BOLD));
+        assert_eq!(row(&buf, 2), "# Heading");
+    }
+
+    #[test]
+    fn after_a_parser_panic_another_width_asks_the_parser_no_more() {
+        PARSER_CALLS.set(0);
+        let mut viewer = failing("abc def ghi jkl mno pqr\n");
+
+        assert_eq!(viewer.lay_out(40, 10).lines, 2, "the note and the line");
+        assert_eq!(viewer.lay_out(10, 10).lines, 4, "the note and three rows");
+
+        assert_eq!(PARSER_CALLS.get(), 1);
+    }
+
+    #[test]
+    fn a_caption_the_parser_panics_on_shows_as_plain_text_too() {
+        let mut viewer = caption(MIXED, quote_style(false));
+        viewer.render = parser_panics;
+
+        let buf = drawn(&mut viewer, 40, 2, Offset::default());
+
+        assert_eq!(row(&buf, 0), PARSER_NOTE);
+        assert_eq!(row(&buf, 1), "**bold** and `code`");
+    }
+
+    /// The narrowest body a Markdown entry gets is that of the narrowest
+    /// context pane, 40 columns less the 2 of its indent.
+    #[test]
+    fn the_note_of_a_parser_panic_shows_whole_at_the_narrowest_body() {
+        let mut viewer = failing(MIXED);
+
+        let buf = drawn(&mut viewer, 38, 1, Offset::default());
+
+        assert_eq!(row(&buf, 0), PARSER_NOTE);
+    }
+
+    /// Texts `markdown` 1.0.0 panics on, each its own panic. They show as
+    /// plain text, or rendered once a later `markdown` handles them.
+    fn lays_out(text: &str) {
+        let mut viewer = inline(text);
+
+        assert!(viewer.lay_out(40, 10).lines > 0);
+    }
+
+    #[test]
+    fn a_definition_followed_by_an_underline_does_not_end_the_viewer() {
+        lays_out("[a]:b\n=\n=+\r-");
+    }
+
+    #[test]
+    fn an_unclosed_fence_in_a_numbered_item_before_a_bullet_does_not_end_the_viewer() {
+        lays_out("1. ~~~\n*");
+    }
+
+    #[test]
+    fn an_unclosed_frontmatter_fence_before_a_list_does_not_end_the_viewer() {
+        lays_out("---\n\n- a");
+    }
+
+    #[test]
+    fn an_unclosed_frontmatter_fence_before_a_footnote_does_not_end_the_viewer() {
+        lays_out("---\n\n[^a]:");
     }
 
     #[test]

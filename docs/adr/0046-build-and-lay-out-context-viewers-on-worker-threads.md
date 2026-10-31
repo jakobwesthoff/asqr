@@ -18,6 +18,8 @@ Amended by [94. Show a Markdown entry above 1 MiB as plain text](0094-show-a-mar
 
 Amended by [95. Highlight the first 50,000 lines of a code entry and a diff](0095-highlight-the-first-50000-lines-of-a-code-entry-and-a-diff.md)
 
+Amended by [98. Show a Markdown entry as plain text when its parser panics](0098-show-a-markdown-entry-as-plain-text-when-its-parser-panics.md)
+
 ## Context
 
 - Building a context viewer reads its file and prepares its content:

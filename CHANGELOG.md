@@ -89,6 +89,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of answers. The error of a draft that cannot be read names the line
   and column instead of quoting the value. Logs written by earlier
   versions may still hold such text.
+- A Markdown entry or an image caption that the Markdown parser panics on,
+  such as an unclosed code fence in a numbered item followed by a bullet,
+  shows as plain text below a dim "Markdown failed: shown as plain text".
+  Before, it ended asqr and you lost the screen.
 
 ## [0.15.0] - 2026-10-30
 

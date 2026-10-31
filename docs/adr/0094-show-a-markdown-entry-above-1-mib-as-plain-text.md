@@ -20,6 +20,8 @@ its Context sentence that inline text is taken whole, and its
 Consequences paragraph on the cost of Markdown, no longer hold for a
 Markdown text above 1 MiB
 
+Amended by [98. Show a Markdown entry as plain text when its parser panics](0098-show-a-markdown-entry-as-plain-text-when-its-parser-panics.md)
+
 ## Context
 
 - The 500,000-line limit of ADR 75 bounds the memory of the code, ANSI
