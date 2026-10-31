@@ -589,3 +589,16 @@ fn the_start_of_a_watch_leaves_what_it_cannot_bundle_and_goes_on() {
 
     assert!(path.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn an_outbox_file_that_vanished_since_the_listing_is_skipped() {
+    let (_scratch, location, lock) = queue();
+    // A link to nothing is listed and cannot be read, as a file that an
+    // asker moved aside meanwhile.
+    std::os::unix::fs::symlink("nowhere", location.outbox().join("gone.json")).expect("linked");
+
+    let report = compact_now(&location, &lock);
+
+    assert_eq!(report, CompactReport::default());
+}

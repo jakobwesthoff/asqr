@@ -21,7 +21,7 @@ use super::Exit;
 use crate::format::SessionResult;
 use crate::queue::{
     BundleError, BundledResult, InboxName, QueueLocation, bundled_results, classify_inbox_name,
-    entries_if_present, finished_at, has_answered_draft, lock_holder, read_entry,
+    entries_if_present, finished_at, has_answered_draft, lock_holder, read_entry, read_if_present,
     result_entry_name, scan_inbox,
 };
 
@@ -73,11 +73,22 @@ fn answered(location: &QueueLocation) -> std::io::Result<(Vec<Answered>, Vec<Bun
         let Some(InboxName::Session(id)) = name.to_str().map(classify_inbox_name) else {
             continue;
         };
-        let bytes = std::fs::read(entry.path()).ok();
-        let finished = finished_at(
-            bytes.as_deref().unwrap_or_default(),
-            entry.metadata()?.modified()?,
-        );
+        // A result that has gone since the listing was bundled or moved
+        // aside meanwhile; the bundle lists it, or the archive holds it as
+        // a result moved aside. One that is there and cannot be read is
+        // listed as unreadable.
+        let path = entry.path();
+        let modified = match std::fs::metadata(&path).and_then(|metadata| metadata.modified()) {
+            Ok(modified) => modified,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        let bytes = match read_if_present(&path) {
+            Ok(Some(bytes)) => Some(bytes),
+            Ok(None) => continue,
+            Err(_) => None,
+        };
+        let finished = finished_at(bytes.as_deref().unwrap_or_default(), modified);
         if let Some(bytes) = &bytes {
             also_bundled.insert(result_entry_name(id, bytes, finished).zip_name());
         }
@@ -188,4 +199,43 @@ pub(super) fn run(location: &QueueLocation, options: StatusOptions) -> Exit {
         }
     }
     Exit::Success
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    fn queue() -> (tempfile::TempDir, QueueLocation) {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let location = QueueLocation::at(scratch.path().join("queue"));
+        location.create_layout().expect("layout");
+        (scratch, location)
+    }
+
+    #[test]
+    fn a_result_that_vanished_since_the_listing_is_skipped() {
+        let (_scratch, location) = queue();
+        // A link to nothing is listed in the outbox and cannot be read,
+        // as a file that the compaction moved into a bundle meanwhile.
+        std::os::unix::fs::symlink("nowhere", location.outbox().join("gone.json")).expect("linked");
+        std::fs::write(location.outbox().join("here.json"), "{}").expect("written");
+
+        let (listed, _) = answered(&location).expect("listed");
+
+        let ids: Vec<_> = listed.iter().map(|entry| entry.id.as_str()).collect();
+        assert_eq!(ids, ["here"]);
+    }
+
+    #[test]
+    fn a_result_that_cannot_be_read_is_listed_once_as_unreadable() {
+        let (_scratch, location) = queue();
+        // A directory where the result belongs: it exists and cannot be read.
+        std::fs::create_dir(location.outbox().join("broken.json")).expect("created");
+
+        let (listed, _) = answered(&location).expect("listed");
+
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "broken");
+        assert_eq!(listed[0].status, None);
+    }
 }

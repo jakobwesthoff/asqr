@@ -192,10 +192,18 @@ fn gather(
         let Some(InboxName::Session(id)) = file.to_str().map(classify_inbox_name) else {
             continue;
         };
+        // A file that has gone since the listing is skipped: asqr or an
+        // asker moved it, and the next run looks again.
+        let modified =
+            match std::fs::metadata(entry.path()).and_then(|metadata| metadata.modified()) {
+                Ok(modified) => modified,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
         let Some(bytes) = read_if_present(&entry.path())? else {
             continue;
         };
-        let finished = finished_at(&bytes, entry.metadata()?.modified()?);
+        let finished = finished_at(&bytes, modified);
         if finished >= cutoff {
             continue;
         }
