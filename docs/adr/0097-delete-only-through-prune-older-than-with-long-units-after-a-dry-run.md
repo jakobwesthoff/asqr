@@ -13,6 +13,8 @@ only after `--yes`
 Amends [85. Pair asqr and its agents through the tmux session](0085-pair-asqr-and-its-agents-through-the-tmux-session.md):
 the removal of named queues that hold nothing is a dry run unless `--yes`
 
+Amended by [100. Keep the files a finished session showed](0100-keep-the-files-a-finished-session-showed.md)
+
 ## Context
 
 - `asqr prune --older-than <age>` took the units `s`, `m`, `h`, `d` and

@@ -55,10 +55,7 @@ fn bundle(location: &QueueLocation, days: u64) -> PathBuf {
     add_entries(
         location,
         month,
-        &[NewEntry {
-            name,
-            bytes: b"{}".to_vec(),
-        }],
+        &[NewEntry::named(name, b"{}".to_vec())],
         SystemTime::now(),
     )
     .expect("bundled");

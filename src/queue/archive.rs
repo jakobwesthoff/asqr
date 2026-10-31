@@ -94,10 +94,10 @@ mod tests {
             crate::queue::add_entries(
                 &location,
                 crate::queue::Month::of(ulid),
-                &[crate::queue::NewEntry {
+                &[crate::queue::NewEntry::named(
                     name,
-                    bytes: titled(title).into_bytes(),
-                }],
+                    titled(title).into_bytes(),
+                )],
                 std::time::SystemTime::now(),
             )
             .expect("bundled");

@@ -21,6 +21,7 @@ pub(crate) mod test_support;
 mod tests;
 
 use std::fmt::{self, Write as _};
+use std::io::{self, Read};
 use std::str::FromStr;
 
 use clap::ValueEnum;
@@ -29,11 +30,52 @@ use sha2::{Digest, Sha256};
 /// The SHA-256 of `bytes` as 64 lowercase hex digits, what `shasum -a 256`
 /// prints and what names a kept file.
 pub fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
+    hex(&Sha256::digest(bytes))
+}
+
+/// The SHA-256 of everything `reader` yields, as [`sha256_hex`] prints it,
+/// without holding the content in memory.
+pub fn sha256_hex_of_reader(reader: impl Read) -> io::Result<String> {
+    let mut hashing = HashingReader::new(reader);
+    io::copy(&mut hashing, &mut io::sink())?;
+    Ok(hashing.finish())
+}
+
+/// A reader that hashes what passes through it.
+pub struct HashingReader<R> {
+    inner: R,
+    hasher: Sha256,
+}
+
+impl<R: Read> HashingReader<R> {
+    pub fn new(inner: R) -> Self {
+        HashingReader {
+            inner,
+            hasher: Sha256::new(),
+        }
+    }
+
+    /// The SHA-256 of everything read so far, as lowercase hex.
+    pub fn finish(self) -> String {
+        hex(&self.hasher.finalize())
+    }
+}
+
+impl<R: Read> Read for HashingReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buffer)?;
+        self.hasher.update(&buffer[..read]);
+        Ok(read)
+    }
+}
+
+/// `bytes` as lowercase hex digits.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes
         .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
-            hex
+        .fold(String::with_capacity(bytes.len() * 2), |mut text, byte| {
+            write!(text, "{byte:02x}").expect("writing to a String cannot fail");
+            text
         })
 }
 

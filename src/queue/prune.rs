@@ -117,6 +117,7 @@ pub fn prune_empty_queues(
         }
         if remove {
             for dir in [
+                location.kept_files(),
                 location.inbox(),
                 location.outbox(),
                 location.drafts(),
@@ -144,14 +145,27 @@ fn holds_nothing(location: &QueueLocation, also_gone: &[PathBuf]) -> io::Result<
         let name = name.to_str().unwrap_or_default();
         let empty_dir = layout.contains(&name)
             && entry.file_type()?.is_dir()
-            && entries_if_present(&entry.path())?
-                .iter()
-                .all(|inside| also_gone.contains(&inside.path()));
+            && entries_if_present(&entry.path())?.iter().try_fold(
+                true,
+                |all, inside| -> io::Result<bool> {
+                    Ok(all
+                        && (also_gone.contains(&inside.path())
+                            || is_empty_kept_dir(location, inside)?))
+                },
+            )?;
         if !empty_dir && name != "lock" && name != "drafts.lock" {
             return Ok(false);
         }
     }
     Ok(true)
+}
+
+/// Whether `entry` is the kept-files directory of the queue and empty. An
+/// empty one is a trace of the last kept file's removal, not data.
+fn is_empty_kept_dir(location: &QueueLocation, entry: &std::fs::DirEntry) -> io::Result<bool> {
+    Ok(entry.path() == location.kept_files()
+        && entry.file_type()?.is_dir()
+        && entries_if_present(&entry.path())?.is_empty())
 }
 
 fn remove_if_present(removed: io::Result<()>) -> io::Result<()> {
@@ -232,10 +246,7 @@ mod tests {
         add_entries(
             location,
             month,
-            &[NewEntry {
-                name,
-                bytes: b"{}".to_vec(),
-            }],
+            &[NewEntry::named(name, b"{}".to_vec())],
             now(),
         )
         .expect("bundled");
@@ -410,6 +421,30 @@ mod tests {
 
         assert_eq!(listed, [work.dir().to_path_buf()]);
         assert!(old.exists() && kept.exists(), "a dry run removes nothing");
+    }
+
+    #[test]
+    fn a_queue_whose_only_trace_is_an_empty_files_dir_is_pruned_as_empty() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let stray = used(scratch.path(), "asqr-todo");
+        fs::create_dir(stray.kept_files()).expect("files directory");
+
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
+
+        assert_eq!(removed, [stray.dir().to_path_buf()]);
+        assert!(!stray.dir().exists());
+    }
+
+    #[test]
+    fn a_files_dir_with_a_file_keeps_the_queue() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let work = used(scratch.path(), "work");
+        fs::create_dir(work.kept_files()).expect("files directory");
+        fs::write(work.kept_files().join("left.webp"), "").expect("written");
+
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
+
+        assert_eq!(removed, Vec::<PathBuf>::new());
     }
 
     #[test]

@@ -9,6 +9,14 @@ Accepted
 Amends [9. Crate choices](0009-crate-choices.md):
 `libwebp-sys` encodes the images asqr keeps, and builds libwebp from C
 
+Amends [96. Bundle finished sessions and results per month in a zip](0096-bundle-finished-sessions-and-results-per-month-in-a-zip.md):
+the `files/` prefix holds kept files, and the compaction moves them with
+the sessions that show them
+
+Amends [97. Delete only through prune --older-than with long units, after a dry run](0097-delete-only-through-prune-older-than-with-long-units-after-a-dry-run.md):
+a queue whose archive holds only an empty `files/` directory counts as
+empty
+
 ## Context
 
 - A session shows files by path: images, Markdown, code, ANSI text and
@@ -140,6 +148,39 @@ After the lock is let go of they read the files and record each as
 does. A session completed by recovery gets a job whose files the worker
 reads, as they may be gone. A session rejected as invalid is archived as
 it is.
+
+### Bundles and compaction
+
+The compaction bundles the kept files with the sessions that show them,
+as `files/<sha256>.<ext>` entries of the month of the session's ULID
+(the prefix ADR 96 left for other kinds of entry). A bundle must be
+readable alone, and `prune` deletes bundles whole, so a file shown in two
+months is in both bundles.
+
+- A file is streamed from `archive/files/` into the new bundle and hashed
+  on the way. A file whose hash is not its name is not bundled; it stays
+  loose and the compaction names it. Bundling it would seal the damage in
+  and the loose copy would go.
+- Before the bundle is built, `probe` looks up each file name in the
+  existing bundle. A name the bundle holds with other content cannot be
+  added, and one bundle build cannot leave a single session out, so the
+  sessions that show that file are taken out of the build first and stay
+  loose. A session whose file is missing or damaged on disk is bundled
+  anyway, with the problem named in the output, as it still records the
+  original path and the fingerprint of what was shown.
+- Sessions an asqr without kept files bundled can show names the bundle
+  lacks. The compaction adds those files when it rewrites that month.
+  It never removes them afterwards.
+- After the rename, under the drafts lock it holds, the compaction removes
+  a loose kept file only if a session of this commit showed it and no
+  loose session shows it. A file nobody shows (an orphan, left by a copy
+  whose recording never landed) stays. `prune` removes those.
+- The sweep of stale `.asqr-*.tmp` files covers `archive/files/`, where
+  the worker writes its temp files.
+- Measured in a release build: a month of 127 sessions that each show one
+  of the 127 images of the corpus (191 MB, PNG and JPEG kept as they are,
+  the size under `exact`) was bundled in 3.2 s with a peak of 11 MB of
+  memory; the bundle is 197 MB, as Deflate does not shrink these images.
 
 ### libwebp
 

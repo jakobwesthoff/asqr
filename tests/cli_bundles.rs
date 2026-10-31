@@ -53,7 +53,7 @@ fn result_bytes(id: &str, when: SystemTime) -> Vec<u8> {
 /// Puts one entry into the bundle of its month, bundled at `bundled`.
 fn bundle(location: &QueueLocation, name: EntryName, bytes: Vec<u8>, bundled: SystemTime) {
     let month = Month::of(name.ulid);
-    add_entries(location, month, &[NewEntry { name, bytes }], bundled).expect("bundled");
+    add_entries(location, month, &[NewEntry::named(name, bytes)], bundled).expect("bundled");
 }
 
 /// The result of `id`, finished `age_days` ago, bundled `bundled_days`

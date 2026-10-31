@@ -1132,7 +1132,25 @@ removal, and a month where the check fails, a bundle that cannot be read
 or a lock that stays taken is left for the next run and named in the
 output. An entry already in the bundle under the same name with other
 content keeps its loose file. Temp files that a writer left in
-`archive/` and that were last written more than 24 hours ago are removed.
+`archive/` or `archive/files/` and that were last written more than 24
+hours ago are removed.
+
+The kept files (section 5.1) of the sessions it bundles go into the bundle
+with them, as `files/<sha256>.<ext>` entries. They are read from
+`archive/files/` while the bundle is written, never held in memory, and
+each is hashed on the way: a file that does not hash to its name is not
+bundled. A file shown by several sessions of a month is bundled once.
+Before the bundle is built, a file that the bundle holds already with
+other content (the entry does not hash to its name) leaves the sessions
+that show it loose, named in the output; the other sessions of the month
+go on. A file that is missing or damaged on disk does not stop its
+sessions from being bundled; the output names it. Files that sessions
+already in the bundle show and the bundle lacks, such as those of
+sessions an asqr that kept no files bundled, are added to it. After the
+rename and the removal of the loose sessions, the compaction removes a
+loose kept file only if a session it just bundled showed it, it is in the
+bundle, and no session still loose shows it. Any other loose kept file
+stays.
 
 The asqr that starts watching a queue runs the compaction for it, at the
 start and after a switch to the queue, with the queue lock it holds.
@@ -1174,7 +1192,8 @@ makes the exit code 1.
 - Drafts are never pruned.
 - `prune` also removes every named queue under the root (section 5.2)
   that no asqr watches and that holds no file: its four directories are
-  empty or missing and nothing else lies in it. `lock` and `drafts.lock`
+  empty or missing and nothing else lies in it. An empty `archive/files/`
+  directory counts as empty and goes with `archive/`. `lock` and `drafts.lock`
   hold no session data and do not count. It takes both locks without
   waiting and skips a queue where either is taken, removes the four
   directories and then the lock files while it holds them, and the

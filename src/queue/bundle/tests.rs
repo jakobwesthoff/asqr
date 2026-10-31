@@ -31,13 +31,21 @@ fn ulid_at(text: &str) -> Ulid {
 }
 
 fn entry(kind: EntryKind, id: &str, when: &str, bytes: &str) -> NewEntry {
-    NewEntry {
-        name: EntryName {
+    NewEntry::named(
+        EntryName {
             kind,
             id: id.to_owned(),
             ulid: ulid_at(when),
         },
-        bytes: bytes.as_bytes().to_vec(),
+        bytes.as_bytes().to_vec(),
+    )
+}
+
+/// The name of an entry made by [`entry`].
+fn named(entry: &NewEntry) -> EntryName {
+    match &entry.slot {
+        Slot::Named(name) => name.clone(),
+        Slot::File(name) => panic!("{name} is a file, not a named entry"),
     }
 }
 
@@ -210,16 +218,16 @@ fn a_new_bundle_holds_the_added_entries_and_reads_them_back() {
     assert_eq!(outcomes, [Added::Added, Added::Added]);
     let listed = list_entries(&location, OCTOBER).expect("listed");
     let names: Vec<_> = listed.iter().map(|entry| entry.name.clone()).collect();
-    assert_eq!(names, [session.name.zip_name(), result.name.zip_name()]);
+    assert_eq!(names, [session.slot.zip_name(), result.slot.zip_name()]);
     assert_eq!(
-        read_entry(&location, OCTOBER, &session.name.zip_name()).expect("read"),
+        read_entry(&location, OCTOBER, &session.slot.zip_name()).expect("read"),
         b"the session"
     );
     assert_eq!(
-        read_entry(&location, OCTOBER, &result.name.zip_name()).expect("read"),
+        read_entry(&location, OCTOBER, &result.slot.zip_name()).expect("read"),
         b"the result"
     );
-    assert_eq!(listed[0].parsed.as_ref(), Some(&session.name));
+    assert_eq!(listed[0].parsed.as_ref(), Some(&named(&session)));
     assert!(temp_files(&location).is_empty());
 }
 
@@ -242,7 +250,7 @@ fn entries_are_deflated() {
     .expect("added");
 
     let mut archive = open(&bundle_path(&location, OCTOBER)).expect("opens");
-    let file = archive.by_name(&session.name.zip_name()).expect("entry");
+    let file = archive.by_name(&session.slot.zip_name()).expect("entry");
 
     assert_eq!(file.compression(), CompressionMethod::Deflated);
     assert!(
@@ -282,7 +290,7 @@ fn adding_to_an_existing_bundle_keeps_every_entry_as_it_was_written() {
     drop(old);
     assert_eq!(archive.len(), 2);
     assert_eq!(
-        read_entry(&location, OCTOBER, &fresh.name.zip_name()).expect("read"),
+        read_entry(&location, OCTOBER, &fresh.slot.zip_name()).expect("read"),
         b"new"
     );
 }
@@ -334,19 +342,19 @@ fn an_entry_that_is_there_keeps_the_time_it_was_bundled_at() {
     .expect("added");
 
     let listed = list_entries(&location, OCTOBER).expect("listed");
-    let bundled = |name: &EntryName| {
+    let bundled = |slot: &Slot| {
         listed
             .iter()
-            .find(|entry| entry.name == name.zip_name())
+            .find(|entry| entry.name == slot.zip_name())
             .and_then(|entry| entry.bundled_at)
     };
     assert_eq!(
-        bundled(&first.name),
+        bundled(&first.slot),
         Some(millis(at("2026-11-20T08:00:00Z")) / 1000),
         "the first value stays through a rewrite"
     );
     assert_eq!(
-        bundled(&second.name),
+        bundled(&second.slot),
         Some(millis(at("2026-12-01T09:30:15Z")) / 1000)
     );
 }
@@ -369,7 +377,7 @@ fn an_entry_with_the_same_name_and_other_bytes_is_a_conflict_and_changes_nothing
     .expect("added");
     let before = bundle_bytes(&location, OCTOBER);
     let other = NewEntry {
-        bytes: b"another session".to_vec(),
+        body: Body::Bytes(b"another session".to_vec()),
         ..session
     };
 
@@ -395,10 +403,10 @@ fn an_entry_with_a_damaged_body_does_not_count_as_there() {
         .expect("stored body");
     bytes[body] = b'j';
     fs::write(bundle_path(&location, OCTOBER), bytes).expect("damaged");
-    let session = NewEntry {
-        name: EntryName::parse("sessions/x.01ARZ3NDEKTSV4RRFFQ69G5FAV.json").expect("a name"),
-        bytes: b"hello".to_vec(),
-    };
+    let session = NewEntry::named(
+        EntryName::parse("sessions/x.01ARZ3NDEKTSV4RRFFQ69G5FAV.json").expect("a name"),
+        b"hello".to_vec(),
+    );
 
     let outcomes =
         add_entries(&location, OCTOBER, &[session], at("2026-12-01T08:00:00Z")).expect("returns");
@@ -989,7 +997,7 @@ fn a_rewrite_keeps_the_bundling_time_of_the_entries_it_copies() {
     add_entries(&location, OCTOBER, &[second], at("2026-12-01T08:00:00Z")).expect("added");
 
     let mut archive = open(&bundle_path(&location, OCTOBER)).expect("opens");
-    let mut file = archive.by_name(&first.name.zip_name()).expect("entry");
+    let mut file = archive.by_name(&first.slot.zip_name()).expect("entry");
     let mut text = String::new();
     file.read_to_string(&mut text).expect("read");
     assert_eq!(text, "one");
@@ -1063,4 +1071,163 @@ fn a_time_past_the_last_month_falls_in_the_last_month() {
 
     assert_eq!(month.to_string(), "9998-12");
     assert!(month.end() > month.start());
+}
+
+// -------------------------------------------------------------------------
+// Kept files
+// -------------------------------------------------------------------------
+
+/// More than one read chunk, so streaming has to loop.
+fn picture() -> Vec<u8> {
+    (0..200_000u32).map(|n| (n % 251) as u8).collect()
+}
+
+/// The kept file holding `bytes`: written into `dir`, with its name.
+fn kept_file(dir: &Path, bytes: &[u8]) -> (String, PathBuf) {
+    let name = format!("{}.webp", crate::keep::sha256_hex(bytes));
+    let path = dir.join(&name);
+    fs::write(&path, bytes).expect("written");
+    (name, path)
+}
+
+#[test]
+fn a_kept_file_is_streamed_into_the_bundle_under_files() {
+    let (scratch, location) = queue();
+    let (name, path) = kept_file(scratch.path(), &picture());
+    let file = NewEntry::kept_file(&name, path).expect("a kept name");
+
+    let outcomes =
+        add_entries(&location, OCTOBER, &[file], at("2026-12-01T08:00:00Z")).expect("added");
+
+    assert_eq!(outcomes, [Added::Added]);
+    assert_eq!(
+        read_entry(&location, OCTOBER, &format!("files/{name}")).expect("read"),
+        picture()
+    );
+    let listed = list_entries(&location, OCTOBER).expect("listed");
+    assert_eq!(listed[0].parsed, None, "a file is no session or result");
+}
+
+#[test]
+fn a_file_that_does_not_hash_to_its_name_is_refused() {
+    let (scratch, location) = queue();
+    let (name, path) = kept_file(scratch.path(), &picture());
+    fs::write(&path, b"rotten").expect("damaged");
+    let file = NewEntry::kept_file(&name, path.clone()).expect("a kept name");
+
+    let error =
+        add_entries(&location, OCTOBER, &[file], at("2026-12-01T08:00:00Z")).expect_err("refused");
+
+    assert!(
+        matches!(error, BundleError::Damaged { path: ref damaged } if *damaged == path),
+        "{error:?}"
+    );
+    assert!(!bundle_path(&location, OCTOBER).exists());
+}
+
+#[test]
+fn a_name_that_is_no_kept_name_makes_no_entry() {
+    for name in [
+        "../x.webp",
+        "files/x.webp",
+        "abc.webp",
+        &format!("{}.WEBP", "a".repeat(64)),
+    ] {
+        assert!(
+            NewEntry::kept_file(name, PathBuf::from("x")).is_none(),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn prepare_bundle_refuses_duplicate_names() {
+    let (scratch, location) = queue();
+    let (name, path) = kept_file(scratch.path(), b"once");
+    let twice = || NewEntry::kept_file(&name, path.clone()).expect("a kept name");
+
+    let error = prepare_bundle(
+        &location,
+        OCTOBER,
+        &[twice(), twice()],
+        at("2026-12-01T08:00:00Z"),
+    )
+    .err()
+    .expect("refused");
+
+    assert!(
+        matches!(error, BundleError::DuplicateEntry { name: ref twice } if *twice == format!("files/{name}")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_file_the_bundle_holds_already_is_already_there() {
+    let (scratch, location) = queue();
+    let (name, path) = kept_file(scratch.path(), &picture());
+    let file = || NewEntry::kept_file(&name, path.clone()).expect("a kept name");
+    add_entries(&location, OCTOBER, &[file()], at("2026-12-01T08:00:00Z")).expect("added");
+
+    let outcomes =
+        add_entries(&location, OCTOBER, &[file()], at("2026-12-02T08:00:00Z")).expect("returns");
+
+    assert_eq!(outcomes, [Added::AlreadyThere]);
+}
+
+#[test]
+fn a_file_entry_that_differs_in_its_last_byte_is_a_conflict() {
+    let (scratch, location) = queue();
+    let (name, path) = kept_file(scratch.path(), &picture());
+    let mut other = picture();
+    *other.last_mut().expect("not empty") ^= 1;
+    add_entries(
+        &location,
+        OCTOBER,
+        &[NewEntry {
+            slot: Slot::File(name.clone()),
+            body: Body::Bytes(other),
+        }],
+        at("2026-12-01T08:00:00Z"),
+    )
+    .expect("added");
+    let file = NewEntry::kept_file(&name, path).expect("a kept name");
+
+    let outcomes =
+        add_entries(&location, OCTOBER, &[file], at("2026-12-02T08:00:00Z")).expect("returns");
+
+    assert_eq!(outcomes, [Added::Conflict]);
+}
+
+#[test]
+fn probe_tells_absent_matching_and_conflicting_files() {
+    let (scratch, location) = queue();
+    let (present, path) = kept_file(scratch.path(), &picture());
+    let (absent, _) = kept_file(scratch.path(), b"not in the bundle");
+    let (damaged, _) = kept_file(scratch.path(), b"bundled with other bytes");
+    add_entries(
+        &location,
+        OCTOBER,
+        &[
+            NewEntry::kept_file(&present, path).expect("a kept name"),
+            NewEntry {
+                slot: Slot::File(damaged.clone()),
+                body: Body::Bytes(b"something else".to_vec()),
+            },
+        ],
+        at("2026-12-01T08:00:00Z"),
+    )
+    .expect("added");
+
+    let probed = probe(&location, OCTOBER, &[present, absent, damaged]).expect("probed");
+
+    assert_eq!(probed, [Probed::Matches, Probed::Absent, Probed::Conflicts]);
+}
+
+#[test]
+fn probe_of_a_month_without_a_bundle_finds_nothing() {
+    let (_scratch, location) = queue();
+
+    let probed = probe(&location, OCTOBER, &["x.webp".to_owned()]).expect("probed");
+
+    assert_eq!(probed, [Probed::Absent]);
 }

@@ -234,6 +234,12 @@ impl QueueLocation {
         self.dir.join("archive")
     }
 
+    /// Where the files kept for archived sessions lie, loose (spec section
+    /// 5.1).
+    pub fn kept_files(&self) -> PathBuf {
+        self.archive().join("files")
+    }
+
     pub fn lock_file(&self) -> PathBuf {
         self.dir.join("lock")
     }

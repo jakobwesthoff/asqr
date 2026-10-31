@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Finished sessions and results older than 30 days are compressed into
   one zip per queue and month, `archive/2026-10.zip`, by the asqr that
   starts watching or switches to a queue. Nothing is deleted but the
-  loose file of an entry that is inside its bundle. `asqr compact`
+  loose file of an entry that is inside its bundle, and a kept file whose
+  sessions are all inside bundles. `asqr compact`
   does the same by hand for the chosen queue, and `asqr compact --all`
   for every named queue that no asqr watches.
 

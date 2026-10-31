@@ -81,7 +81,7 @@ pub fn keep(job: &KeepJob, between: &dyn Fn()) -> io::Result<Kept> {
         return Ok(Kept::NothingToRecord);
     }
 
-    let files_dir = job.location.archive().join("files");
+    let files_dir = job.location.kept_files();
     let mut staged = Vec::new();
     for copy in &recording.copies {
         staged.push((copy.name.as_str(), stage(&files_dir, &copy.bytes)?));

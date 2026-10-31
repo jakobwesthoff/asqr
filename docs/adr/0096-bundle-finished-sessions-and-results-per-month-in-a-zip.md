@@ -9,6 +9,8 @@ Accepted
 Amends [9. Crate choices](0009-crate-choices.md):
 the `zip` crate reads and writes the month bundles of the archive
 
+Amended by [100. Keep the files a finished session showed](0100-keep-the-files-a-finished-session-showed.md)
+
 ## Context
 
 - A queue kept every finished session in `archive/` and every result in

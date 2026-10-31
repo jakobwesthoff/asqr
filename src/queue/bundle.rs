@@ -33,6 +33,7 @@
 //! the compaction deletes those, as the temp file of a writer in progress
 //! is seconds old.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -51,6 +52,7 @@ use super::QueueLocation;
 use super::atomic::temp_file_in;
 use super::names::{Archived, entries_if_present, parse_archive_name};
 use crate::format::{is_valid_session_id, same_session_id};
+use crate::keep::HashingReader;
 
 /// The id of the extra field that holds the time an entry was bundled as
 /// four bytes of Unix seconds in UTC, little endian. The zip format's own
@@ -281,6 +283,12 @@ pub enum BundleError {
         path: PathBuf,
         source: zip::result::ZipError,
     },
+
+    #[error("the entry {name} is given twice")]
+    DuplicateEntry { name: String },
+
+    #[error("{} does not hash to its name", path.display())]
+    Damaged { path: PathBuf },
 }
 
 impl BundleError {
@@ -605,11 +613,62 @@ pub fn bundled_results(
 // Writing
 // =========================================================================
 
+/// Where in the bundle a new entry goes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Slot {
+    /// A session, result or replaced result: `sessions/<id>.<ulid>.json`
+    /// and its siblings.
+    Named(EntryName),
+    /// A kept file, `files/<name>` (spec section 5.1), where `name` is
+    /// `<sha256>.<extension>` of the bytes it holds.
+    File(String),
+}
+
+impl Slot {
+    /// The name the entry has inside the zip.
+    pub fn zip_name(&self) -> String {
+        match self {
+            Slot::Named(name) => name.zip_name(),
+            Slot::File(name) => format!("files/{name}"),
+        }
+    }
+}
+
+/// What a new entry holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Body {
+    /// Bytes in memory, for the small JSON entries.
+    Bytes(Vec<u8>),
+    /// A file streamed into the bundle, so a month of images never sits in
+    /// memory.
+    File(PathBuf),
+}
+
 /// An entry to add to a bundle.
 #[derive(Debug, Clone)]
 pub struct NewEntry {
-    pub name: EntryName,
-    pub bytes: Vec<u8>,
+    pub slot: Slot,
+    pub body: Body,
+}
+
+impl NewEntry {
+    /// A session, result or replaced result with its content.
+    pub fn named(name: EntryName, bytes: Vec<u8>) -> NewEntry {
+        NewEntry {
+            slot: Slot::Named(name),
+            body: Body::Bytes(bytes),
+        }
+    }
+
+    /// The kept file `name` (`<sha256>.<extension>`), read from `path` while
+    /// the bundle is written. `None` for a name that is not that form, as
+    /// such a name must never become an entry of a bundle.
+    pub fn kept_file(name: &str, path: PathBuf) -> Option<NewEntry> {
+        crate::keep::record::is_kept_name(name).then(|| NewEntry {
+            slot: Slot::File(name.to_owned()),
+            body: Body::File(path),
+        })
+    }
 }
 
 /// What became of one [`NewEntry`].
@@ -699,15 +758,23 @@ pub fn prepare_bundle(
         None => None,
     };
 
+    let mut names = HashSet::new();
+    for entry in entries {
+        let name = entry.slot.zip_name();
+        if !names.insert(name.clone()) {
+            return Err(BundleError::DuplicateEntry { name });
+        }
+    }
+
     // Reading an entry back checks its checksum, which the directory alone
     // does not: a rotten body must not let the loose file go.
     let mut outcomes = Vec::with_capacity(entries.len());
     for entry in entries {
-        let name = entry.name.zip_name();
+        let name = entry.slot.zip_name();
         let outcome = match existing.as_mut() {
             Some(archive) if archive.index_for_name(&name).is_some() => {
-                match read_entry_of(archive, &target, &name) {
-                    Ok(bytes) if bytes == entry.bytes => Added::AlreadyThere,
+                match holds(archive, &target, &name, &entry.body) {
+                    Ok(true) => Added::AlreadyThere,
                     _ => Added::Conflict,
                 }
             }
@@ -755,11 +822,26 @@ pub fn prepare_bundle(
             .add_extra_field(BUNDLED_AT_FIELD, seconds.to_le_bytes(), false)
             .map_err(write_error)?;
         writer
-            .start_file(entry.name.zip_name(), options)
+            .start_file(entry.slot.zip_name(), options)
             .map_err(write_error)?;
-        writer
-            .write_all(&entry.bytes)
-            .map_err(|error| BundleError::io(&temp_path, error))?;
+        match (&entry.slot, &entry.body) {
+            (_, Body::Bytes(bytes)) => writer
+                .write_all(bytes)
+                .map_err(|error| BundleError::io(&temp_path, error))?,
+            (slot, Body::File(path)) => {
+                let file = File::open(path).map_err(|error| BundleError::io(path, error))?;
+                let mut source = HashingReader::new(file);
+                io::copy(&mut source, &mut writer).map_err(|error| BundleError::io(path, error))?;
+                // A kept file is named by its hash. Copying a file that no
+                // longer hashes to its name would seal damage into the
+                // bundle, and the loose file would go after it.
+                if let Slot::File(name) = slot
+                    && source.finish() != hash_of(name)
+                {
+                    return Err(BundleError::Damaged { path: path.clone() });
+                }
+            }
+        }
     }
     let file = writer.finish().map_err(write_error)?;
     file.sync_all()
@@ -770,7 +852,7 @@ pub fn prepare_bundle(
     let mut written = open(&temp_path)?;
     for (entry, outcome) in entries.iter().zip(&outcomes) {
         if *outcome == Added::Added {
-            read_entry_of(&mut written, &temp_path, &entry.name.zip_name())?;
+            read_through(&mut written, &temp_path, &entry.slot.zip_name())?;
         }
     }
     Ok(PreparedBundle {
@@ -779,6 +861,112 @@ pub fn prepare_bundle(
         seen,
         outcomes,
     })
+}
+
+/// Whether the entry `name` of `archive` holds exactly `body`.
+fn holds(
+    archive: &mut ZipArchive<File>,
+    path: &Path,
+    name: &str,
+    body: &Body,
+) -> Result<bool, BundleError> {
+    match body {
+        Body::Bytes(bytes) => Ok(read_entry_of(archive, path, name)? == *bytes),
+        Body::File(file_path) => {
+            let mut file =
+                File::open(file_path).map_err(|error| BundleError::io(file_path, error))?;
+            let mut entry = archive
+                .by_name(name)
+                .map_err(|error| BundleError::zip(path, error))?;
+            same_stream(&mut entry, &mut file).map_err(|error| BundleError::io(path, error))
+        }
+    }
+}
+
+const CHUNK: usize = 64 * 1024;
+
+/// The next chunk of `reader`: [`CHUNK`] bytes, fewer only at its end.
+fn next_chunk(reader: &mut impl Read) -> io::Result<Vec<u8>> {
+    let mut chunk = Vec::with_capacity(CHUNK);
+    reader.take(CHUNK as u64).read_to_end(&mut chunk)?;
+    Ok(chunk)
+}
+
+fn same_stream(left: &mut impl Read, right: &mut impl Read) -> io::Result<bool> {
+    loop {
+        let (left_chunk, right_chunk) = (next_chunk(left)?, next_chunk(right)?);
+        if left_chunk != right_chunk {
+            return Ok(false);
+        }
+        if left_chunk.len() < CHUNK {
+            return Ok(true);
+        }
+    }
+}
+
+/// The hash part of a kept file's name, `<sha256>.<extension>`.
+fn hash_of(name: &str) -> &str {
+    name.split_once('.').map_or(name, |(hash, _)| hash)
+}
+
+/// Reads the entry `name` to its end, which makes the zip check its
+/// checksum, without keeping the content.
+fn read_through(
+    archive: &mut ZipArchive<File>,
+    path: &Path,
+    name: &str,
+) -> Result<(), BundleError> {
+    let mut file = archive
+        .by_name(name)
+        .map_err(|error| BundleError::zip(path, error))?;
+    io::copy(&mut file, &mut io::sink())
+        .map(drop)
+        .map_err(|error| BundleError::io(path, error))
+}
+
+/// What the bundle of a month holds under a kept file's name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Probed {
+    /// No entry of that name.
+    Absent,
+    /// An entry that hashes to the name.
+    Matches,
+    /// An entry that does not hash to the name, or cannot be read.
+    Conflicts,
+}
+
+/// Looks up the kept files `names` (`<sha256>.<extension>`) in the bundle
+/// of `month`, so a caller can leave a session whose file would conflict
+/// out of the bundle it builds. A month without a bundle holds none of them.
+pub fn probe(
+    location: &QueueLocation,
+    month: Month,
+    names: &[String],
+) -> Result<Vec<Probed>, BundleError> {
+    let path = bundle_path(location, month);
+    let mut archive = match stamp(&path).map_err(|error| BundleError::io(&path, error))? {
+        Some(_) => open(&path)?,
+        None => return Ok(vec![Probed::Absent; names.len()]),
+    };
+    let mut probed = Vec::with_capacity(names.len());
+    for name in names {
+        let zip_name = format!("files/{name}");
+        probed.push(if archive.index_for_name(&zip_name).is_none() {
+            Probed::Absent
+        } else {
+            let hash = archive.by_name(&zip_name).ok().and_then(|entry| {
+                let mut reader = HashingReader::new(entry);
+                io::copy(&mut reader, &mut io::sink()).ok()?;
+                Some(reader.finish())
+            });
+            if hash.as_deref() == Some(hash_of(name)) {
+                Probed::Matches
+            } else {
+                Probed::Conflicts
+            }
+        });
+    }
+    Ok(probed)
 }
 
 fn zip_time(time: SystemTime) -> DateTime {

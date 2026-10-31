@@ -8,7 +8,9 @@ use ulid::Ulid;
 
 use super::*;
 use crate::format::SessionResult;
-use crate::queue::{add_entries, archive_name, bundle_path, list_entries, lock_queue, read_entry};
+use crate::queue::{
+    Body, Slot, add_entries, archive_name, bundle_path, list_entries, lock_queue, read_entry,
+};
 
 fn at(text: &str) -> SystemTime {
     SystemTime::from(text.parse::<jiff::Timestamp>().expect("a timestamp"))
@@ -305,18 +307,18 @@ fn a_crash_after_the_rename_is_completed_by_the_next_run() {
         &location,
         month(2026, 9),
         &[
-            NewEntry {
-                name: EntryName {
+            NewEntry::named(
+                EntryName {
                     kind: EntryKind::Session,
                     id: "a".to_owned(),
                     ulid: Ulid::from_parts(millis(at("2026-09-15T10:00:00Z")), 3),
                 },
-                bytes: fs::read(&session).expect("read"),
-            },
-            NewEntry {
-                name: result_entry_name("b", &bytes, at("2026-09-16T10:00:00Z")),
+                fs::read(&session).expect("read"),
+            ),
+            NewEntry::named(
+                result_entry_name("b", &bytes, at("2026-09-16T10:00:00Z")),
                 bytes,
-            },
+            ),
         ],
         at("2026-11-02T00:00:00Z"),
     )
@@ -345,14 +347,14 @@ fn an_entry_whose_name_holds_other_content_keeps_its_loose_file() {
     add_entries(
         &location,
         month(2026, 9),
-        &[NewEntry {
-            name: EntryName {
+        &[NewEntry::named(
+            EntryName {
                 kind: EntryKind::Session,
                 id: "a".to_owned(),
                 ulid: Ulid::from_parts(millis(at("2026-09-15T10:00:00Z")), 3),
             },
-            bytes: b"another content".to_vec(),
-        }],
+            b"another content".to_vec(),
+        )],
         at("2026-11-02T00:00:00Z"),
     )
     .expect("bundled");
@@ -532,14 +534,14 @@ fn an_entry_that_only_conflicts_bundles_nothing() {
     add_entries(
         &location,
         month(2026, 9),
-        &[NewEntry {
-            name: EntryName {
+        &[NewEntry::named(
+            EntryName {
                 kind: EntryKind::Session,
                 id: "a".to_owned(),
                 ulid: Ulid::from_parts(millis(at("2026-09-15T10:00:00Z")), 3),
             },
-            bytes: b"another content".to_vec(),
-        }],
+            b"another content".to_vec(),
+        )],
         at("2026-11-02T00:00:00Z"),
     )
     .expect("bundled");
@@ -619,4 +621,405 @@ fn an_outbox_whose_files_cannot_be_examined_is_a_problem() {
         .expect("chmod back, so the temp dir can go");
     assert_eq!(report.problems.len(), 1);
     assert!(report.bundled.is_empty());
+}
+
+// -------------------------------------------------------------------------
+// Kept files (spec section 5.1)
+// -------------------------------------------------------------------------
+
+/// Writes `bytes` as the loose kept file they hash to and returns its name.
+fn kept(location: &QueueLocation, bytes: &[u8]) -> String {
+    let name = format!("{}.webp", crate::keep::sha256_hex(bytes));
+    let dir = location.archive().join("files");
+    fs::create_dir_all(&dir).expect("files directory");
+    fs::write(dir.join(&name), bytes).expect("written");
+    name
+}
+
+fn kept_path(location: &QueueLocation, name: &str) -> PathBuf {
+    location.archive().join("files").join(name)
+}
+
+/// An archived session that shows the kept files `names`, one image each.
+fn showing(names: &[&str]) -> String {
+    let context: Vec<_> = names
+        .iter()
+        .map(|name| serde_json::json!({"type": "image", "path": format!("files/{name}")}))
+        .collect();
+    serde_json::json!({
+        "asqr": 2,
+        "id": "a",
+        "questions": [{"id": "q", "context": context}],
+    })
+    .to_string()
+}
+
+/// A session archived loose at `when` with `content`.
+fn loose_showing(location: &QueueLocation, id: &str, when: &str, names: &[&str]) -> PathBuf {
+    let name = archive_name(id, Ulid::from_parts(millis(at(when)), 3), Archived::Session);
+    let path = location.archive().join(name);
+    fs::write(&path, showing(names)).expect("written");
+    path
+}
+
+fn has_entry(location: &QueueLocation, month: Month, name: &str) -> bool {
+    entry_names(location, month).contains(&format!("files/{name}"))
+}
+
+#[test]
+fn compaction_moves_the_kept_files_with_their_sessions() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    let session = loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+
+    let report = compact_now(&location, &lock);
+
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(
+        read_entry(&location, month(2026, 9), &format!("files/{name}")).expect("read"),
+        b"the picture"
+    );
+    assert!(!session.exists(), "the loose session is gone");
+    assert!(
+        !kept_path(&location, &name).exists(),
+        "the loose copy is gone"
+    );
+}
+
+#[test]
+fn two_sessions_of_one_month_showing_one_file_bundle_it_once() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+    loose_showing(&location, "b", "2026-09-16T10:00:00Z", &[&name]);
+
+    let report = compact_now(&location, &lock);
+
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(report.bundled[0].sessions, 2);
+    let files: Vec<_> = entry_names(&location, month(2026, 9))
+        .into_iter()
+        .filter(|entry| entry.starts_with("files/"))
+        .collect();
+    assert_eq!(files, [format!("files/{name}")]);
+}
+
+#[test]
+fn a_file_shown_by_two_months_lands_in_both_bundles() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+    loose_showing(&location, "b", "2026-10-15T10:00:00Z", &[&name]);
+
+    let report = compact_now(&location, &lock);
+
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert!(has_entry(&location, month(2026, 9), &name));
+    assert!(has_entry(&location, month(2026, 10), &name));
+    assert!(
+        !kept_path(&location, &name).exists(),
+        "the loose copy goes once no loose session shows it"
+    );
+}
+
+#[test]
+fn a_file_a_loose_session_still_shows_stays_loose() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    loose_showing(&location, "old", "2026-09-15T10:00:00Z", &[&name]);
+    let recent = loose_showing(&location, "new", "2026-11-20T10:00:00Z", &[&name]);
+
+    compact_now(&location, &lock);
+
+    assert!(has_entry(&location, month(2026, 9), &name));
+    assert!(recent.exists());
+    assert!(kept_path(&location, &name).exists());
+}
+
+#[test]
+fn a_session_whose_kept_file_is_gone_is_bundled_with_a_problem() {
+    let (_scratch, location, lock) = queue();
+    let name = format!("{}.webp", crate::keep::sha256_hex(b"never written"));
+    let session = loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+
+    let report = compact_now(&location, &lock);
+
+    assert!(!session.exists(), "the session is bundled");
+    assert!(!has_entry(&location, month(2026, 9), &name));
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert!(
+        report.problems[0].text.contains(&name),
+        "{:?}",
+        report.problems
+    );
+}
+
+#[test]
+fn a_conflicting_file_keeps_its_session_loose_and_out_of_the_bundle() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    // A bundle that holds other bytes under the file's name.
+    add_entries(
+        &location,
+        month(2026, 9),
+        &[NewEntry {
+            slot: Slot::File(name.clone()),
+            body: Body::Bytes(b"something else".to_vec()),
+        }],
+        at("2026-11-02T00:00:00Z"),
+    )
+    .expect("bundled");
+    let conflicted = loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+    let other = loose(&location, "b", "2026-09-16T10:00:00Z", Archived::Session);
+
+    let report = compact_now(&location, &lock);
+
+    assert!(conflicted.exists(), "the session stays loose");
+    assert!(!other.exists(), "the others go on");
+    let sessions: Vec<_> = entry_names(&location, month(2026, 9))
+        .into_iter()
+        .filter(|entry| entry.starts_with("sessions/"))
+        .collect();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    assert!(sessions[0].starts_with("sessions/b."), "{sessions:?}");
+    assert!(kept_path(&location, &name).exists());
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+}
+
+#[test]
+fn a_damaged_loose_kept_file_is_not_bundled() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    fs::write(kept_path(&location, &name), b"rotten").expect("damaged");
+    let session = loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+
+    let report = compact_now(&location, &lock);
+
+    assert!(!session.exists(), "the session is bundled with the problem");
+    assert!(!has_entry(&location, month(2026, 9), &name));
+    assert_eq!(
+        fs::read(kept_path(&location, &name)).expect("stays"),
+        b"rotten"
+    );
+    assert!(
+        report.problems[0].text.contains(&name),
+        "{:?}",
+        report.problems
+    );
+}
+
+#[test]
+fn a_kept_file_of_a_session_an_older_asqr_bundled_is_adopted_not_deleted() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    // An asqr that knew no kept files bundled the session alone.
+    add_entries(
+        &location,
+        month(2026, 9),
+        &[NewEntry::named(
+            EntryName {
+                kind: EntryKind::Session,
+                id: "a".to_owned(),
+                ulid: Ulid::from_parts(millis(at("2026-09-14T10:00:00Z")), 3),
+            },
+            showing(&[&name]).into_bytes(),
+        )],
+        at("2026-11-02T00:00:00Z"),
+    )
+    .expect("bundled");
+    loose(&location, "b", "2026-09-16T10:00:00Z", Archived::Session);
+
+    compact_now(&location, &lock);
+
+    assert!(has_entry(&location, month(2026, 9), &name));
+    assert!(
+        kept_path(&location, &name).exists(),
+        "a stray is never removed by compaction"
+    );
+}
+
+#[test]
+fn an_interrupted_compaction_finds_the_file_again() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    let session = loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+    // The bundle is in place, the loose files were not removed yet.
+    add_entries(
+        &location,
+        month(2026, 9),
+        &[
+            NewEntry::named(
+                EntryName {
+                    kind: EntryKind::Session,
+                    id: "a".to_owned(),
+                    ulid: Ulid::from_parts(millis(at("2026-09-15T10:00:00Z")), 3),
+                },
+                fs::read(&session).expect("read"),
+            ),
+            NewEntry::kept_file(&name, kept_path(&location, &name)).expect("a kept name"),
+        ],
+        at("2026-11-02T00:00:00Z"),
+    )
+    .expect("bundled");
+
+    let report = compact_now(&location, &lock);
+
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert!(!session.exists());
+    assert!(!kept_path(&location, &name).exists());
+    assert_eq!(entry_names(&location, month(2026, 9)).len(), 2);
+}
+
+#[test]
+fn stale_temp_files_in_the_files_directory_are_swept() {
+    let (_scratch, location, lock) = queue();
+    let dir = location.archive().join("files");
+    fs::create_dir_all(&dir).expect("files directory");
+    let stale = dir.join(".asqr-stale.tmp");
+    let fresh = dir.join(".asqr-fresh.tmp");
+    for (path, modified) in [
+        (&stale, "2026-11-29T23:00:00Z"),
+        (&fresh, "2026-11-30T01:00:00Z"),
+    ] {
+        fs::write(path, "").expect("written");
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .expect("opens")
+            .set_modified(at(modified))
+            .expect("mtime set");
+    }
+
+    compact_now(&location, &lock);
+
+    assert!(!stale.exists());
+    assert!(fresh.exists());
+}
+
+/// Pins that compaction leaves a kept file alone that no session shows.
+#[test]
+fn compaction_removes_no_orphan() {
+    let (_scratch, location, lock) = queue();
+    let shown = kept(&location, b"the picture");
+    let orphan = kept(&location, b"nobody shows this");
+    loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&shown]);
+
+    compact_now(&location, &lock);
+
+    assert!(kept_path(&location, &orphan).exists());
+    assert!(!has_entry(&location, month(2026, 9), &orphan));
+}
+
+#[test]
+fn a_month_whose_only_session_is_held_back_writes_no_bundle_of_its_own() {
+    let (_scratch, location, lock) = queue();
+    let name = kept(&location, b"the picture");
+    add_entries(
+        &location,
+        month(2026, 9),
+        &[NewEntry {
+            slot: Slot::File(name.clone()),
+            body: Body::Bytes(b"something else".to_vec()),
+        }],
+        at("2026-11-02T00:00:00Z"),
+    )
+    .expect("bundled");
+    let before = fs::read(bundle_path(&location, month(2026, 9))).expect("bundle");
+    let held = loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+
+    let report = compact_now(&location, &lock);
+
+    assert!(report.bundled.is_empty());
+    assert!(held.exists());
+    assert_eq!(
+        fs::read(bundle_path(&location, month(2026, 9))).expect("bundle"),
+        before
+    );
+}
+
+#[cfg(unix)]
+mod unix {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+
+    #[test]
+    fn a_loose_kept_file_that_cannot_be_opened_is_named_and_not_bundled() {
+        let (_scratch, location, lock) = queue();
+        let name = kept(&location, b"the picture");
+        let path = kept_path(&location, &name);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).expect("chmod");
+        let session = loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+
+        let report = compact_now(&location, &lock);
+
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod back");
+        assert!(!session.exists(), "the session is bundled");
+        assert!(!has_entry(&location, month(2026, 9), &name));
+        assert!(path.exists());
+        assert!(
+            report.problems[0].text.contains("stays and is not bundled"),
+            "{:?}",
+            report.problems
+        );
+    }
+
+    #[test]
+    fn a_kept_name_that_is_a_directory_is_named_and_not_bundled() {
+        let (_scratch, location, lock) = queue();
+        let name = format!("{}.webp", crate::keep::sha256_hex(b"a directory"));
+        fs::create_dir_all(kept_path(&location, &name)).expect("a directory by that name");
+        let session = loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+
+        let report = compact_now(&location, &lock);
+
+        assert!(!session.exists());
+        assert!(
+            report.problems[0].text.contains("stays and is not bundled"),
+            "{:?}",
+            report.problems
+        );
+    }
+
+    #[test]
+    fn an_unreadable_loose_session_keeps_every_loose_kept_file() {
+        let (_scratch, location, lock) = queue();
+        let name = kept(&location, b"the picture");
+        loose_showing(&location, "old", "2026-09-15T10:00:00Z", &[&name]);
+        let recent = loose_showing(&location, "new", "2026-11-20T10:00:00Z", &[]);
+        fs::set_permissions(&recent, fs::Permissions::from_mode(0o000)).expect("chmod");
+
+        let report = compact_now(&location, &lock);
+
+        fs::set_permissions(&recent, fs::Permissions::from_mode(0o644)).expect("chmod back");
+        assert!(has_entry(&location, month(2026, 9), &name));
+        assert!(
+            kept_path(&location, &name).exists(),
+            "not knowing what loose sessions show, nothing is removed"
+        );
+        assert!(
+            report.problems[0].text.contains("loose kept files stay"),
+            "{:?}",
+            report.problems
+        );
+    }
+
+    #[test]
+    fn a_loose_kept_file_that_cannot_be_removed_is_named() {
+        let (_scratch, location, lock) = queue();
+        let name = kept(&location, b"the picture");
+        loose_showing(&location, "a", "2026-09-15T10:00:00Z", &[&name]);
+        let dir = location.kept_files();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).expect("chmod");
+
+        let report = compact_now(&location, &lock);
+
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("chmod back");
+        assert!(has_entry(&location, month(2026, 9), &name));
+        assert!(
+            report.problems[0].text.contains("cannot remove"),
+            "{:?}",
+            report.problems
+        );
+    }
 }
