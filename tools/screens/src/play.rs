@@ -497,8 +497,10 @@ fn play_picker(scene: &Scene) -> Result<Buffer> {
     );
     let mut terminal = Terminal::new(TestBackend::new(scene.columns, scene.rows))?;
     let mut picture = Buffer::empty(terminal.get_frame().area());
+    // The pictures show the colours of the terminal, so NO_COLOR is not set.
     let mut draw_picker_frame = |picker: &Switcher, notice: Option<&Notice>| -> Result<()> {
-        let completed = terminal.draw(|frame| draw_picker(frame, picker, notice, &version))?;
+        let completed =
+            terminal.draw(|frame| draw_picker(frame, picker, notice, &version, false))?;
         picture = completed.buffer.clone();
         Ok(())
     };
