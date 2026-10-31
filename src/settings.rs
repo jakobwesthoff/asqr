@@ -185,6 +185,8 @@ pub enum SaveError {
     DoesNotParse(Option<usize>),
     #[error("{0} in settings.toml is a table, so the file is left as it is")]
     NotAValue(&'static str),
+    #[error("settings.toml is read-only")]
+    ReadOnly,
 }
 
 /// A store read from the file and what was wrong with the file.
@@ -308,6 +310,17 @@ fn write_setting(path: &Path, setting: Setting, values: &Settings) -> Result<(),
     // A file that is a link, as a dotfile manager makes it, stays one: the
     // file it points to is written, also where that one is not there yet.
     let target = link_target(path).map_err(|error| io("read", error))?;
+    // A file the person made read-only is theirs to change: renaming a new
+    // file over it would write it anyway.
+    let permissions = std::fs::metadata(&target)
+        .ok()
+        .map(|meta| meta.permissions());
+    if permissions
+        .as_ref()
+        .is_some_and(|permissions| permissions.readonly())
+    {
+        return Err(SaveError::ReadOnly);
+    }
     let text = match std::fs::read_to_string(&target) {
         Ok(text) => Some(text),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -363,9 +376,6 @@ fn write_setting(path: &Path, setting: Setting, values: &Settings) -> Result<(),
         }
     };
 
-    let permissions = std::fs::metadata(&target)
-        .ok()
-        .map(|meta| meta.permissions());
     // Reading a path with no directory above it, the root, failed already.
     let dir = target
         .parent()
@@ -1163,6 +1173,48 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn a_file_that_is_read_only_is_left_as_it_is() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let text = "# kept\ncontext = \"below\"\n";
+        let (mut store, path, _scratch) = store_over(text);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("chmod");
+
+        store.step(Setting::DiffLayout, Direction::Next);
+        let result = store.save(Setting::DiffLayout);
+
+        assert_eq!(result, Err(SaveError::ReadOnly));
+        assert_eq!(std::fs::read_to_string(&path).expect("readable"), text);
+        let mode = std::fs::metadata(path).expect("meta").permissions().mode();
+        assert_eq!(mode & 0o777, 0o444, "the file is not replaced");
+        assert_eq!(
+            store.effective().diff_layout,
+            DiffLayout::SideBySide,
+            "the choice holds for this run"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_file_behind_a_link_is_left_as_it_is_too() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = scratch.path().join("asqr.toml");
+        std::fs::write(&target, "").expect("written");
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o444)).expect("chmod");
+        let link = scratch.path().join(FILE_NAME);
+        std::os::unix::fs::symlink(&target, &link).expect("linked");
+        let mut store = SettingsStore::load(Some(link), None).store;
+
+        store.step(Setting::DiffLayout, Direction::Next);
+
+        assert_eq!(store.save(Setting::DiffLayout), Err(SaveError::ReadOnly));
+        assert_eq!(std::fs::read_to_string(target).expect("readable"), "");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn the_permissions_of_an_existing_file_stay() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -1258,6 +1310,10 @@ mod tests {
         assert_eq!(
             SaveError::DoesNotParse(None).to_string(),
             "settings.toml does not parse, so it is left as it is"
+        );
+        assert_eq!(
+            SaveError::ReadOnly.to_string(),
+            "settings.toml is read-only"
         );
     }
 }

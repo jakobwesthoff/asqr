@@ -680,8 +680,9 @@ three keys, each of which may be left out:
   error, and the save fails. The file is written whole to a temporary file in
   its directory and renamed over the old one, with the old one's
   permissions, so a reader never sees half of it. A file that does not
-  parse is never written over, and a missing one is created with its
-  directory and a comment above the key.
+  parse is never written over, nor is one without write permission for
+  anyone, and a missing one is created with its directory and a comment
+  above the key.
 - A file that is not there gives every default and says nothing. A file
   that cannot be read or does not parse gives every default. A key whose
   value is none of those in the table gives that setting's default and
@@ -2300,8 +2301,9 @@ keeps the session and shows its own notice instead.
   one of: asqr has no config directory to keep settings.toml in; the
   system's error for reading, creating the directory of or writing
   settings.toml; `settings.toml does not parse (line N), so it is left as
-  it is`, as asqr never writes over a file it cannot parse; or `<key> in
-  settings.toml is a table, so the file is left as it is`.
+  it is`, as asqr never writes over a file it cannot parse; `settings.toml
+  is read-only`, as asqr never writes over a file nobody may write; or
+  `<key> in settings.toml is a table, so the file is left as it is`.
 - After a switch of the queue switcher (section 7.6) the screen shows
   the new queue's sessions, and the title bar, the terminal title and
   the empty queue name it as they name a queue given at the start (ADR

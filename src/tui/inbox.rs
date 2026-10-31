@@ -684,6 +684,27 @@ mod tests {
         });
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_change_to_a_read_only_file_is_red_and_the_file_stays() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (scratch, location) = queue();
+        let config = scratch.path().join("settings.toml");
+        fs::write(&config, "# mine\n").expect("written");
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o444)).expect("chmod");
+        let settings = SettingsStore::load(Some(config.clone()), None).store;
+        let (mut inbox, mut app) = (Inbox::new(location), App::with_settings(settings));
+        let effect = changed(&mut app, 0);
+
+        inbox.apply(&mut app, effect);
+
+        assert_eq!(fs::read_to_string(config).expect("kept"), "# mine\n");
+        assert_notice(&app, Tone::Error, |text| {
+            text == "cannot save the setting: settings.toml is read-only; the choice holds until asqr quits"
+        });
+    }
+
     #[test]
     fn a_change_without_a_place_for_the_file_is_red_too() {
         let (_scratch, location) = queue();

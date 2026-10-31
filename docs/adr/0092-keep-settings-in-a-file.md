@@ -87,3 +87,8 @@ the reading width is a setting
   place with its values as option rows; two explanation lines under the
   focused row; every value shown on the row; changing the file's value
   while an override holds.
+
+## Consequences
+
+- Two asqr instances that save within the same moment can lose one of the
+  writes, and a change starts from the value its own instance holds.
