@@ -17,7 +17,8 @@ use common::{Sandbox, stdout};
 
 /// The stand-in `tmux` of a sandbox: it notes every call in `calls` and
 /// answers the session lookup with the session `TEST_SESSION` and, where
-/// set, the pin `TEST_PIN`. `TEST_TMUX_EXIT` makes it fail.
+/// set, the pin `TEST_PIN`. `TEST_TMUX_EXIT` makes it fail, and
+/// `TEST_TMUX_HANG` makes it never answer.
 struct StandInTmux {
     bin: PathBuf,
     calls: PathBuf,
@@ -35,6 +36,7 @@ impl StandInTmux {
                 "#!/bin/sh\n\
                  echo \"$*\" >> '{}'\n\
                  [ -n \"$TEST_TMUX_EXIT\" ] && exit \"$TEST_TMUX_EXIT\"\n\
+                 [ -n \"$TEST_TMUX_HANG\" ] && exec sleep 60\n\
                  [ \"$1\" = -S ] && shift 2\n\
                  case \"$1\" in\n\
                  display-message)\n\
@@ -63,7 +65,8 @@ impl StandInTmux {
             .env("TMUX_PANE", "%3")
             .env("TEST_SESSION", session)
             .env_remove("TEST_PIN")
-            .env_remove("TEST_TMUX_EXIT");
+            .env_remove("TEST_TMUX_EXIT")
+            .env_remove("TEST_TMUX_HANG");
         command
     }
 
@@ -113,20 +116,29 @@ fn the_pin_wins_over_the_session_name() {
     assert_eq!(queue, "asqr-todos");
 }
 
-/// A script cannot start and answer within a millisecond, so a tmux that
-/// gets that long is given up on however quickly the stand-in answers.
+/// A stand-in that never answers is given up on after the millisecond the
+/// variable sets, so the queue falls back to the default however fast the
+/// machine is. The sandbox's own timeout is 30 s, so a run well under that
+/// shows the variable's timeout was the one used.
 #[test]
 fn the_timeout_the_test_variable_sets_is_the_one_tmux_gets() {
     let sandbox = Sandbox::new();
     let tmux = StandInTmux::new(&sandbox);
+    let started = std::time::Instant::now();
 
     let (queue, stderr) = queue_of(
         tmux.asqr(&sandbox, "my work")
-            .env(asqr::pairing::TIMEOUT_VARIABLE, "1"),
+            .env(asqr::pairing::TIMEOUT_VARIABLE, "1")
+            .env("TEST_TMUX_HANG", "1"),
     );
 
     assert_eq!(queue, "default");
     assert_eq!(stderr, "");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "asqr waited {:?} for a tmux that never answers",
+        started.elapsed()
+    );
 }
 
 #[test]
