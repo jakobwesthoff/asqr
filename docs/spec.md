@@ -106,6 +106,9 @@ Session fields:
   the previous one here. The header shows that session's title, or the
   id (section 7.2). asqr does not count or match carried-over questions.
 - `questions` (required, at least one).
+- `archived` is reserved for the object asqr writes into an archived
+  session (section 5.1). `asqr ask` removes it from a session before it
+  enters the inbox, and the warning about unknown fields names it.
 
 Text fields (`intro`, question `text`, option `label` and option
 `description`) are Markdown, rendered in full (section 7.10).
@@ -202,6 +205,10 @@ such as a file name:
   or a mockup of a terminal screen, from the file at `path` or inline in
   `content`, exactly one of the two. asqr draws it cell by cell and drops
   every other escape sequence (section 8.10).
+
+`shown` is reserved on every entry and on both sides of a diff for the
+record asqr writes into an archived session (section 5.1). `asqr ask`
+removes it, as it removes `archived` from the session.
 
 New entry types are added within format version 2, so an asqr can meet
 an entry whose type a newer asqr knows (section 3.4).
@@ -557,6 +564,7 @@ text changes nothing and leaves the question untouched.
   archive/<id>.<ulid>.result.json     results moved aside by `ask --force` (section 5.5)
   archive/invalid.<ulid>.json         files whose stem is no valid id (section 5.8)
   archive/<YYYY-MM>.zip               the month bundle of older entries (below)
+  archive/files/<sha256>.<ext>        files a finished session showed, kept by asqr (below)
   lock                                the instance lock (section 5.6)
   drafts.lock                         the drafts lock (section 5.6)
 ```
@@ -572,7 +580,7 @@ compressed with Deflate and named by what they hold:
 | `sessions/<id>.<ulid>.json` | a finished session, the file `archive/<id>.<ulid>.json` held |
 | `results/<id>.<ulid>.json` | a result that left the outbox |
 | `replaced/<id>.<ulid>.json` | a result `ask --force` moved aside, the file `archive/<id>.<ulid>.result.json` held |
-| `files/<sha256>.<ext>` | reserved for files kept with a session |
+| `files/<sha256>.<ext>` | a file kept with a session (below) |
 
 The month of an entry is the month of the ULID in its name. For a
 result, the ULID is built from the time the result was finished and the
@@ -591,6 +599,64 @@ Section 5.9 describes who writes the bundles and when.
 Readers list the loose files (the outbox, then `archive/`) before they
 open a bundle, so an entry that moves into a bundle at that moment is
 found twice at worst and never missed.
+
+**Kept files.** A session shows files by path, and many of them lie in
+temporary folders. `archive/files/<sha256>.<ext>` holds a copy of a file
+a session showed, and `files/<sha256>.<ext>` the same in a month bundle.
+`<sha256>` is the SHA-256 of the kept bytes in lowercase hex, so
+`shasum -a 256` on a kept file prints its name. `<ext>` is `webp` for an
+image asqr re-encoded. Otherwise it is the original's extension in
+lowercase when it is one to eight characters of `a-z0-9` and an image
+format, a syntax the code viewer highlights or one of `txt md log diff
+patch ansi`, else `dat`. A reader accepts only names of exactly this
+form, so a path edited by hand, `files/../x` for one, is never opened. A
+file shown by several sessions is stored once per place: once loose and
+once in each month bundle that holds a session showing it.
+
+The archived session is the JSON the person saw, with one object added
+at the top and one per shown file. `path` names the copy only where
+`state` is `kept`; `shown.original_path` always holds the original:
+
+```json
+{
+  "asqr": 2,
+  "id": "hero-2",
+  "archived": { "session_sha256": "<sha256 of the inbox bytes>", "keep": "compact" },
+  "questions": [ { "context": [ {
+      "type": "image",
+      "path": "files/9f2c...e1.webp",
+      "shown": {
+        "original_path": "/tmp/x/hero-b.png",
+        "state": "kept",
+        "sha256": "<sha256 of the original bytes>",
+        "size": 213456,
+        "modified": "2026-10-29T16:40:11Z",
+        "kept_size": 41207
+      } } ] } ]
+}
+```
+
+- `archived.session_sha256` is the hash a result's `session_sha256`
+  names. `archived.keep` is the mode in force: `compact`, `exact` or
+  `off`.
+- `state` is one of `kept`; `not_kept` (the file was read and
+  fingerprinted but no copy exists because `keep` was `off`, or the file
+  is over the viewer's limit, 64 MiB for an image and 8 MiB for any other
+  file, which `reason` then says as "larger than 64 MiB" and which has no
+  `sha256`); `missing` (no such file); `unreadable` (a relative path,
+  something that is no regular file, or a read that failed; `reason`
+  holds the text). `missing` and `unreadable` have neither `sha256` nor
+  `size`.
+- `sha256` and `size` are those of the original bytes, `kept_size` those
+  of the copy. `modified` is the original's modification time in UTC and
+  is left out when unknown.
+- Entries with inline `content` have no `shown`. A session that shows no
+  file by path is archived as it is, without `archived`.
+- Unknown fields of the session survive. Nothing validates an archived
+  session.
+
+A file is read the way the viewers read it: through a regular-file open
+that never waits for a FIFO or a device, within the same limits.
 
 ### 5.2 Location
 

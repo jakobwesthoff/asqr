@@ -88,6 +88,7 @@ pub(super) fn run(
     raw["id"] = Value::from(id.as_str());
     make_context_paths_absolute(raw, file);
     drop_note_false(raw);
+    drop_reserved_names(raw);
     let mut bytes = serde_json::to_vec_pretty(raw).expect("a serde_json Value always serializes");
     bytes.push(b'\n');
 
@@ -253,6 +254,41 @@ fn drop_note_false(raw: &mut Value) {
         {
             fields.remove("note");
         }
+    }
+}
+
+/// Removes `archived` and every `shown` from the session. asqr writes them
+/// into an archived session to record the files it showed (spec section
+/// 5.1), and reads them back when the session is replayed. A session an
+/// asker brings along must not carry a record the archive never made.
+fn drop_reserved_names(raw: &mut Value) {
+    if let Some(fields) = raw.as_object_mut() {
+        fields.remove("archived");
+    }
+    for question in array_mut(raw, "questions") {
+        drop_shown_in_context(question);
+        for option in array_mut(question, "options") {
+            drop_shown_in_context(option);
+        }
+    }
+}
+
+/// Removes `shown` from the entries in the `context` of a question or
+/// option, and from both sides of a diff.
+fn drop_shown_in_context(holder: &mut Value) {
+    for entry in array_mut(holder, "context") {
+        remove_shown(entry);
+        for side in ["old", "new"] {
+            if let Some(side) = entry.get_mut(side) {
+                remove_shown(side);
+            }
+        }
+    }
+}
+
+fn remove_shown(object: &mut Value) {
+    if let Some(fields) = object.as_object_mut() {
+        fields.remove("shown");
     }
 }
 

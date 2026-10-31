@@ -7,12 +7,31 @@
 //! means nothing once the file is gone. This module decides what is kept
 //! of each file.
 
+mod places;
 pub mod processor;
+pub mod record;
+pub mod snapshot;
+pub mod store;
 
-use std::fmt;
+#[cfg(test)]
+mod tests;
+
+use std::fmt::{self, Write as _};
 use std::str::FromStr;
 
 use clap::ValueEnum;
+use sha2::{Digest, Sha256};
+
+/// The SHA-256 of `bytes` as 64 lowercase hex digits, what `shasum -a 256`
+/// prints and what names a kept file.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
+            hex
+        })
+}
 
 /// What asqr keeps of the files a session showed (spec section 5.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]

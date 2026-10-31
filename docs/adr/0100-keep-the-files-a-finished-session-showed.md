@@ -69,6 +69,40 @@ when it is one to eight characters of `a-z0-9` and an image format
 patch ansi` has it. Any other name gets `dat`. A re-encoded image gets
 `webp`.
 
+A kept file is named `<sha256>.<ext>` after the SHA-256 of its kept
+bytes, so `shasum -a 256` checks it on any machine and a file shown by
+several sessions is stored once per place. asqr already uses SHA-256 for
+`session_sha256` in results. Rejected: BLAKE3 for the files, with or
+without moving `session_sha256` to it. A reader accepts only names of the
+form `files/<64 lowercase hex>.<1 to 8 of a-z0-9>`, so a path edited by
+hand is never opened.
+
+### Recording
+
+The archived session is the JSON the person saw, edited as raw JSON so
+unknown fields survive. It gains an `archived` object (the SHA-256 of the
+session as it was in the inbox, which is what a result's `session_sha256`
+names, and the mode) and a `shown` object on every entry or diff side
+that names a file by path. `shown` holds the original path, a `state`
+(`kept`, `not_kept`, `missing` or `unreadable`), the SHA-256, size and
+modification time of the original, and for a kept file the size of the
+copy. `path` points at the copy only where `state` is `kept`. The
+fingerprint is recorded whether a copy is kept or not, so an archived
+answer can still tell that a file is gone or changed. A session that
+shows no file by path is archived as it is. The format is in spec
+section 5.1.
+
+Files are read the way the viewers read them: through
+`regular_file::open`, which never waits for a FIFO or a device, and within
+the viewers' limits (64 MiB for an image, 8 MiB for any other file). A
+file over its limit, a missing file, a relative path or a file that
+changes while it is read is recorded with its state and a reason, not
+treated as an error. A snapshot holds at most 256 MiB of file content in
+memory; a file that does not fit is left to be read later by its path.
+
+`asqr ask` removes `archived` and every `shown` from a session before it
+enters the inbox, as asqr alone writes them.
+
 ### libwebp
 
 libwebp is C. `libwebp-sys` 0.14.4 builds libwebp 1.6.0 from the C

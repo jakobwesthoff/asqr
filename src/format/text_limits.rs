@@ -11,6 +11,11 @@
 /// to gigabytes must not stall asqr or fill its memory.
 pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
+/// How large an image file asqr reads. An image keeps its file's bytes
+/// while its entry is inside the window (ADR 46), so a file of gigabytes
+/// would stay in memory; a larger one is refused before it is read.
+pub const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
+
 /// How many lines of a text a viewer keeps, inline or read from a file.
 /// A viewer keeps every line as a row of its own, and a text of millions
 /// of lines looks like an error or misuse rather than something to show.

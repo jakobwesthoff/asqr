@@ -19,7 +19,7 @@ use image::ImageError;
 use super::problem::Card;
 use super::source_line::Note;
 use crate::format::line_cut;
-pub(super) use crate::format::{LineBreaks, MAX_BYTES, MAX_LINES};
+pub(super) use crate::format::{LineBreaks, MAX_BYTES, MAX_IMAGE_BYTES, MAX_LINES};
 use crate::regular_file::{OpenError, check_type, open as open_checked};
 
 /// The limit that ended the text of a source, which the notes around the
@@ -206,11 +206,6 @@ fn refused(path: &str, error: OpenError) -> Unreadable {
         OpenError::Io(error) => Unreadable::io(path, &error),
     }
 }
-
-/// How large an image file asqr reads. An image keeps its file's bytes
-/// while its entry is inside the window (ADR 46), so a file of gigabytes
-/// would stay in memory; a larger one is refused before it is read.
-const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Why an image file larger than [`MAX_IMAGE_BYTES`] does not show.
 const TOO_LARGE: &str = "image file larger than 64 MiB";

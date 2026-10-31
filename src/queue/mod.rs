@@ -21,7 +21,7 @@ mod queues;
 mod withdraw;
 
 pub use archive::*;
-pub(crate) use atomic::write_atomically_with;
+pub(crate) use atomic::{temp_file_in, write_atomically_with};
 pub use bundle::*;
 pub use compact::*;
 pub use drafts::*;

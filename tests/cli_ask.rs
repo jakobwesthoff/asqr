@@ -51,6 +51,50 @@ fn drops_the_session_and_prints_its_id() {
     assert_eq!(inbox_file(&sandbox, "batch-01")["id"], "batch-01");
 }
 
+/// `archived` and `shown` are written by asqr into archived sessions
+/// (spec section 5.1), so a session an asker brings along does not carry
+/// them into the queue: a forged record would otherwise show a file the
+/// archive never kept.
+#[test]
+fn strips_what_asqr_writes_into_archived_sessions() {
+    let sandbox = Sandbox::new();
+    let file = sandbox.file(
+        "session.json",
+        r#"{"asqr": 2, "id": "batch-01", "archived": {"session_sha256": "forged"},
+            "questions": [
+              {"id": "q", "text": "?", "kind": "single",
+               "context": [{"type": "diff", "old": {"path": "/tmp/o", "shown": {"state": "kept"}},
+                                            "new": {"content": "x"}}],
+               "options": [{"id": "a", "label": "A",
+                 "context": [{"type": "code", "path": "/tmp/c", "shown": {"state": "kept"}}]}]},
+              {"id": "r", "text": "?", "kind": "text",
+               "context": [{"type": "image", "path": "/tmp/a.png", "shown": {"state": "kept"}}]}]}"#,
+    );
+
+    let output = sandbox
+        .asqr_in_queue(&["ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let dropped = inbox_file(&sandbox, "batch-01");
+    assert!(dropped.get("archived").is_none(), "{dropped}");
+    let [first, second] = &dropped["questions"].as_array().expect("questions")[..] else {
+        panic!("two questions: {dropped}");
+    };
+    assert!(
+        first["context"][0]["old"].get("shown").is_none(),
+        "{dropped}"
+    );
+    assert!(
+        first["options"][0]["context"][0].get("shown").is_none(),
+        "{dropped}"
+    );
+    assert!(second["context"][0].get("shown").is_none(), "{dropped}");
+    assert_eq!(second["context"][0]["path"], "/tmp/a.png");
+}
+
 #[test]
 fn warns_when_no_asqr_watches_the_queue() {
     let sandbox = Sandbox::new();
