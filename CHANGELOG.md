@@ -168,6 +168,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A key in `settings.toml` that asqr does not know, a table too, is a
   warning in the log that names it, as the spec says. Before, it was
   ignored without a word.
+- `asqr validate` and `asqr ask` warn, with the words of the viewer's card,
+  about a code, Markdown, ANSI or diff file that holds a NUL byte ("binary
+  file"), a text file asqr may not read, and an image file larger than
+  64 MiB, as they already did for a missing file and an image asqr cannot
+  decode. Before, the person met the red card first.
 
 ## [0.15.0] - 2026-10-30
 

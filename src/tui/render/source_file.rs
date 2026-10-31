@@ -19,6 +19,7 @@ use image::ImageError;
 use super::problem::Card;
 use super::source_line::Note;
 use crate::format::line_cut;
+use crate::format::{BINARY_FILE, IMAGE_TOO_LARGE};
 pub(super) use crate::format::{LineBreaks, MAX_BYTES, MAX_IMAGE_BYTES, MAX_LINES};
 use crate::regular_file::{OpenError, check_type, open as open_checked};
 
@@ -207,9 +208,6 @@ fn refused(path: &str, error: OpenError) -> Unreadable {
     }
 }
 
-/// Why an image file larger than [`MAX_IMAGE_BYTES`] does not show.
-const TOO_LARGE: &str = "image file larger than 64 MiB";
-
 /// The bytes of the image file at `path`, opened by the rule every viewer
 /// of a file follows, unless it is larger than [`MAX_IMAGE_BYTES`].
 pub(super) fn read_image(path: &str) -> Result<Vec<u8>, Unreadable> {
@@ -232,7 +230,7 @@ fn read_within(path: &str, file: File, limit: u64) -> Result<Vec<u8>, Unreadable
 /// Refuses an image file of `size` bytes past `limit`.
 fn refuse_size(path: &str, size: u64, limit: u64) -> Result<(), Unreadable> {
     if size > limit {
-        return Err(Unreadable::refused(path, "TooLarge", TOO_LARGE));
+        return Err(Unreadable::refused(path, "TooLarge", IMAGE_TOO_LARGE));
     }
     Ok(())
 }
@@ -319,7 +317,7 @@ fn text_within(
     // A NUL byte marks a binary file, as git decides; its lines would be
     // noise, however they were decoded.
     if bytes.contains(&0) {
-        return Err(Unreadable::refused(path, "Binary", "binary file"));
+        return Err(Unreadable::refused(path, "Binary", BINARY_FILE));
     }
     // What is left of the bytes can still hold more lines than a viewer
     // keeps. The line limit then ends the text, so its notes name lines.

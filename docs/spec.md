@@ -296,9 +296,15 @@ add optional fields.
   resolves them).
 - about files that do not exist ("file not found"), about paths that
   exist but are no regular file, such as a directory ("not a file"), and
-  about image files the terminal UI cannot decode (section 8.8). That
-  check reads only the image file's header. For an unsupported format
-  the warning lists the formats that work. Both check a relative path
+  about the files the terminal UI shows a card for (section 8.3):
+  `cannot be shown:` and the card's reason. These are an image file it
+  cannot decode (section 8.8), an image file larger than 64 MiB ("image
+  file larger than 64 MiB"), a `code`, `markdown`, `ansi` or `diff` file
+  that holds a NUL byte in its first 8 MiB ("binary file"), and a text
+  file asqr may not read (the system's message). The decode check reads
+  only the image file's header, and the size check does not read the
+  image. For an unsupported format the warning lists the formats that
+  work. All check a relative path
   against the absolute directory of the session file, so the warning
   names the file by an absolute path even when the session file was
   given by its bare name. A file that turns into a FIFO or another
@@ -325,7 +331,7 @@ add optional fields.
   more than 500,000 lines, inline or in the first 8 MiB of its file, or
   an image entry's `caption` of more than 500,000 lines, which asqr cuts
   (section 8.3). A file that holds a NUL byte, which asqr does not show,
-  gets no such warning. An entry can get both this and the 1 MiB
+  gets the warning above and no such warning. An entry can get both this and the 1 MiB
   warning.
 - about fields of earlier format versions (section 3.6).
 - about a `note` of any value, `null` included, on a question or an info

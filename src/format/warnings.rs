@@ -20,8 +20,8 @@ use image::ImageError;
 use serde_json::Value;
 
 use super::{
-    ContextEntry, FieldPath, LARGE_ENTRY_BYTES, LineBreaks, MAX_BYTES, MAX_LINES, Session,
-    line_cut, session_schema,
+    BINARY_FILE, ContextEntry, FieldPath, IMAGE_TOO_LARGE, LARGE_ENTRY_BYTES, LineBreaks,
+    MAX_BYTES, MAX_IMAGE_BYTES, MAX_LINES, Session, line_cut, session_schema,
 };
 use crate::image_format::reader_with_format;
 use crate::regular_file::{self, OpenError};
@@ -61,9 +61,11 @@ pub enum WarningKind {
     /// A code, Markdown or ANSI entry, a side of a diff or an image's
     /// caption of more than [`MAX_LINES`] lines, which its viewer cuts.
     ManyLines,
-    /// The file exists but asqr has no decoder for it, or its header is
-    /// broken. Carries the reason.
-    ImageNotDecodable(String),
+    /// The file exists but the viewer shows a card for it instead of its
+    /// content: an image asqr has no decoder for, with a broken header or
+    /// above [`MAX_IMAGE_BYTES`], a text file with a NUL byte, or a file
+    /// asqr may not read. Carries the card's reason.
+    CannotBeShown(String),
 }
 
 impl fmt::Display for Warning {
@@ -104,7 +106,7 @@ impl fmt::Display for Warning {
             }
             WarningKind::ManyLines => formatter
                 .write_str("more than 500,000 lines; asqr shows only the first 500,000"),
-            WarningKind::ImageNotDecodable(reason) => write!(formatter, "cannot be shown: {reason}"),
+            WarningKind::CannotBeShown(reason) => write!(formatter, "cannot be shown: {reason}"),
         }
     }
 }
@@ -344,20 +346,23 @@ fn check_context(
                 let (size, file) = source_size(&code.path, &code.content, &path, base_dir, found);
                 check_size(size, false, &path, found);
                 let text = code.content.as_deref();
-                check_lines(text, handle(&file), LineBreaks::Any, &path, found);
+                let prefix = text_prefix(&file, &path, found);
+                check_lines(text, prefix.as_deref(), LineBreaks::Any, &path, found);
             }
             ContextEntry::Markdown(markdown) => {
                 let (size, file) =
                     source_size(&markdown.path, &markdown.content, &path, base_dir, found);
                 check_size(size, true, &path, found);
                 let text = markdown.content.as_deref();
-                check_lines(text, handle(&file), LineBreaks::Any, &path, found);
+                let prefix = text_prefix(&file, &path, found);
+                check_lines(text, prefix.as_deref(), LineBreaks::Any, &path, found);
             }
             ContextEntry::Ansi(ansi) => {
                 let (size, file) = source_size(&ansi.path, &ansi.content, &path, base_dir, found);
                 check_size(size, false, &path, found);
                 let text = ansi.content.as_deref();
-                check_lines(text, handle(&file), LineBreaks::Newline, &path, found);
+                let prefix = text_prefix(&file, &path, found);
+                check_lines(text, prefix.as_deref(), LineBreaks::Newline, &path, found);
             }
             ContextEntry::Diff(diff) => {
                 // The viewer works on both texts, so they count together.
@@ -378,7 +383,14 @@ fn check_context(
                 }
                 check_size(size, false, &path, found);
                 for (side_path, content, file) in texts {
-                    check_lines(content, handle(&file), LineBreaks::Any, &side_path, found);
+                    let prefix = text_prefix(&file, &side_path, found);
+                    check_lines(
+                        content,
+                        prefix.as_deref(),
+                        LineBreaks::Any,
+                        &side_path,
+                        found,
+                    );
                 }
             }
         }
@@ -517,17 +529,17 @@ fn check_size(size: u64, markdown: bool, path: &FieldPath, found: &mut Vec<Warni
 }
 
 /// Warns when a viewer would cut a text at the line limit: `content`, or
-/// else the file `file`, whose lines end at `breaks`.
+/// else the `prefix` of the file, whose lines end at `breaks`.
 fn check_lines(
     content: Option<&str>,
-    file: Option<&File>,
+    prefix: Option<&[u8]>,
     breaks: LineBreaks,
     path: &FieldPath,
     found: &mut Vec<Warning>,
 ) {
     let cut = match content {
         Some(content) => line_cut(content.as_bytes(), MAX_LINES, breaks).is_some(),
-        None => file.is_some_and(|file| file_cut_by_lines(file, breaks)),
+        None => prefix.is_some_and(|prefix| line_cut(prefix, MAX_LINES, breaks).is_some()),
     };
     if cut {
         found.push(Warning {
@@ -537,23 +549,46 @@ fn check_lines(
     }
 }
 
-/// Whether a viewer would cut the file `file`, whose lines end at
-/// `breaks`, at the line limit. It counts what a viewer reads, the first
-/// [`MAX_BYTES`], and a binary file, which a viewer does not show, counts
-/// as not cut. A file of no more bytes than [`MAX_LINES`] cannot hold more
-/// lines, so it is not read; a larger one takes a read of at most 8 MiB.
-fn file_cut_by_lines(file: &File, breaks: LineBreaks) -> bool {
-    let size = file.metadata().map_or(0, |metadata| metadata.len());
-    if size <= MAX_LINES as u64 {
-        return false;
-    }
+/// What a viewer reads of the text file in `file`, its first [`MAX_BYTES`],
+/// for the checks that count what a viewer shows. A file the viewer shows
+/// a card for gets the warning with the card's reason and gives nothing:
+/// one asqr may not read, or one with a NUL byte in what the viewer reads.
+/// An entry given inline, or whose file was not found, has none to read.
+fn text_prefix(
+    file: &Option<ContextFile>,
+    path: &FieldPath,
+    found: &mut Vec<Warning>,
+) -> Option<Vec<u8>> {
+    let file = file.as_ref()?;
+    let mut warn = |reason: String| {
+        found.push(Warning {
+            path: path.clone(),
+            kind: WarningKind::CannotBeShown(reason),
+        });
+    };
+    let opened = match &file.opened {
+        Ok(opened) => opened,
+        // The system's own words, as the viewer's card has them.
+        Err(error) => {
+            warn(error.to_string());
+            return None;
+        }
+    };
     // Another check may have read the file before.
-    let mut reader = file;
+    let mut reader = opened;
     let mut bytes = Vec::new();
     let read = reader
         .rewind()
-        .and_then(|()| file.take(MAX_BYTES).read_to_end(&mut bytes));
-    read.is_ok() && !bytes.contains(&0) && line_cut(&bytes, MAX_LINES, breaks).is_some()
+        .and_then(|()| opened.take(MAX_BYTES).read_to_end(&mut bytes));
+    if let Err(error) = read {
+        warn(error.to_string());
+        return None;
+    }
+    if bytes.contains(&0) {
+        warn(BINARY_FILE.to_owned());
+        return None;
+    }
+    Some(bytes)
 }
 
 /// Warns about a relative or missing file, or a path that names no regular
@@ -642,6 +677,10 @@ fn check_decodable(file: &ContextFile, path: FieldPath, found: &mut Vec<Warning>
     let reason = match &file.opened {
         // The system's own words, as the viewer's card has them.
         Err(error) => error.to_string(),
+        // The viewer refuses a file of this size before it reads it.
+        Ok(opened) if opened.metadata().is_ok_and(|m| m.len() > MAX_IMAGE_BYTES) => {
+            IMAGE_TOO_LARGE.to_owned()
+        }
         Ok(opened) => match image_header(opened, &file.path) {
             Ok(_) => return,
             // The crate's own wording names only what failed. An asker that
@@ -654,7 +693,7 @@ fn check_decodable(file: &ContextFile, path: FieldPath, found: &mut Vec<Warning>
     };
     found.push(Warning {
         path,
-        kind: WarningKind::ImageNotDecodable(reason),
+        kind: WarningKind::CannotBeShown(reason),
     });
 }
 
@@ -1139,21 +1178,106 @@ mod tests {
         );
     }
 
-    /// A file with a NUL byte shows as "binary file", not as lines.
+    /// A file with a NUL byte shows as "binary file", not as lines, and
+    /// the warning says so for every entry that reads a file as text.
     #[test]
-    fn a_binary_file_gets_no_line_warning() {
+    fn a_binary_file_gets_the_card_s_words_and_no_line_warning() {
         let directory = tempfile::tempdir().expect("temporary directory is creatable");
         let dump = directory.path().join("dump.bin");
         let mut bytes = vec![0];
         bytes.extend(lines_of_x(MAX_LINES + 1).bytes());
         std::fs::write(&dump, bytes).expect("file is writable");
 
-        assert_eq!(
-            warn(
-                &with_context(&serde_json::json!({"type": "code", "path": dump})),
-                None
+        let entries = [
+            (
+                serde_json::json!({"type": "code", "path": dump}),
+                "questions[0].context[0]",
             ),
-            Vec::<String>::new()
+            (
+                serde_json::json!({"type": "markdown", "path": dump}),
+                "questions[0].context[0]",
+            ),
+            (
+                serde_json::json!({"type": "ansi", "path": dump}),
+                "questions[0].context[0]",
+            ),
+            (
+                serde_json::json!({"type": "diff", "old": {"content": "a"}, "new": {"path": dump}}),
+                "questions[0].context[0].new",
+            ),
+        ];
+        for (entry, place) in entries {
+            let found = warn(&with_context(&entry), None);
+            assert!(
+                found.contains(&format!("{place}: cannot be shown: binary file")),
+                "{entry}: {found:?}"
+            );
+            assert!(
+                found.iter().all(|warning| !warning.contains("500,000")),
+                "{entry}: {found:?}"
+            );
+        }
+    }
+
+    /// The viewer looks for the NUL byte in the first 8 MiB only.
+    #[test]
+    fn a_nul_byte_past_the_first_8_mib_does_not_make_a_file_binary() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let log = directory.path().join("build.log");
+        let mut bytes = vec![b'x'; usize::try_from(MAX_BYTES).expect("8 MiB fit")];
+        bytes.push(0);
+        std::fs::write(&log, bytes).expect("log is writable");
+
+        let found = warn(
+            &with_context(&serde_json::json!({"type": "code", "path": log})),
+            None,
+        );
+
+        assert!(
+            found.iter().all(|warning| !warning.contains("binary")),
+            "{found:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_text_file_asqr_cannot_read_gets_the_system_s_words() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let secret = directory.path().join("secret.txt");
+        std::fs::write(&secret, "x").expect("file is writable");
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o000))
+            .expect("permissions are settable");
+
+        for entry in [
+            serde_json::json!({"type": "code", "path": secret}),
+            serde_json::json!({"type": "markdown", "path": secret}),
+            serde_json::json!({"type": "ansi", "path": secret}),
+            serde_json::json!({"type": "diff", "old": {"path": secret}}),
+        ] {
+            let found = warn(&with_context(&entry), None);
+
+            assert_eq!(found.len(), 1, "{entry}: {found:?}");
+            assert!(
+                found[0].contains(": cannot be shown: ")
+                    && found[0].to_lowercase().contains("permission denied"),
+                "{entry}: {found:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_image_file_above_64_mib_gets_the_card_s_words() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let huge = directory.path().join("huge.png");
+        let file = std::fs::File::create(&huge).expect("file is creatable");
+        file.set_len(crate::format::MAX_IMAGE_BYTES + 1)
+            .expect("a sparse file is settable");
+
+        assert_eq!(
+            warn(&text_question_with_image(&huge), None),
+            ["questions[0].context[0].path: cannot be shown: image file larger than 64 MiB"]
         );
     }
 
@@ -1748,8 +1872,9 @@ mod tests {
         );
 
         for warnings in [alone, in_a_diff] {
-            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert_eq!(warnings.len(), 2, "{warnings:?}");
             assert!(warnings[0].contains("MiB"), "{warnings:?}");
+            assert!(warnings[1].contains("cannot be shown"), "{warnings:?}");
         }
     }
 
@@ -1767,12 +1892,45 @@ mod tests {
         assert_eq!(found.len(), 1);
     }
 
+    /// A file whose read fails after a good open, here one opened for
+    /// writing only, is reported with the system's words, as a viewer's
+    /// card has them.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_that_fails_after_the_open_gets_the_system_s_words() {
+        let directory = tempfile::tempdir().expect("temporary directory is creatable");
+        let path = directory.path().join("side.txt");
+        let write_only = File::create(&path).expect("file is creatable");
+        let file = ContextFile {
+            path,
+            opened: Ok(write_only),
+        };
+        let mut found = Vec::new();
+
+        let prefix = text_prefix(&Some(file), &FieldPath::root("new"), &mut found);
+
+        assert_eq!(prefix, None);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].to_string().starts_with("new: cannot be shown: "),
+            "{found:?}"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn the_line_check_reads_the_opened_file() {
-        let file = handle_without_path(lines_of_x(MAX_LINES + 1).as_bytes());
+        let file = ContextFile {
+            path: PathBuf::from("/gone/side.txt"),
+            opened: Ok(handle_without_path(lines_of_x(MAX_LINES + 1).as_bytes())),
+        };
+        let mut found = Vec::new();
 
-        assert!(file_cut_by_lines(&file, LineBreaks::Any));
+        let prefix = text_prefix(&Some(file), &FieldPath::root("new"), &mut found);
+
+        assert!(found.is_empty(), "{found:?}");
+        let prefix = prefix.expect("the file is read");
+        assert!(line_cut(&prefix, MAX_LINES, LineBreaks::Any).is_some());
     }
 
     #[cfg(unix)]

@@ -16,6 +16,15 @@ pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// would stay in memory; a larger one is refused before it is read.
 pub const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 
+/// Why a file with a NUL byte in its first [`MAX_BYTES`] does not show as
+/// text, in the words of the viewer's card and of the warning that tells
+/// the asker first.
+pub const BINARY_FILE: &str = "binary file";
+
+/// Why an image file larger than [`MAX_IMAGE_BYTES`] does not show, in the
+/// words of the viewer's card and of the warning.
+pub const IMAGE_TOO_LARGE: &str = "image file larger than 64 MiB";
+
 /// How many lines of a text a viewer keeps, inline or read from a file.
 /// A viewer keeps every line as a row of its own, and a text of millions
 /// of lines looks like an error or misuse rather than something to show.
