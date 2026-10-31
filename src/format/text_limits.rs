@@ -19,6 +19,12 @@ pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// does (ADR 75).
 pub const MAX_LINES: usize = 500_000;
 
+/// The size above which a code, Markdown, ANSI or diff entry gets a
+/// warning and a Markdown entry shows as plain text (spec sections 3.4 and
+/// 8.7). Images are exempt from the warning: screenshots above it are
+/// common, and the image viewer handles them.
+pub const LARGE_ENTRY_BYTES: u64 = 1024 * 1024;
+
 /// Which characters end a line of a text, as the viewer of its kind
 /// reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,5 +109,11 @@ mod tests {
     #[test]
     fn the_notes_and_the_warning_name_the_limit() {
         assert_eq!(MAX_LINES, 500_000);
+    }
+
+    /// The warning and the Markdown viewer name the limit as "1 MiB".
+    #[test]
+    fn the_warning_and_the_markdown_viewer_name_one_mib() {
+        assert_eq!(LARGE_ENTRY_BYTES, 1024 * 1024);
     }
 }

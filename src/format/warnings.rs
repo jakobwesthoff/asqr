@@ -20,7 +20,8 @@ use image::ImageError;
 use serde_json::Value;
 
 use super::{
-    ContextEntry, FieldPath, LineBreaks, MAX_BYTES, MAX_LINES, Session, line_cut, session_schema,
+    ContextEntry, FieldPath, LARGE_ENTRY_BYTES, LineBreaks, MAX_BYTES, MAX_LINES, Session,
+    line_cut, session_schema,
 };
 use crate::image_format::reader_with_format;
 use crate::regular_file::{self, OpenError};
@@ -489,11 +490,6 @@ fn is_hunk_header(line: &str) -> bool {
         .and_then(|rest| rest.strip_prefix(" @@"));
     rest.is_some_and(|section| section.is_empty() || section.starts_with(' '))
 }
-
-/// Above this size a code, Markdown, ANSI or diff entry gets a warning.
-/// asqr still shows it. Images are exempt: screenshots above it are common,
-/// and the image viewer handles them.
-const LARGE_ENTRY_BYTES: u64 = 1024 * 1024;
 
 fn check_size(size: u64, path: &FieldPath, found: &mut Vec<Warning>) {
     if size > LARGE_ENTRY_BYTES {
