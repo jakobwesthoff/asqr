@@ -236,7 +236,7 @@ fields, these are validation errors:
 - `options` (an empty list too), an enabled `custom` or `length` on
   `info`: the error says that an info item takes no answer and names the
   field to remove
-- `custom` or `default` on `text` (`custom: false` is allowed, since it
+- `custom` on `text` (`custom: false` is allowed, since it
   switches the entry off)
 - `min` or `max` on anything but `multi`
 - a question-level `length` on anything but `text` (a custom entry sets
