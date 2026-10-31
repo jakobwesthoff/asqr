@@ -34,4 +34,7 @@ way.
   [Install and a first session](01M68ASRJ527YVE41S9V50YXQW-install-and-a-first-session.md),
   then [the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md) and the pages
   after it.
+- To keep the questions of projects apart, or to change how asqr shows
+  things, read [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) and
+  [Settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
 - Every key is listed on one page: [Keys](01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md).
