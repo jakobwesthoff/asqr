@@ -80,8 +80,17 @@ diff, is written to a file first. On an ansi entry `o` opens nothing.
 
 ## An entry asqr cannot show
 
-When a file is missing, unreadable, binary or relative, asqr draws a red
-card in the pane's place. It names the reason and the file.
+When an entry's file cannot be shown, asqr draws a red card in the pane's
+place. It names the reason and the file. The reason is one of the system's
+or the image decoder's messages, or one of asqr's own: "relative path",
+"not a regular file", "binary file" for a code, Markdown, ansi or diff
+file that holds a NUL byte, or "image file larger than 64 MiB". A missing
+or unreadable file gets a card too. A diff shows the card of the first side
+that fails, with `old side: ` or `new side: ` before the reason.
+
+`asqr validate` and `asqr ask` warn the agent about these files before you
+meet the card: `cannot be shown:` and the card's reason for the files above,
+"file not found" for a missing one.
 
 ## Slow entries
 
