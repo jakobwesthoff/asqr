@@ -26,16 +26,33 @@ pub struct Staged {
 
 /// Writes `bytes` to a synced temp file in `files_dir`, creating the
 /// directory when it is missing. A prune or the removal of an empty queue
-/// can take the directory away between two jobs, so the creation is not a
-/// one-off at start.
+/// can take the directory away between two jobs, or between its creation
+/// and the temp file, so the creation is not a one-off at start.
 pub fn stage(files_dir: &Path, bytes: &[u8]) -> io::Result<Staged> {
-    let mut temp = match temp_file_in(files_dir) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            fs::create_dir_all(files_dir)?;
-            temp_file_in(files_dir)?
+    stage_with(files_dir, bytes, &|dir| fs::create_dir_all(dir))
+}
+
+/// [`stage`] with the creation of the directory given, so a test can take
+/// the directory away right after it is made.
+fn stage_with(
+    files_dir: &Path,
+    bytes: &[u8],
+    create: &dyn Fn(&Path) -> io::Result<()>,
+) -> io::Result<Staged> {
+    // A prune can take the directory away again between its creation and
+    // the temp file, so the creation is tried a second time before the
+    // failure is the caller's.
+    let mut made = temp_file_in(files_dir);
+    for _ in 0..2 {
+        if made
+            .as_ref()
+            .is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+        {
+            create(files_dir)?;
+            made = temp_file_in(files_dir);
         }
-        made => made?,
-    };
+    }
+    let mut temp = made?;
     temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
     Ok(Staged { temp })
@@ -62,4 +79,50 @@ pub fn place(files_dir: &Path, name: &str, staged: Staged) -> io::Result<()> {
         .persist(&target)
         .map(drop)
         .map_err(|error| error.error)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+
+    #[test]
+    fn a_missing_directory_is_made_and_the_file_staged() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let files = scratch.path().join("files");
+
+        let staged = stage(&files, b"bytes").expect("staged");
+
+        assert_eq!(fs::read(staged.temp.path()).expect("reads"), b"bytes");
+    }
+
+    #[test]
+    fn a_directory_taken_away_right_after_it_was_made_is_made_again() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let files = scratch.path().join("files");
+        let taken_away = Cell::new(false);
+        // A prune removing the empty directory between the creation and
+        // the temp file.
+        let create = |dir: &Path| {
+            fs::create_dir_all(dir)?;
+            if !taken_away.replace(true) {
+                fs::remove_dir(dir)?;
+            }
+            Ok(())
+        };
+
+        let staged = stage_with(&files, b"bytes", &create).expect("staged");
+
+        assert_eq!(fs::read(staged.temp.path()).expect("reads"), b"bytes");
+    }
+
+    #[test]
+    fn a_directory_that_cannot_be_made_is_an_error() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let blocker = scratch.path().join("files");
+        fs::write(&blocker, "a file where the directory belongs").expect("written");
+
+        assert!(stage(&blocker, b"bytes").is_err());
+    }
 }
