@@ -273,6 +273,127 @@ fn every_picture_is_shown_by_a_page() {
     );
 }
 
+/// The value of `key` in the front matter of a note, such as `order` in
+/// its `site` table or `tags`, as written.
+fn front_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    front_matter(text)
+        .into_iter()
+        .find_map(|line| line.trim().strip_prefix(key)?.strip_prefix(':'))
+        .map(str::trim)
+}
+
+/// The sections of the README's page list, in order: each `###` heading
+/// with the note files listed under it.
+fn readme_sections(readme: &str) -> Vec<(String, Vec<String>)> {
+    let mut sections: Vec<(String, Vec<String>)> = Vec::new();
+    for line in readme.lines() {
+        if let Some(heading) = line.strip_prefix("### ") {
+            sections.push((heading.trim().to_owned(), Vec::new()));
+        } else if let Some((_, files)) = sections.last_mut()
+            && let Some(start) = line.find("](all-notes/")
+        {
+            let rest = &line[start + "](all-notes/".len()..];
+            let end = rest.find(')').unwrap_or(rest.len());
+            files.push(rest[..end].to_owned());
+        }
+    }
+    sections
+}
+
+/// A note as the site orders it: its file name, tag, `order` and, for the
+/// landing note of a section, its `label`.
+struct Placed {
+    file: String,
+    tag: String,
+    order: u32,
+    label: Option<String>,
+}
+
+fn placed_notes() -> Vec<Placed> {
+    notes(&guide())
+        .iter()
+        .map(|note| {
+            let text = fs::read_to_string(note).expect("a note is readable");
+            let file = file_name(note);
+            let order = front_value(&text, "order")
+                .and_then(|order| order.parse().ok())
+                .unwrap_or_else(|| panic!("{file} has a site order"));
+            let tag = front_value(&text, "tags")
+                .unwrap_or_else(|| panic!("{file} has tags"))
+                .to_owned();
+            let label = is_section_landing(&text)
+                .then(|| front_value(&text, "label").map(str::to_owned))
+                .flatten();
+            Placed {
+                file,
+                tag,
+                order,
+                label,
+            }
+        })
+        .collect()
+}
+
+/// The site lists the sections by their landing notes' `order` and the
+/// notes of a section by theirs (ntropy's site export); the README lists
+/// them in the same order, so the guide reads the same on GitHub.
+#[test]
+fn the_notes_are_ordered_as_the_readme_lists_them() {
+    let readme = fs::read_to_string(guide().join("README.md")).expect("the guide has a README");
+    let sections = readme_sections(&readme);
+    let notes = placed_notes();
+
+    let mut landings: Vec<&Placed> = notes.iter().filter(|note| note.label.is_some()).collect();
+    landings.sort_by_key(|note| note.order);
+    let orders: Vec<u32> = landings.iter().map(|note| note.order).collect();
+    assert!(
+        orders.windows(2).all(|pair| pair[0] < pair[1]),
+        "two sections share an order: {orders:?}"
+    );
+    let labels: Vec<&str> = landings
+        .iter()
+        .filter_map(|note| note.label.as_deref())
+        .collect();
+    let headings: Vec<&str> = sections
+        .iter()
+        .map(|(heading, _)| heading.as_str())
+        .collect();
+    assert_eq!(labels, headings, "the sections by order, and the README's");
+
+    // A landing note's `order` places its section; the note itself is the
+    // section's page, which the README lists first.
+    for (landing, (heading, listed)) in landings.iter().zip(&sections) {
+        let mut members: Vec<&Placed> = notes
+            .iter()
+            .filter(|note| note.tag == landing.tag && note.label.is_none())
+            .collect();
+        members.sort_by_key(|note| note.order);
+        let ordered: Vec<&str> = std::iter::once(landing.file.as_str())
+            .chain(members.iter().map(|note| note.file.as_str()))
+            .collect();
+        assert_eq!(
+            ordered, *listed,
+            "the notes of {heading} by order, and the README's list"
+        );
+    }
+}
+
+#[test]
+fn the_readme_s_sections_are_read_with_their_notes() {
+    let readme = "# x\n\n### Start\n\n- [a](all-notes/a.md)\n- [b](all-notes/b.md)\n\n### Answering\n\n- [c](all-notes/c.md), details of [a](all-notes/a.md)\n\n## As a website\n";
+
+    assert_eq!(
+        readme_sections(readme),
+        [
+            (
+                "Start".to_owned(),
+                vec!["a.md".to_owned(), "b.md".to_owned()]
+            ),
+            ("Answering".to_owned(), vec!["c.md".to_owned()])
+        ]
+    );
+}
+
 #[test]
 fn pictures_are_read_with_their_alt_text() {
     let text = "![A b](../pictures/one.png) ![c](../pictures/talqi.webp) [d](x.md) ![](../pictures/two.png)";

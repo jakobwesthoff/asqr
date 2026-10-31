@@ -4,7 +4,7 @@ tags: [guide/agents]
 site:
   index: true
   label: Agents
-  order: 1
+  order: 4
 ---
 An agent, or a script, asks you questions by writing a file and waiting
 for another one. This page follows that path from the agent's side. You

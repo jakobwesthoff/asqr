@@ -4,7 +4,7 @@ tags: [guide/queues]
 site:
   index: true
   label: Queues and settings
-  order: 1
+  order: 3
 ---
 Sessions wait in a queue. A queue is a directory with an inbox for the
 sessions, an outbox for the results, a place for drafts and an archive.

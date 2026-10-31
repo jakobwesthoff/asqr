@@ -4,7 +4,7 @@ tags: [guide/reference]
 site:
   index: true
   label: Reference
-  order: 1
+  order: 5
 ---
 Every key of asqr, by place. Inside asqr, `?` shows the keys that work
 where the cursor is.
