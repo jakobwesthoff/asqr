@@ -155,6 +155,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ended asqr and you lost the screen.
 - asqr no longer gives a Kitty image the id 31, 32 or 33, the ids the
   terminal capability probe uses.
+- `asqr prune --results` on its own, or with only `--yes`, gives the error
+  that names `prune --older-than`. Before, it asked for `--older-than`.
 
 ## [0.15.0] - 2026-10-30
 

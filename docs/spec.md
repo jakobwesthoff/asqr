@@ -1260,7 +1260,8 @@ makes the exit code 1.
   reference that cannot be read, since it may hold a second session with
   the same reference: each is named in `error: cannot prune the session
   while a bundle cannot be read: <error>`, for the dry run as well. Named queues that hold nothing are not removed.
-- `--results` is a usage error that names the new form: asqr moves
+- `--results`, with or without other options, is a usage error that
+  names the new form: asqr moves
   results older than 30 days into the archive, and `prune --older-than`
   deletes them there with their month.
 - Drafts are never pruned.

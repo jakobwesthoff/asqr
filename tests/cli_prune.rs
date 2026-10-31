@@ -164,18 +164,24 @@ fn the_outbox_is_never_pruned() {
 
 #[test]
 fn results_is_a_usage_error_naming_the_new_form() {
-    let output = Sandbox::new()
-        .asqr_in_queue(&["prune", "--older-than", "30d", "--results"])
-        .output()
-        .expect("runs");
+    // The message comes whatever else is on the line, `--results` alone
+    // included, where clap would otherwise ask for `--older-than`.
+    for args in [
+        &["prune", "--results"][..],
+        &["prune", "--results", "--yes"],
+        &["prune", "--older-than", "30d", "--results"],
+        &["prune", "--session", "H3WQ8N5X", "--results"],
+    ] {
+        let output = Sandbox::new().asqr_in_queue(args).output().expect("runs");
 
-    assert_eq!(output.status.code(), Some(2));
-    assert!(
-        stderr(&output).contains("--results is gone")
-            && stderr(&output).contains("asqr prune --older-than"),
-        "{}",
-        stderr(&output)
-    );
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert!(
+            stderr(&output).contains("--results is gone")
+                && stderr(&output).contains("asqr prune --older-than"),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
 }
 
 #[test]

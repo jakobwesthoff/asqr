@@ -266,7 +266,7 @@ enum Command {
             long,
             value_name = "AGE",
             value_parser = prune::parse_prune_age,
-            required_unless_present = "session",
+            required_unless_present_any = ["session", "results"],
             conflicts_with = "session"
         )]
         older_than: Option<Duration>,
@@ -280,6 +280,8 @@ enum Command {
         #[arg(long)]
         yes: bool,
 
+        /// Refused with a pointer to `--older-than`. It stands in for
+        /// `--older-than` so that clap does not ask for that first.
         #[arg(long, hide = true)]
         results: bool,
     },
