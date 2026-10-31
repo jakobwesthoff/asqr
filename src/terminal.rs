@@ -151,7 +151,7 @@ fn run_in_terminal(mode: &mut Mode<'_>) -> anyhow::Result<()> {
     if let Some(keeper) = &keeper
         && let Some(notice) = quit_notice(keeper.pending())
     {
-        eprintln!("{notice}");
+        say_on_quit(&mut io::stderr(), &notice);
         let interrupted = |stop: &mut bool| {
             while let Ok(event) = events.try_recv() {
                 *stop |= matches!(event, Event::Quit);
@@ -164,6 +164,13 @@ fn run_in_terminal(mode: &mut Mode<'_>) -> anyhow::Result<()> {
         }
     }
     ran
+}
+
+/// Writes `notice` as a line to `out`. A stderr that is closed or gone must
+/// not turn quitting into a panic, which `eprintln!` would, so a failed
+/// write is dropped.
+fn say_on_quit(out: &mut impl Write, notice: &str) {
+    let _ = writeln!(out, "{notice}");
 }
 
 fn run_tui(
@@ -1177,6 +1184,37 @@ mod tests {
 
     thread_local! {
         static RESTORED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    // -----------------------------------------------------------------
+    // The notice on quitting
+    // -----------------------------------------------------------------
+
+    /// A stderr that is closed or a pipe nobody reads.
+    struct ClosedStderr;
+
+    impl Write for ClosedStderr {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+    }
+
+    #[test]
+    fn a_quit_notice_that_cannot_be_written_is_dropped_not_a_panic() {
+        say_on_quit(&mut ClosedStderr, "keeping the files...");
+    }
+
+    #[test]
+    fn a_quit_notice_is_one_line() {
+        let mut out = Vec::new();
+
+        say_on_quit(&mut out, "keeping the files...");
+
+        assert_eq!(out, b"keeping the files...\n");
     }
 
     // -----------------------------------------------------------------
