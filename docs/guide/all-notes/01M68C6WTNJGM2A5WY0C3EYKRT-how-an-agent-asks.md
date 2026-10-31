@@ -26,6 +26,18 @@ only answer in asqr.
 5. If the agent no longer needs the answers, `asqr withdraw <id>` takes the
    session back, so you do not answer it for nothing.
 
+To rebuild a session under another id, `asqr ask <file> --replaces <old-id>`
+withdraws the old session and drops the new one in one step. If you had
+started on the old session, asqr carries your draft over into the new one,
+matched by question id and option id: a question the asker keeps under its
+id keeps what you entered, and one under a new id starts fresh. The asker
+writes no text into your fields. The new session counts as started: `ask`
+of its id is refused, also with `--force`, and replacing it again takes
+`--replaces` with `--force`. The hint `ask --replaces` prints says whether
+anything was carried, and the `draft` of the old result still holds your
+answers and notes. What you see is described in [Review and
+submit](01M68BT9BMFVCVEAACWR03B827-review-and-submit.md).
+
 `asqr status --json` lists the waiting sessions and the latest answered
 ones, to find a session an agent lost track of. Every command with its
 flags is on the page [Commands](01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md).

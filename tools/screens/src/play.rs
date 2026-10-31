@@ -293,6 +293,14 @@ pub fn play(scene: &Scene, scene_file: &Path, cap: Duration) -> Result<Buffer> {
         app.set_follows_title(&id, Some(title));
     }
     app.set_elsewhere(elsewhere(scene));
+    // As `announce_leaving` in `src/tui/inbox.rs` words it.
+    if let (Some(old), Some(state)) = (&scene.replaced, app.sessions().first()) {
+        let notice = format!(
+            "↩ \"{old}\" was replaced by \"{}\"; your answers carried over",
+            state.name()
+        );
+        app.show(Notice::new(Tone::Info, notice));
+    }
 
     let (wake, wakes) = mpsc::channel();
     // Half blocks are sized for the picture's cells, so an image keeps its

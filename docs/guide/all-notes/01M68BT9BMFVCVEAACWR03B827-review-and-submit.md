@@ -76,3 +76,34 @@ and it does nothing else.
 ![The dialog of a session file asqr answered with an error](../pictures/invalid-dialog.png)
 
 The dialog also shows when no session is waiting.
+
+## When the asker takes a session back
+
+An asker can take a waiting session back with `asqr withdraw`. A session
+you had on screen, or had entered answers into, leaves with a notice in the
+status line:
+
+- `↩ withdrawn "Release 0.2.0" by the asker`,
+- `! ↩ withdrawn "Release 0.2.0" by the asker, with your answers so far`
+  when what you entered went to the asker in the result,
+- `! ↩ withdrawn "Release 0.2.0" by the asker; your answers to it are
+  dropped` when asqr held answers that the result does not carry.
+
+A session that only waited in the queue leaves without a word.
+
+## When the asker replaces a session
+
+`asqr ask --replaces <id>` withdraws a waiting session and drops a reworked
+one in its place. asqr carries your draft over into the new session. It
+matches your picks, typed text, notes, the note to the asker, the reject
+reason and the question you were on to the new file by question id and
+option id. A question the asker keeps under its id keeps what you entered,
+and one under a new id starts fresh. An answer whose picked option or own
+text has no place in the new file is dropped, and that question takes the
+defaults of the new file.
+
+The header of the new session says that it continues your draft. If you had
+the old session open, it leaves with an information notice in place of the
+withdrawn notices above, which names both sessions.
+
+![A session that continues the draft of the one it replaced](../pictures/continues-draft.png)

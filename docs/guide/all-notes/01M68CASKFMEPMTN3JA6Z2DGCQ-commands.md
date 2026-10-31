@@ -15,7 +15,7 @@ Every asqr command. `asqr --help` lists them too, and `asqr <command>
 | `asqr new` | Prints a session skeleton without an id, to start a session file from. |
 | `asqr validate <file>` | Checks a session file and reports its errors and warnings. |
 | `asqr schema [--result]` | Prints the JSON Schema of session files, or with `--result` of result files. |
-| `asqr ask <file> [--wait] [--timeout <secs>] [--force] [--replaces <id>]` | Validates a session file, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file into the queue and prints the id. `--wait` waits for the result and prints it instead of the id. `--timeout` bounds that wait and needs `--wait`. `--force` moves an unread result of the same id into the archive first. `--replaces` withdraws a waiting session and drops the new one in its place. |
+| `asqr ask <file> [--wait] [--timeout <secs>] [--force] [--replaces <id>]` | Validates a session file, assigns a ULID when the id is missing, makes the paths of context entries absolute, drops the file into the queue and prints the id. `--wait` waits for the result and prints it instead of the id. `--timeout` bounds that wait and needs `--wait`. `--force` moves an unread result of the same id into the archive first. `--replaces` withdraws a waiting session and drops the new one in its place, with the draft of the person carried over. |
 | `asqr wait <id> [--timeout <secs>]` | Waits for the result and prints it. Without `--timeout` it blocks. |
 | `asqr result <id>` | Prints the result if it is there, like `wait --timeout 0`. |
 | `asqr withdraw <id> [--force]` | Takes a waiting session back and prints its result, with the status `withdrawn`. `--force` takes one that you started answering. |
