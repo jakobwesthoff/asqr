@@ -66,6 +66,14 @@ use the `default` queue unless you name another with `--queue <name>`.
 
 [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) has the details.
 
+## Settings
+
+`,` opens the settings pane. Its four settings decide how diffs open, how
+wide a question's text gets, where the context shows and whether asqr
+keeps copies of the files a session showed. `↑`/`↓` pick a setting and
+`←`/`→` change it, saved at once.
+[Settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md) has the details.
+
 ## Help
 
 `?` shows the keys that work where you are.
@@ -78,3 +86,10 @@ The last tab is the review, and `enter` on `[ Submit ]` sends your
 answers. `q` quits and keeps them as a draft. [Review, submit and come
 back later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md)
 explains both.
+
+> [!TIP]
+> To look at what you answered earlier, `asqr history` lists the finished
+> sessions and `asqr replay <REF>` opens one again, read-only, with your
+> answers filled in. [Finished sessions: history and
+> replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
+> has the details.
