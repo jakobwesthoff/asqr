@@ -14,38 +14,36 @@ skill that `asqr skill` prints for agents. There is no guide that shows a
 person how asqr looks and how to work with it, and no step-by-step
 description of setting it up with an agent. The tool that draws the
 guide's pictures exists: `tools/screens`, run with `just screens`
-(ADR 89, its README in `tools/screens/README.md`). What remains is the
-guide itself and the pictures it needs.
+(ADR 89, its README in `tools/screens/README.md`). The guide is written
+as the ntropy vault `docs/guide`: 18 pages from the start page to the
+limits, 36 pictures that `just guide-pictures` draws from the scenes in
+`tools/screens/scenes/`, and two checks, `tests/guide_keys.rs` (the key
+table against spec 7.6, keys only) and `tests/guide_links.rs` (table of
+contents, links, pictures). The scene tool draws the sent notice, the
+start picker, the invalid-session dialog and the settings pane with its
+file path and a held row. What remains is below.
 
 ## What remains
 
-- The guide as an ntropy vault, with its pages (layout and views to be
-  proposed, following ntropy's own `docs/website`).
-- The full tour of scenes in `tools/screens/scenes/` (see the decision
-  below); the tool has five starter scenes: the help, the session list,
-  the empty queue, a question with a diff beside it, the queue switcher.
-- The key table against spec 7.6, with a check that fails when they
-  differ.
-- The agent setup and the task patterns, each with its pictures.
-- Talqi on the guide's start page.
 - Real images in the context pane instead of half blocks (decision
-  below).
+  below). Then the task pattern "Compare visual variants" gets its
+  picture, from a session with a `caption` on every image entry
+  (`examples/sessions/mascot-poses.json` has none).
 - Ligatures as Ghostty shapes them with `calt`/`clig`/`liga`; needs a
   pure-Rust shaper such as rustybuzz.
-
-## What the guide should cover
-
-- How asqr works, with screenshots of the real screens: the empty queue,
-  a session with its tabs, options, own answers and notes, the context
-  pane beside and below, the review tab, the help, the session list.
-- Precise explanations of the interaction, including the less obvious
-  keys. Example the user named: `ctrl-u`/`ctrl-d` (and
-  `pgup`/`pgdn`) page the context pane even while it does not have
-  the focus (`src/tui/scroll.rs`, the doc comment of `scroll`), while
-  the line keys only scroll a focused pane.
-- How to bring asqr into agents: the skill (`asqr skill`), where the
-  queue lives, how an agent writes a session and reads the result, with
-  a worked example for Claude Code and others.
+- The pages on history and replay of finished sessions, and a page for
+  the files a finished session showed, once they are on main; the rows
+  for their commands in the pages Keys, Commands and Files, variables
+  and the log.
+- The website: a Pages workflow that exports `docs/guide` with
+  `ntropy --vault docs/guide -n site -o dist --strict`, and a site theme.
+  The start page is both the site's front page and the landing note of
+  its section; the export renders it at two addresses without a
+  warning.
+- A check that the committed pictures match what the code draws, and one
+  that the guide's help-text keys match `src/tui/render/keys.rs`: both
+  were left out on purpose (the pictures are refreshed by
+  `just guide-pictures` as a release step).
 
 ## Decisions
 
@@ -134,15 +132,11 @@ guide itself and the pictures it needs.
 
 - New sessions written for the guide go to `examples/sessions/`, so the
   README examples and the pictures share sources.
-- The key table follows spec 7.6; a check that fails when they differ
-  is cheap and goes in with the guide.
 - `Cargo.toml` excludes `docs/` and `assets/` from the crate, so links
   from the README into the guide are absolute GitHub URLs.
-- The vault's layout (one note per screen or per topic) and its
-  `ntropy` views are the plan's to propose, following ntropy's own
-  `docs/website`.
-- Scenes that finish a session (the "sent" notice) need the tool to play
-  an inbox on a temporary queue; it refuses such keys today.
+- The guide's vault has no views, as ntropy's own `docs/website` has
+  none: the sidebar follows the tags `guide/<section>` and the `site`
+  order of each note.
 
 ## Relations
 

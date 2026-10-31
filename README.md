@@ -208,7 +208,9 @@ while it runs and puts the pane's setting back when it quits.
 
 ## Documentation
 
-The full design is in [`docs/spec.md`](docs/spec.md), the
+The [user guide](https://github.com/jakobwesthoff/asqr/tree/main/docs/guide)
+shows every screen and every key, and sets asqr up with an agent. The full
+design is in [`docs/spec.md`](docs/spec.md), the
 JSON Schemas are in [`schema/`](schema/), and example sessions are in
 [`examples/sessions/`](examples/sessions/).
 

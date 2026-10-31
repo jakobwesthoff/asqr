@@ -36,6 +36,9 @@ reading order. The pictures are in `pictures/`.
 ### Reference
 
 - [Keys](all-notes/01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md)
+- [Commands](all-notes/01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md)
+- [Files, variables and the log](all-notes/01M68CASKVXFA54B7MJHTKFFGW-files-variables-and-the-log.md)
+- [Limits](all-notes/01M68CASM4YTGM03NS3CKQS28G-limits.md)
 
 ## As a website
 

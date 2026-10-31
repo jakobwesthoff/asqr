@@ -27,7 +27,8 @@ only answer in asqr.
    session back, so you do not answer it for nothing.
 
 `asqr status --json` lists the waiting sessions and the latest answered
-ones, to find a session an agent lost track of.
+ones, to find a session an agent lost track of. Every command with its
+flags is on the page [Commands](01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md).
 
 ## The exit codes
 
