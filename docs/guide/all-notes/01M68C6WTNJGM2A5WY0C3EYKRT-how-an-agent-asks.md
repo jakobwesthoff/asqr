@@ -7,8 +7,9 @@ site:
   order: 4
 ---
 An agent, or a script, asks you questions by writing a file and waiting
-for another one. This page follows that path from the agent's side. You
-only answer in asqr.
+for another one. This page follows that path from the agent's side, with
+the file an agent writes and the result it reads back. You only answer in
+asqr, and a script asks with the same commands.
 
 ## The path
 
@@ -59,6 +60,106 @@ terminal. The skill names all three, and [Finished sessions: history and
 replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
 describes the output.
 
+## An example
+
+You tell your agent: "Use asqr to ask me the open questions about the release."
+
+In the format the skill describes, the agent writes the questions as a
+session file and asks. This is a session it could write, as
+`questions.json`:
+
+```json
+{
+  "asqr": 2,
+  "title": "Release 0.2.0",
+  "intro": "Three decisions before the release. Skip what you cannot decide `yet`.",
+  "from": "release script",
+  "questions": [
+    {
+      "id": "go",
+      "header": "Go?",
+      "text": "All checks passed. Publish **0.2.0** now?",
+      "kind": "single",
+      "options": [
+        { "id": "yes", "label": "Publish now" },
+        { "id": "later", "label": "Later", "description": "Keep the tag, publish after the weekend." },
+        { "id": "no", "label": "Do not publish", "description": "Delete the tag again." }
+      ]
+    },
+    {
+      "id": "channels",
+      "header": "Channels",
+      "text": "Where should the release be announced?",
+      "kind": "multi",
+      "max": 3,
+      "options": [
+        { "id": "changelog", "label": "Changelog", "default": true },
+        { "id": "blog", "label": "Blog post" },
+        { "id": "social", "label": "Social media" }
+      ],
+      "custom": { "label": "Somewhere else" }
+    },
+    {
+      "id": "highlights",
+      "header": "Highlights",
+      "text": "One sentence for the release notes:",
+      "kind": "text",
+      "length": { "target": [40, 120], "warn": 140 }
+    }
+  ]
+}
+```
+
+The agent's own questions will differ. The file has no `id`, as the skill
+tells agents to leave it out. Then the agent asks and waits with the
+commands the skill prescribes:
+
+```sh
+id=$(asqr ask questions.json)
+asqr wait "$id" --timeout 540
+```
+
+In asqr, this session shows as on the pictures of [Get
+started](01M68ASRJ527YVE41S9V50YXQW-get-started.md). You pick "Publish
+now", leave the channels as they are, type a sentence and submit on the
+review tab.
+
+`asqr wait` prints the result
+and exits with 0. This is the result of a real run of this session. The id
+and the time differ from run to run:
+
+```json
+{
+  "asqr": 2,
+  "id": "01M68C6004X3C3SK4S5X9RYNBS",
+  "status": "submitted",
+  "submitted_at": "2026-10-31T08:01:09+01:00",
+  "session_sha256": "0b7af853270911da0703acd0ad93371681c078f649738c6a1d852b3590e83813",
+  "answers": [
+    {
+      "question": "go",
+      "selected": [
+        "yes"
+      ]
+    },
+    {
+      "question": "channels",
+      "selected": [
+        "changelog"
+      ],
+      "defaulted": true
+    },
+    {
+      "question": "highlights",
+      "custom": "Startup is twice as fast."
+    }
+  ]
+}
+```
+
+`defaulted: true` says that you left the default of the channels as it
+was. The `custom` text is your typed sentence.
+
 ## The exit codes
 
 `asqr wait` and `asqr result` exit by the result.
@@ -89,22 +190,11 @@ the session. An info item appears only when you wrote a note on it.
 - `defaulted: true` means you left the default as it was.
 
 The note to the whole session is the `note` at the top level, and a rejected
-result carries your `reason`. [Set up Claude Code](01M68C6WTY7EK8Q9RB1MCWSFM3-set-up-claude-code.md)
-shows a real result.
+result carries your `reason`. The example above shows a real result.
 
-## The skill
+## Hints and the skill
 
-asqr ships a skill that teaches an agent the format, the waiting pattern,
-the exit codes and what to do about each of them. It is built into the
-binary: `asqr skill` prints the core of the skill that matches the asqr
-that runs, and `asqr skill <part>` prints one of its parts, `context`,
-`withdrawing` or `patterns`. An agent you tell to use asqr can read the
-skill from the binary, so installing it is possible but mostly not needed.
-
-The skill tells an agent to use asqr only when you explicitly ask it to,
-for example "ask me through asqr". Without such a request an agent asks
-the way it normally does.
-
-`asqr --help` tells agents to read the skill first. Where agents tend to go
-wrong, asqr adds a line that starts with `hint:` after its output, and the
-skill tells them to follow it.
+Where agents tend to go wrong, asqr adds a line that starts with `hint:`
+after its output, and the skill tells agents to follow it. [The skill and
+other agents](01M68C6WTY7EK8Q9RB1MCWSFM3-the-skill-and-other-agents.md)
+says what the skill holds and how to install it.

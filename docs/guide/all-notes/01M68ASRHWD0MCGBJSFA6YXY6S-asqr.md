@@ -11,35 +11,39 @@ site:
 Your agent saved up some questions. Answer them all in one go, right in
 your terminal.
 
-asqr (pronounced "asker") shows you the questions that an AI coding
-agent or a script has prepared. The agent writes its questions into a
-file, asqr shows them in a terminal of its own, and you work through
-them at your own pace. When you submit, asqr writes your answers into a
-result file that the agent reads back.
+asqr (pronounced "asker") shows you the questions your AI coding agent has
+prepared, in a terminal of its own. You work through them at your own
+pace: pick options, type your own answers, write notes, and skip what you
+cannot decide yet. When you submit, your agent reads your answers and goes
+on. A script can ask the same way.
 
 The chameleon is Talqi (pronounced like "talkie"), asqr's mascot.
 
-## Two sides
+## How it works
 
-You answer. asqr runs in a terminal of its own, shows the questions one
-tab at a time and keeps your answers until you submit them.
+1. Start `asqr` in a terminal of its own and leave it running.
+2. Tell your agent to use asqr, for example "Use asqr to ask me the open
+   questions about the release."
+3. The session shows up in asqr. You answer its questions and submit
+   them.
+4. Your agent reads your answers and goes on.
 
-The agent asks. It drops a session file into a queue with `asqr ask`
-and waits for the result with `asqr wait`. A script can ask the same
-way.
+A question can come with what you need to decide it: a diff, a file, a
+log or an image, shown beside the question. Here each option shows its
+own diff, so you see what each choice would change:
 
-## Where to start
+![A decision before implementing: each option shows its own diff](../pictures/pattern-decide.png)
 
-- To answer questions, read
-  [Install and a first session](01M68ASRJ527YVE41S9V50YXQW-install-and-a-first-session.md),
-  then [the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md) and the pages
-  after it.
-- To have your agent ask you, read
-  [How an agent asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md) and
-  [Set up Claude Code](01M68C6WTY7EK8Q9RB1MCWSFM3-set-up-claude-code.md).
-  [What agents can ask](01M68C6WV57K25ZD05875QJY73-what-agents-can-ask.md)
-  shows what a session can hold.
-- To keep the questions of projects apart, or to change how asqr shows
-  things, read [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) and
-  [Settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
-- Every key is listed on one page: [Keys](01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md).
+## Where to go next
+
+- [Get started](01M68ASRJ527YVE41S9V50YXQW-get-started.md) installs asqr
+  and takes you through a first session with your own agent.
+- [Common questions](01M690YKZXCMGCA31H3HTHFYJE-common-questions.md)
+  answers what new users ask, such as why asqr needs no MCP server.
+- [The screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md) and the pages
+  after it explain answering in detail.
+- [How an agent asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
+  shows what your agent writes and what it gets back.
+- [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) keeps the questions of
+  your projects apart.
+- [Keys](01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md) lists every key.
