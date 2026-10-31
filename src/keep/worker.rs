@@ -8,7 +8,9 @@
 //! its queue and needs only that queue's drafts lock.
 
 use std::cell::Cell;
+use std::ffi::OsStr;
 use std::panic::{AssertUnwindSafe, PanicHookInfo, catch_unwind};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -140,8 +142,44 @@ thread_local! {
     static IN_JOB: Cell<bool> = const { Cell::new(false) };
 }
 
+/// A debug build holds each job until the file this variable names exists,
+/// so a test can quit while a job is running without a timing bound.
+pub const GATE_VARIABLE: &str = "ASQR_TEST_KEEP_GATE";
+
+/// The longest a held job waits for its file.
+const GATE_PATIENCE: Duration = Duration::from_secs(60);
+
+/// The file a job waits for given the value of [`GATE_VARIABLE`]: only in a
+/// debug build and only for a value that is not empty.
+fn gate_from(variable: Option<&OsStr>, debug_build: bool) -> Option<PathBuf> {
+    if !debug_build {
+        return None;
+    }
+    variable
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Waits until `gate` exists, at most `patience`, and says whether it does.
+fn wait_for_gate(gate: &Path, patience: Duration) -> bool {
+    let deadline = Instant::now() + patience;
+    while !gate.exists() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    true
+}
+
 /// Keeps the files of `job`, logging how it went.
 fn run_job(job: KeepJob) {
+    if let Some(gate) = gate_from(
+        std::env::var_os(GATE_VARIABLE).as_deref(),
+        cfg!(debug_assertions),
+    ) {
+        wait_for_gate(&gate, GATE_PATIENCE);
+    }
     let id = job.archived.path.display().to_string();
     match keep(&job, &|| {}) {
         Ok(Kept::Recorded) => tracing::info!(session = %id, "kept the files of a session"),

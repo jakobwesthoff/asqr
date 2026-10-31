@@ -2141,35 +2141,28 @@ fn a_replay_opens_read_only_counts_what_waits_and_leaves_the_queue_alone() {
     );
 }
 
-/// A PNG of noise too large to encode as WebP within the time a test takes
-/// to press `q`, so the worker is still keeping its file when asqr quits.
-fn heavy_image(sandbox: &Sandbox, side: u32) -> std::path::PathBuf {
-    let path = sandbox.home().join("noise.png");
-    let mut state: u32 = 0x1234_5678;
-    let image = image::RgbaImage::from_fn(side, side, |_, _| {
-        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        let [a, b, c, _] = state.to_le_bytes();
-        image::Rgba([a, b, c, 255])
-    });
-    image.save(&path).expect("saved");
-    path
-}
-
-/// Finishes a session that shows a heavy image and quits at once; the
-/// worker has the file to keep still.
-fn finished_with_a_heavy_image(sandbox: &Sandbox, side: u32) -> (Tui, std::path::PathBuf) {
+/// Finishes a session that shows a file and quits at once, with the keeping
+/// worker held until the file `gate` names exists (`ASQR_TEST_KEEP_GATE`),
+/// so the job is still running when asqr quits whatever the machine's
+/// speed.
+fn finished_with_the_keeping_held(
+    sandbox: &Sandbox,
+    gate: &std::path::Path,
+) -> (Tui, std::path::PathBuf) {
     let dir = sandbox.queue_dir();
+    let shown = sandbox.file("notes.txt", "what the person saw\n");
     let session = serde_json::json!({
-        "asqr": 2, "id": "heavy",
+        "asqr": 2, "id": "held",
         "questions": [{"id": "q", "text": "Pick a fruit", "kind": "single",
-            "context": [{"type": "image", "path": heavy_image(sandbox, side)}],
+            "context": [{"type": "code", "path": shown}],
             "options": [{"id": "a", "label": "Apple"}, {"id": "b", "label": "Pear"}]}]
     });
     let file = sandbox.file("session.json", &session.to_string());
-    let mut tui = Tui::start(
+    let mut tui = Tui::start_with(
         sandbox,
         &["--dir", dir.to_str().expect("UTF-8")],
         "off\t1\t",
+        &[("ASQR_TEST_KEEP_GATE", gate.to_str().expect("UTF-8"))],
     );
     tui.wait_for("Nothing to answer");
     sandbox
@@ -2186,36 +2179,8 @@ fn finished_with_a_heavy_image(sandbox: &Sandbox, side: u32) -> (Tui, std::path:
     (tui, dir)
 }
 
-#[test]
-fn quitting_names_the_files_still_being_kept_on_the_normal_screen() {
-    let sandbox = Sandbox::new();
-    let (mut tui, _dir) = finished_with_a_heavy_image(&sandbox, 1500);
-
-    assert_eq!(tui.wait_for_exit(), 0);
-
-    let output = tui.output();
-    let notice = "keeping the files of 1 finished session, ctrl-c lets go of it...";
-    let left = last(&output, "\x1b[?1049l");
-    assert!(
-        output[left..].contains(notice),
-        "the line comes after the terminal was given back: {output:?}"
-    );
-}
-
-#[test]
-fn ctrl_c_while_the_files_are_kept_lets_go_of_them() {
-    let sandbox = Sandbox::new();
-    let (mut tui, dir) = finished_with_a_heavy_image(&sandbox, 3000);
-    tui.wait_for("keeping the files of 1 finished session");
-
-    tui.send("\x03");
-    let started = Instant::now();
-
-    assert_eq!(tui.wait_for_exit(), 0);
-    assert!(
-        started.elapsed() < Duration::from_secs(8),
-        "it did not wait the 10 s out"
-    );
+/// The one archived session of the queue at `dir`, as text.
+fn archived_text(dir: &std::path::Path) -> String {
     let archived = std::fs::read_dir(dir.join("archive"))
         .expect("archive")
         .map(|entry| entry.expect("entry").path())
@@ -2224,10 +2189,53 @@ fn ctrl_c_while_the_files_are_kept_lets_go_of_them() {
                 .is_some_and(|extension| extension == "json")
         })
         .expect("an archived session");
+    std::fs::read_to_string(archived).expect("reads")
+}
+
+#[test]
+fn quitting_names_the_files_still_being_kept_on_the_normal_screen_and_waits_for_them() {
+    let sandbox = Sandbox::new();
+    let gate = sandbox.home().join("keep-gate");
+    let (mut tui, dir) = finished_with_the_keeping_held(&sandbox, &gate);
+
+    // The job is held, so the notice is the only thing asqr can be doing.
+    tui.wait_for("keeping the files of 1 finished session, ctrl-c lets go of it...");
     assert!(
-        !std::fs::read_to_string(archived)
-            .expect("reads")
-            .contains("\"archived\""),
+        !archived_text(&dir).contains("\"archived\""),
+        "nothing is kept yet"
+    );
+    std::fs::write(&gate, "").expect("the gate opens");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    let output = tui.output();
+    let left = last(&output, "\x1b[?1049l");
+    assert!(
+        output[left..].contains("keeping the files of 1 finished session"),
+        "the line comes after the terminal was given back: {output:?}"
+    );
+    assert!(
+        archived_text(&dir).contains("\"archived\""),
+        "quit waited for the job"
+    );
+}
+
+#[test]
+fn ctrl_c_while_the_files_are_kept_lets_go_of_them() {
+    let sandbox = Sandbox::new();
+    let gate = sandbox.home().join("keep-gate");
+    let (mut tui, dir) = finished_with_the_keeping_held(&sandbox, &gate);
+    tui.wait_for("keeping the files of 1 finished session");
+
+    let sent = Instant::now();
+    tui.send("\x03");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    assert!(
+        sent.elapsed() < Duration::from_secs(5),
+        "ctrl-c ended the wait, which would otherwise take the 10 s out"
+    );
+    assert!(
+        !archived_text(&dir).contains("\"archived\""),
         "the unfinished session stays plain"
     );
 }

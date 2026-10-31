@@ -1370,7 +1370,9 @@ Every variable asqr reads:
 - `GEMINI_CLI_HOME`, `CLAUDE_CONFIG_DIR`, `COPILOT_HOME` and
   `CODEX_HOME`, which move the global skills directories (section 9).
 
-Debug builds read three more. `ASQR_TEST_PANIC_ON_LOAD` and
+Debug builds read four more. `ASQR_TEST_KEEP_GATE` names a file: the
+worker that keeps files holds each job until that file exists, for at most
+a minute, so a test can quit while a job runs. `ASQR_TEST_PANIC_ON_LOAD` and
 `ASQR_TEST_PANIC_ON_OPEN` are what the tests of the TUI use to make
 loading or opening an entry panic. `ASQR_TEST_TMUX_TIMEOUT_MS` is the
 number of milliseconds tmux gets to answer in place of the 500 of

@@ -295,3 +295,47 @@ fn the_quit_notice_names_how_many_sessions_are_still_being_kept() {
         Some("keeping the files of 3 finished sessions, ctrl-c lets go of them...")
     );
 }
+
+#[test]
+fn the_gate_is_read_in_a_debug_build_from_a_variable_that_is_not_empty() {
+    let value = std::ffi::OsString::from("/tmp/open-sesame");
+
+    assert_eq!(
+        gate_from(Some(&value), true),
+        Some(PathBuf::from("/tmp/open-sesame"))
+    );
+    assert_eq!(
+        gate_from(Some(&value), false),
+        None,
+        "a release build has no gate"
+    );
+    assert_eq!(gate_from(Some(std::ffi::OsStr::new("")), true), None);
+    assert_eq!(gate_from(None, true), None);
+}
+
+#[test]
+fn a_held_job_goes_on_once_the_file_exists_and_not_before() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    let gate = scratch.path().join("open");
+    let waiting = gate.clone();
+    let (started, running) = mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        started.send(()).expect("sends");
+        wait_for_gate(&waiting, Duration::from_secs(30))
+    });
+    running.recv().expect("the waiter started");
+
+    std::fs::write(&gate, "").expect("written");
+
+    assert!(waiter.join().expect("joined"), "the file ended the wait");
+}
+
+#[test]
+fn a_held_job_gives_up_after_its_patience() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+
+    assert!(!wait_for_gate(
+        &scratch.path().join("never"),
+        Duration::from_millis(100)
+    ));
+}
