@@ -62,6 +62,16 @@ replaces one type. Rejected: the WebP call inlined in the archiving code.
   GIF and an animated PNG stay as they are, as does an image that is 0
   pixels or more than 16383 pixels wide or tall (libwebp's limit), and
   one whose decode needs more than 512 MiB.
+- A picture of more than 32 Mpixel (32 x 1024 x 1024) stays as it is. The
+  re-encoding holds the decoded picture at 4 bytes a pixel and, to
+  compare, the decoded copy of the result, so 32 Mpixel is 256 MiB of
+  pixels, the size of the budget for the files themselves. A 7680x4320
+  picture (33.2 million pixels) is under the cap. A picture is converted
+  to RGBA by moving its buffer where it can, not by copying it.
+- Measured in a release build on a session with the six largest images of
+  the 127-image corpus (31.4 MB): the keeping job peaked at 213 MB resident
+  memory, against 256 MB before the job took its snapshot by value and
+  converted in place.
 - The encoder runs at quality 90. The result is decoded back and kept
   only if it has the original's dimensions, is smaller, and both the
   colour and the alpha channel have a PSNR above 30 dB against the

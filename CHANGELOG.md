@@ -33,7 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fingerprints without copies. Quitting gives the terminal back, says on
   stderr how many finished sessions are still being kept and waits up to
   10 seconds for them; ctrl-c ends the wait. Keeping reads and writes
-  one file at a time, and `off` only hashes the files.
+  one file at a time, `off` only hashes the files, and a picture of more
+  than 32 million pixels is kept as it is instead of re-encoded.
 - asqr keeps four settings in `settings.toml` in its config directory
   (`~/Library/Application Support/asqr/` on macOS, `$XDG_CONFIG_HOME/asqr/`
   on Linux): how a diff opens (`diff_layout`), the widest a question gets

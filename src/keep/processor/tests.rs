@@ -430,3 +430,26 @@ fn an_image_that_stays_as_it_is_comes_back_in_the_allocation_it_went_in_with() {
     assert_eq!(processed.extension, "png");
     assert_eq!(processed.bytes.as_ptr(), address);
 }
+
+// =========================================================
+// The pixel cap
+// =========================================================
+
+#[test]
+fn a_picture_over_the_pixel_cap_stays_as_it_is() {
+    let original = png(&photo_like(32, 32));
+    let processor = WebpImages::new(Libwebp).with_max_pixels(32 * 32 - 1);
+
+    assert_eq!(
+        processor.process(original.clone(), "big.png"),
+        unchanged(&original, "png")
+    );
+}
+
+#[test]
+fn a_picture_at_the_pixel_cap_is_re_encoded() {
+    let original = png(&photo_like(32, 32));
+    let processor = WebpImages::new(Libwebp).with_max_pixels(32 * 32);
+
+    assert_eq!(processor.process(original, "fits.png").extension, "webp");
+}

@@ -129,17 +129,37 @@ impl ImageEncoder for Libwebp {
 /// back to the same picture and is smaller.
 pub struct WebpImages<E: ImageEncoder> {
     encoder: E,
+    /// The most pixels of a picture that is decoded and re-encoded.
+    max_pixels: u64,
 }
 
 impl<E: ImageEncoder> WebpImages<E> {
     pub fn new(encoder: E) -> Self {
-        Self { encoder }
+        Self {
+            encoder,
+            max_pixels: MAX_PIXELS,
+        }
+    }
+
+    /// The same processor with another pixel cap, for a test that cannot
+    /// afford a picture of [`MAX_PIXELS`].
+    #[cfg(test)]
+    pub fn with_max_pixels(mut self, max_pixels: u64) -> Self {
+        self.max_pixels = max_pixels;
+        self
     }
 }
 
+/// The most pixels of a picture that is re-encoded. Re-encoding holds the
+/// decoded picture (4 bytes a pixel) and, to compare, the decoded copy of
+/// the result, so 32 Mpixel (a 7680x4320 screenshot fits) takes 256 MiB
+/// of pixels, the size of the budget for the files themselves. A larger
+/// picture is kept as it is.
+pub const MAX_PIXELS: u64 = 32 * 1024 * 1024;
+
 impl<E: ImageEncoder> Processor for WebpImages<E> {
     fn process(&self, original: Vec<u8>, name: &str) -> Processed {
-        let Some(rgba) = decode_for_reencoding(&original) else {
+        let Some(rgba) = decode_for_reencoding(&original, self.max_pixels) else {
             return AsIs.process(original, name);
         };
         let Ok(encoded) = self.encoder.encode_webp(&rgba, WEBP_QUALITY) else {
@@ -149,7 +169,7 @@ impl<E: ImageEncoder> Processor for WebpImages<E> {
         else {
             return AsIs.process(original, name);
         };
-        let round_trip = round_trip.to_rgba8();
+        let round_trip = round_trip.into_rgba8();
         if !same_picture(&rgba, &round_trip) || encoded.len() >= original.len() {
             return AsIs.process(original, name);
         }
@@ -171,8 +191,9 @@ const MAX_DECODE_BYTES: u64 = 512 * 1024 * 1024;
 /// The format is read from the content, never the name. WebP is already
 /// what re-encoding makes, and GIF and animated PNG hold frames that one
 /// still picture would lose. The size is read from the header first, so a
-/// picture libwebp cannot encode is not decoded.
-fn decode_for_reencoding(original: &[u8]) -> Option<RgbaImage> {
+/// picture libwebp cannot encode, or one of more than `max_pixels`, is not
+/// decoded.
+fn decode_for_reencoding(original: &[u8], max_pixels: u64) -> Option<RgbaImage> {
     match image::guess_format(original).ok()? {
         ImageFormat::WebP | ImageFormat::Gif => return None,
         ImageFormat::Png => {
@@ -195,11 +216,14 @@ fn decode_for_reencoding(original: &[u8]) -> Option<RgbaImage> {
     if !(1..=WEBP_MAX_SIDE).contains(&width) || !(1..=WEBP_MAX_SIDE).contains(&height) {
         return None;
     }
+    if u64::from(width) * u64::from(height) > max_pixels {
+        return None;
+    }
     let mut reader = reader()?;
     let mut limits = Limits::default();
     limits.max_alloc = Some(MAX_DECODE_BYTES);
     reader.limits(limits);
-    Some(reader.decode().ok()?.to_rgba8())
+    Some(reader.decode().ok()?.into_rgba8())
 }
 
 /// The lowest PSNR, in dB, at which a re-encoded image still counts as
