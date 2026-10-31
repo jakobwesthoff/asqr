@@ -2,7 +2,7 @@
 title: "The skill and other agents"
 tags: [guide/agents]
 site:
-  order: 2
+  order: 3
 ---
 asqr ships a skill that teaches your agent how to ask you through asqr.
 Your agent reads it from asqr itself, so in most cases nothing needs
