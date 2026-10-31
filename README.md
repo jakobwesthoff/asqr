@@ -144,7 +144,10 @@ apart. `asqr --queue <name>` in a session pins another queue there.
 and the asqr watching it, with that asqr's tmux session. `asqr history` lists the
 finished sessions of a queue, newest first, each with a reference;
 `--all` lists every queue under the data directory. `asqr replay <ref>`
-opens one of them read-only, with the files it showed. In asqr, `w`
+opens one of them read-only, with the files it showed. `asqr replay <ref>
+--json` prints a finished session with its result and the state of each
+file it showed, and `--extract <dir>` writes them as plain files, images
+included. In asqr, `w`
 switches to another queue without a restart, and the status line counts
 the sessions waiting in queues no asqr watches. Outside tmux, `asqr`
 with several queues and none chosen asks which one to watch first.

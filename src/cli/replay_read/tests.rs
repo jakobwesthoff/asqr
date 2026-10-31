@@ -122,7 +122,8 @@ fn submitted(session: &Value) -> SessionResult {
 }
 
 fn read(entry: &EntryRef) -> Value {
-    replay_json(&load_for_reading(entry).expect("loaded"))
+    let (loaded, _) = load_for_reading(entry).expect("loaded");
+    replay_json(&loaded, None)
 }
 
 /// The `files` array of the printed object.
@@ -572,4 +573,407 @@ fn one_original_shown_twice_with_the_same_content_is_one_file() {
     let printed = read(&entry);
 
     assert_eq!(files(&printed).len(), 1);
+}
+
+// =========================================================
+// Extracting into a directory
+// =========================================================
+
+/// The entry names below `dir`, sorted.
+fn names_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .expect("listed")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// Loads `entry` and writes it below `dir` the way the command does.
+fn extract_into(entry: &EntryRef, dir: &Path) -> (LoadedReplay, Vec<KeptCopy>) {
+    let (loaded, copies) = load_for_reading(entry).expect("loaded");
+    write_extraction(dir, &loaded, &copies, &mut write_to_disk).expect("written");
+    (loaded, copies)
+}
+
+/// A scene with one kept image and the result that answers it.
+fn answered_image() -> (Scene, EntryRef, String, Vec<u8>) {
+    let scene = scene();
+    let (name, bytes) = copy(b"webp bytes", "webp");
+    let session = session_showing(vec![kept(&name, "/tmp/x/hero.png", &"ab".repeat(32))]);
+    let entry = finish(
+        &scene,
+        &session,
+        &[(name.clone(), bytes.clone())],
+        Some(submitted(&session)),
+    );
+    (scene, entry, name, bytes)
+}
+
+fn out_dir(scene: &Scene) -> PathBuf {
+    scene._scratch.path().join("out")
+}
+
+#[test]
+fn the_session_the_result_and_each_kept_copy_land_in_the_directory() {
+    let (scene, entry, name, bytes) = answered_image();
+    let out = out_dir(&scene);
+
+    let (loaded, _) = extract_into(&entry, &out);
+
+    assert_eq!(names_in(&out), ["files", "result.json", "session.json"]);
+    assert_eq!(names_in(&out.join("files")), std::slice::from_ref(&name));
+    assert_eq!(
+        fs::read(out.join("files").join(&name)).expect("read"),
+        bytes
+    );
+    assert!(name.starts_with(&sha256_hex(&bytes)), "{name}");
+    let result: Value =
+        serde_json::from_slice(&fs::read(out.join("result.json")).expect("read")).expect("JSON");
+    assert_eq!(
+        result,
+        serde_json::to_value(loaded.result.expect("a result")).expect("plain data")
+    );
+}
+
+#[test]
+fn session_json_is_the_stored_session_and_its_file_paths_exist_below_the_directory() {
+    let (scene, entry, _, _) = answered_image();
+    let out = out_dir(&scene);
+
+    let (loaded, _) = extract_into(&entry, &out);
+
+    let written: Value =
+        serde_json::from_slice(&fs::read(out.join("session.json")).expect("read")).expect("JSON");
+    assert_eq!(written, loaded.raw);
+    let path = written["questions"][0]["context"][0]["path"]
+        .as_str()
+        .expect("a path");
+    assert!(path.starts_with("files/"), "{path}");
+    assert!(out.join(path).is_file());
+}
+
+#[test]
+fn two_files_kept_as_dat_with_different_bytes_are_two_files() {
+    let scene = scene();
+    let (first, first_bytes) = copy(b"all:\n\tcc a.c\n", "dat");
+    let (second, second_bytes) = copy(b"all:\n\tcc b.c\n", "dat");
+    let code = |name: &str, original: &str, sha: &str| {
+        json!({"type": "code", "path": format!("files/{name}"), "shown": {
+            "original_path": original, "state": "kept", "sha256": sha, "size": 14, "kept_size": 14}})
+    };
+    let session = session_showing(vec![
+        code(&first, "/a/Makefile", &"aa".repeat(32)),
+        code(&second, "/b/Makefile", &"bb".repeat(32)),
+    ]);
+    let entry = finish(
+        &scene,
+        &session,
+        &[(first.clone(), first_bytes), (second.clone(), second_bytes)],
+        None,
+    );
+    let out = out_dir(&scene);
+
+    extract_into(&entry, &out);
+
+    let mut expected = [first, second];
+    expected.sort();
+    assert_eq!(names_in(&out.join("files")), expected);
+}
+
+#[test]
+fn a_file_shown_twice_is_written_once() {
+    let scene = scene();
+    let (name, bytes) = copy(b"the same bytes", "webp");
+    let session = session_showing(vec![
+        kept(&name, "/tmp/x/first.png", &"ab".repeat(32)),
+        kept(&name, "/tmp/y/second.png", &"ab".repeat(32)),
+    ]);
+    let entry = finish(&scene, &session, &[(name.clone(), bytes)], None);
+    let out = out_dir(&scene);
+
+    let (_, copies) = extract_into(&entry, &out);
+
+    assert_eq!(copies.len(), 1);
+    assert_eq!(names_in(&out.join("files")), [name]);
+}
+
+#[test]
+fn a_session_without_a_result_writes_no_result_json() {
+    let scene = scene();
+    let entry = finish(&scene, &plain_session(), &[], None);
+    let out = out_dir(&scene);
+
+    extract_into(&entry, &out);
+
+    assert_eq!(names_in(&out), ["files", "session.json"]);
+}
+
+#[test]
+fn a_damaged_copy_is_not_written() {
+    let scene = scene();
+    let (name, _) = copy(b"what the name promises", "webp");
+    let session = session_showing(vec![kept(&name, "/tmp/x/hero.png", &"ab".repeat(32))]);
+    let entry = finish(
+        &scene,
+        &session,
+        &[(name, b"something else".to_vec())],
+        None,
+    );
+    let out = out_dir(&scene);
+
+    extract_into(&entry, &out);
+
+    assert_eq!(names_in(&out.join("files")), Vec::<String>::new());
+}
+
+#[test]
+fn a_missing_parent_is_created() {
+    let scene = scene();
+    let entry = finish(&scene, &plain_session(), &[], None);
+    let out = out_dir(&scene).join("deep").join("er");
+
+    extract_into(&entry, &out);
+
+    assert!(out.join("session.json").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn the_directories_are_private_to_the_user_and_so_are_the_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let (scene, entry, name, _) = answered_image();
+    let out = out_dir(&scene).join("deep").join("er");
+
+    extract_into(&entry, &out);
+
+    let mode = |path: &Path| fs::metadata(path).expect("metadata").permissions().mode() & 0o777;
+    assert_eq!(mode(&out), 0o700);
+    assert_eq!(mode(out.parent().expect("a parent")), 0o700);
+    assert_eq!(mode(&out.join("files")), 0o700);
+    assert_eq!(mode(&out.join("session.json")), 0o600);
+    assert_eq!(mode(&out.join("files").join(name)), 0o600);
+}
+
+#[test]
+fn an_existing_empty_directory_is_filled_and_no_staging_directory_stays() {
+    let (scene, entry, _, _) = answered_image();
+    let out = out_dir(&scene);
+    fs::create_dir(&out).expect("made");
+
+    extract_into(&entry, &out);
+
+    assert!(out.join("session.json").is_file());
+    assert_eq!(names_in(out.parent().expect("a parent")), ["out", "queues"]);
+}
+
+#[test]
+fn a_write_that_fails_leaves_no_staging_directory_and_no_created_parent() {
+    let (scene, entry, _, _) = answered_image();
+    let out = out_dir(&scene).join("deep").join("er");
+    let (loaded, copies) = load_for_reading(&entry).expect("loaded");
+    let mut calls = 0;
+
+    let error = write_extraction(&out, &loaded, &copies, &mut |path, bytes| {
+        calls += 1;
+        if calls == 2 {
+            return Err(io::Error::other("disk full"));
+        }
+        write_to_disk(path, bytes)
+    })
+    .expect_err("refused");
+
+    assert!(error.to_string().contains("disk full"), "{error}");
+    assert_eq!(
+        names_in(out_dir(&scene).parent().expect("a parent")),
+        ["queues"]
+    );
+}
+
+#[test]
+fn a_write_that_fails_leaves_an_existing_empty_directory_empty() {
+    let (scene, entry, _, _) = answered_image();
+    let out = out_dir(&scene);
+    fs::create_dir(&out).expect("made");
+    let (loaded, copies) = load_for_reading(&entry).expect("loaded");
+
+    write_extraction(&out, &loaded, &copies, &mut |_, _| {
+        Err(io::Error::other("disk full"))
+    })
+    .expect_err("refused");
+
+    assert_eq!(names_in(&out), Vec::<String>::new());
+    assert_eq!(names_in(out.parent().expect("a parent")), ["out", "queues"]);
+}
+
+#[test]
+fn the_summary_lists_what_was_written_and_each_file_without_a_good_copy() {
+    let scene = scene();
+    let (name, bytes) = copy(b"webp bytes", "webp");
+    let (damaged, _) = copy(b"what the name promises", "webp");
+    let session = session_showing(vec![
+        kept(&name, "/tmp/x/hero.png", &"ab".repeat(32)),
+        kept(&damaged, "/tmp/x/broken.png", &"cd".repeat(32)),
+        json!({"type": "code", "path": "/tmp/x/gone\n.md", "shown": {
+            "original_path": "/tmp/x/gone\n.md", "state": "missing", "reason": "no such file"}}),
+        json!({"type": "code", "path": "/tmp/x/old.rs"}),
+    ]);
+    let entry = finish(
+        &scene,
+        &session,
+        &[(name, bytes), (damaged, b"something else".to_vec())],
+        Some(submitted(&session)),
+    );
+    let (loaded, copies) = load_for_reading(&entry).expect("loaded");
+    let out = Path::new("/out/dir");
+
+    let text = summary(out, &loaded, &copies);
+
+    assert_eq!(
+        text,
+        "extracted to /out/dir\n\
+         session.json\n\
+         result.json\n\
+         1 file in files/\n\
+         /tmp/x/broken.png: the kept copy is damaged\n\
+         /tmp/x/gone\u{fffd}.md: gone\n\
+         /tmp/x/old.rs: not_recorded\n"
+    );
+}
+
+#[test]
+fn the_summary_says_when_there_is_no_result() {
+    let scene = scene();
+    let entry = finish(&scene, &plain_session(), &[], None);
+    let (loaded, copies) = load_for_reading(&entry).expect("loaded");
+
+    let text = summary(Path::new("/out"), &loaded, &copies);
+
+    assert_eq!(
+        text,
+        "extracted to /out\nsession.json\nno result\n0 files in files/\n"
+    );
+}
+
+#[test]
+fn json_names_the_directory_and_where_each_good_copy_lies_in_it() {
+    let (scene, entry, name, _) = answered_image();
+    let (loaded, _) = load_for_reading(&entry).expect("loaded");
+    let out = out_dir(&scene);
+
+    let printed = replay_json(&loaded, Some(&out));
+
+    assert_eq!(printed["extracted_to"], out.display().to_string().as_str());
+    assert_eq!(files(&printed)[0]["extracted"], format!("files/{name}"));
+}
+
+// =========================================================
+// Where an extraction may go
+// =========================================================
+
+#[test]
+fn an_absent_directory_may_be_extracted_into_and_is_named_absolutely() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    let target = scratch.path().join("new").join("out");
+
+    let resolved = prepare_target(&target, &[]).expect("allowed");
+
+    assert!(resolved.is_absolute());
+    assert!(resolved.ends_with("new/out"), "{resolved:?}");
+}
+
+#[test]
+fn an_empty_directory_may_be_extracted_into() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+
+    assert!(prepare_target(scratch.path(), &[]).is_ok());
+}
+
+#[test]
+fn a_directory_with_a_file_is_refused() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    fs::write(scratch.path().join("notes.txt"), "x").expect("written");
+
+    let why = prepare_target(scratch.path(), &[]).expect_err("refused");
+
+    assert!(why.contains("is not empty"), "{why}");
+}
+
+#[test]
+fn a_directory_with_only_a_hidden_file_is_not_empty() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    fs::write(scratch.path().join(".hidden"), "x").expect("written");
+
+    let why = prepare_target(scratch.path(), &[]).expect_err("refused");
+
+    assert!(why.contains("is not empty"), "{why}");
+}
+
+#[test]
+fn a_path_that_is_a_file_is_refused() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    let file = scratch.path().join("file");
+    fs::write(&file, "x").expect("written");
+
+    let why = prepare_target(&file, &[]).expect_err("refused");
+
+    assert!(why.contains("is not a directory"), "{why}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symbolic_link_to_an_empty_directory_is_refused() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    fs::create_dir(scratch.path().join("real")).expect("made");
+    let link = scratch.path().join("link");
+    std::os::unix::fs::symlink(scratch.path().join("real"), &link).expect("linked");
+
+    let why = prepare_target(&link, &[]).expect_err("refused");
+
+    assert!(why.contains("is a symbolic link"), "{why}");
+}
+
+#[test]
+fn a_directory_inside_a_kept_out_directory_is_refused_though_it_is_empty_or_absent() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    let queue = scratch.path().join("queue");
+    fs::create_dir_all(queue.join("inbox")).expect("made");
+
+    let inside_existing = prepare_target(&queue.join("inbox"), std::slice::from_ref(&queue));
+    let inside_absent = prepare_target(&queue.join("new"), std::slice::from_ref(&queue));
+    let the_queue_itself = prepare_target(&queue, std::slice::from_ref(&queue));
+
+    for result in [inside_existing, inside_absent, the_queue_itself] {
+        let why = result.expect_err("refused");
+        assert!(why.contains("lies inside"), "{why}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symbolic_link_into_a_kept_out_directory_is_refused() {
+    let scratch = tempfile::tempdir().expect("temp dir");
+    let queue = scratch.path().join("queue");
+    fs::create_dir_all(queue.join("inbox")).expect("made");
+    let link = scratch.path().join("elsewhere");
+    std::os::unix::fs::symlink(&queue, &link).expect("linked");
+
+    let why = prepare_target(&link.join("new"), &[queue]).expect_err("refused");
+
+    assert!(why.contains("lies inside"), "{why}");
+}
+
+#[test]
+fn an_empty_directory_name_is_no_directory() {
+    assert!(parse_directory("").is_err());
+    assert_eq!(
+        parse_directory("out").expect("parsed"),
+        PathBuf::from("out")
+    );
 }

@@ -90,6 +90,7 @@ impl Replay {
 pub(super) struct ReplayRequest<'a> {
     pub reference: &'a str,
     pub json: bool,
+    pub extract: Option<PathBuf>,
     pub root: Option<&'a Path>,
     pub config: Option<PathBuf>,
     pub no_color: bool,
@@ -105,6 +106,7 @@ pub(super) fn run(
     let ReplayRequest {
         reference,
         json,
+        extract,
         root,
         config,
         no_color,
@@ -121,8 +123,17 @@ pub(super) fn run(
         eprintln!("warning: {error}; its sessions could not be searched for this REF");
     }
 
-    if json {
-        return print_json(&entry, &unreadable);
+    if json || extract.is_some() {
+        let request = replay_read::ReadRequest {
+            json,
+            extract: extract.as_deref(),
+            keep_out: root
+                .into_iter()
+                .chain([location.dir(), entry.queue.dir()])
+                .map(Path::to_path_buf)
+                .collect(),
+        };
+        return replay_read::run_read(&entry, &unreadable, &request);
     }
 
     // The copies of the files go into the directory of this run, which `o`
@@ -147,27 +158,6 @@ pub(super) fn run(
         no_color,
         home,
     })
-}
-
-/// Prints the object `--json` stands for. A bundle that could not be read
-/// is warned about by the search, so the pairing's warning for the same
-/// bundle is left out.
-fn print_json(entry: &EntryRef, searched: &[BundleError]) -> Exit {
-    let loaded = match replay_read::load_for_reading(entry) {
-        Ok(loaded) => loaded,
-        Err(error) => {
-            eprintln!("error: {error}");
-            return Exit::Failure;
-        }
-    };
-    let warned: Vec<String> = searched.iter().map(ToString::to_string).collect();
-    for error in &loaded.unreadable {
-        if !warned.contains(&error.to_string()) {
-            eprintln!("warning: {error}");
-        }
-    }
-    println!("{}", replay_read::replay_json(&loaded));
-    Exit::Success
 }
 
 /// The finished session `reference` names in the queues under `root` and

@@ -10,9 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `asqr replay <ref> --json` prints a finished session, its result and
-  the state of each file it showed as one JSON object, without a
-  terminal. A bundle that holds the session's result and cannot be read is
-  named in a warning on stderr.
+  the state of each file it showed as one JSON object, and `asqr replay
+  <ref> --extract <dir>` writes the session, the result and the kept
+  copies of its files, images included, into a new or empty directory.
+  Neither needs a terminal. A bundle that holds the session's result and
+  cannot be read is named in a warning on stderr. The core of the skill
+  names both next to `asqr history --json`.
 - `asqr prune --session <ref>` removes one finished session, by the
   reference `asqr history` prints, with the kept files only it showed; a
   dry run lists what would go, and `--yes` removes it. `asqr prune

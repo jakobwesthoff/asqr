@@ -151,13 +151,11 @@ Read every note before you act on the answers.
 for a queue given with `--dir`, `watched_by`, which is `null` when no
 asqr runs, `waiting`, every waiting session with its `id` and
 `draft_has_answers`, `answered`, the 10 most recently answered sessions,
-newest first, with `id` and `status`, and `answered_total`. The queue
-keeps results from every agent and every earlier session, so
-`answered_total` is usually larger than the list. `--since <age>` keeps
-only sessions answered within that age, such as `30m`, `2h` or `1d`
-(units `s`, `m`, `h`, `d`, `w`), and `answered_total` then counts only
-those. `--limit <count>` changes the 10. Avoid `--all`, which lists
-everything.
+newest first, with `id` and `status`, and `answered_total`. `--since
+<age>` keeps only sessions answered within that age, such as `30m`, `2h`
+or `1d` (units `s`, `m`, `h`, `d`, `w`), and `answered_total` then
+counts only those. `--limit <count>` changes the 10. Avoid `--all`,
+which lists everything.
 
 To find a session you lost track of, use `--since` with an age a little
 longer than the time since you asked, then read it with `asqr result
@@ -338,8 +336,10 @@ or restart it, and ask again once they have.
   session with `"follows": "<previous id>"`. The person sees the title
   of the session it continues.
 - **Keep a record** of the answers you act on in your own notes or
-  files. Results leave the outbox after 30 days; `asqr result` still
-  finds them.
+  files. `asqr history --json` lists earlier sessions, `asqr replay
+  <ref> --json` prints one with its result, `asqr replay <ref> --extract
+  <new dir>` writes its files, images too. `asqr result` finds
+  results after 30 days.
 - **Queues.** Pass no `--queue` unless the person or your instructions
   name one, and never switch on your own to a queue another asqr
   watches.

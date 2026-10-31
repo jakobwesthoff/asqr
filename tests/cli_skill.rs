@@ -255,6 +255,22 @@ fn each_part_stays_under_30000_bytes() {
 }
 
 #[test]
+fn the_core_tells_agents_to_keep_a_record_and_where_to_read_earlier_sessions() {
+    // Line breaks in the file fall anywhere, so the phrases are looked up
+    // in the text with its whitespace collapsed.
+    let core = SKILL.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    for phrase in [
+        "Keep a record** of the answers you act on",
+        "`asqr history --json`",
+        "`asqr replay <ref> --json`",
+        "`asqr replay <ref> --extract <new dir>`",
+    ] {
+        assert!(core.contains(phrase), "the core lacks {phrase:?}");
+    }
+}
+
+#[test]
 fn the_core_fits_in_17980_bytes() {
     // The core arrives whole where Claude Code's Bash tool shows up to
     // roughly 30,000 characters of output inline. The cap is the size of

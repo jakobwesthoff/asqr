@@ -234,6 +234,11 @@ enum Command {
         /// JSON object instead of opening it.
         #[arg(long)]
         json: bool,
+
+        /// Write the session, its result and the kept copies of its files
+        /// into DIR, which must be new or empty.
+        #[arg(long, value_name = "DIR", value_parser = replay_read::parse_directory)]
+        extract: Option<PathBuf>,
     },
 
     /// List every queue, what waits in it and which asqr watches it.
@@ -621,11 +626,16 @@ fn dispatch_with(
                 json,
             },
         ),
-        Command::Replay { reference, json } => replay::run(
+        Command::Replay {
+            reference,
+            json,
+            extract,
+        } => replay::run(
             &location,
             replay::ReplayRequest {
                 reference: &reference,
                 json,
+                extract,
                 root: root.as_deref(),
                 config,
                 no_color: environment.no_color,

@@ -465,6 +465,401 @@ fn json_leaves_a_session_that_cannot_be_shown_a_failure_with_nothing_on_stdout()
     assert_eq!(common::stdout(&output), "");
 }
 
+// =========================================================
+// replay --extract
+// =========================================================
+
+const IMAGE: &[u8] = b"pretend this is a WebP";
+
+/// A session archived `days` ago that shows one kept image and one file
+/// asqr has no record of, with the copy of the image in the archive; its
+/// reference and the name of the copy.
+fn archive_with_image(location: &QueueLocation, random: u128) -> (String, String) {
+    location.create_layout().expect("layout");
+    let millis = (SystemTime::now() - DAY)
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_millis() as u64;
+    let ulid = Ulid::from_parts(millis, random);
+    let name = format!("{}.webp", asqr::keep::sha256_hex(IMAGE));
+    fs::create_dir_all(location.kept_files()).expect("created");
+    fs::write(location.kept_files().join(&name), IMAGE).expect("written");
+    let session = serde_json::json!({"asqr": 2, "id": "x", "title": "Pick", "questions": [
+        {"id": "q1", "text": "?", "kind": "text", "context": [{"type": "image",
+            "path": format!("files/{name}"),
+            "shown": {"original_path": "/tmp/x/hero.png", "state": "kept",
+                      "sha256": "ab".repeat(32), "size": 100, "kept_size": 22}}]},
+        {"id": "q2", "text": "?", "kind": "text", "context": [
+            {"type": "code", "path": "/tmp/x/old.rs"}]}
+    ]});
+    fs::write(
+        location
+            .archive()
+            .join(archive_name("x", ulid, Archived::Session)),
+        session.to_string(),
+    )
+    .expect("written");
+    let text = ulid.to_string();
+    (text[text.len() - 8..].to_owned(), name)
+}
+
+#[test]
+fn extract_writes_the_session_and_the_kept_copy_and_says_what_it_left_out() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, name) = archive_with_image(&location, 0x1234_5678_9abc);
+    let out = sandbox.home().join("out");
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            out.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        fs::read(out.join("files").join(&name)).expect("read"),
+        IMAGE
+    );
+    assert!(out.join("session.json").is_file());
+    assert!(!out.join("result.json").exists());
+    let text = common::stdout(&output);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(
+        lines[0].starts_with("extracted to ") && lines[0].ends_with("/out"),
+        "{text}"
+    );
+    assert_eq!(
+        lines[1..],
+        [
+            "session.json",
+            "no result",
+            "1 file in files/",
+            "/tmp/x/old.rs: not_recorded"
+        ]
+    );
+    assert_eq!(stderr(&output), "");
+}
+
+#[test]
+fn extract_with_json_prints_only_the_object_naming_the_directory_and_the_copy() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, name) = archive_with_image(&location, 0x1234_5678_9abc);
+    let out = sandbox.home().join("out");
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--json",
+            "--extract",
+            out.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let printed = printed_object(&output);
+    let extracted_to = printed["extracted_to"].as_str().expect("a path");
+    assert!(
+        std::path::Path::new(extracted_to).is_absolute(),
+        "{extracted_to}"
+    );
+    assert!(extracted_to.ends_with("/out"), "{extracted_to}");
+    let first = &printed["files"][0];
+    assert_eq!(first["original_path"], "/tmp/x/hero.png");
+    let relative = first["extracted"].as_str().expect("a path");
+    assert_eq!(relative, format!("files/{name}"));
+    assert!(out.join(relative).is_file());
+    assert_eq!(
+        printed["session"]["questions"][0]["context"][0]["path"],
+        "/tmp/x/hero.png"
+    );
+}
+
+#[test]
+fn extract_refuses_a_directory_with_something_in_it_and_changes_nothing() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, _) = archive_with_image(&location, 0x1234_5678_9abc);
+    let out = sandbox.home().join("out");
+    fs::create_dir(&out).expect("made");
+    fs::write(out.join(".keep"), "mine").expect("written");
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--json",
+            "--extract",
+            out.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("it is not empty"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(common::stdout(&output), "");
+    assert_eq!(walk(&out), [out.join(".keep").display().to_string()]);
+}
+
+#[test]
+fn extract_refuses_a_path_that_is_a_file() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, _) = archive_with_image(&location, 0x1234_5678_9abc);
+    let out = sandbox.file("out", "a file");
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            out.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("it is not a directory"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fs::read_to_string(&out).expect("read"), "a file");
+}
+
+#[cfg(unix)]
+#[test]
+fn extract_refuses_a_symbolic_link_to_an_empty_directory() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, _) = archive_with_image(&location, 0x1234_5678_9abc);
+    let real = sandbox.home().join("real");
+    fs::create_dir(&real).expect("made");
+    let link = sandbox.home().join("link");
+    std::os::unix::fs::symlink(&real, &link).expect("linked");
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            link.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("it is a symbolic link"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(walk(&real), Vec::<String>::new());
+}
+
+#[test]
+fn extract_refuses_the_empty_inbox_of_the_queue_and_leaves_it_empty() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, _) = archive_with_image(&location, 0x1234_5678_9abc);
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            location.inbox().to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("lies inside"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(walk(&location.inbox()), Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn extract_refuses_a_symbolic_link_to_the_inbox_of_the_queue() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, _) = archive_with_image(&location, 0x1234_5678_9abc);
+    let link = sandbox.home().join("link");
+    std::os::unix::fs::symlink(location.inbox(), &link).expect("linked");
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            link.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(walk(&location.inbox()), Vec::<String>::new());
+}
+
+#[test]
+fn extract_with_an_empty_directory_name_is_a_usage_error() {
+    let sandbox = Sandbox::new();
+
+    let output = replay(&sandbox, &["replay", "ZZZZZZ", "--extract", ""]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(common::stdout(&output), "");
+}
+
+#[test]
+fn extract_of_a_session_that_does_not_parse_leaves_an_absent_directory_absent() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let reference = archive(&location, "a", "A", 1, 0x1234_5678_9abc);
+    for entry in fs::read_dir(location.archive()).expect("listed") {
+        fs::write(entry.expect("entry").path(), "this is no session").expect("overwritten");
+    }
+    let out = sandbox.home().join("out");
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            out.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!out.exists());
+    assert_eq!(common::stdout(&output), "");
+}
+
+#[test]
+fn extract_of_a_session_that_parses_but_is_not_valid_leaves_the_directories_as_they_were() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let reference = archive(&location, "a", "A", 1, 0x1234_5678_9abc);
+    let invalid = r#"{"asqr": 2, "id": "x", "title": "A", "questions": [
+        {"id": "q", "text": "?", "kind": "text"}, {"id": "q", "text": "?", "kind": "text"}]}"#;
+    for entry in fs::read_dir(location.archive()).expect("listed") {
+        fs::write(entry.expect("entry").path(), invalid).expect("overwritten");
+    }
+    let absent = sandbox.home().join("absent");
+    let empty = sandbox.home().join("empty");
+    fs::create_dir(&empty).expect("made");
+
+    let into_absent = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            absent.to_str().expect("UTF-8"),
+        ],
+    );
+    let into_empty = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            empty.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(
+        into_absent.status.code(),
+        Some(1),
+        "{}",
+        stderr(&into_absent)
+    );
+    assert!(
+        stderr(&into_absent).contains("the archived session cannot be shown"),
+        "{}",
+        stderr(&into_absent)
+    );
+    assert_eq!(into_empty.status.code(), Some(1));
+    assert!(!absent.exists());
+    assert_eq!(walk(&empty), Vec::<String>::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn extract_into_a_place_that_cannot_be_written_fails_with_nothing_on_stdout() {
+    use std::os::unix::fs::PermissionsExt;
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, _) = archive_with_image(&location, 0x1234_5678_9abc);
+    let sealed = sandbox.home().join("sealed");
+    fs::create_dir(&sealed).expect("made");
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o500)).expect("sealed");
+    // A process that may write there anyway, such as root, cannot fail.
+    if fs::File::create(sealed.join("probe")).is_ok() {
+        return;
+    }
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--json",
+            "--extract",
+            sealed.join("out").to_str().expect("UTF-8"),
+        ],
+    );
+
+    fs::set_permissions(&sealed, fs::Permissions::from_mode(0o700)).expect("unsealed");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).starts_with("error: cannot write "),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(common::stdout(&output), "");
+    assert_eq!(walk(&sealed), Vec::<String>::new());
+}
+
+#[test]
+fn extract_writes_nothing_into_the_queue_or_the_temp_directory() {
+    let sandbox = Sandbox::new();
+    let location = QueueLocation::named(&sandbox.data_dir(), "default");
+    let (reference, _) = archive_with_image(&location, 0x1234_5678_9abc);
+    let queue_before = walk(location.dir());
+    let out = sandbox.home().join("out");
+
+    let output = replay(
+        &sandbox,
+        &[
+            "replay",
+            &reference,
+            "--extract",
+            out.to_str().expect("UTF-8"),
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(walk(location.dir()), queue_before);
+    assert_eq!(walk(&sandbox.temp_dir()), Vec::<String>::new());
+}
+
 #[test]
 fn json_alone_is_not_a_reference() {
     let sandbox = Sandbox::new();
