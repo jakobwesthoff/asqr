@@ -3082,8 +3082,11 @@ keep the styles of running text, rules, and code blocks highlighted
 when the fence names a language. A link written as a reference
 (`[text][ref]`) shows like an inline one. A footnote definition shows at
 the end of the text, in the order the footnotes are referenced, and one
-that nothing references does not show. A task item with no text shows its
-box alone. Quotes and lists nested so deep that a line would keep little
+that nothing references does not show. A footnote reference shows its
+number dimmed in square brackets after the text it follows, and the
+footnote at the end starts with the same number. Numbers count from 1 in
+the order of the first references, whatever the labels are. A task item
+with no text shows its box alone. Quotes and lists nested so deep that a line would keep little
 room for its text stop indenting further.
 
 - Each text renders at the width it gets: a question text at the

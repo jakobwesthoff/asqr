@@ -155,7 +155,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   patine 2. A link written as a reference (`[text][ref]`) shows like an
   inline one, underlined with its URL dimmed. A footnote definition shows
   at the end of the text, and one that nothing references does not show.
-  A task item with no text shows its box alone. Deeply nested quotes and
+  A reference shows its number dimmed in square brackets, and the
+  footnote starts with the same number. A task item with no text shows its box alone. Deeply nested quotes and
   lists stop indenting so a line keeps room for its text. Text that the
   old parser panicked on, which asqr showed as plain text under a note,
   renders as Markdown.
