@@ -1,0 +1,8 @@
+view = []
+
+[site]
+title = "asqr"
+lang = "en"
+index = "01M68ASRHWD0MCGBJSFA6YXY6S"
+root = "tags/guide"
+related = false
