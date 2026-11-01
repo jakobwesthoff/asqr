@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- With patine 2.2.0, GitHub alerts show as callouts wherever asqr renders
+- With patine 2.2.1, GitHub alerts show as callouts wherever asqr renders
   Markdown: intros, question texts, option labels and descriptions,
   captions and Markdown entries. `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
   `[!WARNING]` and `[!CAUTION]` draw a heavy bar `┃` on every line and a
