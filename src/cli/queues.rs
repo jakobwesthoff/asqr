@@ -117,14 +117,15 @@ pub(super) fn run_remove(root: Option<&Path>, tmux: &dyn Tmux, name: &str, force
     let outcome = remove_queue(&location, force);
     // The locks are let go of by now, so the files a rejected session showed
     // can be read for its record without holding up the queue.
-    let (rejected, stopped) = match &outcome {
-        Ok(Removed::Now { rejected }) => (rejected.as_slice(), false),
-        Err(RemoveError::Stopped { rejected, .. }) => (rejected.as_slice(), true),
-        _ => (&[][..], false),
+    let (rejected, said) = match &outcome {
+        Ok(Removed::Now { rejected }) => (rejected.as_slice(), Said::ByTheOutput),
+        Err(RemoveError::Stopped { rejected, .. }) => (rejected.as_slice(), Said::BeforeStopping),
+        Err(RemoveError::Unmarked { rejected, .. }) => (rejected.as_slice(), Said::OneByOne),
+        _ => (&[][..], Said::ByTheOutput),
     };
     for rejection in rejected {
         record_without_copies(&location, rejection.archived.clone());
-        if let Some(line) = how_it_ended(rejection, stopped) {
+        if let Some(line) = how_it_ended(rejection, said) {
             eprintln!("{line}");
         }
     }
@@ -178,18 +179,33 @@ fn spelled(root: &Path, name: &str) -> String {
         .unwrap_or_else(|| name.to_owned())
 }
 
+/// Where the sessions `--force` rejected are named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Said {
+    /// The output line counts them.
+    ByTheOutput,
+    /// The removal stopped at a later session; each is named before the
+    /// error.
+    BeforeStopping,
+    /// The removal failed after them; each is named before the error.
+    OneByOne,
+}
+
 /// The stderr line on what became of a waiting session where the output
-/// line does not say it: one ended as recovery ends it, and, when the
-/// removal `stopped` at a later session, one it rejected.
-fn how_it_ended(rejection: &Rejection, stopped: bool) -> Option<String> {
+/// line does not say it: one ended as recovery ends it, and, where `said`
+/// is no output line, one it rejected.
+fn how_it_ended(rejection: &Rejection, said: Said) -> Option<String> {
     let id = &rejection.id;
-    match rejection.how {
-        Ended::Cancelled if stopped => Some(format!("asqr: rejected {id} before stopping")),
-        Ended::Cancelled => None,
-        Ended::Completed => Some(format!(
+    match (rejection.how, said) {
+        (Ended::Cancelled, Said::BeforeStopping) => {
+            Some(format!("asqr: rejected {id} before stopping"))
+        }
+        (Ended::Cancelled, Said::OneByOne) => Some(format!("asqr: rejected {id}")),
+        (Ended::Cancelled, Said::ByTheOutput) => None,
+        (Ended::Completed, _) => Some(format!(
             "asqr: {id} was answered already; its result stays in the outbox"
         )),
-        Ended::ArchivedUnanswered => Some(format!(
+        (Ended::ArchivedUnanswered, _) => Some(format!(
             "asqr: {id} waited next to an unread result of an earlier session; archived without a result"
         )),
     }
@@ -229,8 +245,26 @@ fn refusal(error: &RemoveError, name: &str, root: &Path, tmux: &dyn Tmux) -> Str
                 "{sessions} in queue {name}; `asqr queues remove --force {name}` removes it anyway and rejects them"
             )
         }
-        RemoveError::Stopped { id, error, .. } => format!(
-            "cannot read session {id} of queue {name}: {error}; queue {name} stays in the lists"
+        RemoveError::Stopped {
+            id,
+            error,
+            result_written,
+            ..
+        } => {
+            let written = if *result_written {
+                "; its rejected result is in the outbox"
+            } else {
+                ""
+            };
+            format!(
+                "cannot reject session {id} of queue {name}: {error}{written}; queue {name} stays in the lists"
+            )
+        }
+        RemoveError::Unmarked { error, rejected } if rejected.is_empty() => {
+            format!("cannot take queue {name} out of the lists: {error}")
+        }
+        RemoveError::Unmarked { error, .. } => format!(
+            "cannot take queue {name} out of the lists: {error}; its waiting sessions are rejected, queue {name} stays in the lists"
         ),
         RemoveError::Io(error) => format!("cannot remove queue {name}: {error}"),
     }
@@ -291,35 +325,6 @@ mod tests {
         assert!(!work.active_marker().exists());
     }
 
-    #[test]
-    fn a_stopped_force_records_and_names_what_it_rejected() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = tempfile::tempdir().expect("temp dir");
-        let work = QueueLocation::named(root.path(), "work");
-        drop_session(&work, "a", SESSION.as_bytes(), false).expect("dropped");
-        let locked = work.inbox().join("b.json");
-        std::fs::write(&locked, SESSION).expect("dropped by hand");
-        let time = std::fs::metadata(work.inbox().join("a.json"))
-            .and_then(|metadata| metadata.modified())
-            .expect("a time");
-        std::fs::File::options()
-            .write(true)
-            .open(&locked)
-            .and_then(|file| file.set_modified(time))
-            .expect("the same drop time, so `a` comes first");
-        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))
-            .expect("unreadable");
-
-        let exit = run_remove(Some(root.path()), &Unasked, "work", true);
-        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600))
-            .expect("readable again");
-
-        assert_eq!(exit, Exit::Failure);
-        assert!(work.outbox().join("a.json").is_file(), "a was rejected");
-        assert!(work.active_marker().is_file());
-    }
-
     fn rejection(how: Ended) -> Rejection {
         Rejection {
             id: "first".into(),
@@ -330,17 +335,24 @@ mod tests {
 
     #[test]
     fn what_became_of_a_session_is_said_where_the_output_does_not() {
-        assert_eq!(how_it_ended(&rejection(Ended::Cancelled), false), None);
         assert_eq!(
-            how_it_ended(&rejection(Ended::Cancelled), true).as_deref(),
+            how_it_ended(&rejection(Ended::Cancelled), Said::ByTheOutput),
+            None
+        );
+        assert_eq!(
+            how_it_ended(&rejection(Ended::Cancelled), Said::BeforeStopping).as_deref(),
             Some("asqr: rejected first before stopping")
         );
         assert_eq!(
-            how_it_ended(&rejection(Ended::Completed), false).as_deref(),
+            how_it_ended(&rejection(Ended::Cancelled), Said::OneByOne).as_deref(),
+            Some("asqr: rejected first")
+        );
+        assert_eq!(
+            how_it_ended(&rejection(Ended::Completed), Said::ByTheOutput).as_deref(),
             Some("asqr: first was answered already; its result stays in the outbox")
         );
         assert_eq!(
-            how_it_ended(&rejection(Ended::ArchivedUnanswered), false).as_deref(),
+            how_it_ended(&rejection(Ended::ArchivedUnanswered), Said::ByTheOutput).as_deref(),
             Some(
                 "asqr: first waited next to an unread result of an earlier session; archived without a result"
             )
@@ -376,8 +388,25 @@ mod tests {
                 id: "b".into(),
                 error: io::Error::from(io::ErrorKind::PermissionDenied),
                 rejected: vec![],
+                result_written: false,
             }),
-            "cannot read session b of queue work: permission denied; queue work stays in the lists"
+            "cannot reject session b of queue work: permission denied; queue work stays in the lists"
+        );
+        assert_eq!(
+            refused(RemoveError::Stopped {
+                id: "b".into(),
+                error: io::Error::from(io::ErrorKind::PermissionDenied),
+                rejected: vec![],
+                result_written: true,
+            }),
+            "cannot reject session b of queue work: permission denied; its rejected result is in the outbox; queue work stays in the lists"
+        );
+        assert_eq!(
+            refused(RemoveError::Unmarked {
+                error: io::Error::from(io::ErrorKind::PermissionDenied),
+                rejected: vec![],
+            }),
+            "cannot take queue work out of the lists: permission denied"
         );
         assert_eq!(
             refused(RemoveError::Io(io::Error::from(

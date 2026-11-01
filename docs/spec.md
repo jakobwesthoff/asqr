@@ -1444,10 +1444,18 @@ The second is the answer for a queue that is not in use, exit code 0.
   result of an earlier session; archived without a result`. The output
   then reads `removed queue weekly from the lists and rejected its 3
   waiting sessions; its finished sessions stay in asqr history`. A session
-  file that cannot be read stops the removal: the queue stays in use, each
+  that cannot be rejected, as its file cannot be read or its result
+  written or archived, stops the removal: the queue stays in use, each
   session rejected before it is named as `asqr: rejected <id> before
-  stopping`, and the error reads `error: cannot read session <id> of
-  queue <name>: <reason>; queue <name> stays in the lists`. A file whose
+  stopping`, and the error reads `error: cannot reject session <id> of
+  queue <name>: <reason>; queue <name> stays in the lists`, with `; its
+  rejected result is in the outbox` before `; queue` where the result was
+  written before the failure. A marker that cannot be deleted keeps the
+  queue in the lists: `error: cannot take queue <name> out of the lists:
+  <reason>`, after `--force` with `; its waiting sessions are rejected,
+  queue <name> stays in the lists` and each of them named before it as
+  `asqr: rejected <id>`. The sessions rejected before either error have
+  their files recorded as on success. A file whose
   name is no session id waits for nobody and stays in the inbox for the
   next asqr that watches the queue (section 5.8).
 - A queue an asqr watches is refused: `error: queue <name> is watched by

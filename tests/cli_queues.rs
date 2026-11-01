@@ -246,6 +246,118 @@ fn remove_refuses_a_queue_in_which_sessions_wait_and_names_force() {
     assert!(listed(&sandbox, &["queues"]).contains(&"weekly".to_owned()));
 }
 
+/// Asks into queue `name` a session that shows a file, and gives its id.
+fn asked_showing(sandbox: &Sandbox, name: &str) -> String {
+    let shown = sandbox.file("shown.txt", "shown\n");
+    let file = sandbox.file(
+        &format!("{name}-shown.json"),
+        &SESSION.replace(
+            r#""kind": "single","#,
+            &format!(
+                r#""kind": "single", "context": [{{"type": "code", "path": {:?}}}],"#,
+                shown.to_str().expect("UTF-8 path")
+            ),
+        ),
+    );
+    let output = sandbox
+        .asqr()
+        .args(["--queue", name, "ask"])
+        .arg(&file)
+        .output()
+        .expect("runs");
+    assert!(output.status.success(), "{output:?}");
+    stdout(&output).trim().to_owned()
+}
+
+/// The state the archived session of `queue` records for the file it
+/// showed.
+fn recorded_state(sandbox: &Sandbox, queue: &str) -> serde_json::Value {
+    let archive = QueueLocation::named(&sandbox.data_dir(), queue).archive();
+    let archived = std::fs::read_dir(archive)
+        .expect("archive")
+        .map(|entry| entry.expect("entry").path())
+        .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .expect("the session is archived");
+    let session: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(archived).expect("reads")).expect("JSON");
+    session["questions"][0]["context"][0]["shown"]["state"].clone()
+}
+
+#[test]
+fn a_force_that_stops_names_and_records_what_it_rejected_before() {
+    let sandbox = Sandbox::new();
+    let id = asked_showing(&sandbox, "work");
+    let work = QueueLocation::named(&sandbox.data_dir(), "work");
+    // A file dropped by hand at the same moment, which sorts after the ULID
+    // `ask` gave, and which cannot be read.
+    let locked = work.inbox().join("zz-locked.json");
+    std::fs::write(&locked, SESSION).expect("dropped by hand");
+    let time = std::fs::metadata(work.inbox().join(format!("{id}.json")))
+        .and_then(|metadata| metadata.modified())
+        .expect("a time");
+    std::fs::File::options()
+        .write(true)
+        .open(&locked)
+        .and_then(|file| file.set_modified(time))
+        .expect("the same drop time");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("unreadable");
+
+    let output = sandbox
+        .asqr()
+        .args(["queues", "remove", "--force", "work"])
+        .output()
+        .expect("runs");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600))
+        .expect("readable again");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "asqr: rejected {id} before stopping\n\
+             error: cannot reject session zz-locked of queue work: Permission denied (os error 13); queue work stays in the lists\n"
+        )
+    );
+    assert_eq!(recorded_state(&sandbox, "work"), "not_kept");
+    assert!(listed(&sandbox, &["queues"]).contains(&"work".to_owned()));
+}
+
+#[test]
+fn a_force_whose_marker_stays_names_and_records_what_it_rejected() {
+    let sandbox = Sandbox::new();
+    let id = asked_showing(&sandbox, "work");
+    let work = QueueLocation::named(&sandbox.data_dir(), "work");
+    // A refused removal leaves the queue's lock file, so the removal below
+    // opens both lock files that exist and needs to write into the queue's
+    // directory only to delete the marker.
+    sandbox
+        .asqr()
+        .args(["queues", "remove", "work"])
+        .assert()
+        .code(1);
+    std::fs::set_permissions(work.dir(), std::fs::Permissions::from_mode(0o500))
+        .expect("read-only");
+
+    let output = sandbox
+        .asqr()
+        .args(["queues", "remove", "--force", "work"])
+        .output()
+        .expect("runs");
+    std::fs::set_permissions(work.dir(), std::fs::Permissions::from_mode(0o755))
+        .expect("writable again");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "asqr: rejected {id}\n\
+             error: cannot take queue work out of the lists: Permission denied (os error 13); its waiting sessions are rejected, queue work stays in the lists\n"
+        )
+    );
+    assert_eq!(recorded_state(&sandbox, "work"), "not_kept");
+    assert!(work.active_marker().is_file());
+}
+
 #[test]
 fn remove_force_rejects_the_waiting_session_and_wait_reads_why() {
     let sandbox = Sandbox::new();

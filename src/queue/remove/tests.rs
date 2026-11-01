@@ -335,10 +335,83 @@ fn a_marker_that_cannot_be_deleted_is_an_error() {
     );
     fs::set_permissions(work.dir(), fs::Permissions::from_mode(0o755)).expect("writable again");
 
-    assert!(
-        matches!(&failed, Err(RemoveError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied),
-        "{failed:?}"
+    match failed {
+        Err(RemoveError::Unmarked { error, rejected }) => {
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(rejected, vec![]);
+        }
+        other => panic!("the marker stays, not {other:?}"),
+    }
+    assert!(work.active_marker().is_file());
+}
+
+#[test]
+fn a_marker_that_cannot_be_deleted_after_force_names_the_sessions_rejected() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = root();
+    let work = used(root.path(), "work");
+    asked(&work, "first");
+    let dir = work.dir().to_path_buf();
+    let mut checks = 0;
+
+    let failed = remove_queue_with(
+        &work,
+        true,
+        Gate {
+            attempts: 1,
+            step: Box::new(move |step| {
+                if step == Step::Checked {
+                    checks += 1;
+                    // After the look at the inbox, before the rejection:
+                    // the inbox, outbox and archive stay writable.
+                    if checks == 1 {
+                        fs::set_permissions(&dir, fs::Permissions::from_mode(0o500))
+                            .expect("read-only");
+                    }
+                }
+            }),
+        },
     );
+    fs::set_permissions(work.dir(), fs::Permissions::from_mode(0o755)).expect("writable again");
+
+    match failed {
+        Err(RemoveError::Unmarked { error, rejected }) => {
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(rejected.len(), 1);
+            assert_eq!(rejected[0].id, "first");
+            assert!(rejected[0].archived.is_some());
+        }
+        other => panic!("the marker stays, not {other:?}"),
+    }
+    assert_eq!(outbox_result(&work, "first").status, Status::Cancelled);
+    assert!(work.active_marker().is_file());
+}
+
+#[test]
+fn an_archive_that_cannot_take_a_rejected_session_stops_with_its_result_written() {
+    let root = root();
+    let work = used(root.path(), "work");
+    asked(&work, "first");
+
+    let stopped = with_read_only(&work.archive(), 0o500, || remove_queue(&work, true));
+
+    match stopped {
+        Err(RemoveError::Stopped {
+            id,
+            error,
+            rejected,
+            result_written,
+        }) => {
+            assert_eq!(id, "first");
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(rejected, vec![]);
+            assert!(result_written, "the cancelled result is in the outbox");
+        }
+        other => panic!("stopped, not {other:?}"),
+    }
+    assert_eq!(outbox_result(&work, "first").status, Status::Cancelled);
+    assert!(work.inbox().join("first.json").is_file());
     assert!(work.active_marker().is_file());
 }
 
@@ -576,8 +649,14 @@ fn a_result_that_cannot_be_written_stops_the_removal() {
     let stopped = with_read_only(&work.outbox(), 0o500, || remove_queue(&work, true));
 
     match stopped {
-        Err(RemoveError::Stopped { id, rejected, .. }) => {
+        Err(RemoveError::Stopped {
+            id,
+            rejected,
+            result_written,
+            ..
+        }) => {
             assert_eq!((id.as_str(), rejected.len()), ("first", 0));
+            assert!(!result_written);
         }
         other => panic!("stopped, not {other:?}"),
     }
@@ -689,8 +768,14 @@ fn force_stops_at_a_session_it_cannot_read_and_keeps_the_queue_in_use() {
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o600)).expect("readable again");
 
     match stopped {
-        Err(RemoveError::Stopped { id, rejected, .. }) => {
+        Err(RemoveError::Stopped {
+            id,
+            rejected,
+            result_written,
+            ..
+        }) => {
             assert_eq!(id, "b-locked");
+            assert!(!result_written);
             assert_eq!(rejected.len(), 1);
             assert_eq!(rejected[0].id, "a-first");
             assert!(rejected[0].archived.is_some());

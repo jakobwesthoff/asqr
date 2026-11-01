@@ -78,10 +78,20 @@ pub enum RemoveError {
     Waiting(usize),
 
     /// `--force` stopped at session `id`; the sessions in `rejected` ended
-    /// before it.
+    /// before it. Where `result_written`, the rejected result of `id` is in
+    /// the outbox already and the next step failed.
     #[error("cannot reject session {id}: {error}")]
     Stopped {
         id: String,
+        error: io::Error,
+        rejected: Vec<Rejection>,
+        result_written: bool,
+    },
+
+    /// The marker could not be deleted, so the queue stays in the lists;
+    /// with `--force`, the sessions in `rejected` are rejected already.
+    #[error("{error}")]
+    Unmarked {
         error: io::Error,
         rejected: Vec<Rejection>,
     },
@@ -168,7 +178,14 @@ pub fn remove_queue_with(
     let reason = format!("the person removed queue {name} while this session waited in it");
     let mut rejected = Vec::new();
     for session in &waiting {
-        match reject_waiting(location, session, &reason, &mut step) {
+        // A failure after the rejected result was written leaves that
+        // result in the outbox, which the error says.
+        let mut result_written = false;
+        let mut watched = |done: Step| {
+            result_written |= done == Step::ResultWritten;
+            step(done);
+        };
+        match reject_waiting(location, session, &reason, &mut watched) {
             Ok(Some(rejection)) => rejected.push(rejection),
             // It left the inbox since the look; whoever took it decides.
             Ok(None) => {}
@@ -177,12 +194,17 @@ pub fn remove_queue_with(
                     id: session.id.clone(),
                     error,
                     rejected,
+                    result_written,
                 });
             }
         }
     }
+    // The sessions rejected so far stay rejected either way, so the error
+    // carries them for their record and their names.
     match std::fs::remove_file(location.active_marker()) {
-        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
+        Err(error) if error.kind() != io::ErrorKind::NotFound => {
+            return Err(RemoveError::Unmarked { error, rejected });
+        }
         _ => {}
     }
     tracing::info!(
