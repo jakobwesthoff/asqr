@@ -1,0 +1,6 @@
+caption = "A question whose text holds a warning and a note, and an option whose description holds a tip"
+columns = 140
+rows = 30
+
+[[sessions]]
+file = "callouts.json"

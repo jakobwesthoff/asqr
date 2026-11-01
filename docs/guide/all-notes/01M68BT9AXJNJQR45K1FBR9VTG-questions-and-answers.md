@@ -98,4 +98,29 @@ end of the text, in the order they are referenced, each starting with its
 number. A footnote nothing references does not show. Quotes and lists nested so deep that a line would keep little
 room for its text stop indenting further.
 
+## Callouts
+
+A quote whose first line is `[!` and a type in square brackets shows as a
+callout: a bar `┃` on every line, and on its first line a symbol and a
+bold title. The five kinds of GitHub's alerts each have a colour:
+
+| Marker | Symbol | Colour | Title |
+|---|---|---|---|
+| `[!NOTE]` | `●` | blue | Note |
+| `[!TIP]` | `◆` | green | Tip |
+| `[!IMPORTANT]` | `■` | magenta | Important |
+| `[!WARNING]` | `▲` | yellow | Warning |
+| `[!CAUTION]` | `✕` | red | Caution |
+
+- Any other type, such as `[!FOO]`, is a neutral callout with `○` and the
+  type as its title, in the text colour. The letter case of the type does
+  not matter.
+- Text after the marker on the same line is the title in place of the
+  kind's name.
+- A callout works wherever asqr renders Markdown: the intro, a question's
+  text, an option's label and description, a caption and a Markdown entry.
+- A marker with text glued to it, such as `> [!NOTE]text`, stays a plain
+  quote.
+- With `NO_COLOR` set, the bars are dim and the title is bold.
+
 [Every key](01M68AZYKWFPJAHTFZ0JPNNAK7-keys.md) is listed on one page.

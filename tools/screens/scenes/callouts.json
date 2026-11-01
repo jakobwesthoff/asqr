@@ -1,0 +1,19 @@
+{
+  "asqr": 2,
+  "title": "Release 0.2.0",
+  "intro": "One decision before the release.",
+  "from": "release script",
+  "questions": [
+    {
+      "id": "go",
+      "header": "Go?",
+      "text": "> [!WARNING] The tag cannot be undone\n> Once it is pushed, the release workflow publishes **0.2.0** to the registry.\n\n> [!NOTE]\n> All checks passed on `main` an hour ago.\n\nPublish now?",
+      "kind": "single",
+      "options": [
+        { "id": "yes", "label": "Publish now", "default": true },
+        { "id": "later", "label": "Later", "description": "> [!TIP] Keep the tag local\n> It can be pushed after the weekend." },
+        { "id": "no", "label": "Do not publish" }
+      ]
+    }
+  ]
+}

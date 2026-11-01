@@ -26,6 +26,26 @@ what a session can hold for a kind of task. These patterns are a starting
 point: an agent adapts them, combines them or leaves them aside. They never
 make a task a reason to use asqr without your request.
 
+## Warn you about something
+
+Your agent knows something you should not miss before you decide, such as
+a step that cannot be undone. It starts a quote in the question's text
+with `> [!WARNING]`, and asqr draws it as a callout with a bar down its
+left side, a symbol and a title.
+
+![A question whose text holds a warning and a note, and an option whose description holds a tip](../pictures/callouts.png)
+
+The marker works wherever your agent writes text for you: the intro, a
+question, an option's label or description, and an image caption. The text
+after the marker becomes the title, so `> [!WARNING] The tag cannot be
+undone` shows that title. [Questions and
+answers](01M68BT9AXJNJQR45K1FBR9VTG-questions-and-answers.md) lists the
+kinds of callout.
+
+> [!TIP]
+> The bundled skill tells your agent about these markers, so you do not
+> have to ask for them.
+
 ## Decide before implementing
 
 One question for each open point. What the agent settled that bears on
