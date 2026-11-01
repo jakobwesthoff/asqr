@@ -96,8 +96,8 @@ the question behind it. `z`, `esc`, `tab` and `q` leave it.
   the session, `esc` or `L` close the list and `q` quits asqr. Its key bar
   reads `↑/↓  move   enter  open   esc  close`.
 - The queue switcher (`w`): `↑`/`↓` or `k`/`j` move, `enter` switches
-  to the queue under the cursor, `esc`, `q` and `w` close it and
-  `ctrl-c` quits asqr. On the new-queue row, letters, digits, `-`, `_`
+  to the queue under the cursor, `backspace` removes it from the lists
+  after a question, `esc`, `q` and `w` close it and `ctrl-c` quits asqr. On the new-queue row, letters, digits, `-`, `_`
   and `.` type, `backspace` removes the last character and `esc` stops
   typing.
 - The settings pane (`,`): `↑`/`↓` or `k`/`j` move, `←`/`→` or `h`/`l`
@@ -113,7 +113,8 @@ starts asqr. `q` and `ctrl-c` quit and write nothing. Every other key does
 nothing, and a paste goes nowhere.
 
 The [start picker](01M68C1XV58STWHBH179QYXPZR-queues.md): `↑`/`↓` move,
-`enter` watches the queue under the cursor, and `q` and `ctrl-c` quit. On
+`enter` watches the queue under the cursor, `backspace` removes it from
+the lists after a question, and `q` and `ctrl-c` quit. On
 the new-queue row `q` types, and `esc` stops typing there and does nothing
 elsewhere.
 

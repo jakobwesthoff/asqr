@@ -62,6 +62,8 @@ use the `default` queue unless you name another with `--queue <name>`.
 - `w` opens the queue switcher. `↑`/`↓` and `enter` switch to another
   queue without a restart, and asqr saves your drafts in the old queue
   first. The switcher's footer says what your agents need to follow.
+- `backspace` on a queue in the switcher takes it out of the lists, after
+  a question in the status line.
 - `L` lists the sessions waiting in the queue you watch.
 
 [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) has the details.
