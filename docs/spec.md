@@ -1040,9 +1040,14 @@ takes an exclusive advisory lock on it (flock on Unix).
   line. The file stays after exit and its text may be stale. The lock
   itself is released by the kernel when the process ends, so there is no
   stale-lock handling.
-- Only the TUI holds the lock. `ask` and `status` only test it for a
-  moment to see whether an asqr is watching. A starting TUI tries for
-  those 200 ms, so such a test never makes it refuse to start.
+- The TUI holds the lock for its whole run. `asqr compact` (section 5.9)
+  and `asqr queues remove` (section 5.11) hold it for their work and
+  write `pid <pid> on <host>, running asqr compact` or `..., running asqr
+  queues remove` into the file; `prune` holds it for the few file
+  operations of removing an empty queue and writes nothing. `ask` and
+  `status` only test it for a moment to see whether an asqr is watching.
+  A starting TUI tries for those 200 ms, so such a test never makes it
+  refuse to start.
 
 The drafts lock, `<queue>/drafts.lock`, is a second exclusive advisory
 lock, apart from the instance lock (ADR 63). The TUI and the commands
@@ -1058,9 +1063,13 @@ operations:
 - recovery, for each waiting session on its own (section 5.7);
 - the error result of an invalid session (section 5.8);
 - `ask`, from its look at the draft to its write into the inbox
-  (section 5.5).
+  (section 5.5);
+- `asqr queues remove`, from its look at the inbox to the deletion of
+  `active` (section 5.11).
 
-The lock is tried for about 2 seconds. When it stays taken, the
+The lock is tried for about 2 seconds, by `asqr queues remove` for 200
+ms, as it holds the queue lock meanwhile and a starting asqr tries that
+one for 200 ms. When it stays taken, the
 operation does nothing and says "the queue is busy": `ask` refuses, the
 TUI keeps the answers and shows the error as a notice, and recovery
 leaves the session to its next run. The file stays after use, like

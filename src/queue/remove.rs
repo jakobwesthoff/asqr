@@ -3,7 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! Taking a named queue out of the lists for new work (spec section 5.11,
-//! ADR 107). A queue is in use while it carries the `active` marker, which
+//! ADR 108). A queue is in use while it carries the `active` marker, which
 //! every use writes; removing deletes the marker and nothing else, so the
 //! finished sessions stay for `asqr history` and `asqr replay`.
 
