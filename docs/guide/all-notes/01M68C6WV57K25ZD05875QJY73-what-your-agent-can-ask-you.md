@@ -26,6 +26,33 @@ what a session can hold for a kind of task. These patterns are a starting
 point: an agent adapts them, combines them or leaves them aside. They never
 make a task a reason to use asqr without your request.
 
+## Back and forth
+
+A session is one round of a conversation with your agent. Your answers
+and your notes go back to it, and it may come back with more.
+
+- **Notes.** A note is the place for a condition on an answer, the
+  reason you skipped a question, or a remark that a question is wrong.
+  The note to the asker on the review tab speaks to the whole session.
+  The skill tells your agent to read every note before it acts on your
+  answers.
+- **Saying no.** To turn down a whole session, reject it on the review
+  tab with a reason. Your agent gets the reason, and the answers and
+  notes you had entered.
+- **Answered in the chat.** Tell your agent to take the session back, as
+  the tip on [Review, submit and come back later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md)
+  says.
+- **Follow-up rounds.** When your answers lead to new questions, your
+  agent can ask a new session that follows the earlier one. Its header
+  then reads `from <from> · follows "<title>"`, with the title of the
+  earlier session.
+- **Several sessions.** The skill tells your agent to keep a session to
+  what you can finish in one sitting and to ask several. They show one
+  after another in the order they arrive, and `L` lists them.
+- **Earlier answers.** Your agent can look up a finished session with
+  `asqr history --json` and `asqr replay <REF> --json`, which the skill
+  names. Ask it to, when it should build on what you answered before.
+
 ## Warn you about something
 
 Your agent knows something you should not miss before you decide, such as
