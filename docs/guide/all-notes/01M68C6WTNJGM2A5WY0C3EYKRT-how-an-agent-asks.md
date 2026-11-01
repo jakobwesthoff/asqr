@@ -165,7 +165,7 @@ validation, 12 while no result is there, 13 when none will come, and 14
 when the asker withdrew the session. `asqr ask` exits with 0 when it
 dropped the file, with 11 for an invalid file and with 1 when it refused.
 Exit code 2 stands for wrong arguments.
-[Commands](01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md#exit-codes) lists every
+[Commands](01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md) lists every
 code of every command.
 
 ## The result
@@ -190,7 +190,7 @@ result carries your `reason`. The example above shows a real result.
 each file it showed as one JSON object on a line of its own. `asqr replay
 <REF> --extract <dir>` writes them into a directory. The two combine. Both
 start no terminal UI, resolve and refuse the reference as
-[`asqr replay`](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md#opening-one)
+[`asqr replay`](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 does, and end
 with exit code 0, 1 or 2 only. On exit code 1 or 2 stdout is empty and the
 reason is on stderr, also with `--json`. A bundle that cannot be read gives

@@ -50,7 +50,7 @@ images](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md) and
 [the context pane in detail](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md),
 `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` are on the same page under
 [scrolling from the
-question](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md#scrolling-from-the-question),
+question](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md),
 `L` and `w` are on [queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) and `,` is on
 [settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
 
