@@ -1,5 +1,5 @@
 ---
-title: "Queues"
+title: "Queues: keep your projects apart"
 tags: [guide/queues]
 site:
   index: true

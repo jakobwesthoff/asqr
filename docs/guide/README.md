@@ -30,9 +30,9 @@ reading order. The pictures are in `pictures/`.
 
 ### Queues and settings
 
-- [Queues](all-notes/01M68C1XV58STWHBH179QYXPZR-queues.md)
+- [Queues: keep your projects apart](all-notes/01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md)
 - [Settings](all-notes/01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
-- [Finished sessions: history and replay](all-notes/01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
+- [History and replay: look at what you answered](all-notes/01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 - [Notifications, the terminal and tmux](all-notes/01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md), details of what asqr sends to your terminal
 
 ### Reference

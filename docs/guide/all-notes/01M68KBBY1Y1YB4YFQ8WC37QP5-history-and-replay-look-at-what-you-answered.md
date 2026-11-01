@@ -1,5 +1,5 @@
 ---
-title: "Finished sessions: history and replay"
+title: "History and replay: look at what you answered"
 tags: [guide/queues]
 site:
   order: 3

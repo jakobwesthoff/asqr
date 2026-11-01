@@ -6,7 +6,7 @@ site:
 ---
 A session shows files by path, and many of them lie in temporary folders.
 When you finish a session, asqr can keep a copy of every file it showed, so
-that [a replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
+that [a replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 can show them later. This page says what asqr keeps, how it packs the
 archive and how you delete from it.
 

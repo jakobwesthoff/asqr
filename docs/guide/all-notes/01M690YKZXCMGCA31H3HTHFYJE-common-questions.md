@@ -50,7 +50,7 @@ session. While asqr has nothing else to say, its status line counts the
 sessions waiting in queues no asqr watches, such as `1 session waits in
 default   w  queues`, and `w` opens the queue switcher, where `enter`
 switches to that queue. Or start both the
-same way. [Queues](01M68C1XV58STWHBH179QYXPZR-queues.md) explains which
+same way. [Queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) explains which
 queue each of them uses.
 
 ## What if asqr is not running when my agent asks?
@@ -99,8 +99,7 @@ Yes. Your answers go to your agent as a result file in the queue's
 directory on your machine, and a finished session stays in the queue's
 archive. `asqr history` lists the finished sessions, and `asqr replay
 <REF>` shows one again, read-only, with your answers and the copies asqr
-kept of the files it showed. [Finished sessions: history and
-replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
+kept of the files it showed. [History and replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 explains both.
 
 ## Can several agents ask at once?

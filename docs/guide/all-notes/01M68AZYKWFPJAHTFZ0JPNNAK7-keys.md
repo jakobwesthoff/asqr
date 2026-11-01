@@ -51,7 +51,7 @@ images](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md) and
 `pgup`/`pgdn` and `ctrl-u`/`ctrl-d` are on the same page under
 [scrolling from the
 question](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md#scrolling-from-the-question),
-`L` and `w` are on [queues](01M68C1XV58STWHBH179QYXPZR-queues.md) and `,` is on
+`L` and `w` are on [queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) and `,` is on
 [settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
 
 ## On the review tab
@@ -113,7 +113,7 @@ moves to the button. `enter` on `[ Save and start ]` writes the setting and
 starts asqr. `q` and `ctrl-c` quit and write nothing. Every other key does
 nothing, and a paste goes nowhere.
 
-The [start picker](01M68C1XV58STWHBH179QYXPZR-queues.md): `↑`/`↓` move,
+The [start picker](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md): `↑`/`↓` move,
 `enter` watches the queue under the cursor, `backspace` removes it from
 the lists after a question, and `q` and `ctrl-c` quit. On
 the new-queue row `q` types, and `esc` stops typing there and does nothing
@@ -121,7 +121,7 @@ elsewhere.
 
 ## In a replay
 
-A [replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
+A [replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 shows a finished session, so most keys that change something do nothing.
 
 - `space`, `1` to `9`, `n`, `backspace`, `L`, `w`, `,`, `ctrl-g`, typing and

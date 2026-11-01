@@ -190,7 +190,7 @@ result carries your `reason`. The example above shows a real result.
 each file it showed as one JSON object on a line of its own. `asqr replay
 <REF> --extract <dir>` writes them into a directory. The two combine. Both
 start no terminal UI, resolve and refuse the reference as
-[`asqr replay`](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md#opening-one)
+[`asqr replay`](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md#opening-one)
 does, and end
 with exit code 0, 1 or 2 only. On exit code 1 or 2 stdout is empty and the
 reason is on stderr, also with `--json`. A bundle that cannot be read gives
