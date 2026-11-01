@@ -2,7 +2,7 @@
   "asqr": 2,
   "title": "Release 0.2.0",
   "intro": "One decision before the release.",
-  "from": "release script",
+  "from": "Claude Code, my-app",
   "questions": [
     {
       "id": "go",

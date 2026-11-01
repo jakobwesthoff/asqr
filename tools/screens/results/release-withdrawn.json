@@ -1,9 +1,9 @@
 {
   "asqr": 2,
-  "id": "release-0-2-0",
+  "id": "01M6BXWSE1YWK621KKRSNPWH2H",
   "status": "withdrawn",
   "submitted_at": "2026-10-29T11:20:44+00:00",
-  "session_sha256": "0b7af853270911da0703acd0ad93371681c078f649738c6a1d852b3590e83813",
+  "session_sha256": "ede676b7c6c4422ed50899dc64b12a557bbcbbc5028d2d46ae0b9ef2432b16be",
   "draft": {
     "answers": [
       { "question": "go", "selected": ["later"] },

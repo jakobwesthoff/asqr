@@ -3,4 +3,4 @@ columns = 50
 rows = 12
 
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"

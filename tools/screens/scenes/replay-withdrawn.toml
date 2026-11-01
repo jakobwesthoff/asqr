@@ -3,7 +3,7 @@ columns = 94
 rows = 24
 
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"
 
 [replay]
 reference = "D0M6Z4TB"

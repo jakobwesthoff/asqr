@@ -53,7 +53,7 @@ keys = ["w"]
 
 # The sessions waiting, in queue order; the first one shows.
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"
 
 # Queues no asqr watches in which sessions wait, for the status line.
 [[elsewhere]]

@@ -6,7 +6,7 @@ home = "/home/someone"
 keys = [",", "j", "j"]
 
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"
 
 [settings]
 path = "/home/someone/.config/asqr/settings.toml"

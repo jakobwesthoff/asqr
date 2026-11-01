@@ -572,7 +572,7 @@ mod tests {
         assert_eq!(
             scene.sessions,
             [SessionEntry {
-                file: "../../../examples/sessions/release-checklist.json".into(),
+                file: "../../../examples/sessions/agent-release.json".into(),
                 id: None,
                 carried_from: None
             }]

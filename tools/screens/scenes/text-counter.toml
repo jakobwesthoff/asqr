@@ -4,4 +4,4 @@ rows = 24
 keys = ["enter", "enter", { text = "Startup is twice as fast, and a new --quiet flag silences it." }]
 
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"

@@ -5,7 +5,7 @@ queue = "asqr-todos"
 keys = ["w", "j", "j", { text = "my-project" }]
 
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"
 
 [[elsewhere]]
 queue = "default"

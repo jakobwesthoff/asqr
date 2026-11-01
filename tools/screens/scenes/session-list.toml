@@ -4,7 +4,7 @@ rows = 24
 keys = ["L"]
 
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"
 
 [[sessions]]
 file = "../../../examples/sessions/retry-review.json"

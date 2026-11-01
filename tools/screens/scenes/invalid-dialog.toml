@@ -3,7 +3,7 @@ columns = 94
 rows = 24
 
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"
 
 [[invalid]]
 id = "pick-the-logo"

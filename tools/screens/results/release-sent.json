@@ -1,9 +1,9 @@
 {
   "asqr": 2,
-  "id": "release-0-2-0",
+  "id": "01M6BXW3XA3WPGW8SZPCYJ02XJ",
   "status": "submitted",
   "submitted_at": "2026-10-29T16:41:09+00:00",
-  "session_sha256": "0b7af853270911da0703acd0ad93371681c078f649738c6a1d852b3590e83813",
+  "session_sha256": "bd9fa4ee202d5a219ba434cddd1020770af203e08bf18bea551c9bd928977bc9",
   "answers": [
     { "question": "go", "selected": ["yes"] },
     { "question": "channels", "selected": ["changelog"], "defaulted": true },

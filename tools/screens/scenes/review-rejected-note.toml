@@ -4,4 +4,4 @@ rows = 24
 keys = ["enter", "enter", { text = "Startup is twice as fast." }, "enter", "down", { text = "Ship it after the changelog is fixed." }, "down", { text = "Not today." }]
 
 [[sessions]]
-file = "../../../examples/sessions/release-checklist.json"
+file = "../../../examples/sessions/agent-release.json"

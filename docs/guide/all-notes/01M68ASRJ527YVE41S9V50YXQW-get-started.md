@@ -91,9 +91,8 @@ drops it into the queue with `asqr ask` and waits with `asqr wait`.
 ## Answer
 
 The session shows up in asqr with a terminal bell, and a desktop
-notification where your terminal shows one. Your agent's questions are its
-own. The pictures show a release checklist from the `examples/sessions`
-folder of the asqr repository, which most pictures in this guide show.
+notification where your terminal shows one. The pictures show a release
+checklist your agent could ask. Your agent's own questions will differ.
 
 ![The first question of a session: title bar, header, tabs, options and key bar](../pictures/first-question.png)
 

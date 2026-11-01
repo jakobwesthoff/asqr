@@ -13,7 +13,7 @@ terminal. This page names the parts of the screen from the top down.
    id when it has no title. At the right end, dim, stand the queue and the
    number of sessions waiting, such as `default · 1 waiting`.
 2. **The sender.** Under the title, a dim line says who sent the session
-   (`from release script`) and, where the session names one, which earlier
+   (`from Claude Code, my-app`) and, where the session names one, which earlier
    session it follows. A session that continues the draft of one it
    replaced adds a dim line of its own, `continues your draft of "<title>"`,
    with the id where the earlier session had no title. [Review, submit and come back

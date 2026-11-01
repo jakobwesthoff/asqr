@@ -69,8 +69,8 @@ session file and asks. This is a session it could write, as
 {
   "asqr": 2,
   "title": "Release 0.2.0",
-  "intro": "Three decisions before the release. Skip what you cannot decide `yet`.",
-  "from": "release script",
+  "intro": "Three decisions before the release. Skip what you cannot decide yet.",
+  "from": "Claude Code, my-app",
   "questions": [
     {
       "id": "go",
@@ -128,10 +128,10 @@ and the time differ from run to run:
 ```json
 {
   "asqr": 2,
-  "id": "01M68C6004X3C3SK4S5X9RYNBS",
+  "id": "01M6BXW3XA3WPGW8SZPCYJ02XJ",
   "status": "submitted",
-  "submitted_at": "2026-10-31T08:01:09+01:00",
-  "session_sha256": "0b7af853270911da0703acd0ad93371681c078f649738c6a1d852b3590e83813",
+  "submitted_at": "2026-11-01T17:08:12+01:00",
+  "session_sha256": "bd9fa4ee202d5a219ba434cddd1020770af203e08bf18bea551c9bd928977bc9",
   "answers": [
     {
       "question": "go",
