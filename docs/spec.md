@@ -2153,7 +2153,9 @@ has context (section 7.4, ADRs 30 and 31):
   of agents never told a queue, in `default`, while this asqr watches
   another queue. asqr looks at the queues when it starts, when the queue
   switcher closes and every 5 seconds; a queue that cannot be read
-  counts as empty. Where the line does not fit, a single queue's name is
+  counts as empty. The look every 5 seconds also scans the inbox while a
+  withdrawal notice is held back and the drafts lock is free (section
+  7.9). Where the line does not fit, a single queue's name is
   cut from its start down to 12 columns, then the queues read `other
   queues`, then the line reads `N wait elsewhere` (`1 waits elsewhere`
   for one session); `w  queues` stays.
@@ -3032,7 +3034,8 @@ keeps the session and shows its own notice instead.
   that no saved draft had, as after keys that failed to save while the
   queue was busy (section 5.6). A scan that sees the session gone while
   the drafts lock is held and no session has arrived leaves the notice
-  for the next scan, which the new file's arrival triggers.
+  for the next scan, which the new file's arrival triggers or, once the
+  lock is free, the look at the other queues every 5 seconds (ADR 107).
 - A session colliding with an unread result (section 5.7) and a failure
   to write a draft or a result trigger a notice. A failure never ends
   asqr; answers stay in the TUI.

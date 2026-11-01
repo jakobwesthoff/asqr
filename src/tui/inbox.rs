@@ -114,6 +114,13 @@ pub struct Inbox {
     /// Called after each step of an operation under the drafts lock.
     #[cfg(test)]
     step_hook: Option<StepHook>,
+    /// What [`Inbox::queue_busy`] answers in a test, in place of looking at
+    /// the lock: `None` looks at it. A test that releases a real lock and
+    /// syncs once would otherwise depend on no other test's child process
+    /// still holding the lock's file description, which a spawn on another
+    /// thread leaves open for a moment.
+    #[cfg(test)]
+    busy: Option<bool>,
 }
 
 #[cfg(test)]
@@ -140,6 +147,8 @@ impl Inbox {
             counting: false,
             #[cfg(test)]
             step_hook: None,
+            #[cfg(test)]
+            busy: Some(false),
         }
     }
 
@@ -201,6 +210,13 @@ impl Inbox {
         self.lock_attempts = attempts;
     }
 
+    /// Makes [`Inbox::queue_busy`] answer `busy` without looking at the
+    /// lock, or look at it again for `None`.
+    #[cfg(test)]
+    pub(crate) fn set_busy(&mut self, busy: Option<bool>) {
+        self.busy = busy;
+    }
+
     /// The gate for an operation under the drafts lock.
     fn gate(&self) -> Gate<'static> {
         #[cfg(test)]
@@ -258,10 +274,23 @@ impl Inbox {
 
     /// Whether the drafts lock is held right now. It is tried once.
     fn queue_busy(&self) -> bool {
+        #[cfg(test)]
+        if let Some(busy) = self.busy {
+            return busy;
+        }
         matches!(
             crate::queue::lock_drafts(&self.location, 1),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock
         )
+    }
+
+    /// Whether a notice waits for another sync and the drafts lock is free
+    /// to sync under. The notice waits for the file a replacement writes,
+    /// and a holder that writes none leaves it waiting for good, so the run
+    /// loop asks this on its periodic tick. A sync under a lock that is
+    /// still held waits for it, which the loop must not do every tick.
+    pub fn pending_ready(&self) -> bool {
+        !self.pending.is_empty() && !self.queue_busy()
     }
 
     /// Forgets session `id`, which left the inbox, and tells the person
@@ -2059,7 +2088,10 @@ mod tests {
         assert_eq!(names(&location.inbox()), ["done.json", "waiting.json"]);
         assert_eq!(app.current_notice(), None);
 
+        // A child process may keep the dropped lock's file description
+        // open for a moment, so recovery waits for it as it does in a run.
         drop(held);
+        inbox.lock_attempts = DRAFTS_LOCK_ATTEMPTS;
         inbox.sync(&mut app).expect("synced");
         assert_eq!(ids(&app), ["waiting"], "recovered once the lock is free");
     }
@@ -2175,6 +2207,8 @@ mod tests {
         inbox.sync(&mut app).expect("synced");
         let effect = app.handle(key('2'));
         inbox.apply(&mut app, effect);
+        // The sync in the middle looks at the lock the replacement holds.
+        inbox.set_busy(None);
         let shown_midway = std::cell::Cell::new(true);
 
         let (inbox_ref, app_ref) = (&mut inbox, &mut app);
@@ -2218,6 +2252,8 @@ mod tests {
         inbox.sync(&mut app).expect("synced");
         let effect = app.handle(key('2'));
         inbox.apply(&mut app, effect);
+        // The sync in the middle looks at the lock the withdrawal holds.
+        inbox.set_busy(None);
 
         let (inbox_ref, app_ref) = (&mut inbox, &mut app);
         let gate = Gate {
@@ -2230,6 +2266,10 @@ mod tests {
         };
         crate::queue::withdraw_session_with(&location, "batch", true, gate).expect("withdrawn");
         assert_eq!(app.current_notice(), None);
+        // The lock is let go of, and a stray child process may still keep
+        // its file description open for a moment, so the sync that shows
+        // the notice does not look at it.
+        inbox.set_busy(Some(false));
         inbox.sync(&mut app).expect("synced");
 
         assert_eq!(
@@ -2240,6 +2280,58 @@ mod tests {
                 "\" by the asker, with your answers so far"
             ))
         );
+    }
+
+    #[test]
+    fn a_notice_held_back_is_ready_for_a_sync_once_the_lock_is_free() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+        withdraw_session(&location, "batch", true).expect("withdrawn");
+        assert!(!inbox.pending_ready(), "no notice is held back yet");
+
+        inbox.set_busy(Some(true));
+        inbox.sync(&mut app).expect("synced");
+        assert_eq!(app.current_notice(), None);
+        assert!(!inbox.pending_ready(), "the lock is held");
+
+        inbox.set_busy(Some(false));
+        assert!(inbox.pending_ready());
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(
+            app.current_notice(),
+            Some(&withdrawn(
+                Tone::Warning,
+                "batch",
+                "\" by the asker, with your answers so far"
+            ))
+        );
+        assert!(!inbox.pending_ready(), "the notice is shown");
+    }
+
+    #[test]
+    fn a_lock_held_by_another_open_file_description_holds_the_notice_back() {
+        let (_scratch, location) = queue();
+        put(&location, "batch.json", SESSION);
+        let (mut inbox, mut app) = (Inbox::new(location.clone()), App::default());
+        inbox.sync(&mut app).expect("synced");
+        let effect = app.handle(key('2'));
+        inbox.apply(&mut app, effect);
+        withdraw_session(&location, "batch", true).expect("withdrawn");
+        inbox.set_busy(None);
+
+        // A process that holds the lock, or a child that kept its file
+        // description open, looks the same to the inbox.
+        let held = crate::queue::lock_drafts(&location, 1).expect("locks");
+        inbox.sync(&mut app).expect("synced");
+
+        assert_eq!(app.current_notice(), None);
+        assert!(!inbox.pending_ready());
+        drop(held);
     }
 
     #[test]

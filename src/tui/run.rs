@@ -383,6 +383,20 @@ where
         .context("clearing the screen")
 }
 
+/// Brings `app` in line with the inbox and alerts the host to the sessions
+/// that arrived. The inbox coming back or not is out of asqr's hands; the
+/// notice says why nothing changes, and every later change tries again.
+fn sync_inbox(inbox: &mut Inbox, app: &mut App, host: &mut impl Host) {
+    match inbox.sync(app) {
+        Ok(synced) => {
+            if !synced.arrived.is_empty() {
+                host.alert(&synced.arrived);
+            }
+        }
+        Err(error) => app.notice(Tone::Error, format!("cannot read the inbox: {error}")),
+    }
+}
+
 /// Runs the app until the person quits or the events end. `o` writes the
 /// files it opens into `opened`.
 pub fn run<B: Backend>(
@@ -524,7 +538,16 @@ where
                 }
                 // A look at the other queues draws only what it changed.
                 Event::QueuesTick => {
-                    if app.set_elsewhere(host.elsewhere()) {
+                    let elsewhere = app.set_elsewhere(host.elsewhere());
+                    // A notice held back by the drafts lock waits for the
+                    // next change of the inbox, which a holder that writes
+                    // no file never causes, so the tick tries again once
+                    // the lock is free.
+                    let synced = inbox.pending_ready();
+                    if synced {
+                        sync_inbox(inbox, app, host);
+                    }
+                    if elsewhere || synced {
                         break event;
                     }
                 }
@@ -562,20 +585,8 @@ where
                 sent_progress = SentProgress::Unknown;
                 continue;
             }
-            // The inbox coming back or not is out of asqr's hands; the
-            // notice says why nothing changes, and every later change
-            // tries again.
             Event::InboxChanged => {
-                match inbox.sync(app) {
-                    Ok(synced) => {
-                        if !synced.arrived.is_empty() {
-                            host.alert(&synced.arrived);
-                        }
-                    }
-                    Err(error) => {
-                        app.notice(Tone::Error, format!("cannot read the inbox: {error}"))
-                    }
-                }
+                sync_inbox(inbox, app, host);
                 continue;
             }
         };
@@ -3273,6 +3284,89 @@ mod tests {
         assert_eq!(
             app.current_notice().map(|notice| notice.tone),
             Some(Tone::Error)
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // A withdrawal warning held back by the drafts lock
+    // -----------------------------------------------------------------
+
+    const HELD_BACK_WARNING: &str = "! ↩ withdrawn \"pick\" by the asker, with your answers so far";
+
+    /// A harness whose session `pick` holds a saved answer and was withdrawn
+    /// with `--force`, and whose inbox saw the withdrawal while the drafts
+    /// lock looked held, so the warning waits for another sync.
+    fn withdrawal_held_back() -> (Harness, App, Inbox) {
+        let mut harness = Harness::new();
+        harness.put("pick");
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
+        harness
+            .run_started(&mut app, &mut inbox, vec![key(KeyCode::Char('1'))])
+            .expect("runs");
+        crate::queue::withdraw_session(&harness.location, "pick", true).expect("withdrawn");
+        inbox.set_busy(Some(true));
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::InboxChanged])
+            .expect("runs");
+        assert_eq!(status_line(&harness), "", "the warning waits");
+        (harness, app, inbox)
+    }
+
+    #[test]
+    fn a_tick_shows_the_warning_the_lock_held_back_once_the_lock_is_free() {
+        let (mut harness, mut app, mut inbox) = withdrawal_held_back();
+
+        inbox.set_busy(Some(false));
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::QueuesTick])
+            .expect("runs");
+
+        assert_eq!(status_line(&harness), HELD_BACK_WARNING);
+    }
+
+    #[test]
+    fn a_tick_while_the_lock_is_held_syncs_nothing() {
+        let (mut harness, mut app, mut inbox) = withdrawal_held_back();
+        harness.put("next");
+
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::QueuesTick])
+            .expect("runs");
+
+        assert_eq!(status_line(&harness), "");
+        assert!(app.sessions().is_empty(), "the file waits for a sync");
+    }
+
+    #[test]
+    fn a_tick_with_no_warning_held_back_syncs_nothing() {
+        let mut harness = Harness::new();
+        let (mut app, mut inbox) =
+            start(harness.location.clone(), SettingsStore::default()).expect("started");
+        harness.put("pick");
+
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::QueuesTick])
+            .expect("runs");
+
+        assert!(app.sessions().is_empty(), "the file waits for a sync");
+    }
+
+    #[test]
+    fn a_tick_that_cannot_read_the_inbox_shows_the_error() {
+        let (mut harness, mut app, mut inbox) = withdrawal_held_back();
+        inbox.set_busy(Some(false));
+        fs::remove_dir(harness.location.inbox()).expect("removed");
+        fs::write(harness.location.inbox(), "in the way").expect("written");
+
+        harness
+            .run_started(&mut app, &mut inbox, vec![Event::QueuesTick])
+            .expect("keeps running");
+
+        assert!(
+            status_line(&harness).contains("cannot read the inbox"),
+            "{}",
+            harness.screen()
         );
     }
 

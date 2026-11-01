@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The warning that the asker withdrew a session you had answered could
+  stay out of the status line for good. When another process held the
+  drafts lock at the moment asqr saw the withdrawal, the warning waited
+  for the next change of the inbox, and none came. asqr now shows it
+  within 5 seconds of the lock being free.
+
 ## [0.16.0] - 2026-10-31
 
 ### Added
