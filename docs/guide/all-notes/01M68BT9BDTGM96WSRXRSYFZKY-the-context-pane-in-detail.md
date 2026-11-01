@@ -38,18 +38,40 @@ line is a rule too. When the entry is taller than the pane it says which
 lines show, such as `1–20 of 53`, and it names `tab` when the entry is
 taller or wider than the pane.
 
+## Scrolling from the question
+
+`pgup` and `pgdn` scroll the pane by a page less 2 lines, and `ctrl-u`
+and `ctrl-d` by half a page. They work while a pane shows, wherever the
+cursor is, also in the middle of typing in a field. The two lines at the
+edge of a page show again at the other end, so you keep your place. Half
+a page is half the height of the pane, rounded down, and at least one
+line.
+
+![ctrl-d pages the context pane while the text field has the keys](../pictures/scroll-while-typing.png)
+
+The keys that scroll by a line, `↑`/`↓` and `j`/`k`, the sideways keys
+`←`/`→` and `h`/`l`, and `g`/`G` and `home`/`end` only scroll a pane that
+has the focus. On the question they move the cursor or type.
+
+Without a pane, nothing is scrolled. In a field `pgup` and `pgdn` then do
+nothing, `ctrl-u` undoes your last edit and `ctrl-d` deletes the
+character under the cursor.
+
 ## Moving into the pane
 
-`tab` or `shift-tab` moves the focus into the pane, also from a field. A
-focused pane takes every key. The arrow keys, or `j` and `k`, scroll it
-by a line, and the pane's name shows the focus fill while its rules turn
-yellow. `tab`, `shift-tab`, `esc` or `q` give the focus back to where it
-was.
+`tab` or `shift-tab` moves the focus into the pane wherever one shows,
+also from a field, and never types into the field. A focused pane takes
+every key. The arrow keys, or `j` and `k`, scroll it by a line, and the
+pane's name shows the focus fill while its rules turn yellow. `tab`,
+`shift-tab`, `esc` or `q` give the focus back to where it was, even to a
+field you were typing in. That is why `q` does not quit asqr there: a
+word you type after `tab` cannot close it by accident.
 
 ![The context pane with the focus after tab: its rules and name turn yellow](../pictures/pane-focused.png)
 
-The keys that scroll the pane without moving into it are on the page about
-the [less obvious keys](01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md).
+`?` over the focused pane lists the pane's keys.
+
+![The help of the focused context pane](../pictures/pane-help.png)
 
 ## Full screen
 
@@ -59,6 +81,11 @@ reach the question behind it. It scrolls with the keys of the pane, and `z`,
 `esc`, `tab` or `q` leave it.
 
 ![The context shown full screen after z](../pictures/full-screen.png)
+
+`?` over the full-screen view lists its keys, under the title "Keys of
+the full-screen view".
+
+![The help of the full-screen view](../pictures/full-screen-help.png)
 
 ## Diffs
 

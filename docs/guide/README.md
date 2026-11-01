@@ -21,7 +21,6 @@ reading order. The pictures are in `pictures/`.
 - [The screen](all-notes/01M68BT9AJHW7WX304EQKGBGF6-the-screen.md), details of answering a session
 - [Questions and answers](all-notes/01M68BT9AXJNJQR45K1FBR9VTG-questions-and-answers.md), details of answering a session
 - [The context pane in detail](all-notes/01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md), details of the context pane
-- [Less obvious keys](all-notes/01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md), details of answering a session
 
 ### Your agent
 

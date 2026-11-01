@@ -48,9 +48,10 @@ digits and `backspace` are on
 `tab`, `o`, `z` and `s` are on [context: files, diffs and
 images](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md) and
 [the context pane in detail](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md),
-`pgup`/`pgdn` and `ctrl-u`/`ctrl-d` are on
-[less obvious keys](01M68BT9BTS0J2VR1Y5N4NMEVC-less-obvious-keys.md), `L`
-and `w` are on [queues](01M68C1XV58STWHBH179QYXPZR-queues.md) and `,` is on
+`pgup`/`pgdn` and `ctrl-u`/`ctrl-d` are on the same page under
+[scrolling from the
+question](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md#scrolling-from-the-question),
+`L` and `w` are on [queues](01M68C1XV58STWHBH179QYXPZR-queues.md) and `,` is on
 [settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
 
 ## On the review tab

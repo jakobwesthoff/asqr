@@ -86,6 +86,9 @@ agent with your answers.
   SIGINT. SIGTERM and SIGHUP quit asqr after the editor has ended.
 - A paste goes in as a whole at the cursor, and a line break in it never
   picks, submits or rejects.
+- `←` at the start of the text goes to the previous question and `→` at
+  its end goes to the next one, so you can leave a field sideways without
+  `esc`. `↑` leaves a field from its first row and `↓` from its last.
 - Every edit is saved to a draft as you go. `q` leaves asqr and the draft
   keeps your answers.
 
