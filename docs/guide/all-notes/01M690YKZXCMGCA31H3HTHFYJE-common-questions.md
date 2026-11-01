@@ -5,7 +5,8 @@ site:
   order: 3
 ---
 The questions people ask before and after their first session, each with
-a short answer and the page that has the details.
+a short answer and the page that has the details. [When something does not
+work](#when-something-does-not-work) at the end starts from what you see.
 
 ## Do I need an MCP server?
 
@@ -41,17 +42,6 @@ it normally does.
 Any agent that can run shell commands and write files. For its check of an
 installed skill, asqr knows where Claude Code, Codex, Gemini CLI, GitHub
 Copilot and Cursor keep skills.
-
-## My agent asked, but nothing shows up
-
-asqr and your agent use different queues. That happens when one of them
-runs inside a tmux session and the other outside it, or in another tmux
-session. While asqr has nothing else to say, its status line counts the
-sessions waiting in queues no asqr watches, such as `1 session waits in
-default   w  queues`, and `w` opens the queue switcher, where `enter`
-switches to that queue. Or start both the
-same way. [Queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) explains which
-queue each of them uses.
 
 ## What if asqr is not running when my agent asks?
 
@@ -117,3 +107,95 @@ asker took back. Everything else stays until you delete it with `asqr
 prune --yes`. [Keeping files, compact and
 prune](01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md) says
 how.
+
+## When something does not work
+
+### Nothing shows up when my agent asks
+
+asqr and your agent use different queues. That happens when one of them
+runs inside a tmux session and the other outside it, or in another tmux
+session. While asqr has nothing else to say, its status line counts the
+sessions waiting in queues no asqr watches, such as `1 session waits in
+default   w  queues`, and `w` opens the queue switcher, where `enter`
+switches to that queue. Or start both the
+same way. [Queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) explains which
+queue each of them uses.
+
+### No desktop notification arrives
+
+asqr sends its notification as an escape sequence, OSC 9 or OSC 777,
+which terminals such as Ghostty, iTerm2 and kitty show, and rings the
+bell with it. Sessions that already wait when asqr starts trigger
+nothing. Inside tmux the notification reaches your terminal only when
+tmux passes escape sequences through; without that asqr rings the bell
+instead. `--no-notify` switches notifications off. [Notifications, the
+terminal and tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives the line for your tmux
+configuration.
+
+### Images show as coarse blocks
+
+Inline images need a terminal with the Kitty graphics protocol (Ghostty,
+kitty), the iTerm2 protocol (iTerm2, WezTerm) or Sixel; other terminals
+get blocks. Inside tmux the image reaches your terminal only when tmux
+passes escape sequences through. [Notifications, the terminal and
+tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md#inside-tmux) gives the line for your tmux
+configuration.
+
+### asqr says another asqr is watching this queue
+
+`error: another asqr is watching this queue (pid <pid> on <host>)`: one
+asqr watches a queue, and another one runs on it already. Answer there,
+or quit that one first. `asqr queues` lists the queues in use and the
+asqr that watches each, with its tmux session. [Queues: keep your
+projects apart](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md)
+has the details.
+
+### asqr says it needs a terminal
+
+`error: asqr needs a terminal; run it in a terminal of its own`: asqr was
+started without a terminal on its input and output. Start it yourself in
+a terminal of its own.
+
+### asqr says the terminal is too small
+
+asqr needs at least 60 columns by 15 rows and says so in place of the
+screen on a smaller terminal. Make the window larger.
+
+### asqr shows a red card instead of a file
+
+The file an entry shows cannot be shown, and the card names the reason
+and the file, such as a missing file. `asqr ask` warns your agent about
+such a file when the problem is there already as it asks. [The context pane in
+detail](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md#an-entry-asqr-cannot-show)
+lists the reasons.
+
+### A dialog says a session is invalid
+
+Your agent wrote a session file that does not pass validation. asqr
+answered it with an error result that names each problem, so your agent
+gets them, and the dialog shows you the same list. Any key closes it.
+[Review, submit and come back
+later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md#when-a-session-is-invalid)
+shows it.
+
+### A setting does not change
+
+A row in the settings pane that shows `set by --layout`, `set by
+ASQR_LAYOUT` or `set by ASQR_KEEP_FILES` is held by that flag or
+variable, and `←`/`→` do nothing there. Start asqr without it to change
+the setting. [Settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md#a-setting-a-flag-or-a-variable-holds)
+has the details.
+
+### My agent says asqr does not know a kind or type
+
+The asqr that read your agent's session is older than the skill your
+agent learned the format from, such as an asqr that still runs from
+before an update. Quit asqr and start it again after an update.
+
+### The archive takes too much space
+
+Finished sessions and the copies asqr kept of their files stay until you
+delete them. `asqr prune --older-than 90d` lists what it would delete,
+and with `--yes` it deletes it. [Keeping files, compact and
+prune](01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md#making-room)
+says how.
