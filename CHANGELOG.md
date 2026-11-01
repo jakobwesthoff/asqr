@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as text in a quote. Under `NO_COLOR` the bars are dim and the title
   bold, without a colour. A line too wide for its room continues behind
   the bar. The skill tells an asker that these markers render.
+- The other dependencies are updated to their latest compatible
+  versions, among them notify 8.2.1, zip 9.2.1, similar 3.2.1 and
+  ratatui-textarea 0.9.4. unicode-width stays at 0.2.2: ratatui-core adds
+  a column per halfwidth sound mark on top of unicode-width, which 0.2.3
+  counts itself, so ratatui would draw such a mark in two cells.
 
 ### Fixed
 
