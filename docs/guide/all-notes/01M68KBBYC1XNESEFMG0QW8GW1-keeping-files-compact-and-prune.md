@@ -10,7 +10,25 @@ that [a replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-a
 can show them later. This page says what asqr keeps, how it packs the
 archive and how you delete from it.
 
-## What asqr keeps
+## Making room
+
+Finished sessions and the copies asqr kept of their files stay in the
+queue's archive until you delete them. The asqr that starts watching a
+queue packs the sessions older than 30 days into one zip for each month
+on its own, and deletes nothing. To delete old months:
+
+```sh
+asqr prune --older-than 90d
+asqr prune --older-than 90d --yes
+```
+
+The first command lists what it would delete and deletes nothing, the
+second deletes it. Any age of 30 days or more works. The results in the
+outbox stay. [Deleting with prune](#deleting-with-prune) has the rest.
+
+## Details
+
+### What asqr keeps
 
 A kept file lies in `archive/files/<sha256>.<ext>` of the queue, or as
 `files/<sha256>.<ext>` in a month bundle. `<sha256>` is the SHA-256 of the
@@ -35,7 +53,7 @@ path, its state, its SHA-256 and its size. The state is one of:
 
 A session that shows no file by path is archived as it is.
 
-## The Keep files setting
+### The Keep files setting
 
 The setting `keep_files` has three values.
 
@@ -63,7 +81,7 @@ time asqr starts without a settings file, it asks the value on a
 `asqr withdraw` and `asqr ask --replaces` keep no copies. They record each
 file as `not_kept`.
 
-### Quitting while copies are written
+#### Quitting while copies are written
 
 When you quit while the worker still has jobs, asqr gives the terminal back
 first and prints `keeping the files of <n> finished sessions, ctrl-c lets
@@ -71,7 +89,7 @@ go of them...` on stderr. It waits up to 10 seconds for the worker to
 finish its queue. `ctrl-c` ends the wait, and what is left is let go of.
 Those sessions keep their plain archive entry, without copies.
 
-## Compacting the archive
+### Compacting the archive
 
 Nothing is deleted automatically, apart from the draft of a finished
 session. `asqr compact` bundles finished sessions and results that are more
@@ -85,7 +103,7 @@ Each bundle that took in entries prints as `<month>.zip: <n> sessions, <n>
 results, <n> replaced results`. Without any, `nothing to compact` is
 printed.
 
-## Deleting with prune
+### Deleting with prune
 
 `asqr prune` is the only way asqr deletes sessions and results, and it
 deletes nothing without `--yes`. Without it, `prune` prints `would remove

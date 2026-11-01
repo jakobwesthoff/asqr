@@ -49,7 +49,9 @@ After a change the status line says what came of the save:
 In the second case the choice stays in effect for this run and the file
 does not have it.
 
-## A setting a flag or a variable holds
+## Details
+
+### A setting a flag or a variable holds
 
 `--layout` and `ASQR_LAYOUT` hold the `Context` setting, and `ASQR_KEEP_FILES`
 holds `Keep files`. A held row shows the value in effect, dim, with `set by
@@ -58,7 +60,7 @@ holds the row and what to do.
 
 ![The settings pane with the Context row held by --layout](../pictures/settings-locked.png)
 
-## The first start
+### The first start
 
 The first time `asqr` or `asqr watch` starts and no settings file exists,
 asqr shows a first-start screen before it reads the queue. It asks how
@@ -95,7 +97,7 @@ config directory, and for `asqr replay` and every other command. Only
 `asqr`, `asqr watch` and the terminal form of `asqr replay` read the
 settings file.
 
-## The settings file
+### The settings file
 
 asqr keeps the settings in `settings.toml` in the platform's config
 directory: `~/Library/Application Support/asqr/settings.toml` on macOS and

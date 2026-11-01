@@ -38,7 +38,16 @@ There is no `n` on the review tab.
 
 ![The review tab with a note to the asker and a reason for rejecting typed in](../pictures/review-rejected-note.png)
 
-## What happens next
+## Leaving without submitting
+
+`q` quits asqr and keeps your answers. asqr writes them to a draft every
+time they change while the session waits, and when it shows the session
+again it restores them. It matches the answers by question and option, and
+drops what no longer fits the session.
+
+## Details
+
+### What happens next
 
 The session leaves the screen. The next session in the queue takes over,
 or the one before it when it was the last, or the empty screen when none
@@ -60,14 +69,7 @@ own. One such case is a session file that changed on disk after you
 opened it: asqr does not send the answers, and loads the new version so
 that you see it before you answer.
 
-## Leaving without submitting
-
-`q` quits asqr and keeps your answers. asqr writes them to a draft every
-time they change while the session waits, and when it shows the session
-again it restores them. It matches the answers by question and option, and
-drops what no longer fits the session.
-
-## When a session is invalid
+### When a session is invalid
 
 A session file that fails validation never reaches the questions. asqr
 answers the asker with an error result that names the problem, and shows
@@ -79,7 +81,7 @@ and it does nothing else.
 
 The dialog also shows when no session is waiting.
 
-## When the asker takes a session back
+### When the asker takes a session back
 
 An asker can take a waiting session back with `asqr withdraw`. A session
 you had on screen, or had entered answers into, leaves with a notice in the
@@ -93,7 +95,7 @@ status line:
 
 A session that only waited in the queue leaves without a word.
 
-## When the asker replaces a session
+### When the asker replaces a session
 
 `asqr ask --replaces <id>` withdraws a waiting session and drops a reworked
 one in its place. asqr carries your draft over into the new session. It

@@ -16,7 +16,9 @@ asqr replay <REF>
 reference, and `asqr replay` opens one of them again, read-only, with your
 answers filled in and the copies asqr kept of the files it showed. `q` leaves it.
 
-## The list
+## Details
+
+### The list
 
 `asqr history` lists the finished sessions of the queue, newest first:
 
@@ -63,7 +65,7 @@ cannot be read gives a `warning:` line on stderr, and the other sessions
 are listed. `history` ends with 0, 1 or 2 only: how a session ended shows
 in its row and never as an exit code from 10 to 14.
 
-## Opening one
+### Opening one
 
 `asqr replay <REF>` opens the session with that reference. The reference
 is the one `history` prints. Six or more of its characters are accepted,
@@ -91,7 +93,7 @@ in any case.
   is `asqr replay <REF>`.
 - It exits with 0 when you quit.
 
-## The screen
+### The screen
 
 The replay is the screen you know, with your answers filled in and nothing
 writable. It opens on the first question, and its last tab is `Result`.
@@ -110,7 +112,7 @@ result. `enter` moves to the next question. Moving between questions and
 rows, `tab`, `o`, `z`, `s`, `i`, `?`, `q` and `ctrl-c` work as they do
 elsewhere.
 
-### The result tab
+#### The result tab
 
 The last tab opens with one line on how the session ended, such as `Sent
 Thu 29 Oct 16:41`. It lists every question with its answer, as the review
@@ -120,7 +122,7 @@ There is no submit button and no field.
 
 ![The Result tab of a replay: how the session ended and every answer](../pictures/replay-result.png)
 
-### A withdrawn session
+#### A withdrawn session
 
 The answers of a withdrawn session are the unsent draft that its result
 carries. They show dim, the option the draft picked ends in `◀ draft`,
@@ -131,7 +133,7 @@ your unsent draft`.
 
 An `error` result, or no result, leaves the session empty.
 
-## The files a session showed
+### The files a session showed
 
 A session shows files by path, and the file at that path may be gone or
 changed by now. A replay never draws the file at the original path. It

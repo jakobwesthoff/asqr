@@ -25,10 +25,12 @@ questions of your projects apart, and most of the time they need no setup.
   remove it, and `enter` or `y` does. [Removing a
   queue](#removing-a-queue) has the rest.
 
-The rest of this page covers choosing the queue in detail, moving between
-queues and the lists asqr shows about them.
+## Details
 
-## Which queue
+This part covers choosing the queue in detail, moving between queues
+and the lists asqr shows about them.
+
+### Which queue
 
 A queue is a directory with an inbox for the sessions, an outbox for the
 results, a place for drafts and an archive.
@@ -56,7 +58,7 @@ shell.
 `asqr ask`, `asqr wait` and the other commands take the same flags and
 variables.
 
-## Inside tmux
+### Inside tmux
 
 Inside tmux, asqr and the agents of the same tmux session use one queue
 without any setup. It is the queue asqr pinned in that session, and at
@@ -66,7 +68,7 @@ session. `asqr queues` lists the queues in use with their waiting and
 answered sessions and the asqr that watches each, with that asqr's tmux
 session.
 
-## The sessions waiting
+### The sessions waiting
 
 `L` opens the list of the sessions waiting in the queue, in queue order,
 each with how many of its questions are answered. `↑`/`↓` or `k`/`j`
@@ -74,7 +76,7 @@ move, `enter` switches to the session, and `esc` or `L` close the list.
 
 ![The list of the sessions waiting in the queue](../pictures/session-list.png)
 
-## Moving to another queue
+### Moving to another queue
 
 `w` opens the queue switcher, so you can change the queue without a
 restart. It lists the queues in use, sorted by name, with
@@ -107,7 +109,7 @@ asqr-todos`. In a field `w` types, and the focused pane takes it. While
 switch fails with `cannot switch to queue <name>: it is busy; try again in
 a moment`, and so does a pick in the start picker.
 
-## Removing a queue
+### Removing a queue
 
 A queue stays in the lists after you finished with its project. To take it
 out, press `backspace` on its row in the queue switcher (`w`) or in the
@@ -131,7 +133,7 @@ queues --removed` lists the queues removed this way.
   reason that you removed the queue, so the `asqr wait` of each waiting
   agent ends with exit code 10.
 
-## Which queues the lists show
+### Which queues the lists show
 
 `asqr queues`, the switcher and the start picker list the queues in use. A
 named queue is in use once something is asked into it or an asqr is
@@ -141,7 +143,7 @@ A queue from before asqr 0.17.0 is out of the lists until the next ask into
 it or the next start on it, unless a session waits in it or an asqr
 watches it.
 
-## Other queues with waiting sessions
+### Other queues with waiting sessions
 
 While asqr has nothing to say, the status line counts the sessions
 waiting in named queues that no asqr watches, such as
@@ -151,7 +153,7 @@ starts, when the switcher closes and every 5 seconds.
 
 ![The status line says two sessions wait in another queue](../pictures/status-elsewhere.png)
 
-## The start picker
+### The start picker
 
 Outside tmux, when no flag or variable chose a queue, and when there is a
 queue besides `default` that no other asqr watches, asqr asks which queue
