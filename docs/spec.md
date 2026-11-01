@@ -2214,7 +2214,9 @@ has context (section 7.4, ADRs 30 and 31):
 - Under `NO_COLOR` (section 6.2) the TUI draws without colours. Text,
   marks, pointers, bold, dim and reversed stay, so the screen says the
   same as with colours. The bar of a Markdown quote is dim instead of
-  blue. Images keep their colours. An `ansi` entry shows without any
+  blue, and the bars of a Markdown callout are dim instead of in the
+  colour of its kind, with its symbol and title bold in the text colour.
+  Images keep their colours. An `ansi` entry shows without any
   colour, RGB colours included; its attributes stay. Talqi on the empty
   queue is the outline of asqr's emblem in the same glyphs, without any
   colour; cells between its lines keep the background (section 7.5).
@@ -3080,7 +3082,7 @@ headings bold
 inline code in yellow, lists with bullets, task lists with `☐` for an
 open task and `☑` for a done one, which is dim apart from the items
 nested under it, quotes in the style of the text around them behind a
-blue bar, links underlined with their URL dimmed, tables whose cells
+blue bar, callouts (see below), links underlined with their URL dimmed, tables whose cells
 keep the styles of running text, rules, and code blocks highlighted
 when the fence names a language. A link written as a reference
 (`[text][ref]`) shows like an inline one. A footnote definition shows at
@@ -3089,8 +3091,9 @@ that nothing references does not show. A footnote reference shows its
 number dimmed in square brackets after the text it follows, and the
 footnote at the end starts with the same number. Numbers count from 1 in
 the order of the first references, whatever the labels are. A task item
-with no text shows its box alone. Quotes and lists nested so deep that a line would keep little
-room for its text stop indenting further.
+with no text shows its box alone. Quotes, callouts and lists nested so
+deep that a line would keep little room for its text stop indenting
+further.
 
 - Each text renders at the width it gets: a question text at the
   question's width, which stops at the reading width; the intro at the
@@ -3104,6 +3107,29 @@ room for its text stop indenting further.
   as written: its lines unstyled, wrapped to the width it gets, with no
   note. The log gets one warning for the text. A Markdown entry shows as
   plain text below a note instead (section 8.7).
+- A quote whose first line starts with a marker, `[!` and a type up to
+  the first `]` right after the `>` and at most one blank, shows as a
+  callout: a heavy bar `┃` on every line, and as its first line a symbol
+  and a bold title. The five kinds of GitHub's alerts have a symbol and
+  a colour for the bar, the symbol and the title:
+
+  | Marker         | Symbol | Colour  | Title     |
+  |----------------|--------|---------|-----------|
+  | `[!NOTE]`      | `●`    | blue    | Note      |
+  | `[!TIP]`       | `◆`    | green   | Tip       |
+  | `[!IMPORTANT]` | `■`    | magenta | Important |
+  | `[!WARNING]`   | `▲`    | yellow  | Warning   |
+  | `[!CAUTION]`   | `✕`    | red     | Caution   |
+
+  Any other type, such as `[!FOO]`, is a neutral callout: `○` and the
+  type as its title (`Foo`), in the text colour. The letter case of the
+  type does not matter. Text after the marker is the title in place of
+  the kind's name, as inline Markdown. The body follows on the next line,
+  without a blank line between, in the style of the text around the
+  callout. A callout nests in quotes, callouts and list items, its bar in
+  the order of the nesting. Quotes whose marker has text glued to it
+  (`> [!NOTE]text`, `> [!NOTE](url)`), has more than one blank or a tab
+  after the `>`, or is not on the first line stay quotes.
 - A table that fits the width it gets shows in a box whose columns
   follow the alignment of the delimiter row, a column without one with
   its header centred and its data left-aligned. No word breaks inside
@@ -3122,14 +3148,16 @@ room for its text stop indenting further.
 - A line wider than the width the text gets, such as a line of a code
   block, a long URL in running text, or a line of a record where a
   single wide character gets less room than it takes, wraps: each
-  further row repeats the blanks and quote bars the line starts with,
-  then blanks in
+  further row repeats the blanks and the bars of quotes and callouts the
+  line starts with, then blanks in
   place of a list item's `•`, `☐` or `☑`, or its number with the box
-  after it, then a dim `↪`, then the rest. Where that leaves no room for
+  after it, or a callout's symbol, then a dim `↪`, then the rest. Where
+  that leaves no room for
   a wide character after the `↪`, the further rows start with the `↪`
   alone, and where not even that fits, the line breaks without one. A
   number counts as an item's
-  only at the start of the line, after quote bars, so a line of code
+  only at the start of the line, after the bars of quotes and callouts,
+  so a line of code
   such as `1. x` in a code block stays code. A wide character that would
   cross the end of a row starts the next one. Nothing is cut, and
   nothing scrolls sideways. Tabs in code blocks expand to stops of 4

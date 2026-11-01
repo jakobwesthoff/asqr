@@ -179,7 +179,10 @@ included; under `NO_COLOR` it shows none.
 - Code and Markdown keep the colours their highlighting gives them,
   including yellow inline code, and an `ansi` entry the colours its text
   sets. A Markdown quote's bar is blue, apart
-  from the primary cyan; without colours it is dim.
+  from the primary cyan; without colours it is dim. A callout's bar,
+  symbol and title take the colour of its kind (blue, green, magenta,
+  yellow or red, none for other types); without colours its bars are dim
+  and its title bold.
 - A diff's unchanged lines keep the colours their highlighting gives
   them. Its changed lines are a red or green fill with the text in the
   theme's background colour, without syntax colours; side by side, each

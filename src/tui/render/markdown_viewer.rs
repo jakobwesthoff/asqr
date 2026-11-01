@@ -261,7 +261,7 @@ mod tests {
 
     use super::super::patine_adapter::MarkdownLook;
     use super::super::test_support::{
-        LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS, drawn, row, shown,
+        LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS, drawn, row, rows, shown,
     };
     use super::*;
 
@@ -819,6 +819,177 @@ mod tests {
         let (bar, text) = bar_and_text(true);
         assert_eq!((bar.fg, bar.modifier), (Color::Reset, Modifier::DIM));
         assert_eq!(text.modifier, Modifier::empty());
+    }
+
+    /// The viewer of `markdown`, as drawn with colours or, when `no_color`
+    /// is set, without.
+    fn looked(markdown: &str, no_color: bool) -> Content<Markdown> {
+        let entry: MarkdownEntry = serde_json::from_str(
+            &serde_json::json!({"type": "markdown", "content": markdown}).to_string(),
+        )
+        .expect("test entry parses");
+        markdown_content(&entry, MarkdownLook::new(no_color), None)
+    }
+
+    #[test]
+    fn a_note_callout_in_a_markdown_entry_has_a_blue_bar_and_title() {
+        let mut viewer = looked("> [!NOTE]\n> body", false);
+
+        let buf = drawn(&mut viewer, 20, 2, Offset::default());
+
+        assert_eq!([row(&buf, 0), row(&buf, 1)], ["┃ ● Note", "┃ body"]);
+        let blue = Color::Indexed(4);
+        assert_eq!(
+            (buf[(0, 0)].fg, buf[(0, 0)].modifier),
+            (blue, Modifier::empty()),
+            "the bar"
+        );
+        assert_eq!(
+            (buf[(2, 0)].fg, buf[(2, 0)].modifier),
+            (blue, Modifier::BOLD),
+            "the symbol"
+        );
+        assert_eq!(
+            (buf[(4, 0)].fg, buf[(4, 0)].modifier),
+            (blue, Modifier::BOLD),
+            "the title"
+        );
+        assert_eq!(
+            (buf[(0, 1)].fg, buf[(0, 1)].modifier),
+            (blue, Modifier::empty())
+        );
+        assert_eq!(
+            (buf[(2, 1)].fg, buf[(2, 1)].modifier),
+            (Color::Reset, Modifier::empty()),
+            "the body keeps the text around it"
+        );
+    }
+
+    #[test]
+    fn a_callout_under_no_color_has_a_dim_bar_and_a_bold_title_without_colour() {
+        let mut viewer = looked("> [!NOTE]\n> body", true);
+
+        let buf = drawn(&mut viewer, 20, 2, Offset::default());
+
+        assert_eq!([row(&buf, 0), row(&buf, 1)], ["┃ ● Note", "┃ body"]);
+        let plain = Color::Reset;
+        assert_eq!(
+            (buf[(0, 0)].fg, buf[(0, 0)].modifier),
+            (plain, Modifier::DIM),
+            "the bar"
+        );
+        assert_eq!(
+            (buf[(2, 0)].fg, buf[(2, 0)].modifier),
+            (plain, Modifier::BOLD),
+            "the symbol"
+        );
+        assert_eq!(
+            (buf[(4, 0)].fg, buf[(4, 0)].modifier),
+            (plain, Modifier::BOLD),
+            "the title"
+        );
+        assert_eq!(
+            (buf[(0, 1)].fg, buf[(0, 1)].modifier),
+            (plain, Modifier::DIM)
+        );
+        assert_eq!(
+            (buf[(2, 1)].fg, buf[(2, 1)].modifier),
+            (plain, Modifier::empty())
+        );
+    }
+
+    #[test]
+    fn every_alert_kind_has_its_symbol_and_colour_and_an_unknown_type_is_neutral() {
+        // A palette slot per kind: blue, green, magenta, yellow, red.
+        let kinds = [
+            ("NOTE", "●", "Note", Color::Indexed(4)),
+            ("TIP", "◆", "Tip", Color::Indexed(2)),
+            ("IMPORTANT", "■", "Important", Color::Indexed(5)),
+            ("WARNING", "▲", "Warning", Color::Indexed(3)),
+            ("CAUTION", "✕", "Caution", Color::Indexed(1)),
+            ("FOO", "○", "Foo", Color::Reset),
+        ];
+        for (marker, symbol, title, colour) in kinds {
+            let mut viewer = looked(&format!("> [!{marker}]\n> body"), false);
+
+            let buf = drawn(&mut viewer, 20, 2, Offset::default());
+
+            assert_eq!(row(&buf, 0), format!("┃ {symbol} {title}"));
+            for x in [0, 2, 4] {
+                assert_eq!(buf[(x, 0)].fg, colour, "{marker} at column {x}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_marker_with_text_glued_to_it_stays_a_quote() {
+        for text in [
+            "> [!NOTE]text",
+            "> [!NOTE](https://example.com)",
+            ">  [!NOTE] two blanks",
+        ] {
+            let mut viewer = looked(text, false);
+
+            let buf = drawn(&mut viewer, 40, 1, Offset::default());
+
+            assert!(row(&buf, 0).starts_with("│ "), "{text} shows as a quote");
+        }
+    }
+
+    #[test]
+    fn a_callout_title_wraps_under_its_text_and_takes_the_rows_it_needs() {
+        let mut viewer = looked("> [!NOTE] aa bb cc\n> x", false);
+
+        let size = viewer.lay_out(8, 10);
+        let buf = drawn(&mut viewer, 8, 4, Offset::default());
+
+        assert_eq!(size.lines, 4);
+        assert!(size.columns <= 8);
+        assert_eq!(
+            [row(&buf, 0), row(&buf, 1), row(&buf, 2), row(&buf, 3)],
+            ["┃ ● aa", "┃   bb", "┃   cc", "┃ x"]
+        );
+    }
+
+    #[test]
+    fn a_callout_title_of_wide_graphemes_stays_inside_the_pane() {
+        for width in [7, 8] {
+            let mut viewer = looked("> [!NOTE] 日本語日本語日本語 😀😀😀\n> x", false);
+
+            let size = viewer.lay_out(width, 10);
+            let buf = drawn(&mut viewer, width, 12, Offset::default());
+
+            assert!(size.columns <= usize::from(width), "width {width}");
+            let text = rows(&buf).join("");
+            for grapheme in ["日", "本", "語", "😀"] {
+                assert!(text.contains(grapheme), "nothing is cut at width {width}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_long_url_in_a_callout_continues_behind_its_bar() {
+        let mut viewer = looked("> [!NOTE]\n> https://example.com/a/very/long/path", false);
+
+        let buf = drawn(&mut viewer, 16, 4, Offset::default());
+
+        assert_eq!(row(&buf, 1), "┃ https://exampl");
+        assert_eq!(row(&buf, 2), "┃ ↪ e.com/a/very");
+        assert_eq!(
+            (buf[(0, 2)].fg, buf[(0, 2)].modifier),
+            (Color::Indexed(4), Modifier::empty()),
+            "the repeated bar keeps the callout's colour"
+        );
+    }
+
+    #[test]
+    fn a_long_word_in_a_callout_title_continues_under_its_text() {
+        let mut viewer = looked("> [!NOTE] https://example.com/a/very/long/path", false);
+
+        let buf = drawn(&mut viewer, 16, 4, Offset::default());
+
+        assert_eq!(row(&buf, 0), "┃ ● https://exam");
+        assert_eq!(row(&buf, 1), "┃   ↪ ple.com/a/");
     }
 
     #[test]

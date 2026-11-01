@@ -291,10 +291,10 @@ paths --json` shows where the queue's files are.
   `references/context.md` (`asqr skill context`) before you write any
   entry.
 - `intro`, question `text`, option `label` and option `description` are
-  Markdown and show rendered, task lists (`- [ ]`, `- [x]`), tables and
-  code blocks included. Name the language of a code block's fence so it
-  is highlighted. A single newline breaks the line, and a blank line
-  starts a new paragraph. `<` shows as written, so `Vec<String>` needs
+  Markdown and show rendered, task lists (`- [ ]`, `- [x]`), tables,
+  alerts (`> [!NOTE]`) and code blocks included. Name the language of a
+  code block's fence so it is highlighted. A single newline breaks the line,
+  and a blank line starts a new paragraph. `<` shows as written, so `Vec<String>` needs
   no backticks, and HTML tags show as their source. Keep option
   descriptions short: on a small terminal the person scrolls through a
   long one before reaching the next option.

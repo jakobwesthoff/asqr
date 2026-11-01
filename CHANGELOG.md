@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- With patine 2.2.0, GitHub alerts show as callouts wherever asqr renders
+  Markdown: intros, question texts, option labels and descriptions,
+  captions and Markdown entries. `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
+  `[!WARNING]` and `[!CAUTION]` draw a heavy bar `┃` on every line and a
+  bold title after a symbol, in blue, green, magenta, yellow and red; any
+  other type (`[!FOO]`) is a neutral callout. Before, the marker showed
+  as text in a quote. Under `NO_COLOR` the bars are dim and the title
+  bold, without a colour. A line too wide for its room continues behind
+  the bar. The skill tells an asker that these markers render.
+
 ### Fixed
 
 - The warning that the asker withdrew a session you had answered could

@@ -5863,6 +5863,152 @@ mod tests {
         }
     }
 
+    /// A callout of another kind in each place that renders Markdown: the
+    /// intro, the question text, an option's label and description and a
+    /// Markdown entry in the pane.
+    const CALLOUTS: &str = r#"{"asqr": 2, "title": "Callouts", "intro": "> [!NOTE]\n> intro body",
+        "questions": [{"id": "q", "text": "> [!IMPORTANT]\n> text body", "kind": "single",
+            "options": [{"id": "a", "label": "Alpha", "description": "> [!TIP]\n> described body"},
+                        {"id": "b", "label": "> [!WARNING]\n> labelled body"}],
+            "context": [{"type": "markdown", "content": "> [!CAUTION]\n> context body"}]}]}"#;
+
+    /// Checks the callout whose title row starts with `title` in `buf`,
+    /// from row `from` on. Its bar is `colour` or, without colours, dim; its
+    /// symbol and title are bold, in `colour` or in none. Both carry
+    /// `around`, the modifiers of the text the callout stands in. A `body`
+    /// names the text on the row below, which keeps `around` alone. Returns
+    /// the row of the title.
+    fn assert_callout(
+        buf: &Buffer,
+        from: u16,
+        title: &str,
+        (colour, no_color): (Color, bool),
+        around: Modifier,
+        body: Option<&str>,
+    ) -> u16 {
+        let (x, y) = find_from(buf, from, title);
+        let colour = if no_color { Color::Reset } else { colour };
+        let dim = if no_color {
+            Modifier::DIM
+        } else {
+            Modifier::empty()
+        };
+        let context = format!("{title} (no_color {no_color})");
+        assert_eq!(
+            (buf[(x, y)].fg, buf[(x, y)].modifier),
+            (colour, dim | around),
+            "the bar of {context}"
+        );
+        for offset in [2, 4] {
+            assert_eq!(
+                (buf[(x + offset, y)].fg, buf[(x + offset, y)].modifier),
+                (colour, Modifier::BOLD | around),
+                "the symbol and title of {context}"
+            );
+        }
+        if let Some(body) = body {
+            let (body_x, body_y) = find_from(buf, y, body);
+            assert_eq!(body_y, y + 1, "the body of {context} is below the title");
+            assert_eq!(
+                (buf[(body_x, body_y)].fg, buf[(body_x, body_y)].modifier),
+                (Color::Reset, around),
+                "the body of {context}"
+            );
+        }
+        y
+    }
+
+    #[test]
+    fn every_markdown_callout_has_a_coloured_bar_and_a_dim_one_under_no_color() {
+        let blue = Color::Indexed(4);
+        let (green, yellow, red) = (Color::Indexed(2), Color::Indexed(3), Color::Indexed(1));
+        let magenta = Color::Indexed(5);
+        let mut app = app(&[("callouts", CALLOUTS)]);
+        let (coloured, colourless) = with_and_without_colours(&app, 120, 40);
+        for (buf, no_color) in [(&coloured, false), (&colourless, true)] {
+            let none = Modifier::empty();
+            assert_callout(
+                buf,
+                0,
+                "┃ ● Note",
+                (blue, no_color),
+                none,
+                Some("intro body"),
+            );
+            assert_callout(
+                buf,
+                0,
+                "┃ ■ Important",
+                (magenta, no_color),
+                none,
+                Some("text body"),
+            );
+            assert_callout(
+                buf,
+                0,
+                "┃ ◆ Tip",
+                (green, no_color),
+                none,
+                Some("described body"),
+            );
+            assert_callout(
+                buf,
+                0,
+                "┃ ✕ Caution",
+                (red, no_color),
+                none,
+                Some("context body"),
+            );
+            // A label is bold, its callout included.
+            let around = Modifier::BOLD;
+            assert_callout(
+                buf,
+                0,
+                "┃ ▲ Warning",
+                (yellow, no_color),
+                around,
+                Some("labelled body"),
+            );
+        }
+
+        // The label in the review's summary is dim and on one row, so the
+        // title carries the dim and its body follows on the same row.
+        special(&mut app, KeyCode::Down);
+        special(&mut app, KeyCode::Enter);
+        let (coloured, colourless) = with_and_without_colours(&app, 120, 40);
+        for (buf, no_color) in [(&coloured, false), (&colourless, true)] {
+            let review = find(buf, "Review your answers").1;
+            assert_callout(
+                buf,
+                review,
+                "┃ ▲ Warning",
+                (yellow, no_color),
+                Modifier::DIM,
+                None,
+            );
+        }
+    }
+
+    #[test]
+    fn a_callout_in_a_caption_has_a_coloured_bar_and_a_dim_one_under_no_color() {
+        let file = png();
+        let app = with_captioned_image(
+            file.path().to_str().expect("UTF-8 path"),
+            "> [!NOTE]\n> caption body",
+        );
+        let (coloured, colourless) = with_and_without_colours(&app, 120, 40);
+        for (buf, no_color) in [(&coloured, false), (&colourless, true)] {
+            assert_callout(
+                buf,
+                0,
+                "┃ ● Note",
+                (Color::Indexed(4), no_color),
+                Modifier::empty(),
+                Some("caption body"),
+            );
+        }
+    }
+
     /// One text question with inline code, a diff and a length.
     const TYPED_OVER_A_DIFF: &str = r#"{"asqr": 2, "questions": [{"id": "q",
         "text": "Keep `retry` as it is?", "kind": "text", "length": {"target": [1, 120], "warn": 140},

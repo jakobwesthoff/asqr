@@ -16,6 +16,8 @@ Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-afte
 
 Amended by [94. Show a Markdown entry above 1 MiB as plain text](0094-show-a-markdown-entry-above-1-mib-as-plain-text.md)
 
+Amended by [109. Draw GitHub alerts as callouts, dim under NO_COLOR](0109-draw-github-alerts-as-callouts-dim-under-no-color.md)
+
 ## Context
 
 A `code` entry is shown exactly as written and highlighted, and a

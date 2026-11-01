@@ -20,6 +20,8 @@ the header names an `ansi` entry without a title or a path by its kind
 
 Amended by [75. Cut a text entry after 500,000 lines](0075-cut-a-text-entry-after-500000-lines.md)
 
+Amended by [109. Draw GitHub alerts as callouts, dim under NO_COLOR](0109-draw-github-alerts-as-callouts-dim-under-no-color.md)
+
 ## Context
 
 - Format version 2 had four context entry types: `image`, `code`,

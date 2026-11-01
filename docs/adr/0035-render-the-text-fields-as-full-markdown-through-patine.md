@@ -16,6 +16,8 @@ Amended by [57. Show a Markdown table that does not fit as records](0057-show-a-
 
 Amended by [99. Show text fields the Markdown parser panics on as written](0099-show-text-fields-the-markdown-parser-panics-on-as-written.md)
 
+Amended by [109. Draw GitHub alerts as callouts, dim under NO_COLOR](0109-draw-github-alerts-as-callouts-dim-under-no-color.md)
+
 ## Context
 
 The session's text fields are the intro, question texts and option

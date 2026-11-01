@@ -8,7 +8,10 @@
 //! line wider than the space it gets wraps, and each further row starts
 //! with a dim `↪`, so nothing is cut off.
 
-use patine::{AnsiColor, QuoteStyle, RenderOptions, StyledLine, TextStyle, Underline};
+use patine::{
+    AnsiColor, CalloutColors, CalloutStyle, QuoteStyle, RenderOptions, StyledLine, TextStyle,
+    Underline,
+};
 use ratatui::style::{Color, Modifier, Style};
 
 use super::source_line::{SourceLine, columns};
@@ -47,10 +50,12 @@ impl MarkdownLook {
         !self.no_color
     }
 
-    /// patine's options for this look: the style of quotes, on top of
-    /// which each place sets what else it renders differently.
+    /// patine's options for this look: the styles of quotes and callouts, on
+    /// top of which each place sets what else it renders differently.
     pub(super) const fn options(self) -> RenderOptions {
-        RenderOptions::new().with_quote_style(quote_style(self.no_color))
+        RenderOptions::new()
+            .with_quote_style(quote_style(self.no_color))
+            .with_callout_style(callout_style(self.no_color))
     }
 }
 
@@ -63,6 +68,21 @@ const fn quote_style(no_color: bool) -> QuoteStyle {
         QuoteStyle::Bar(AnsiColor::Blue)
     }
 }
+
+/// Every kind of callout in the colour patine gives it, and dim bars with
+/// bold titles under `NO_COLOR`, for the reason of [`quote_style`]. patine
+/// does not derive this from the quote style.
+const fn callout_style(no_color: bool) -> CalloutStyle {
+    if no_color {
+        CalloutStyle::DimBar
+    } else {
+        CalloutStyle::Colored(CalloutColors::new())
+    }
+}
+
+/// What patine draws before the title of a callout: the symbol of its kind
+/// and a blank, which a wrapped title lines up behind.
+const CALLOUT_SYMBOLS: [&str; 6] = ["● ", "◆ ", "■ ", "▲ ", "✕ ", "○ "];
 
 /// What patine draws in place of a bullet for a task list item, open or
 /// done, and after the number of an ordered one.
@@ -127,8 +147,8 @@ pub(super) fn source_line(line: &StyledLine) -> SourceLine {
 /// grapheme, such as a wide character, is wider than the room it gets,
 /// and any line where quote bars and indents leave no room. Such a line
 /// wraps here: each further row repeats the line's indent, the
-/// blanks and blockquote bars it starts with and a list item's marker as
-/// blanks (see [`indent`]), so a code block's lines stay inside the block
+/// blanks and quote and callout bars it starts with and a list item's
+/// marker or a callout's symbol as blanks (see [`indent`]), so a code block's lines stay inside the block
 /// and an item's text inside the item, then a dim `↪` and the next part.
 /// Where the indent leaves no room for a wide character after the marker,
 /// the rows start with the marker alone, and where not even that fits,
@@ -217,9 +237,15 @@ fn wrapped_rows(
 }
 
 /// What the continuation rows of `line` repeat before their marker, in
-/// its styles, and its width: the blanks and blockquote bars the line
-/// starts with, then the marker of a list item turned into blanks, so the
-/// rest of an item lines up under its text rather than under its marker.
+/// its styles, and its width: the blanks and the bars of quotes (`│`) and
+/// callouts (`┃`) the line starts with, then the marker of a list item
+/// turned into blanks, so the rest of an item lines up under its text
+/// rather than under its marker.
+///
+/// The symbol of a callout and its blank (`● `, `◆ `, `■ `, `▲ `, `✕ ` or
+/// `○ `) count like a marker where the bars end in a callout's, as patine
+/// lines a wrapped title up under its text. A body line of a callout that
+/// itself starts with such a symbol is read as a title.
 ///
 /// A bullet, `• `, or the box of a task, `☐ ` or `☑ `, counts after any
 /// blanks and bars, as patine indents a nested item with blanks. A number,
@@ -239,7 +265,7 @@ fn indent(line: &SourceLine) -> Indent {
         }
         let blanks_and_bars: String = text
             .chars()
-            .take_while(|c| matches!(c, ' ' | '│'))
+            .take_while(|c| matches!(c, ' ' | '│' | '┃'))
             .collect();
         rest.push_str(&text[blanks_and_bars.len()..]);
         lead.push_str(&blanks_and_bars);
@@ -260,10 +286,14 @@ fn indent(line: &SourceLine) -> Indent {
         columns("• ")
     } else if let Some(width) = task_box(&rest) {
         width
-    } else if only_quote_bars(&lead) {
+    } else if only_bars(&lead) {
         let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
         if digits > 0 && rest[digits..].starts_with(". ") {
             digits + 2 + task_box(&rest[digits + 2..]).unwrap_or(0)
+        } else if lead.trim_end().ends_with('┃')
+            && CALLOUT_SYMBOLS.iter().any(|s| rest.starts_with(s))
+        {
+            columns(CALLOUT_SYMBOLS[0])
         } else {
             0
         }
@@ -291,12 +321,13 @@ fn leading_blanks(line: &SourceLine) -> Indent {
     }
 }
 
-/// Whether `lead` is nothing but blockquote bars, each followed by at most
-/// the one blank patine puts after it.
-fn only_quote_bars(lead: &str) -> bool {
+/// Whether `lead` is nothing but the bars of quotes and callouts, each
+/// followed by at most the one blank patine puts after it.
+fn only_bars(lead: &str) -> bool {
     let mut previous = None;
     lead.chars().all(|c| {
-        let bar_or_its_blank = c == '│' || previous == Some('│');
+        let is_bar = |c| matches!(c, '│' | '┃');
+        let bar_or_its_blank = is_bar(c) || previous.is_some_and(is_bar);
         previous = Some(c);
         bar_or_its_blank
     })
@@ -535,6 +566,115 @@ mod tests {
         assert_eq!(
             MarkdownLook::new(true).options().quote_style,
             QuoteStyle::DimBar
+        );
+    }
+
+    /// The rows of the Markdown `source` as patine renders it in the look
+    /// of a screen with colours, at `width` columns.
+    fn rendered_rows(source: &str, width: usize) -> Vec<String> {
+        let options = MarkdownLook::new(false).options();
+        texts(&markdown_rows(
+            &patine::render_lines_with(source, width, &options),
+            width,
+        ))
+    }
+
+    #[test]
+    fn a_continuation_repeats_a_callouts_bar_also_fused_with_the_text() {
+        let word = "a".repeat(30);
+
+        // The bar of a neutral callout has the style of its text, and
+        // patine puts both in one span.
+        assert_eq!(
+            rows_of(&["┃ ", &word], 20),
+            [
+                format!("┃ {}", "a".repeat(18)),
+                format!("┃ ↪ {}", "a".repeat(12))
+            ]
+        );
+        assert_eq!(
+            rows_of(&[&format!("┃ {word}")], 20),
+            [
+                format!("┃ {}", "a".repeat(18)),
+                format!("┃ ↪ {}", "a".repeat(12))
+            ]
+        );
+        // Dim bars of a quote and a callout are one span without colours.
+        assert_eq!(
+            rows_of(&[&format!("│ ┃ {word}")], 20),
+            [
+                format!("│ ┃ {}", "a".repeat(16)),
+                format!("│ ┃ ↪ {}", "a".repeat(14))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_continuation_of_a_numbered_line_in_a_callout_lines_up_under_its_text() {
+        let word = "a".repeat(50);
+
+        assert_eq!(
+            rows_of(&["┃ ", "3. ", &word], 40),
+            [
+                format!("┃ 3. {}", "a".repeat(35)),
+                format!("┃    ↪ {}", "a".repeat(15))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_continuation_of_a_callout_title_lines_up_under_its_text() {
+        let word = "a".repeat(50);
+
+        assert_eq!(
+            rows_of(&["┃ ", "● ", &word], 40),
+            [
+                format!("┃ ● {}", "a".repeat(36)),
+                format!("┃   ↪ {}", "a".repeat(14))
+            ]
+        );
+        // Only a callout's line starts with a title's symbol: a quote's does
+        // not line its continuation up under the text.
+        assert_eq!(
+            rows_of(&["│ ", "● ", &word], 40),
+            [
+                format!("│ ● {}", "a".repeat(36)),
+                format!("│ ↪ {}", "a".repeat(14))
+            ]
+        );
+    }
+
+    #[test]
+    fn a_callout_nests_with_quotes_and_list_items_behind_every_bar() {
+        let word = "a".repeat(30);
+        let in_callout = format!("> [!NOTE]\n> > {word}");
+        let in_quote = format!("> > [!NOTE]\n> > {word}");
+        let in_item = format!("- > [!NOTE] t\n  > {word}");
+
+        assert_eq!(
+            rendered_rows(&in_callout, 20),
+            [
+                "┃ ● Note",
+                &format!("┃ │ {}", "a".repeat(16)),
+                &format!("┃ │ ↪ {}", "a".repeat(14))
+            ]
+        );
+        assert_eq!(
+            rendered_rows(&in_quote, 20),
+            [
+                "│ ┃ ● Note",
+                &format!("│ ┃ {}", "a".repeat(16)),
+                &format!("│ ┃ ↪ {}", "a".repeat(14))
+            ]
+        );
+        assert_eq!(
+            rendered_rows(&in_item, 20),
+            [
+                "• ",
+                "  ┃ ● t",
+                &format!("  ┃ {}", "a".repeat(16)),
+                &format!("  ┃ ↪ {}", "a".repeat(14))
+            ]
         );
     }
 

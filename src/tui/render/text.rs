@@ -304,6 +304,45 @@ mod tests {
     }
 
     #[test]
+    fn a_callout_in_a_text_field_has_the_bar_of_its_kind_and_a_dim_one_without_colours() {
+        let source = "> [!TIP]\n> body";
+        let bold = Style::new().add_modifier(Modifier::BOLD);
+
+        let coloured = field_lines(source, 40, MarkdownLook::new(false));
+        assert_eq!(texts(&coloured), ["┃ ◆ Tip", "┃ body"]);
+        assert_eq!(
+            spans(&coloured[0]),
+            [
+                ("┃ ".to_owned(), Style::new().fg(Color::Indexed(2))),
+                ("◆ Tip".to_owned(), bold.fg(Color::Indexed(2))),
+            ],
+            "a green bar, symbol and title"
+        );
+        let colourless = field_lines(source, 40, MarkdownLook::new(true));
+        assert_eq!(
+            spans(&colourless[0]),
+            [
+                ("┃ ".to_owned(), Style::new().dim()),
+                ("◆ Tip".to_owned(), bold),
+            ],
+            "a dim bar, a bold title and no colour"
+        );
+    }
+
+    #[test]
+    fn a_callout_label_beside_a_default_marker_wraps_inside_the_first_line() {
+        let source = "> [!NOTE] ab cd ef gh";
+        let look = MarkdownLook::new(false);
+
+        let lines = field_lines_from(source, 8, 20, look);
+
+        assert_eq!(texts(&lines), ["┃ ● ab", "┃   cd ef gh"]);
+        assert!(lines[0].width() <= 8);
+        let wide = field_lines_from("> [!NOTE] abcdefghijkl", 8, 20, look);
+        assert_eq!(texts(&wide), ["┃ ● abcd", "┃   ↪ efghijkl"]);
+    }
+
+    #[test]
     fn a_text_takes_its_first_width_on_its_first_line_only() {
         let words = "a01 a02 a03 a04 a05 a06 a07 a08 a09 a10 a11 a12";
 

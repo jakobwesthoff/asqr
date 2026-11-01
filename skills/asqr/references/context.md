@@ -48,7 +48,11 @@ Every entry has a `type` and an optional `title`:
   follows CommonMark, unlike the question text: a single newline joins
   the lines (a blank line starts a paragraph, a trailing backslash
   breaks the line), and raw HTML is left out, so put `<` into code
-  spans, such as `` `Vec<String>` ``.
+  spans, such as `` `Vec<String>` ``. A quote that starts with `[!NOTE]`,
+  `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` on its first
+  line shows as a callout with a bold title, such as
+  `> [!WARNING] Back up first` followed by `> the body`. The same
+  markers work in the question text, the intro, labels and descriptions.
 - `{ "type": "ansi", "path": "..." }` or `{ "type": "ansi",
   "content": "..." }`: text in the colours its own escape sequences
   set, such as the output of a command run with its colours or a

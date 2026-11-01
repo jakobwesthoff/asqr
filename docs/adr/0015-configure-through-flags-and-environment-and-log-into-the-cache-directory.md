@@ -17,6 +17,8 @@ Amended by [91. Rotate the log at 1 MiB and keep old logs compressed](0091-rotat
 Amended by [92. Keep settings in a file](0092-keep-settings-in-a-file.md):
 settings may also come from a file
 
+Amended by [109. Draw GitHub alerts as callouts, dim under NO_COLOR](0109-draw-github-alerts-as-callouts-dim-under-no-color.md)
+
 ## Context
 
 asqr has few settings: the queue, notifications and the bell. The
