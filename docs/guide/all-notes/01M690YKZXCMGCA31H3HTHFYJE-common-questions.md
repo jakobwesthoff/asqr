@@ -141,8 +141,8 @@ Inline images need a terminal with the Kitty graphics protocol (Ghostty, kitty),
 the iTerm2 protocol (iTerm2, WezTerm) or Sixel; other terminals get blocks.
 Inside tmux the image reaches your terminal only when tmux passes escape
 sequences through. [Notifications, the terminal and
-tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives
-the line for your tmux configuration.
+tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md#inside-tmux)
+gives the line for your tmux configuration.
 
 ### asqr says another asqr is watching this queue
 
@@ -169,7 +169,7 @@ screen on a smaller terminal. Make the window larger.
 The file an entry shows cannot be shown, and the card names the reason
 and the file, such as a missing file. `asqr ask` warns your agent about
 such a file when the problem is there already as it asks. [The context pane in
-detail](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md)
+detail](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md#an-entry-asqr-cannot-show)
 lists the reasons.
 
 ### A dialog says a session is invalid
@@ -178,7 +178,7 @@ Your agent wrote a session file that does not pass validation. asqr
 answered it with an error result that names each problem, so your agent
 gets them, and the dialog shows you the same list. Any key closes it.
 [Review, submit and come back
-later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md)
+later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md#when-a-session-is-invalid)
 shows it.
 
 ### A setting does not change
@@ -186,7 +186,8 @@ shows it.
 A row in the settings pane that shows `set by --layout`, `set by
 ASQR_LAYOUT` or `set by ASQR_KEEP_FILES` is held by that flag or
 variable, and `←`/`→` do nothing there. Start asqr without it to change
-the setting. [Settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
+the setting.
+[Settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md#a-setting-a-flag-or-a-variable-holds)
 has the details.
 
 ### My agent says asqr does not know a kind or type
@@ -200,5 +201,5 @@ before an update. Quit asqr and start it again after an update.
 Finished sessions and the copies asqr kept of their files stay until you
 delete them. `asqr prune --older-than 90d` lists what it would delete,
 and with `--yes` it deletes it. [Keeping files, compact and
-prune](01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md)
+prune](01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md#making-room)
 says how.

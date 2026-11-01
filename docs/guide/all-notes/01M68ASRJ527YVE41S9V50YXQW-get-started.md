@@ -62,7 +62,7 @@ without any setup. Outside tmux, both use the default queue.
 The first time asqr starts, it asks whether to keep copies of the files a
 session showed. `enter` twice keeps the default, compact copies. `q` quits
 without saving, and the next start asks again. The [settings
-page](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md) describes the
+page](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md#the-first-start) describes the
 screen.
 
 ![The first-start screen, which asks whether asqr keeps the files a session showed](../pictures/first-start.png)

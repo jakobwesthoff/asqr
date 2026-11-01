@@ -138,8 +138,8 @@ protocol (iTerm2, WezTerm) or Sixel show an image inline. Other terminals get a
 coarse rendering in blocks. Inside tmux, images reach the terminal only when
 tmux passes escape sequences through, and without that asqr shows images as
 coarse blocks. [Notifications, the terminal and
-tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives
-the line for your tmux configuration.
+tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md#inside-tmux)
+gives the line for your tmux configuration.
 
 asqr scales an image to fill the pane as far as its proportions allow. An
 entry the asker marked with `"enlarge": false` keeps its natural size and

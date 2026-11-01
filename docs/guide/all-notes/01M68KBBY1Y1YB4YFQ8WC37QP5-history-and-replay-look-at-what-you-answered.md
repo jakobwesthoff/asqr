@@ -84,7 +84,7 @@ in any case.
   terminal the replay in the terminal UI fails as `asqr` does. `--json`
   and `--extract`, which print or write a finished session as data, need
   none; [How an agent
-  asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
+  asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md#a-finished-session-as-data)
   describes them.
 - The replay takes no lock and writes nothing into the queue, so it runs
   beside the asqr that watches the queue. It rings no bell and sends no
