@@ -466,4 +466,12 @@ mod tests {
         assert_eq!(press(KeyCode::Esc), "i");
         assert_eq!(press(KeyCode::Down), "esc, i", "in the own answer");
     }
+
+    #[test]
+    fn a_line_ending_in_a_link_destination_of_a_label_shows_percent_encoded_in_the_review() {
+        assert_eq!(
+            text_of(&summary_of_label("[t](http://a&#13;b)", 100)),
+            "t (http://a%0Db)"
+        );
+    }
 }

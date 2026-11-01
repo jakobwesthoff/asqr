@@ -1281,4 +1281,65 @@ mod tests {
         assert_eq!(row(&buf, 0), "empty");
         assert!(buf[(0, 0)].modifier.contains(Modifier::DIM));
     }
+
+    /// The rows `viewer` draws in `width` columns, without the blanks after
+    /// them.
+    fn rows_at(viewer: &mut dyn Viewer, width: u16) -> Vec<String> {
+        let height = u16::try_from(viewer.lay_out(width, 1).lines).expect("a test's text is short");
+        let buf = drawn(viewer, width, height, Offset::default());
+        (0..height).map(|y| row(&buf, y)).collect()
+    }
+
+    /// The destination of a link or image is shown in the dim suffix, and
+    /// a character reference can put a line ending into it. The suffix
+    /// shows it as the percent encoding patine gives it, not as the
+    /// picture that asqr draws for any control character left in a span.
+    #[test]
+    fn a_line_ending_in_a_link_destination_shows_percent_encoded() {
+        for (markdown, expected) in [
+            ("[t](http://a&#13;b)", "t (http://a%0Db)"),
+            ("[t](http://a&#10;b)", "t (http://a%0Ab)"),
+            ("[t](http://a&#13;&#10;b)", "t (http://a%0D%0Ab)"),
+            ("![i](http://a&#13;b)", "[image: i] (http://a%0Db)"),
+        ] {
+            assert_eq!(rows_at(&mut inline(markdown), 40), [expected], "{markdown}");
+        }
+    }
+
+    /// Text that repeats its destination hides the suffix, but not where
+    /// the destination holds a line ending: the text draws that as a
+    /// blank, so the two differ.
+    #[test]
+    fn a_link_whose_text_repeats_a_destination_with_a_line_ending_shows_its_suffix() {
+        assert_eq!(
+            rows_at(&mut inline("[a&#10;b](a&#10;b)"), 40),
+            ["a b (a%0Ab)"]
+        );
+        assert_eq!(
+            rows_at(&mut inline("<http://x/a&#10;b>"), 40),
+            ["http://x/a b (http://x/a%0Ab)"]
+        );
+    }
+
+    #[test]
+    fn a_caption_shows_a_line_ending_in_a_destination_percent_encoded() {
+        let mut viewer = caption("[t](http://a&#13;b)", MarkdownLook::new(false));
+
+        assert_eq!(rows_at(&mut viewer, 40), ["t (http://a%0Db)"]);
+    }
+
+    /// `%0D` is three columns and three graphemes: the suffix `(http://a%0Db)`
+    /// is 14 columns, and a row that is too narrow for it cuts it between
+    /// any two of them, inside `%0D` too, as it cuts any long URL.
+    #[test]
+    fn the_suffix_with_a_line_ending_wraps_by_its_percent_encoded_width() {
+        let link = "[t](http://a&#13;b)";
+
+        assert_eq!(rows_at(&mut inline(link), 16), ["t (http://a%0Db)"]);
+        assert_eq!(rows_at(&mut inline(link), 15), ["t", "(http://a%0Db)"]);
+        assert_eq!(
+            rows_at(&mut inline(link), 12),
+            ["t", "(http://a%0D", "↪ b)"]
+        );
+    }
 }

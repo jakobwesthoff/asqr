@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- With patine 2.2.3, a character reference to a line ending, such as
+  `&#13;` or `&#10;`, in the destination of a link or image shows in the
+  dim `(url)` as `%0D` or `%0A`, where it showed `␍` or `␊`. The URL is
+  two columns wider for each. A link whose destination holds a line
+  ending now always shows the URL: with patine 2.2.2 it stayed hidden
+  where the text repeated the destination, as in `[a&#10;b](a&#10;b)` or
+  the autolink `<http://x/a&#10;b>`. This holds wherever Markdown shows:
+  entries, captions, question texts, intros, option labels and
+  descriptions, and the label of a chosen option in the review. In those
+  text fields a line ending in the text of such a link breaks the line,
+  so the URL shows after the second line.
+
 ## [0.17.1] - 2026-11-01
 
 ### Fixed

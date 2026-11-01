@@ -538,4 +538,37 @@ mod tests {
         assert!(lines("", 40).is_empty());
         assert!(lines("   ", 40).is_empty());
     }
+
+    /// patine puts a line ending in a link destination into the dim suffix
+    /// as `%0D` or `%0A`.
+    #[test]
+    fn a_line_ending_in_a_link_destination_shows_percent_encoded_in_a_field() {
+        assert_eq!(
+            texts(&lines("[t](http://a&#13;b)", 40)),
+            ["t (http://a%0Db)"]
+        );
+    }
+
+    /// A field breaks a line at a line ending, also in the text of a link,
+    /// so the text and the destination differ and the suffix shows after
+    /// the second line.
+    #[test]
+    fn a_link_with_a_line_ending_in_its_text_and_destination_breaks_in_a_field() {
+        assert_eq!(texts(&lines("[a&#10;b](a&#10;b)", 40)), ["a", "b (a%0Ab)"]);
+    }
+
+    #[test]
+    fn the_wider_suffix_wraps_behind_the_first_width_of_a_field() {
+        let link = "[t](http://a&#13;b)";
+        let look = MarkdownLook::new(false);
+
+        assert_eq!(
+            texts(&field_lines_from(link, 16, 40, look)),
+            ["t (http://a%0Db)"]
+        );
+        assert_eq!(
+            texts(&field_lines_from(link, 15, 40, look)),
+            ["t", "(http://a%0Db)"]
+        );
+    }
 }
