@@ -69,3 +69,26 @@ also a queue that is not empty.
 - `default` can never be removed.
 - A tmux session's pin stays: the queue comes back empty when something
   is asked there.
+
+## Decisions (2026-11-01, the owner, asqr sessions 01M6BGKB5V1CE10P406VAM4RFG and 01M6BGWZTWE1F2MK62CCYJJQTJ)
+
+- A removed queue is represented by a marker in the queue directory,
+  and the marker marks the active queues: a file `active`, which any
+  use of the queue writes (an asqr watching it, `ask` into it, a switch
+  to it) and removing deletes. The lists for new work show the active
+  queues. Owner's reasoning against a migration: an existing queue
+  becomes active again the moment something watches or asks into it,
+  and asqr has to be started on a queue anyway, so nothing is lost.
+- Lead's refinement (technical, 2026-11-01): a queue in which a session
+  waits is listed whether or not it carries the marker, and `default` is
+  always listed. That keeps sessions dropped by an older asqr, or into a
+  queue from before the update, from waiting unseen.
+- `--force` on a queue with waiting sessions finishes each of them as
+  rejected (`cancelled`) with a reason naming the removed queue, through
+  the normal finish path: the agent's `wait` ends with exit 10 and reads
+  why, answers given so far stay in the result, and session and result
+  go to the archive. (`withdrawn` was rejected: it means the asker took
+  the session back.)
+- Removed queues are found again with `asqr queues --removed`;
+  `history --all` and the replay search include them anyway.
+
