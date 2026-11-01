@@ -295,6 +295,17 @@ mod tests {
         assert!(!log.contains("secret words"), "{log}");
     }
 
+    #[test]
+    fn a_footnote_only_an_unreferenced_footnote_refers_to_renders_in_a_field() {
+        let source = "text\n\n[^z]: sees[^b]\n\n[^b]: B\n\nlater[^c]\n\n[^c]: C\n";
+        let mut rows = Vec::new();
+
+        let log = logged(|| rows = texts(&lines(source, 40)));
+
+        assert_eq!(rows, ["text", "", "later[1]", "", "[1] C"], "{log}");
+        assert!(!log.contains("the Markdown parser panicked"), "{log}");
+    }
+
     /// A numbered item with an unclosed fence, before a bullet, renders as
     /// Markdown. The tests above pin the fallback with a renderer that
     /// panics.

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A text with a footnote that only an unreferenced footnote refers to,
+  such as `[^b]` in `[^z]: sees[^b]` where nothing refers to `[^z]`, is
+  rendered as Markdown. With patine 2.2.1, the Markdown parser panicked on
+  it, and a Markdown entry, a caption, an intro, a question text or an
+  option label showed as plain text instead, below the note "Markdown
+  failed: shown as plain text" in an entry. patine 2.2.2 fixes it.
+
+### Changed
+
+- With patine 2.2.2, a footnote shows only when the text or a footnote
+  that shows refers to it, and the numbers count only those references.
+  Footnotes that refer only to each other or to themselves no longer
+  show, a reference in the alt text of an image no longer shows its note,
+  and a footnote first referenced from a footnote that does not show is
+  numbered by its first reference that shows.
+
 ## [0.17.0] - 2026-11-01
 
 ### Added

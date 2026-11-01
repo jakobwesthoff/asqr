@@ -261,7 +261,7 @@ mod tests {
 
     use super::super::patine_adapter::MarkdownLook;
     use super::super::test_support::{
-        LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS, drawn, row, rows, shown,
+        LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS, drawn, logged, row, rows, shown,
     };
     use super::*;
 
@@ -698,6 +698,35 @@ mod tests {
         let mut viewer = inline(REFERENCES);
 
         insta::assert_snapshot!("references_40", shown(&mut viewer, 40, 0));
+    }
+
+    /// A footnote that only a footnote nothing refers to refers to: the
+    /// text must render as Markdown, not fall back to plain text because
+    /// the parser panicked.
+    const UNREACHED_FOOTNOTE: &str = "text\n\n[^z]: sees[^b]\n\n[^b]: B\n\nlater[^c]\n\n[^c]: C\n";
+
+    /// The rows `viewer` draws in 5 rows of 40 columns, and what it logs.
+    fn drawn_and_logged(viewer: &mut dyn Viewer) -> (Vec<String>, String) {
+        let mut buf = None;
+        let log = logged(|| buf = Some(drawn(viewer, 40, 5, Offset::default())));
+        let buf = buf.expect("the closure ran");
+        ((0..5).map(|y| row(&buf, y)).collect(), log)
+    }
+
+    #[test]
+    fn a_footnote_only_an_unreferenced_footnote_refers_to_renders() {
+        let (rows, log) = drawn_and_logged(&mut inline(UNREACHED_FOOTNOTE));
+
+        assert_eq!(rows, ["text", "", "later[1]", "", "[1] C"], "{log}");
+        assert!(!log.contains("the Markdown parser panicked"), "{log}");
+    }
+
+    #[test]
+    fn a_caption_with_such_a_footnote_renders_too() {
+        let (rows, log) =
+            drawn_and_logged(&mut caption(UNREACHED_FOOTNOTE, MarkdownLook::new(false)));
+
+        assert_eq!(rows, ["text", "", "later[1]", "", "[1] C"], "{log}");
     }
 
     /// Quotes nested past the width stop indenting, so the text under them
