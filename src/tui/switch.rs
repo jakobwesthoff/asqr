@@ -10,14 +10,16 @@
 use std::path::{Path, PathBuf};
 
 use super::render::{View, shown_path};
-use super::{App, Host, Inbox, InboxWatcher, Notice, Place, QueueChoice, QueueRow, TakenQueue};
+use super::{
+    App, Host, Inbox, InboxWatcher, Notice, Place, QueueChoice, QueueRow, TakenQueue, Why,
+};
 use super::{Tone, start_with_keeper, watch_inbox};
 use crate::cli::shell_word;
 use crate::keep::worker::KeepWorker;
 use crate::pairing::{self, Tmux, TmuxFailure, TmuxPane};
 use crate::queue::{
-    LockError, QueueLocation, QueueLock, QueueSummary, compact_quietly, list_queues, lock_queue,
-    summarize,
+    LockError, QueueLocation, QueueLock, QueueSummary, RemoveError, Removed, compact_quietly,
+    list_queues, lock_queue, summarize,
 };
 use crate::settings::SettingsStore;
 
@@ -356,6 +358,97 @@ fn switched_notice(new: &str, old: &str, left: usize, pinned: Result<(), TmuxFai
         0 => Notice::naming_queue(Tone::Info, "watching ", new, ""),
         1 => watching(Tone::Info, " · 1 session waits in "),
         _ => watching(Tone::Info, &format!(" · {left} sessions wait in ")),
+    }
+}
+
+// =========================================================================
+// Removing a queue from the lists (spec sections 5.11 and 7.6)
+// =========================================================================
+
+/// The question the status line asks while the switcher or the picker
+/// waits for the person to confirm the removal of the queue `label`.
+pub fn removal_question(label: &str) -> Notice {
+    Notice::naming_queue(
+        Tone::Warning,
+        "remove queue ",
+        label,
+        " from the lists? Its history stays.",
+    )
+}
+
+/// The notice for a queue the switcher does not remove, for `why`.
+pub fn not_removed_notice(why: &Why) -> Notice {
+    match why {
+        Why::Watched(label) => Notice::naming_queue(
+            Tone::Warning,
+            "asqr watches ",
+            label,
+            " itself; switch to another queue to remove it",
+        ),
+        Why::Dir => Notice::new(
+            Tone::Warning,
+            "a queue given by --dir is your own directory; asqr removes only named queues",
+        ),
+        Why::Default => Notice::new(Tone::Warning, "the default queue cannot be removed"),
+        Why::Waiting { label, waiting } => waiting_notice(label, *waiting),
+    }
+}
+
+/// Sessions wait in queue `label`: the switcher leaves the removal, which
+/// rejects them, to the command line, where it is deliberate.
+fn waiting_notice(label: &str, waiting: usize) -> Notice {
+    let before = match waiting {
+        1 => "1 session waits in ".to_owned(),
+        n => format!("{n} sessions wait in "),
+    };
+    Notice::naming_queue(
+        Tone::Warning,
+        &before,
+        label,
+        &format!("; asqr queues remove --force {label} removes it"),
+    )
+}
+
+/// Takes `target` out of the lists for new work through `host`, says what
+/// came of it, and shows the switcher the queues looked at again, the
+/// other-queues line too, as the switcher closing would (ADR 86).
+pub fn remove_from_lists(target: &QueueLocation, app: &mut App, host: &mut impl Host) {
+    let label = queue_label(target, host.home());
+    let outcome = host.remove_queue(target);
+    app.removed(&label, &outcome);
+    app.refresh_queues(host.queues());
+    app.set_elsewhere(host.elsewhere());
+}
+
+/// The notice for the removal of queue `label` that ended in `outcome`.
+pub fn removal_notice(label: &str, outcome: &Result<Removed, RemoveError>) -> Notice {
+    match outcome {
+        Ok(Removed::Now { .. }) => {
+            Notice::naming_queue(Tone::Success, "✔ removed queue ", label, "")
+        }
+        Ok(Removed::Already) => {
+            Notice::naming_queue(Tone::Info, "queue ", label, " is removed already")
+        }
+        Err(RemoveError::Waiting(waiting)) => waiting_notice(label, *waiting),
+        // A command names itself in the lock file and lets go of the queue
+        // on its own.
+        Err(RemoveError::Held(holder)) if holder.text.contains(", running asqr ") => {
+            Notice::naming_queue(
+                Tone::Error,
+                "cannot remove queue ",
+                label,
+                ": it is busy; try again in a moment",
+            )
+        }
+        Err(RemoveError::Held(_)) => {
+            Notice::naming_queue(Tone::Error, "another asqr is watching queue ", label, "")
+        }
+        Err(error) => Notice::naming_queue(
+            Tone::Error,
+            "cannot remove queue ",
+            label,
+            &format!(": {error}"),
+        ),
     }
 }
 
@@ -901,6 +994,61 @@ mod tests {
     #[test]
     fn home_itself_is_told_as_a_tilde() {
         assert_eq!(told("/h/me", Some("/h/me")), "~");
+    }
+
+    #[test]
+    fn the_queues_the_switcher_does_not_remove_say_why() {
+        let said = |why: Why| not_removed_notice(&why).text;
+
+        assert_eq!(
+            said(Why::Dir),
+            "a queue given by --dir is your own directory; asqr removes only named queues"
+        );
+        assert_eq!(said(Why::Default), "the default queue cannot be removed");
+        assert_eq!(
+            said(Why::Waiting {
+                label: "weekly".into(),
+                waiting: 1
+            }),
+            "1 session waits in weekly; asqr queues remove --force weekly removes it"
+        );
+    }
+
+    #[test]
+    fn each_end_of_a_removal_has_its_notice() {
+        let holder = |text: &str| crate::queue::Holder {
+            text: text.into(),
+            tmux: None,
+        };
+        let said = |outcome: Result<Removed, RemoveError>| {
+            let notice = removal_notice("weekly", &outcome);
+            (notice.tone, notice.text)
+        };
+
+        assert_eq!(
+            said(Ok(Removed::Already)),
+            (Tone::Info, "queue weekly is removed already".into())
+        );
+        assert_eq!(
+            said(Err(RemoveError::Held(holder(
+                "pid 7 on host, running asqr compact"
+            )))),
+            (
+                Tone::Error,
+                "cannot remove queue weekly: it is busy; try again in a moment".into()
+            )
+        );
+        assert_eq!(
+            said(Err(RemoveError::Held(holder("pid 7 on host")))),
+            (Tone::Error, "another asqr is watching queue weekly".into())
+        );
+        assert_eq!(
+            said(Err(RemoveError::Busy)),
+            (
+                Tone::Error,
+                "cannot remove queue weekly: the queue is busy".into()
+            )
+        );
     }
 
     /// A newline cannot be written into a command a person pastes.

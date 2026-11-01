@@ -11,7 +11,8 @@ the removal of named queues that hold nothing, a dry run unless `--yes`
 since ADR 97, counts the `active` marker as no data
 
 Amends [86. Show and switch the watched queue in the TUI](0086-show-and-switch-the-watched-queue-in-the-tui.md):
-the switcher and the start picker list the named queues in use
+the switcher and the start picker list the named queues in use, and
+`backspace` there removes a queue after a question
 
 ## Context
 
@@ -48,6 +49,11 @@ the switcher and the start picker list the named queues in use
   queue lock and the drafts lock from its look at the inbox to the
   deletion, so an `ask` or a start meanwhile is either seen or writes
   `active` again.
+- `backspace` on a queue's row in the switcher and the start picker asks
+  in the status line, with its keys in the key bar; `enter` or `y`
+  removes, any other key keeps. The switcher and the picker refuse a
+  queue in which sessions wait and name the command with `--force`, so
+  rejecting them stays on the command line.
 - A queue in which a session waits is refused; `--force` first rejects
   each waiting session on the path of a finish, with a reason that names
   the removed queue and the answers of its draft, so the asker's `wait`

@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asker's `wait` ends with 10. A queue an asqr watches and the default
   queue are never removed. `asqr queues --removed` lists the removed
   queues.
+- `backspace` on a queue in the queue switcher and in the start picker
+  takes it out of the lists after a question in the status line: `enter`
+  or `y` removes it, any other key keeps it. A queue in which sessions
+  wait is refused there, with the `--force` command that removes it.
 
 ### Changed
 

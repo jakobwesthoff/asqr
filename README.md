@@ -154,8 +154,9 @@ opens one of them read-only, with the files it showed. `asqr replay <ref>
 --json` prints a finished session with its result and the state of each
 file it showed, and `--extract <dir>` writes them as plain files, images
 included. In asqr, `w`
-switches to another queue without a restart, and the status line counts
-the sessions waiting in queues no asqr watches. Outside tmux, `asqr`
+switches to another queue without a restart, `backspace` there takes the
+queue under the cursor out of the list after asking, and the status line
+counts the sessions waiting in queues no asqr watches. Outside tmux, `asqr`
 with several queues and none chosen asks which one to watch first.
 
 ## For agents

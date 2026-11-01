@@ -135,6 +135,7 @@ fn apply(app: &mut App, effect: AppEffect, scene: &Scene, number: usize, key: &K
         AppEffect::Open(_) => Err(refused("opens an entry")),
         AppEffect::Edit(_) => Err(refused("opens an editor")),
         AppEffect::Switch(_) => Err(refused("switches the queue")),
+        AppEffect::RemoveQueue(_) => Err(refused("removes a queue")),
         // The value changed in memory already; a picture never writes the person's settings file.
         AppEffect::SaveSetting(_) => Ok(()),
     }
@@ -650,6 +651,23 @@ mod tests {
 
         assert!(
             error.contains("key 3 (\"enter\") switches the queue, which scenes do not play"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn removing_a_queue_is_refused() {
+        let error = error(&scene_with(
+            "\"w\", \"j\", \"backspace\", \"y\"",
+            &format!(
+                "{RELEASE}[switcher]\ntmux_session = \"asqr\"\nroot = \"/data/asqr\"\n\
+                 [[switcher.queues]]\nname = \"asqr-todos\"\nwatched = true\n\
+                 [[switcher.queues]]\nname = \"old\"\n"
+            ),
+        ));
+
+        assert!(
+            error.contains("key 4 (\"y\") removes a queue, which scenes do not play"),
             "{error}"
         );
     }

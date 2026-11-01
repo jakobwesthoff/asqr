@@ -21,7 +21,7 @@ use super::screen::{draw_too_small, shorten_from_left};
 use super::source_line::columns;
 use super::theme;
 use crate::queue::DEFAULT_QUEUE;
-use crate::tui::{Notice, Place, QueueRow, Switcher};
+use crate::tui::{Notice, Place, QueueRow, Switcher, removal_question};
 
 /// The marker at the end of the queue this asqr watches.
 const THIS_ASQR: &str = "◀ this asqr";
@@ -65,10 +65,13 @@ pub fn draw_picker(
     .areas(area);
     let buf = frame.buffer_mut();
     Line::from(Span::styled(" asqr", theme::app_name())).render(title, buf);
-    if let Some(notice) = notice {
+    // The question about a removal comes before a notice, as the key bar
+    // answers it.
+    let question = picker.confirming().map(|row| removal_question(&row.label));
+    if let Some(notice) = question.as_ref().or(notice) {
         problem::status_line(notice, status.width).render(status, buf);
     }
-    key_line_with_version(&picker_hints(picker.typing()), keys.width, version).render(keys, buf);
+    key_line_with_version(&picker_hints(picker), keys.width, version).render(keys, buf);
     draw_switcher(area, buf, picker);
     // The pass that takes the colours off the session screen (spec section
     // 7.3) over the finished picker: attributes stay.
@@ -696,6 +699,32 @@ mod tests {
                 .modifier
                 .contains(Modifier::DIM)
         );
+    }
+
+    #[test]
+    fn the_picker_names_backspace_and_asks_before_it_removes() {
+        let backend = picker_screen(&[KeyCode::Up, KeyCode::Up], None);
+        assert_eq!(
+            row(backend.buffer(), 23),
+            format!(
+                " ↑/↓  move   enter  watch   backspace  remove   q  quit{}asqr 0.0.0",
+                " ".repeat(14)
+            )
+        );
+
+        let notice = Notice::new(crate::tui::Tone::Info, "news");
+        let backend = picker_screen(
+            &[KeyCode::Up, KeyCode::Up, KeyCode::Backspace],
+            Some(&notice),
+        );
+        let buf = backend.buffer();
+
+        insta::assert_snapshot!("picker_asks_before_it_removes", backend);
+        assert_eq!(
+            row(buf, 22).trim_end(),
+            "! remove queue asqr-todo from the lists? Its history stays."
+        );
+        assert!(row(buf, 23).starts_with(" enter/y  remove   any other key  keep"));
     }
 
     /// The start picker drawn at `width`×`height`.

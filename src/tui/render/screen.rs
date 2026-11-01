@@ -43,7 +43,8 @@ use crate::queue::HistoryOutcome;
 use crate::settings::Settings;
 use crate::tui::text_field::FieldShape;
 use crate::tui::{
-    App, Extent, Focus, Invalid, Notice, Overlay, PanePage, RowCut, SessionState, Tone,
+    App, Extent, Focus, Invalid, Notice, Overlay, PanePage, RowCut, SessionState, Switcher, Tone,
+    removal_question,
 };
 
 /// Below this size the layout does not fit; a message says so instead.
@@ -554,7 +555,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
     let hints = match (app.invalid_shown(), app.switcher(), app.settings_pane()) {
         (Some(_), _, _) => dialog_hints(),
         _ if details.is_some() => dialog_hints(),
-        (None, Some(switcher), _) => switcher_hints(switcher.typing()),
+        (None, Some(switcher), _) => switcher_hints(switcher),
         (None, None, Some(pane)) => settings_hints(app.settings().lock(pane.setting()).is_some()),
         (None, None, None) => hints,
     };
@@ -670,8 +671,17 @@ fn status_line(app: &App, state: Option<&SessionState>, width: u16) -> Line<'sta
             format!("{} is invalid and was answered with an error", invalid.id),
         )
     });
-    let notice = app
-        .current_notice()
+    // The switcher's question about a removal comes before any notice, as
+    // the key bar answers it; the dialog of an invalid session stands over
+    // the switcher and has the next key, so the question waits behind it.
+    let question = app
+        .switcher()
+        .and_then(Switcher::confirming)
+        .filter(|_| app.invalid_shown().is_none())
+        .map(|row| removal_question(&row.label));
+    let notice = question
+        .as_ref()
+        .or(app.current_notice())
         .or(invalid.as_ref())
         .or_else(|| state.and_then(SessionState::message));
     match notice {
@@ -2658,6 +2668,115 @@ mod tests {
         insta::assert_snapshot!(
             "switcher_outside_tmux_on_default",
             screen_of_queue(&app, "asqr-todos", 80, 24)
+        );
+    }
+
+    #[test]
+    fn the_key_bar_names_backspace_on_a_queue_it_removes() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.open_queues(queues(in_tmux_asqr()));
+        keys(&mut app, "k");
+
+        let backend = screen_of_queue(&app, "asqr-todos", 80, 24);
+
+        insta::assert_snapshot!("switcher_on_a_queue_it_removes", backend);
+        assert_eq!(
+            row(backend.buffer(), 23).trim_end(),
+            " ↑/↓  move   enter  switch   backspace  remove   esc/q  close"
+        );
+    }
+
+    #[test]
+    fn a_narrow_key_bar_leaves_out_backspace_first() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.open_queues(queues(in_tmux_asqr()));
+        keys(&mut app, "k");
+
+        let backend = screen_of_queue(&app, "asqr-todos", 60, 24);
+
+        assert_eq!(
+            row(backend.buffer(), 23).trim_end(),
+            " ↑/↓  move   enter  switch   esc/q  close"
+        );
+    }
+
+    #[test]
+    fn the_removal_question_shows_in_the_status_line_and_its_keys_below() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.open_queues(queues(in_tmux_asqr()));
+        keys(&mut app, "k");
+        special(&mut app, KeyCode::Backspace);
+
+        let backend = screen_of_queue(&app, "asqr-todos", 80, 24);
+        let buf = backend.buffer();
+
+        insta::assert_snapshot!("switcher_asks_before_it_removes", backend);
+        assert_eq!(
+            row(buf, 22).trim_end(),
+            "! remove queue asqr-todo from the lists? Its history stays."
+        );
+        assert_eq!(buf[(0, 22)].fg, Color::Yellow, "a warning");
+        assert_eq!(
+            row(buf, 23).trim_end(),
+            " enter/y  remove   any other key  keep"
+        );
+    }
+
+    #[test]
+    fn the_removal_question_wins_over_a_notice() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.open_queues(queues(in_tmux_asqr()));
+        keys(&mut app, "k");
+        special(&mut app, KeyCode::Backspace);
+        app.notice(Tone::Info, "a session arrived");
+
+        let backend = screen_of_queue(&app, "asqr-todos", 80, 24);
+
+        assert_eq!(
+            row(backend.buffer(), 22).trim_end(),
+            "! remove queue asqr-todo from the lists? Its history stays."
+        );
+    }
+
+    #[test]
+    fn a_queue_where_sessions_wait_is_refused_with_the_command() {
+        let mut app = app(&[("release", RELEASE)]);
+        let mut choice = queues(in_tmux_asqr());
+        choice.rows[0].waiting = 3;
+        app.open_queues(choice);
+        keys(&mut app, "k");
+        special(&mut app, KeyCode::Backspace);
+
+        let backend = screen_of_queue(&app, "asqr-todos", 80, 24);
+
+        insta::assert_snapshot!("switcher_refuses_a_queue_where_sessions_wait", backend);
+        assert_eq!(
+            row(backend.buffer(), 22).trim_end(),
+            "! 3 sessions wait in asqr-todo; asqr queues remove --force asqr-todo removes it"
+        );
+    }
+
+    #[test]
+    fn after_a_removal_the_switcher_shows_what_is_left() {
+        let mut app = app(&[("release", RELEASE)]);
+        app.open_queues(queues(in_tmux_asqr()));
+        keys(&mut app, "k");
+        special(&mut app, KeyCode::Backspace);
+        keys(&mut app, "y");
+        let mut left = queues(in_tmux_asqr());
+        left.rows.remove(0);
+        app.removed(
+            "asqr-todo",
+            &Ok(crate::queue::Removed::Now { rejected: vec![] }),
+        );
+        app.refresh_queues(left);
+
+        let backend = screen_of_queue(&app, "asqr-todos", 80, 24);
+
+        insta::assert_snapshot!("switcher_after_a_removal", backend);
+        assert_eq!(
+            row(backend.buffer(), 22).trim_end(),
+            "✔ removed queue asqr-todo"
         );
     }
 

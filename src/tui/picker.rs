@@ -14,13 +14,18 @@ use ratatui::backend::Backend;
 use ratatui::crossterm::event::KeyEventKind;
 
 use super::render::draw_picker;
-use super::{Event, Notice, REFUSED_NAME, Switcher, SwitcherKey, TOO_LONG_NAME, Tone};
+use super::{
+    Event, Notice, QueueChoice, REFUSED_NAME, Switcher, SwitcherKey, TOO_LONG_NAME, Tone,
+    not_removed_notice,
+};
 use crate::queue::QueueLocation;
 
 /// Shows `picker` until the person picks a queue that `take` takes, and
 /// gives what `take` made of it, or `None` once the person quits. A queue
 /// `take` refuses, with the notice it gives, leaves the picker open with
-/// the notice in its status line. `version` is asqr's name and version,
+/// the notice in its status line. A queue the person confirms the removal
+/// of goes to `remove`, which says what came of it and gives the queues
+/// looked at again (spec section 5.11). `version` is asqr's name and version,
 /// which the key bar names. The picker draws without colours when
 /// `no_color` is set.
 ///
@@ -33,6 +38,7 @@ pub fn pick_queue<B: Backend, T>(
     version: &str,
     no_color: bool,
     mut take: impl FnMut(&QueueLocation) -> Result<T, Notice>,
+    mut remove: impl FnMut(&QueueLocation) -> (Notice, QueueChoice),
 ) -> anyhow::Result<Option<T>>
 where
     B::Error: Send + Sync + 'static,
@@ -59,6 +65,12 @@ where
         notice = None;
         match answer {
             SwitcherKey::Stay | SwitcherKey::Close => {}
+            SwitcherKey::CannotRemove(why) => notice = Some(not_removed_notice(&why)),
+            SwitcherKey::Remove(target) => {
+                let (said, choice) = remove(&target);
+                picker.refresh(choice);
+                notice = Some(said);
+            }
             SwitcherKey::Quit => return Ok(None),
             SwitcherKey::Refused => notice = Some(Notice::new(Tone::Warning, REFUSED_NAME)),
             SwitcherKey::TooLong => notice = Some(Notice::new(Tone::Warning, TOO_LONG_NAME)),
@@ -91,13 +103,17 @@ mod tests {
         }
     }
 
-    fn picker() -> Switcher {
-        Switcher::picker(QueueChoice {
-            rows: vec![row("asqr-todos"), row("default")],
+    fn choice(names: &[&str]) -> QueueChoice {
+        QueueChoice {
+            rows: names.iter().map(|name| row(name)).collect(),
             taken: Vec::new(),
             root: Some(PathBuf::from("/data/asqr")),
             place: Place::Outside,
-        })
+        }
+    }
+
+    fn picker() -> Switcher {
+        Switcher::picker(choice(&["asqr-todos", "default"]))
     }
 
     fn key(code: KeyCode) -> Event {
@@ -137,9 +153,82 @@ mod tests {
                     Ok(name)
                 }
             },
+            |target| panic!("these tests remove no queue, not {target:?}"),
         );
         let screen = terminal.backend().to_string();
         (picked, asked, screen)
+    }
+
+    /// The picker over `events`, with `remove` taking every queue out of
+    /// the list; the queues removed and the screen it left.
+    fn run_removing(events: Vec<Event>) -> (Vec<String>, String) {
+        let (sender, receiver) = mpsc::channel();
+        for event in events {
+            sender.send(event).expect("sent");
+        }
+        drop(sender);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("test terminal");
+        let mut removed = Vec::new();
+        let mut left = vec!["asqr-todos", "default", "work"];
+        pick_queue(
+            &mut terminal,
+            Switcher::picker(choice(&left)),
+            &receiver,
+            "asqr 0.0.0",
+            false,
+            |_| Ok(()),
+            |target| {
+                let name = target.name().expect("named").to_owned();
+                left.retain(|listed| *listed != name);
+                removed.push(name.clone());
+                (
+                    Notice::naming_queue(Tone::Success, "✔ removed queue ", &name, ""),
+                    choice(&left),
+                )
+            },
+        )
+        .expect("runs");
+        (removed, terminal.backend().to_string())
+    }
+
+    #[test]
+    fn backspace_and_y_remove_a_queue_and_the_picker_shows_what_is_left() {
+        let (removed, screen) = run_removing(vec![
+            key(KeyCode::Down),
+            key(KeyCode::Backspace),
+            key(KeyCode::Char('y')),
+        ]);
+
+        assert_eq!(removed, ["work"]);
+        assert!(screen.contains("✔ removed queue work"), "{screen}");
+        assert!(!screen.contains("  work"), "{screen}");
+        assert!(
+            screen.contains("❯ default"),
+            "the cursor on the row above: {screen}"
+        );
+    }
+
+    #[test]
+    fn the_picker_asks_before_it_removes() {
+        let (removed, screen) = run_removing(vec![key(KeyCode::Up), key(KeyCode::Backspace)]);
+
+        assert_eq!(removed, Vec::<String>::new());
+        assert!(
+            screen.contains("! remove queue asqr-todos from the lists? Its history stays."),
+            "{screen}"
+        );
+        assert!(screen.contains("enter/y  remove"), "{screen}");
+    }
+
+    #[test]
+    fn the_picker_does_not_remove_the_default_queue() {
+        let (removed, screen) = run_removing(vec![key(KeyCode::Backspace)]);
+
+        assert_eq!(removed, Vec::<String>::new());
+        assert!(
+            screen.contains("! the default queue cannot be removed"),
+            "{screen}"
+        );
     }
 
     #[test]

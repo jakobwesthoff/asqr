@@ -16,10 +16,10 @@ use super::scroll::scroll;
 use super::{
     DiffLayout, EditRequest, Effect, Extent, FieldShape, Offset, Page, PanePage, QueueChoice,
     REFUSED_NAME, RowCut, SessionState, SettingsKey, SettingsPane, Switcher, SwitcherKey,
-    TOO_LONG_NAME,
+    TOO_LONG_NAME, not_removed_notice, removal_notice,
 };
 use crate::format::{Answer, ContextEntry, SessionResult, same_session_id};
-use crate::queue::{QueueLocation, WaitingQueue};
+use crate::queue::{QueueLocation, RemoveError, Removed, WaitingQueue};
 use crate::settings::{Setting, SettingsStore};
 
 /// How a finished session ends.
@@ -62,6 +62,9 @@ pub enum AppEffect {
     SaveSetting(Setting),
     /// Watch this queue from now on (ADR 86).
     Switch(QueueLocation),
+    /// Take this queue out of the lists for new work (ADR 108); the
+    /// switcher stays open.
+    RemoveQueue(QueueLocation),
 }
 
 /// What shows over the screen, at most one at a time.
@@ -410,6 +413,18 @@ impl App {
         self.switcher.as_ref()
     }
 
+    /// Says what came of the removal of queue `label`.
+    pub fn removed(&mut self, label: &str, outcome: &Result<Removed, RemoveError>) {
+        self.show(removal_notice(label, outcome));
+    }
+
+    /// Hands the open switcher the queues looked at again after a removal.
+    pub fn refresh_queues(&mut self, choice: QueueChoice) {
+        if let Some(switcher) = &mut self.switcher {
+            switcher.refresh(choice);
+        }
+    }
+
     /// Takes whether the last frame showed the dialog of an invalid
     /// session, which decides whether the next key closes it.
     pub fn set_dialog_shown(&mut self, shown: bool) {
@@ -556,6 +571,11 @@ impl App {
                     self.switcher = None;
                     AppEffect::Switch(target)
                 }
+                SwitcherKey::CannotRemove(why) => {
+                    self.show(not_removed_notice(&why));
+                    AppEffect::None
+                }
+                SwitcherKey::Remove(target) => AppEffect::RemoveQueue(target),
             };
         }
         if let Some(pane) = &mut self.pane {
@@ -1841,6 +1861,84 @@ mod tests {
         app.paste("work");
         assert_eq!(app.switcher().map(Switcher::name), Some("work"));
         assert_eq!(app.active().expect("active").answers()[0].custom, None);
+    }
+
+    /// `choice` with a third queue, `old`, which the switcher may remove.
+    fn with_old() -> QueueChoice {
+        let mut choice = choice();
+        let mut old = choice.rows[1].clone();
+        old.location = QueueLocation::named(std::path::Path::new("/data/asqr"), "old");
+        old.label = "old".into();
+        choice.rows.push(old);
+        choice
+    }
+
+    /// An app with the switcher open over `with_old` and asking whether
+    /// to remove `old`.
+    fn asking_about_old() -> App {
+        let mut app = App::default();
+        app.open_queues(with_old());
+        app.handle(key('j'));
+        app.handle(key('j'));
+        assert_eq!(app.handle(code(KeyCode::Backspace)), AppEffect::None);
+        assert!(app.switcher().and_then(Switcher::confirming).is_some());
+        app
+    }
+
+    #[test]
+    fn y_asks_for_the_removal_and_the_switcher_stays_open() {
+        let mut app = asking_about_old();
+
+        assert_eq!(
+            app.handle(key('y')),
+            AppEffect::RemoveQueue(QueueLocation::named(
+                std::path::Path::new("/data/asqr"),
+                "old"
+            ))
+        );
+        assert!(app.switcher().is_some());
+    }
+
+    #[test]
+    fn a_queue_the_switcher_does_not_remove_is_a_notice() {
+        let mut app = App::default();
+        app.open_queues(choice());
+
+        assert_eq!(app.handle(code(KeyCode::Backspace)), AppEffect::None);
+
+        assert_eq!(
+            app.current_notice().map(|notice| notice.text.as_str()),
+            Some("asqr watches asqr-todos itself; switch to another queue to remove it")
+        );
+        assert!(app.switcher().is_some(), "the switcher stays open");
+    }
+
+    #[test]
+    fn after_a_removal_the_switcher_shows_the_queues_looked_at_again() {
+        let mut app = asking_about_old();
+        app.handle(key('y'));
+
+        app.removed("old", &Ok(crate::queue::Removed::Now { rejected: vec![] }));
+        app.refresh_queues(choice());
+
+        assert_eq!(
+            app.current_notice().map(|notice| notice.text.as_str()),
+            Some("✔ removed queue old")
+        );
+        let switcher = app.switcher().expect("still open");
+        assert_eq!(switcher.choice().rows.len(), 2);
+        assert_eq!(switcher.cursor(), 1, "the row above the removed one");
+    }
+
+    #[test]
+    fn an_invalid_session_while_asking_closes_first_and_the_question_stays() {
+        let mut app = asking_about_old();
+        app.report_invalid(invalid("broken"));
+        app.set_dialog_shown(true);
+
+        assert_eq!(app.handle(key('y')), AppEffect::None, "the dialog closes");
+        assert!(app.switcher().and_then(Switcher::confirming).is_some());
+        assert!(matches!(app.handle(key('y')), AppEffect::RemoveQueue(_)));
     }
 
     // -----------------------------------------------------------------

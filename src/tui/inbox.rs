@@ -81,6 +81,8 @@ pub enum Applied {
     QueuesClosed,
     /// Watch this queue from now on (ADR 86).
     Switch(QueueLocation),
+    /// Take this queue out of the lists for new work (ADR 108).
+    RemoveQueue(QueueLocation),
     /// A setting changed and was saved or not (ADR 92): the screen takes
     /// the settings of the app.
     SettingsChanged,
@@ -691,6 +693,7 @@ impl Inbox {
             AppEffect::OpenQueues => return Applied::OpenQueues,
             AppEffect::QueuesClosed => return Applied::QueuesClosed,
             AppEffect::Switch(target) => return Applied::Switch(target),
+            AppEffect::RemoveQueue(target) => return Applied::RemoveQueue(target),
             AppEffect::SaveSetting(setting) => {
                 // The app changed the value for this run already, so a
                 // failed write only means the file does not have it.

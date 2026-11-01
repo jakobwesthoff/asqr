@@ -25,12 +25,13 @@ use unicode_segmentation::UnicodeSegmentation;
 use super::render::{Drawn, View, draw, picture, shorten_from_left};
 use super::{
     App, Applied, EditRequest, Held, Inbox, Notice, OpenedFiles, QueueChoice, Refusal,
-    SessionState, Tone, edited_text, editor_file, session_progress, switch_queue,
+    SessionState, Tone, edited_text, editor_file, remove_from_lists, session_progress,
+    switch_queue,
 };
 use crate::graphics::KittyDeletes;
 use crate::keep::worker::KeepWorker;
 use crate::pairing::TmuxFailure;
-use crate::queue::{QueueLocation, WaitingQueue};
+use crate::queue::{QueueLocation, RemoveError, Removed, WaitingQueue};
 use crate::settings::SettingsStore;
 
 /// What wakes the loop.
@@ -121,6 +122,9 @@ pub trait Host {
     /// watched so far, then pins it where asqr pins its queue. Says what
     /// tmux said to the pin.
     fn switch(&mut self, held: Held) -> Result<(), TmuxFailure>;
+    /// Takes the queue at `target` out of the lists for new work, without
+    /// `--force` (ADR 108).
+    fn remove_queue(&mut self, target: &QueueLocation) -> Result<Removed, RemoveError>;
 }
 
 /// Opens the field of `request` in the person's editor through `host` and
@@ -621,6 +625,7 @@ where
                 app.set_elsewhere(host.elsewhere());
             }
             Applied::Switch(target) => switch_queue(&target, app, inbox, view, host),
+            Applied::RemoveQueue(target) => remove_from_lists(&target, app, host),
             Applied::SettingsChanged => view.set_settings(&app.settings().effective()),
         }
     }
@@ -683,6 +688,8 @@ mod tests {
         choice: Option<QueueChoice>,
         /// The queues switched to, whose locks and watchers it keeps.
         switched: Vec<Held>,
+        /// The queues the switcher asked to remove, in order.
+        removed: Vec<QueueLocation>,
         /// tmux refuses the pin after a switch, when set.
         refuse_pin: bool,
         /// A switch is refused so, when set, as a watcher that fails.
@@ -714,6 +721,12 @@ mod tests {
                 Some(refusal) => Err(refusal.clone()),
                 None => crate::tui::prepare_switch(target, None, || {}),
             }
+        }
+
+        /// The removal the terminal makes, in the test's directories.
+        fn remove_queue(&mut self, target: &QueueLocation) -> Result<Removed, RemoveError> {
+            self.removed.push(target.clone());
+            crate::queue::remove_queue(target, false)
         }
 
         fn switch(&mut self, held: Held) -> Result<(), TmuxFailure> {
@@ -1889,6 +1902,73 @@ mod tests {
         assert_eq!(
             harness.host.looked_elsewhere, 2,
             "at the start and as the switcher closed"
+        );
+    }
+
+    /// `two_queues` with a third queue, `old`, in which nothing waits.
+    fn three_queues() -> (Harness, QueueLocation) {
+        let mut harness = two_queues();
+        let old = QueueLocation::named(&harness.scratch.path().join("data"), "old");
+        old.create_layout().expect("layout");
+        let choice = harness.host.choice.as_mut().expect("a choice");
+        choice.rows.push(crate::tui::QueueRow {
+            label: "old".into(),
+            agent_dir: None,
+            location: old.clone(),
+            waiting: 0,
+            watched: false,
+        });
+        (harness, old)
+    }
+
+    #[test]
+    fn y_on_the_question_removes_the_queue_and_the_switcher_stays_open() {
+        let (mut harness, old) = three_queues();
+        harness.host.looked_elsewhere = 0;
+
+        harness
+            .run(vec![
+                key(KeyCode::Char('w')),
+                key(KeyCode::Char('j')),
+                key(KeyCode::Char('j')),
+                key(KeyCode::Backspace),
+                key(KeyCode::Char('y')),
+            ])
+            .expect("runs");
+
+        assert_eq!(harness.host.removed, std::slice::from_ref(&old));
+        assert!(!old.active_marker().exists(), "out of the lists");
+        assert!(old.archive().is_dir(), "its history stays");
+        let screen = harness.screen();
+        assert!(screen.contains("╭ Queues "), "{screen}");
+        assert!(screen.contains("✔ removed queue old"), "{screen}");
+        assert_eq!(
+            harness.host.looked_elsewhere, 2,
+            "at the start and after the removal"
+        );
+    }
+
+    #[test]
+    fn a_removal_the_queue_refuses_is_a_notice() {
+        let (mut harness, old) = three_queues();
+        // A session arrived in `old` after the switcher looked.
+        fs::write(old.inbox().join("late.json"), SESSION).expect("written");
+
+        harness
+            .run(vec![
+                key(KeyCode::Char('w')),
+                key(KeyCode::Char('j')),
+                key(KeyCode::Char('j')),
+                key(KeyCode::Backspace),
+                key(KeyCode::Enter),
+            ])
+            .expect("runs");
+
+        assert!(old.active_marker().is_file());
+        let screen = harness.screen();
+        assert!(
+            screen.contains("1 session waits in old; asqr queues remove --force old"),
+            "{screen}"
         );
     }
 

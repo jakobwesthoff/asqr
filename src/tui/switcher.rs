@@ -78,6 +78,23 @@ pub enum SwitcherKey {
     /// The name row refused a key or a paste that would make the name
     /// longer than a queue name can be.
     TooLong,
+    /// `backspace` asked to remove a queue the switcher does not remove.
+    CannotRemove(Why),
+    /// The person confirmed: take this queue out of the lists.
+    Remove(QueueLocation),
+}
+
+/// Why the switcher does not remove the queue under the cursor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Why {
+    /// This asqr watches it, named by its label.
+    Watched(String),
+    /// A queue this run was given by `--dir`.
+    Dir,
+    /// The default queue.
+    Default,
+    /// Sessions wait in it.
+    Waiting { label: String, waiting: usize },
 }
 
 /// What the status line says about a refused key or paste on the name row.
@@ -101,6 +118,8 @@ pub struct Switcher {
     /// Whether this is the start picker, which watches the queue picked
     /// and whose `q` quits asqr.
     picking: bool,
+    /// The row whose removal the switcher asks about, until the next key.
+    confirming: Option<usize>,
 }
 
 impl Switcher {
@@ -114,6 +133,7 @@ impl Switcher {
             name: String::new(),
             typing: false,
             picking: false,
+            confirming: None,
         }
     }
 
@@ -142,6 +162,22 @@ impl Switcher {
 
     pub fn choice(&self) -> &QueueChoice {
         &self.choice
+    }
+
+    /// The queue whose removal the switcher asks about.
+    pub fn confirming(&self) -> Option<&QueueRow> {
+        self.choice.rows.get(self.confirming?)
+    }
+
+    /// Takes `choice`, the queues looked at again after a removal. The
+    /// cursor keeps its place, on the row that took the removed one's
+    /// place, and never lands on the new-queue row, where a letter would
+    /// type instead of acting on the list.
+    pub fn refresh(&mut self, choice: QueueChoice) {
+        self.choice = choice;
+        self.cursor = self.cursor.min(self.choice.rows.len().saturating_sub(1));
+        self.confirming = None;
+        self.typing = self.on_name_row();
     }
 
     /// Where the cursor is: an index into the rows, one past the last for
@@ -184,6 +220,16 @@ impl Switcher {
         if control && key.code == KeyCode::Char('c') {
             return SwitcherKey::Quit;
         }
+        // The question takes the next key whatever it is, so a key meant
+        // for the list never acts on it while the question shows.
+        if let Some(row) = self.confirming.take() {
+            return match key.code {
+                KeyCode::Enter | KeyCode::Char('y') if !control => {
+                    SwitcherKey::Remove(self.choice.rows[row].location.clone())
+                }
+                _ => SwitcherKey::Stay,
+            };
+        }
         if control {
             return SwitcherKey::Stay;
         }
@@ -212,15 +258,45 @@ impl Switcher {
             KeyCode::Up | KeyCode::Char('k') => self.move_cursor(false),
             KeyCode::Down | KeyCode::Char('j') => self.move_cursor(true),
             KeyCode::Enter => self.enter(),
+            KeyCode::Backspace => self.ask_to_remove(),
             _ => SwitcherKey::Stay,
         }
+    }
+
+    /// `backspace` on a queue's row: asks before it removes the queue, or
+    /// says why it does not (spec section 7.6). A queue where sessions
+    /// wait is removed only by `asqr queues remove --force`, deliberately
+    /// on the command line.
+    fn ask_to_remove(&mut self) -> SwitcherKey {
+        let Some(row) = self.choice.rows.get(self.cursor) else {
+            return SwitcherKey::Stay;
+        };
+        match not_removed(row) {
+            Some(why) => SwitcherKey::CannotRemove(why),
+            None => {
+                self.confirming = Some(self.cursor);
+                SwitcherKey::Stay
+            }
+        }
+    }
+
+    /// Whether `backspace` on the row under the cursor asks to remove its
+    /// queue, which the key bar names.
+    pub fn removes_under_cursor(&self) -> bool {
+        !self.typing
+            && self
+                .choice
+                .rows
+                .get(self.cursor)
+                .is_some_and(|row| not_removed(row).is_none())
     }
 
     /// Takes text the person pasted: on the new-queue row it goes into the
     /// name whole, when the name can hold all of it, and that row has the
     /// keys from then on; elsewhere it goes nowhere.
     pub fn paste(&mut self, text: &str) -> SwitcherKey {
-        if !self.on_name_row() {
+        // A paste ends the question as any key does, and goes nowhere.
+        if self.confirming.take().is_some() || !self.on_name_row() {
             return SwitcherKey::Stay;
         }
         self.typing = true;
@@ -281,6 +357,24 @@ impl Switcher {
         } else {
             SwitcherKey::Switch(target)
         }
+    }
+}
+
+/// Why the switcher does not remove the queue of `row`, if it does not.
+fn not_removed(row: &QueueRow) -> Option<Why> {
+    if row.watched {
+        Some(Why::Watched(row.label.clone()))
+    } else if row.location.name().is_none() {
+        Some(Why::Dir)
+    } else if row.location.is_default() {
+        Some(Why::Default)
+    } else if row.waiting > 0 {
+        Some(Why::Waiting {
+            label: row.label.clone(),
+            waiting: row.waiting,
+        })
+    } else {
+        None
     }
 }
 
@@ -569,6 +663,184 @@ mod tests {
         typed(&mut switcher, "asqr-todos");
 
         assert_eq!(switcher.handle(key(KeyCode::Enter)), SwitcherKey::Close);
+    }
+
+    // -----------------------------------------------------------------
+    // Removing a queue
+    // -----------------------------------------------------------------
+
+    /// The switcher with its cursor on `work`, a queue it may remove.
+    fn on_work() -> Switcher {
+        let mut switcher = switcher();
+        switcher.handle(key(KeyCode::Down));
+        switcher.handle(key(KeyCode::Down));
+        assert_eq!(switcher.cursor(), 2, "work");
+        switcher
+    }
+
+    #[test]
+    fn backspace_on_a_free_queue_asks_before_it_removes() {
+        let mut switcher = on_work();
+
+        assert_eq!(switcher.handle(key(KeyCode::Backspace)), SwitcherKey::Stay);
+
+        assert_eq!(
+            switcher.confirming().map(|row| row.label.as_str()),
+            Some("work")
+        );
+    }
+
+    #[test]
+    fn enter_or_y_removes_the_queue_asked_about() {
+        for confirm in [key(KeyCode::Enter), char('y')] {
+            let mut switcher = on_work();
+            switcher.handle(key(KeyCode::Backspace));
+
+            assert_eq!(
+                switcher.handle(confirm),
+                SwitcherKey::Remove(named("work")),
+                "{confirm:?}"
+            );
+            assert_eq!(switcher.confirming(), None);
+        }
+    }
+
+    #[test]
+    fn any_other_key_keeps_the_queue_and_does_nothing_else() {
+        for keep in [char('n'), key(KeyCode::Esc), char('q'), key(KeyCode::Up)] {
+            let mut switcher = on_work();
+            switcher.handle(key(KeyCode::Backspace));
+
+            assert_eq!(switcher.handle(keep), SwitcherKey::Stay, "{keep:?}");
+            assert_eq!(switcher.confirming(), None);
+            assert_eq!(switcher.cursor(), 2, "the key did not move the cursor");
+        }
+    }
+
+    #[test]
+    fn ctrl_c_quits_while_asking() {
+        let mut switcher = on_work();
+        switcher.handle(key(KeyCode::Backspace));
+
+        assert_eq!(
+            switcher.handle(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            SwitcherKey::Quit
+        );
+    }
+
+    #[test]
+    fn a_paste_while_asking_keeps_the_queue_and_goes_nowhere() {
+        let mut switcher = on_work();
+        switcher.handle(key(KeyCode::Backspace));
+
+        assert_eq!(switcher.paste("y"), SwitcherKey::Stay);
+        assert_eq!(switcher.confirming(), None);
+        assert_eq!(switcher.name(), "");
+    }
+
+    #[test]
+    fn the_watched_queue_is_not_removed() {
+        assert_eq!(
+            switcher().handle(key(KeyCode::Backspace)),
+            SwitcherKey::CannotRemove(Why::Watched("asqr-todos".into()))
+        );
+    }
+
+    #[test]
+    fn a_queue_where_sessions_wait_is_not_removed_here() {
+        let mut choice = choice();
+        choice.rows[2].waiting = 3;
+        let mut switcher = Switcher::new(choice);
+        switcher.handle(key(KeyCode::Down));
+        switcher.handle(key(KeyCode::Down));
+
+        assert_eq!(
+            switcher.handle(key(KeyCode::Backspace)),
+            SwitcherKey::CannotRemove(Why::Waiting {
+                label: "work".into(),
+                waiting: 3
+            })
+        );
+        assert_eq!(switcher.confirming(), None);
+    }
+
+    #[test]
+    fn the_default_queue_is_not_removed() {
+        let mut choice = choice();
+        choice.rows[1].waiting = 0;
+        let mut switcher = Switcher::new(choice);
+        switcher.handle(key(KeyCode::Down));
+
+        assert_eq!(
+            switcher.handle(key(KeyCode::Backspace)),
+            SwitcherKey::CannotRemove(Why::Default)
+        );
+    }
+
+    #[test]
+    fn a_dir_queue_is_not_removed() {
+        let mut choice = choice();
+        choice.rows.insert(
+            0,
+            QueueRow {
+                location: QueueLocation::at("/home/me/queue"),
+                label: "~/queue".into(),
+                agent_dir: Some("~/queue".into()),
+                waiting: 0,
+                watched: false,
+            },
+        );
+        let mut switcher = Switcher::new(choice);
+        switcher.handle(key(KeyCode::Up));
+        assert_eq!(switcher.cursor(), 0);
+
+        assert_eq!(
+            switcher.handle(key(KeyCode::Backspace)),
+            SwitcherKey::CannotRemove(Why::Dir)
+        );
+    }
+
+    #[test]
+    fn backspace_on_the_name_row_left_with_esc_does_nothing() {
+        let mut switcher = on_the_name_row();
+        typed(&mut switcher, "new");
+        switcher.handle(key(KeyCode::Esc));
+
+        assert_eq!(switcher.handle(key(KeyCode::Backspace)), SwitcherKey::Stay);
+        assert_eq!((switcher.name(), switcher.confirming()), ("new", None));
+    }
+
+    #[test]
+    fn a_refresh_after_removing_the_last_row_puts_the_cursor_on_the_row_above() {
+        let mut switcher = on_work();
+        switcher.handle(key(KeyCode::Backspace));
+        let mut left = choice();
+        left.rows.pop();
+
+        switcher.refresh(left);
+
+        assert_eq!((switcher.cursor(), switcher.typing()), (1, false));
+        assert_eq!(switcher.confirming(), None);
+        assert_eq!(switcher.handle(char('q')), SwitcherKey::Close);
+    }
+
+    #[test]
+    fn a_refresh_keeps_the_cursor_where_a_row_is_left() {
+        let mut choice = choice();
+        choice.rows.push(row("zzz", 0, false));
+        let mut switcher = Switcher::new(choice);
+        switcher.handle(key(KeyCode::Down));
+        let mut left = self::choice();
+        left.rows.push(row("zzz", 0, false));
+        left.rows.remove(1);
+
+        switcher.refresh(left);
+
+        assert_eq!(
+            switcher.cursor(),
+            1,
+            "the row that took the removed one's place"
+        );
     }
 
     // -----------------------------------------------------------------

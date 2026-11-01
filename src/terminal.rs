@@ -28,7 +28,10 @@ use asqr::graphics::{
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::keep::worker::{KeepWorker, job_panicked, quit_notice};
 use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure, TmuxPane};
-use asqr::queue::{QueueLocation, QueueLock, WaitingQueue, platform_data_dir, waiting_elsewhere};
+use asqr::queue::{
+    QueueLocation, QueueLock, RemoveError, Removed, WaitingQueue, platform_data_dir, remove_queue,
+    waiting_elsewhere,
+};
 use asqr::settings::SettingsStore;
 use asqr::terminal_env::{TerminalEnv, TmuxState};
 use asqr::tui::render::{Glyphs, View, loader_panicked};
@@ -36,7 +39,7 @@ use asqr::tui::{
     Alerts, Clock, Event, EventSource, FirstStartEnd, Held, Host, InboxWatcher, KeepAlive,
     KeyReader, OpenedFiles, ProgressTerminal, QueueChoice, Refusal, SleepClock, Switcher, Taken,
     alert, ask_first_start, opener_failure, pick_queue, prepare_switch, progress_sequence,
-    progress_terminal, queue_choice, queue_label, run, spawn_reaped, start_replay,
+    progress_terminal, queue_choice, queue_label, removal_notice, run, spawn_reaped, start_replay,
     start_with_keeper, take_picked_with_keeper, watch_inbox,
 };
 use ratatui::crossterm::event::{
@@ -380,6 +383,20 @@ fn run_tui(
                     take_picked_with_keeper(target, &settings, keeper.clone(), move || {
                         let _ = changes.send(Event::InboxChanged);
                     })
+                },
+                // The picker lists named queues, as the start listed them.
+                |target| {
+                    let outcome = remove_queue(target, false);
+                    let notice = removal_notice(&queue_label(target, None), &outcome);
+                    let looked = queue_choice(
+                        choice.root.as_deref(),
+                        None,
+                        None,
+                        None,
+                        &SystemTmux::default(),
+                        watch.home(),
+                    );
+                    (notice, looked)
                 },
             )?;
             match picked {
@@ -1120,6 +1137,10 @@ impl Host for TerminalHost {
             (Some(pane), Some(name)) => pairing::pin(&SystemTmux::default(), pane, name),
             _ => Ok(()),
         }
+    }
+
+    fn remove_queue(&mut self, target: &QueueLocation) -> Result<Removed, RemoveError> {
+        remove_queue(target, false)
     }
 
     fn elsewhere(&mut self) -> Vec<WaitingQueue> {

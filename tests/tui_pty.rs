@@ -1346,6 +1346,81 @@ fn the_picker_watches_the_queue_picked() {
     assert_eq!(tui.wait_for_exit(), 0);
 }
 
+/// Queue `old` used once: a session asked into it and withdrawn, so its
+/// archive and outbox hold that session's history.
+fn used_and_finished(sandbox: &Sandbox, queue: &str) -> asqr::queue::QueueLocation {
+    ask_into(sandbox, queue, "earlier");
+    sandbox
+        .asqr()
+        .args(["--queue", queue, "withdraw", "earlier"])
+        .assert()
+        .success();
+    asqr::queue::QueueLocation::named(&sandbox.data_dir(), queue)
+}
+
+/// `backspace` on a queue in the switcher asks in the status line, and `y`
+/// takes the queue out of the lists and keeps its history (ADR 108).
+#[test]
+fn backspace_and_y_in_the_switcher_take_a_queue_out_of_the_lists() {
+    let sandbox = Sandbox::new();
+    let old = used_and_finished(&sandbox, "old");
+    let mut tui = Tui::start_with(
+        &sandbox,
+        &["--queue", "work", "--no-notify"],
+        PASSTHROUGH_ON,
+        &[],
+    );
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("Nothing to answer");
+    tui.press("w");
+    tui.wait_for("◀ this asqr");
+    // The rows: default, old, work; the cursor opens on work.
+    tui.press("k");
+    tui.wait_for("backspace  remove");
+    tui.send("\x7f");
+    tui.wait_for("remove queue old from the lists? Its history stays.");
+    tui.press("y");
+    tui.wait_for("removed queue old");
+    tui.press("q");
+    tui.wait_for("Nothing to answer");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    assert!(!old.active_marker().exists(), "out of the lists");
+    assert!(
+        old.outbox().join("earlier.json").is_file(),
+        "its history stays"
+    );
+    let listed = sandbox.asqr().arg("queues").output().expect("runs");
+    assert!(
+        !String::from_utf8_lossy(&listed.stdout).contains("old"),
+        "{listed:?}"
+    );
+}
+
+/// The start picker removes a queue the same way and stays open on what is
+/// left.
+#[test]
+fn backspace_and_y_in_the_picker_take_a_queue_out_of_the_lists() {
+    let sandbox = Sandbox::new();
+    let old = used_and_finished(&sandbox, "old");
+    used_and_finished(&sandbox, "other");
+    let mut tui = Tui::start_with(&sandbox, &["--no-notify"], PASSTHROUGH_ON, &[("TMUX", "")]);
+    tui.answer_the_query(NO_GRAPHICS);
+    tui.wait_for("enter  watch");
+    // The rows: default, old, other; the cursor opens on default.
+    tui.press("j");
+    tui.send("\x7f");
+    tui.wait_for("remove queue old from the lists?");
+    tui.press("y");
+    tui.wait_for("removed queue old");
+    tui.wait_until_gone("  old ");
+    tui.press("q");
+
+    assert_eq!(tui.wait_for_exit(), 0);
+    assert!(!old.active_marker().exists());
+}
+
 /// A signal while the picker shows ends asqr as it ends the run, and the
 /// terminal is given back.
 #[test]

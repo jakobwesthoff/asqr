@@ -1483,6 +1483,10 @@ directory that holds only its lock files, is answered as removed
 already, and is listed by `asqr queues --removed` until the next `prune`
 removes it.
 
+The queue switcher and the start picker remove a queue on `backspace`
+after a question (section 7.6), as `asqr queues remove` without `--force`
+does; they never remove a queue in which sessions wait.
+
 A tmux session's pin of a removed queue stays (section 7.1); the next
 `ask` or start there writes `active`.
 
@@ -2046,6 +2050,11 @@ and so do SIGTERM, SIGINT and SIGHUP; on the new-queue row `q` types,
 and `esc` stops typing there and does nothing elsewhere. While the
 new-queue row has the keys, the key bar is the switcher's typing bar,
 `enter  create   esc  stop typing`, with the version at its right end.
+`backspace` removes the queue under the cursor from the lists as in the
+switcher (section 7.6), with the same question, keys and notices; the key
+bar then reads `↑/↓  move   enter  watch   backspace  remove   q  quit`.
+The picker stays open on the queues left, the cursor where the switcher
+puts it.
 
 The first time `asqr` or `asqr watch` starts with no settings file (section
 5.2), it shows the first-start screen (ADR 106), with the terminal set up
@@ -2660,6 +2669,25 @@ Overlays and dialogs:
     cursor and closes, on the watched queue it only closes. `esc`, `q`
     and `w` close, `ctrl-c` quits. The key bar reads `↑/↓  move   enter
     switch   esc/q  close`.
+  - `backspace` on a queue's row takes the queue out of the lists for new
+    work (section 5.11, ADR 108), after a question. The status line asks
+    `! remove queue <name> from the lists? Its history stays.`, in the
+    warning colour and before any other notice, and the key bar reads
+    `enter/y  remove   any other key  keep`. `enter` or `y` removes the
+    queue; any other key keeps it and does nothing else, `ctrl-c` quits,
+    and a paste goes nowhere. The dialog of an invalid session that shows
+    meanwhile takes the next key first, and the question shows again
+    after it. The switcher stays open on the queues looked at again, with
+    the cursor on the same row or the last queue's, never on the
+    new-queue row. Where `backspace` removes the queue under the cursor,
+    the key bar reads `↑/↓  move   enter  switch   backspace  remove
+    esc/q  close`, and a bar too narrow for it leaves `backspace  remove`
+    out first. The switcher does not remove the queue this asqr watches,
+    a queue given by `--dir`, the default queue, or a queue in which
+    sessions wait, which the command line removes with `--force`; there
+    `backspace` says why in the status line (section 7.9). On the
+    new-queue row `backspace` deletes as it does in a field, and does
+    nothing once `esc` stopped the typing.
   - The new-queue row is a field as soon as the cursor stands on it:
     letters, digits, `-`, `_` and `.` type there, `q` and `w` too,
     `backspace` removes the last character, `↑` leaves the row and
@@ -3080,6 +3108,26 @@ keeps the session and shows its own notice instead.
   queue's name, at its end with `…`; and the queue's name only where it
   does not fit alone, without that text. The words around the names stay
   whole (ADR 86).
+- After `backspace` in the queue switcher or the start picker (section
+  7.6) the status line says what came of it, naming a queue by its
+  name:
+
+      ✔ removed queue old-work
+      queue old-work is removed already
+      ! 3 sessions wait in weekly; asqr queues remove --force weekly removes it
+      ! asqr watches asqr-todos itself; switch to another queue to remove it
+      ! a queue given by --dir is your own directory; asqr removes only named queues
+      ! the default queue cannot be removed
+      ✗ another asqr is watching queue weekly
+      ✗ cannot remove queue weekly: it is busy; try again in a moment
+      ✗ cannot remove queue weekly: <reason>
+
+  The first two are news, the second for a queue that was out of the
+  lists already. The warnings say why `backspace` removed nothing; the
+  first of them also shows where a session arrived in the queue after the
+  switcher listed it. The errors say that another asqr took the queue, a
+  command such as `asqr compact` held it, or the removal failed (section
+  5.11).
 - A replaced session file keeps the answers that still fit (section
   5.4), while a question the person has not touched takes the new
   file's defaults, and keeps where the person was: the question shown,

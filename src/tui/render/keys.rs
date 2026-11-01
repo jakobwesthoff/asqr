@@ -16,7 +16,7 @@ use super::screen::MIN_WIDTH;
 use super::source_line::columns;
 use super::theme;
 use crate::format::{ContextEntry, Kind};
-use crate::tui::{DiffLayout, DrawnDiff, Extent, Focus, Page, Row, SessionState};
+use crate::tui::{DiffLayout, DrawnDiff, Extent, Focus, Page, Row, SessionState, Switcher};
 
 /// Every key, in the 13 lines the help has on the smallest screen.
 const HELP: &[(&str, &str)] = &[
@@ -176,7 +176,9 @@ pub(super) struct Hint {
 pub(super) enum Rank {
     /// `ctrl-u`/`ctrl-d`, beside the page keys and after `tab`.
     HalfPage,
-    /// `n`, and `backspace` right of it while it can clear a pick.
+    /// `n`, and `backspace` right of it while it can clear a pick; in the
+    /// queue switcher and the start picker, `backspace` where it removes a
+    /// queue.
     Note,
     Context,
     /// Switching questions, or scrolling the context pane sideways.
@@ -278,35 +280,44 @@ pub(super) fn first_start_hints(on_button: bool) -> Vec<Hint> {
     ]
 }
 
-/// The keys of the start picker, whose new-queue row is a field while
-/// it is `typing`.
-pub(super) fn picker_hints(typing: bool) -> Vec<Hint> {
-    if typing {
-        switcher_hints(true)
-    } else {
-        vec![
-            hint("↑/↓", "move", Rank::Cursor),
-            hint("enter", "watch", Rank::Cursor),
-            QUIT_HINT,
-        ]
-    }
+/// The keys of the start picker over `picker`, whose new-queue row is a
+/// field while it is typing.
+pub(super) fn picker_hints(picker: &Switcher) -> Vec<Hint> {
+    queue_hints(picker, "watch", QUIT_HINT)
 }
 
-/// The keys of the queue switcher, whose new-queue row is a field while
-/// it is `typing`.
-pub(super) fn switcher_hints(typing: bool) -> Vec<Hint> {
-    if typing {
-        vec![
+/// The keys of the queue switcher `switcher`, whose new-queue row is a
+/// field while it is typing.
+pub(super) fn switcher_hints(switcher: &Switcher) -> Vec<Hint> {
+    queue_hints(switcher, "switch", hint("esc/q", "close", Rank::Leave))
+}
+
+/// The keys of the queue list of `switcher`: `enter` does `what` and
+/// `leave` leaves it. While it asks about a removal, any key answers;
+/// `backspace` shows where it removes the queue under the cursor and is
+/// the first to go where the bar is narrow.
+fn queue_hints(switcher: &Switcher, what: &'static str, leave: Hint) -> Vec<Hint> {
+    if switcher.typing() {
+        return vec![
             hint("enter", "create", Rank::Cursor),
             hint("esc", "stop typing", Rank::Leave),
-        ]
-    } else {
-        vec![
-            hint("↑/↓", "move", Rank::Cursor),
-            hint("enter", "switch", Rank::Cursor),
-            hint("esc/q", "close", Rank::Leave),
-        ]
+        ];
     }
+    if switcher.confirming().is_some() {
+        return vec![
+            hint("enter/y", "remove", Rank::Cursor),
+            hint("any other key", "keep", Rank::Leave),
+        ];
+    }
+    let mut hints = vec![
+        hint("↑/↓", "move", Rank::Cursor),
+        hint("enter", what, Rank::Cursor),
+    ];
+    if switcher.removes_under_cursor() {
+        hints.push(hint("backspace", "remove", Rank::Note));
+    }
+    hints.push(leave);
+    hints
 }
 
 /// The keys of the focused pane and the full-screen view, where `z` is
