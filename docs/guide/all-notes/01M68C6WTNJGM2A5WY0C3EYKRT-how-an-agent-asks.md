@@ -54,9 +54,8 @@ finished sessions, `asqr replay <ref> --json` prints one with its result and
 the state of each file it showed, and `asqr replay <ref> --extract <dir>`
 writes the session, the result and the kept copies of its files, images
 included, into a new or empty directory. None of the three needs a
-terminal. The skill names all three, and [Finished sessions: history and
-replay](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md)
-describes the output.
+terminal. The skill names all three, and [A finished session as
+data](#a-finished-session-as-data) below describes the output.
 
 ## An example
 
@@ -160,19 +159,14 @@ was. The `custom` text is your typed sentence.
 
 ## The exit codes
 
-`asqr wait` and `asqr result` exit by the result.
-
-| Code | Meaning |
-|---|---|
-| 0 | You submitted. |
-| 10 | You rejected the session, with an optional reason. |
-| 11 | The file is invalid. |
-| 12 | No result yet: the agent waits again. |
-| 13 | No result will come: the id is unknown, or the session is gone. |
-| 14 | The asker withdrew the session. |
-
-`asqr ask` exits with 0 when it dropped the file, with 11 for an invalid
-file and with 1 when it refused. Exit code 2 stands for wrong arguments.
+`asqr wait` and `asqr result` exit with 0 when you submitted, 10 when you
+rejected the session, 11 when the result is `error` or a file fails
+validation, 12 while no result is there, 13 when none will come, and 14
+when the asker withdrew the session. `asqr ask` exits with 0 when it
+dropped the file, with 11 for an invalid file and with 1 when it refused.
+Exit code 2 stands for wrong arguments.
+[Commands](01M68CASKFMEPMTN3JA6Z2DGCQ-commands.md#exit-codes) lists every
+code of every command.
 
 ## The result
 
@@ -189,6 +183,65 @@ the session. An info item appears only when you wrote a note on it.
 
 The note to the whole session is the `note` at the top level, and a rejected
 result carries your `reason`. The example above shows a real result.
+
+## A finished session as data
+
+`asqr replay <REF> --json` prints the session, its result and the state of
+each file it showed as one JSON object on a line of its own. `asqr replay
+<REF> --extract <dir>` writes them into a directory. The two combine. Both
+start no terminal UI, resolve and refuse the reference as
+[`asqr replay`](01M68KBBY1Y1YB4YFQ8WC37QP5-finished-sessions-history-and-replay.md#opening-one)
+does, and end
+with exit code 0, 1 or 2 only. On exit code 1 or 2 stdout is empty and the
+reason is on stderr, also with `--json`. A bundle that cannot be read gives
+a `warning:` line on stderr, once for each bundle, also for a bundle that
+holds the session's result.
+
+The object `--json` prints holds:
+
+- `ref`, `id`, `finished_at`, `status` and `draft`, as `asqr history
+  --json` gives them for the entry.
+- `queue`, the name of the queue where the session was found, or for a
+  queue given with `--dir` the absolute path of its directory.
+- `session`, the archived session as stored. The `path` of every file it
+  shows is the path the asker wrote.
+- `result`, the result that answers the session. A withdrawn result carries
+  its `draft`. Without a result it is `null` and `status` is `none`.
+- `files`, one object for each distinct pair of original path and SHA-256,
+  with `original_path`, `state`, `sha256`, `size`, `modified`, `kept_size`,
+  `reason`, `problem` and `extracted`. `state` is `kept`, `gone` (missing
+  or unreadable when the session finished, with the recorded text in
+  `reason`), `not_kept` or `not_recorded`. `problem` says why the copy of a
+  kept file cannot be handed out: it is missing from the archive or
+  damaged. `extracted` is the path of the kept copy relative to
+  `extracted_to`, only with `--extract` and a good copy. A value a state
+  does not have is `null`.
+- `extracted_to`, the absolute directory given to `--extract`, else `null`.
+
+`--json` prints no file's bytes.
+
+`--extract <dir>` writes:
+
+- `session.json`, the archived session with the `path` of each kept file
+  turned into `files/<sha256>.<extension>`, which resolves below `<dir>`
+  for a good copy only,
+- `result.json`, the result as `--json` gives it, left out where the
+  session has no result,
+- `files/<sha256>.<extension>`, each good kept copy once, images included.
+
+`<dir>` must be absent or empty, hidden files counting. A symbolic link, a
+path that is no directory, the current directory or one of its parents, and
+a directory inside the data directory, the selected queue's directory or the directory of the queue the session was found in
+are refused with `error: ` and exit code 1. There is no `--force`. asqr
+reads and checks the session and its copies before it writes anything, so a
+session that cannot be shown leaves an absent `<dir>` absent and an empty
+one empty.
+
+Without `--json`, `--extract` lists on stdout `extracted to <dir>`,
+`session.json`, `result.json` or `no result`, the number of files in
+`files/`, and for each shown file without a good copy a line `<original
+path>: <state or problem>`. Such files leave the exit code at 0. With
+`--json`, stdout is the object only.
 
 ## Hints and the skill
 
