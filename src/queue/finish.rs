@@ -470,6 +470,36 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn an_archive_that_cannot_take_the_session_fails_the_recovery() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_scratch, location) = queue();
+        dropped(&location, "batch-01", b"session");
+        fs::write(
+            location.outbox().join("batch-01.json"),
+            serde_json::to_vec(&submitted("batch-01", b"session")).expect("json"),
+        )
+        .expect("written");
+        fs::set_permissions(location.archive(), fs::Permissions::from_mode(0o500))
+            .expect("read-only");
+
+        let recovered = recover(&location);
+        fs::set_permissions(location.archive(), fs::Permissions::from_mode(0o755))
+            .expect("writable again");
+
+        assert_eq!(
+            recovered.map_err(|error| error.kind()),
+            Err(io::ErrorKind::PermissionDenied)
+        );
+        assert_eq!(
+            names(&location.inbox()),
+            ["batch-01.json"],
+            "the session stays"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn recovery_leaves_an_unreadable_session_alone() {
         use std::os::unix::fs::PermissionsExt;
 
