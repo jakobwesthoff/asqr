@@ -42,16 +42,15 @@ Open a terminal of its own and start asqr:
 asqr
 ```
 
-With tmux, open a tmux session and start asqr in one pane and your agent
-in a second pane of the same tmux session:
+Start your agent the same way as asqr: both in plain terminals, or both
+in panes of one tmux session, such as one you open with:
 
 ```sh
 tmux new -s myproject
 ```
 
-Start both the same way: in panes of one tmux session, or both outside
-tmux. Inside tmux, asqr and the agents of the same tmux session use one
-queue without any setup. Outside tmux, both use the default queue.
+Inside tmux, asqr and the agents of the same tmux session use one queue
+without any setup. Outside tmux, both use the default queue.
 
 > [!TIP]
 > In tmux, put `set -g allow-passthrough all` into your tmux
@@ -60,19 +59,18 @@ queue without any setup. Outside tmux, both use the default queue.
 > tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
 > says why.
 
-The first time asqr starts without a settings file, and `ASQR_KEEP_FILES`
-is not set, it asks one question before anything else: whether it keeps
-copies of the files a session showed. Pick a value with `↑`/`↓` and `enter`, then press `enter` on
-`[ Save and start ]`. The
-[settings page](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
-describes the screen.
+The first time asqr starts, it asks whether to keep copies of the files a
+session showed. `enter` twice keeps the default, compact copies. `q` quits
+without saving, and the next start asks again. The [settings
+page](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md#the-first-start) describes the
+screen.
 
 ![The first-start screen, which asks whether asqr keeps the files a session showed](../pictures/first-start.png)
 
 Leave asqr running. With nothing waiting it says "Nothing to answer. New
 sessions show up here as soon as they arrive."
 
-![The empty queue with Talqi, and sessions waiting in another queue](../pictures/empty-queue.png)
+![The empty queue with Talqi, waiting for a session](../pictures/empty-queue.png)
 
 ## Ask your agent
 
@@ -107,7 +105,7 @@ These keys are enough for a first session:
 - `←`/`→` (or `h`/`l`) go to the previous and the next question.
 - On the own-answer row and in a text question, what you type goes
   straight into the answer.
-- `?` shows every key.
+- `?` shows the keys that work where you are.
 
 The last tab is the review. `enter` on `[ Submit ]` sends your answers.
 
