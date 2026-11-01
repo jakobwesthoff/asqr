@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it; `default` always shows. A queue not used since this version is out
   of these lists until then; `asqr history --all` and `asqr replay` still
   find its sessions.
+- A switch or a pick refused because `asqr compact` or `asqr queues
+  remove` holds the queue for a moment says `cannot switch to queue <q>:
+  it is busy; try again in a moment`, where it said that another asqr
+  watches the queue.
 - With patine 2.2.1, GitHub alerts show as callouts wherever asqr renders
   Markdown: intros, question texts, option labels and descriptions,
   captions and Markdown entries. `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,

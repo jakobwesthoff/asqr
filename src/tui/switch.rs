@@ -18,8 +18,8 @@ use crate::cli::shell_word;
 use crate::keep::worker::KeepWorker;
 use crate::pairing::{self, Tmux, TmuxFailure, TmuxPane};
 use crate::queue::{
-    LockError, QueueLocation, QueueLock, QueueSummary, RemoveError, Removed, compact_quietly,
-    list_queues, lock_queue, summarize,
+    Holder, LockError, QueueLocation, QueueLock, QueueSummary, RemoveError, Removed,
+    compact_quietly, list_queues, lock_queue, summarize,
 };
 use crate::settings::SettingsStore;
 
@@ -104,8 +104,9 @@ pub struct Held {
 /// Why a queue cannot be switched to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
-    /// Another asqr watches it.
-    Taken,
+    /// Another process holds its lock: an asqr watching it, or a command
+    /// such as `asqr queues remove`, whose holder text names it.
+    Taken(Holder),
     /// Taking its lock, making its directories or watching its inbox
     /// failed, for the reason given.
     Failed(String),
@@ -122,7 +123,7 @@ pub fn prepare_switch(
 ) -> Result<Held, Refusal> {
     let lock = match lock_queue(target, pane) {
         Ok(lock) => lock,
-        Err(LockError::Held(_)) => return Err(Refusal::Taken),
+        Err(LockError::Held(holder)) => return Err(Refusal::Taken(holder)),
         Err(LockError::Io(error)) => return Err(Refusal::Failed(error.to_string())),
     };
     target
@@ -180,7 +181,15 @@ pub fn take_picked_with_keeper(
 /// The notice for a queue named `name` that `refusal` keeps asqr from.
 fn refused(name: &str, refusal: Refusal) -> Notice {
     match refusal {
-        Refusal::Taken => {
+        // A command names itself in the lock file and lets go of the queue
+        // in a moment; an asqr watching it does not.
+        Refusal::Taken(holder) if holder.text.contains(", running asqr ") => Notice::naming_queue(
+            Tone::Error,
+            "cannot switch to queue ",
+            name,
+            ": it is busy; try again in a moment",
+        ),
+        Refusal::Taken(_) => {
             Notice::naming_queue(Tone::Error, "another asqr is watching queue ", name, "")
         }
         Refusal::Failed(reason) => cannot_watch(name, &reason),
@@ -636,8 +645,37 @@ mod tests {
 
         assert!(matches!(
             prepare_switch(&target, None, || {}),
-            Err(Refusal::Taken)
+            Err(Refusal::Taken(_))
         ));
+    }
+
+    #[test]
+    fn a_queue_a_command_holds_is_busy_not_watched() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = queue(scratch.path(), "old", 0);
+        let _removing =
+            crate::queue::lock_queue_for(&target, 1, "asqr queues remove").expect("locked");
+
+        let refusal = prepare_switch(&target, None, || {}).err().expect("refused");
+
+        assert_eq!(
+            refused("old", refusal).text,
+            "cannot switch to queue old: it is busy; try again in a moment"
+        );
+    }
+
+    #[test]
+    fn a_queue_another_asqr_watches_says_so() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let target = queue(scratch.path(), "ntropy", 0);
+        let _theirs = lock_queue(&target, None).expect("locked");
+
+        let refusal = prepare_switch(&target, None, || {}).err().expect("refused");
+
+        assert_eq!(
+            refused("ntropy", refusal).text,
+            "another asqr is watching queue ntropy"
+        );
     }
 
     #[test]

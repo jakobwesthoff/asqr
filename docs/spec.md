@@ -1485,8 +1485,10 @@ and holds both from its look at the inbox to the deletion of `active`. A
 drafts lock that stays taken is `error: cannot remove queue <name>: the
 queue is busy`, and nothing changes. So an `ask` or a start on the queue
 at that moment comes either before the look, and the queue is refused,
-or after the deletion, and writes `active` again. A start or a switch
-refused in that moment names the holder as it does for `asqr compact`.
+or after the deletion, and writes `active` again. A start refused in that
+moment names the holder as it does for `asqr compact`, and a switch or
+the start picker says `cannot switch to queue <name>: it is busy; try
+again in a moment` (section 7.9).
 Taking a lock makes the queue's directory (section 5.6): a queue `prune`
 removes at the moment the removal takes its locks comes back as a
 directory that holds only its lock files, is answered as removed
@@ -3103,13 +3105,16 @@ keeps the session and shows its own notice instead.
       watching default
       ! watching default · tmux kept the old pin, agents stay on asqr-todos
       ✗ another asqr is watching queue default
+      ✗ cannot switch to queue default: it is busy; try again in a moment
       ✗ cannot watch queue default: <reason>
       ✗ cannot save the draft of <id>; still watching asqr-todos
 
   The first two are information, the second where no session of the
   old queue is left behind. The third, a warning, shows where tmux
-  refused the pin. The last three are errors, and asqr stays on the
-  queue it watched: another asqr took the queue first; its directories,
+  refused the pin. The last four are errors, and asqr stays on the
+  queue it watched: another asqr took the queue first; a command such as
+  `asqr compact` or `asqr queues remove` held it, which names itself in
+  the lock file (section 5.6); its directories,
   its inbox watcher or its first read failed; or the draft of a session
   of the old queue could not be saved, whose answers stay on screen.
   Where such a notice does not fit, a second name in the text before the
