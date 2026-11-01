@@ -48,9 +48,8 @@ takes unicode-width 0.2.3 or newer.
 - ratatui PR #2790 (open), "fix(core): make Span::width count the cells
   that get rendered", makes `Span::width` count through `CellWidth`. It
   keeps the extra cell, so it does not fix this.
-- An issue for ratatui was drafted on 2026-11-01 (asking `CellWidth` to add
-  only the cell unicode-width leaves out, as patine 2.2.1 does); whether it
-  is posted is up to the owner.
+- Reported upstream on 2026-11-01:
+  https://github.com/ratatui/ratatui/issues/2886. Watch it for a fix.
 
 ## What lifting the pin takes
 
