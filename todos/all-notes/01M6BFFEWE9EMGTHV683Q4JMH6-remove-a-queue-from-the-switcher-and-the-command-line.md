@@ -2,7 +2,6 @@
 title: "Remove a queue from the switcher and the command line"
 kind: feature
 component: queue
-status: needs-discussion
 origin: request
 tags: [ux]
 ---
@@ -48,10 +47,25 @@ also a queue that is not empty.
 - Spec sections 5 (queues and files), 6.5 (`asqr queues`) and 7.6 (the
   switcher) and the start picker change with it.
 
-## Open questions for the owner
+## Decisions (2026-11-01, the owner, asqr session 01M6BG39EPAPHYHPJX7F8YBCMZ)
 
-- The key in the switcher (`backspace`, or another), and whether it
-  confirms.
-- What counts as empty, especially the archive.
-- The command's name and place, and what `--force` may remove.
-- Whether `default` and pinned tmux queues can be removed.
+- Removing a queue does not take its archive along. What happened in a
+  queue stays: its finished sessions remain for `asqr history` and
+  `asqr replay`, also for queues no longer in use. Removing only takes
+  the queue out of the lists for new work (switcher, start picker,
+  `asqr queues`) until it is created again by its next use. Owner's
+  words: archives of queues not used any more but once used a lot must
+  stay; queue and archive are separate.
+- In the switcher, `backspace` on a queue's row removes it; the start
+  picker does the same, with the same rules.
+- The confirmation shows in the status line, its keys in the key bar:
+  `enter` or `y` removes, any other key keeps.
+- Without `--force`, a queue can be removed when no session waits in it.
+- On a queue with waiting sessions the switcher refuses and names the
+  command with `--force`.
+- The command is `asqr queues remove <name> [--force]`, next to `asqr
+  queues`; it removes at once (no dry run), naming exactly one queue, and
+  prints what it did.
+- `default` can never be removed.
+- A tmux session's pin stays: the queue comes back empty when something
+  is asked there.
