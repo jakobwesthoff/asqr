@@ -78,11 +78,11 @@ that you see it before you answer.
 
 ### When a session is invalid
 
-A session file that fails validation never reaches the questions. asqr
-answers the asker with an error result that names the problem, and shows
-you a dialog. The dialog is framed in the warning colour. Its title names the session, and each
-problem stands on a line of its own behind a `•`. Any key closes the dialog,
-and it does nothing else.
+A session file that fails validation never reaches the questions. asqr answers
+the asker with an error result that names the problem, and shows you a dialog.
+The dialog is framed in the warning colour. Its title names the session, and
+each problem stands on a line of its own behind a `•`. Any key closes the
+dialog, and it does nothing else.
 
 ![The dialog of a session file asqr answered with an error](../pictures/invalid-dialog.png)
 

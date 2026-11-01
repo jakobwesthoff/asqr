@@ -41,18 +41,18 @@ These keys work on the rows of a question and its options.
   the others type there until you press `esc`.
 
 The pages that explain these keys: [answering a
-session](01M6916HYT9Z4N422AX47A8JQH-answering-a-session.md) has the common
-ones, `i` is on [the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md), `n`, `space`, the
-digits and `backspace` are on
-[questions and answers](01M68BT9AXJNJQR45K1FBR9VTG-questions-and-answers.md),
-`tab`, `o`, `z` and `s` are on [context: files, diffs and
-images](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md) and
-[the context pane in detail](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md),
-`pgup`/`pgdn` and `ctrl-u`/`ctrl-d` are on the same page under
-[scrolling from the
-question](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md),
-`L` and `w` are on [queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) and `,` is on
-[settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
+session](01M6916HYT9Z4N422AX47A8JQH-answering-a-session.md) has the common ones,
+`i` is on [the screen](01M68BT9AJHW7WX304EQKGBGF6-the-screen.md), `n`, `space`,
+the digits and `backspace` are on [questions and
+answers](01M68BT9AXJNJQR45K1FBR9VTG-questions-and-answers.md), `tab`, `o`, `z`
+and `s` are on [context: files, diffs and
+images](01M68BT9B5R7ASMVGW9SHK8MB2-context-files-diffs-and-images.md) and [the
+context pane in
+detail](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md), `pgup`/`pgdn`
+and `ctrl-u`/`ctrl-d` are on the same page under [scrolling from the
+question](01M68BT9BDTGM96WSRXRSYFZKY-the-context-pane-in-detail.md), `L` and `w`
+are on [queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md)
+and `,` is on [settings](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
 
 ## On the review tab
 
@@ -96,11 +96,11 @@ the question behind it. `z`, `esc`, `tab` and `q` leave it.
 - The session list (`L`): `↑`/`↓` or `k`/`j` move, `enter` switches to
   the session, `esc` or `L` close the list and `q` quits asqr. Its key bar
   reads `↑/↓  move   enter  open   esc  close`.
-- The queue switcher (`w`): `↑`/`↓` or `k`/`j` move, `enter` switches
-  to the queue under the cursor, `backspace` removes it from the lists
-  after a question, `esc`, `q` and `w` close it and `ctrl-c` quits asqr. On the new-queue row, letters, digits, `-`, `_`
-  and `.` type, `backspace` removes the last character and `esc` stops
-  typing.
+- The queue switcher (`w`): `↑`/`↓` or `k`/`j` move, `enter` switches to the
+  queue under the cursor, `backspace` removes it from the lists after a
+  question, `esc`, `q` and `w` close it and `ctrl-c` quits asqr. On the
+  new-queue row, letters, digits, `-`, `_` and `.` type, `backspace` removes the
+  last character and `esc` stops typing.
 - The settings pane (`,`): `↑`/`↓` or `k`/`j` move, `←`/`→` or `h`/`l`
   change the value and save it at once, `esc`, `q` and `,` close it and
   `ctrl-c` quits asqr.
@@ -113,15 +113,16 @@ moves to the button. `enter` on `[ Save and start ]` writes the setting and
 starts asqr. `q` and `ctrl-c` quit and write nothing. Every other key does
 nothing, and a paste goes nowhere.
 
-The [start picker](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md): `↑`/`↓` move,
-`enter` watches the queue under the cursor, `backspace` removes it from
-the lists after a question, and `q` and `ctrl-c` quit. On
-the new-queue row `q` types, and `esc` stops typing there and does nothing
-elsewhere.
+The [start
+picker](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md): `↑`/`↓`
+move, `enter` watches the queue under the cursor, `backspace` removes it from
+the lists after a question, and `q` and `ctrl-c` quit. On the new-queue row `q`
+types, and `esc` stops typing there and does nothing elsewhere.
 
 ## In a replay
 
-A [replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
+A
+[replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 shows a finished session, so most keys that change something do nothing.
 
 - `space`, `1` to `9`, `n`, `backspace`, `L`, `w`, `,`, `ctrl-g`, typing and

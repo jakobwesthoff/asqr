@@ -43,8 +43,9 @@ prints them as the keys `root`, `queue`, `inbox`, `outbox`, `drafts`,
 
 ## The settings file
 
-`settings.toml` lives in the config directory. The [settings page](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md)
-lists its four keys and explains the pane that writes them.
+`settings.toml` lives in the config directory. The [settings
+page](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md) lists its four keys and explains
+the pane that writes them.
 
 ## Environment variables
 

@@ -92,15 +92,15 @@ agent with your answers.
 - Every edit is saved to a draft as you go. `q` leaves asqr and the draft
   keeps your answers.
 
-The texts of a session, which are the intro, the question, the option
-labels and their descriptions, are Markdown. asqr renders headings,
-emphasis, lists, task lists, quotes, tables, links and code blocks, which
-are highlighted when the fence names a language. A link written as a
-reference shows like an inline one. A footnote reference shows its number
-dimmed in square brackets, such as `[1]`, and the footnotes show at the
-end of the text, in the order they are referenced, each starting with its
-number. A footnote nothing references does not show. Quotes and lists nested so deep that a line would keep little
-room for its text stop indenting further.
+The texts of a session, which are the intro, the question, the option labels and
+their descriptions, are Markdown. asqr renders headings, emphasis, lists, task
+lists, quotes, tables, links and code blocks, which are highlighted when the
+fence names a language. A link written as a reference shows like an inline one.
+A footnote reference shows its number dimmed in square brackets, such as `[1]`,
+and the footnotes show at the end of the text, in the order they are referenced,
+each starting with its number. A footnote nothing references does not show.
+Quotes and lists nested so deep that a line would keep little room for its text
+stop indenting further.
 
 ## Callouts
 

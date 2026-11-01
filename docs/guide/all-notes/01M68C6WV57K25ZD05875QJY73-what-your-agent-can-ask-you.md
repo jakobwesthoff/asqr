@@ -39,9 +39,9 @@ and your notes go back to it, and it may come back with more.
 - **Saying no.** To turn down a whole session, reject it on the review
   tab with a reason. Your agent gets the reason, and the answers and
   notes you had entered.
-- **Answered in the chat.** Tell your agent to take the session back, as
-  the tip on [Review, submit and come back later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md)
-  says.
+- **Answered in the chat.** Tell your agent to take the session back, as the tip
+  on [Review, submit and come back
+  later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) says.
 - **Follow-up rounds.** When your answers lead to new questions, your
   agent can ask a new session that follows the earlier one. Its header
   then reads `from <from> · follows "<title>"`, with the title of the
@@ -75,11 +75,11 @@ kinds of callout.
 
 ## Decide before implementing
 
-One question for each open point. What the agent settled that bears on
-several questions, and that you need to know, comes in short info items
-just before the questions it bears on, or first where it bears on none. The recommended option stands first and is the default. Each option
-has a short trade-off as its description, and the current state or the
-option's own diff is the context.
+One question for each open point. What the agent settled that bears on several
+questions, and that you need to know, comes in short info items just before the
+questions it bears on, or first where it bears on none. The recommended option
+stands first and is the default. Each option has a short trade-off as its
+description, and the current state or the option's own diff is the context.
 
 ![A decision before implementing: each option shows its own diff](../pictures/pattern-decide.png)
 

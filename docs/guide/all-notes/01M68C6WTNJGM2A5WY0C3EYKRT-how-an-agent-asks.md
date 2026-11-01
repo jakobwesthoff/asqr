@@ -186,15 +186,14 @@ result carries your `reason`. The example above shows a real result.
 
 ## A finished session as data
 
-`asqr replay <REF> --json` prints the session, its result and the state of
-each file it showed as one JSON object on a line of its own. `asqr replay
-<REF> --extract <dir>` writes them into a directory. The two combine. Both
-start no terminal UI, resolve and refuse the reference as
+`asqr replay <REF> --json` prints the session, its result and the state of each
+file it showed as one JSON object on a line of its own.
+`asqr replay <REF> --extract <dir>` writes them into a directory. The two
+combine. Both start no terminal UI, resolve and refuse the reference as
 [`asqr replay`](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
-does, and end
-with exit code 0, 1 or 2 only. On exit code 1 or 2 stdout is empty and the
-reason is on stderr, also with `--json`. A bundle that cannot be read gives
-a `warning:` line on stderr, once for each bundle, also for a bundle that
+does, and end with exit code 0, 1 or 2 only. On exit code 1 or 2 stdout is empty
+and the reason is on stderr, also with `--json`. A bundle that cannot be read
+gives a `warning:` line on stderr, once for each bundle, also for a bundle that
 holds the session's result.
 
 The object `--json` prints holds:
@@ -229,13 +228,13 @@ The object `--json` prints holds:
   session has no result,
 - `files/<sha256>.<extension>`, each good kept copy once, images included.
 
-`<dir>` must be absent or empty, hidden files counting. A symbolic link, a
-path that is no directory, the current directory or one of its parents, and
-a directory inside the data directory, the selected queue's directory or the directory of the queue the session was found in
-are refused with `error: ` and exit code 1. There is no `--force`. asqr
-reads and checks the session and its copies before it writes anything, so a
-session that cannot be shown leaves an absent `<dir>` absent and an empty
-one empty.
+`<dir>` must be absent or empty, hidden files counting. A symbolic link, a path
+that is no directory, the current directory or one of its parents, and a
+directory inside the data directory, the selected queue's directory or the
+directory of the queue the session was found in are refused with `error: ` and
+exit code 1. There is no `--force`. asqr reads and checks the session and its
+copies before it writes anything, so a session that cannot be shown leaves an
+absent `<dir>` absent and an empty one empty.
 
 Without `--json`, `--extract` lists on stdout `extracted to <dir>`,
 `session.json`, `result.json` or `no result`, the number of files in

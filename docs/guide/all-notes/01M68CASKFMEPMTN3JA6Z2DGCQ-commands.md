@@ -35,7 +35,8 @@ Every asqr command. `asqr --help` lists them too, and `asqr <command>
 without `--yes`. `--older-than` and `--session` do not combine. They are the
 only ways asqr deletes sessions and results.
 
-[History and replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
+[History and
+replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 explains `history` and `replay`, and [Keeping files, compact and
 prune](01M68KBBYC1XNESEFMG0QW8GW1-keeping-files-compact-and-prune.md) explains
 `compact` and `prune`.
@@ -57,10 +58,10 @@ Plain `asqr result <id>` does not reach a queue chosen by `--queue`,
 
 ## Flags every command takes
 
-`--queue <name>` works on the named queue under the platform's data
-directory, and `--dir <path>` on the queue in a directory. The two do not
-combine. The [page on queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) says
-how asqr chooses the queue without them.
+`--queue <name>` works on the named queue under the platform's data directory,
+and `--dir <path>` on the queue in a directory. The two do not combine. The
+[page on queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md)
+says how asqr chooses the queue without them.
 
 `--no-notify`, `--no-bell`, `--no-title` and `--layout` stand before
 `watch` or alone. Next to any other command they are a usage error.

@@ -54,9 +54,10 @@ does not have it.
 ### A setting a flag or a variable holds
 
 `--layout` and `ASQR_LAYOUT` hold the `Context` setting, and `ASQR_KEEP_FILES`
-holds `Keep files`. A held row shows the value in effect, dim, with `set by
---layout`, `set by ASQR_LAYOUT` or `set by ASQR_KEEP_FILES` beside it, and `←`/`→` do nothing there. The text under the rule says what
-holds the row and what to do.
+holds `Keep files`. A held row shows the value in effect, dim, with
+`set by --layout`, `set by ASQR_LAYOUT` or `set by ASQR_KEEP_FILES` beside it,
+and `←`/`→` do nothing there. The text under the rule says what holds the row
+and what to do.
 
 ![The settings pane with the Context row held by --layout](../pictures/settings-locked.png)
 

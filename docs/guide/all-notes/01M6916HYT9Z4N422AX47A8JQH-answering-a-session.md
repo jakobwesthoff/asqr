@@ -74,7 +74,8 @@ use the `default` queue unless you name another with `--queue <name>`.
   a question in the status line.
 - `L` lists the sessions waiting in the queue you watch.
 
-[Queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) has the details.
+[Queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) has the
+details.
 
 ## Settings
 
@@ -99,6 +100,7 @@ explains both.
 
 > [!TIP]
 > To look at what you answered earlier, `asqr history` lists the finished
-> sessions and `asqr replay <REF>` opens one again, read-only, with your
-> answers filled in. [History and replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
+> sessions and `asqr replay <REF>` opens one again, read-only, with your answers
+> filled in. [History and
+> replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 > has the details.

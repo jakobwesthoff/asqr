@@ -4,11 +4,11 @@ tags: [guide/reference]
 site:
   order: 4
 ---
-A session shows files by path, and many of them lie in temporary folders.
-When you finish a session, asqr can keep a copy of every file it showed, so
-that [a replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
-can show them later. This page says what asqr keeps, how it packs the
-archive and how you delete from it.
+A session shows files by path, and many of them lie in temporary folders. When
+you finish a session, asqr can keep a copy of every file it showed, so that [a
+replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
+can show them later. This page says what asqr keeps, how it packs the archive
+and how you delete from it.
 
 ## Making room
 
@@ -69,12 +69,12 @@ picture of more than 32 million pixels, an image with a profile for a
 colour space other than RGB, and any image whose re-encoding is not smaller
 or does not show the same picture.
 
-You change the setting in the [settings pane](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md),
-on the row `Keep files`, or in `settings.toml`. The variable
-`ASQR_KEEP_FILES` set to `compact`, `exact` or `off` wins over the file and
-locks the row. A change applies to the next session you finish. The first
-time asqr starts without a settings file, it asks the value on a
-[first-start screen](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
+You change the setting in the [settings
+pane](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md), on the row `Keep files`, or in
+`settings.toml`. The variable `ASQR_KEEP_FILES` set to `compact`, `exact` or
+`off` wins over the file and locks the row. A change applies to the next session
+you finish. The first time asqr starts without a settings file, it asks the
+value on a [first-start screen](01M68C1XVEMX1D38GK6GY0V1NZ-settings.md).
 
 ![The settings pane on its Keep files row](../pictures/settings-keep-files.png)
 

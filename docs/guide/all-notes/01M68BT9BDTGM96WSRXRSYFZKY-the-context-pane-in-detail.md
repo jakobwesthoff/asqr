@@ -21,14 +21,14 @@ or more, and below where the area under the tab bar has 15 rows or more.
 
 ![The context pane below the question](../pictures/context-below.png)
 
-You can fix the place. `--layout beside` or `--layout below` on the
-command line, or the variable `ASQR_LAYOUT`, or the `context` key of
-`settings.toml`, the `Context` row of the settings pane, does it. A flag wins over the variable and the variable
-over the file. asqr uses the other place when only that one fits.
+You can fix the place. `--layout beside` or `--layout below` on the command
+line, or the variable `ASQR_LAYOUT`, or the `context` key of `settings.toml`,
+the `Context` row of the settings pane, does it. A flag wins over the variable
+and the variable over the file. asqr uses the other place when only that one
+fits.
 
 When neither place fits, the pane shrinks to one line at the bottom. It
 names the entry and says `z: full screen`.
-
 
 ## The rules around the pane
 
@@ -133,13 +133,13 @@ it cell by cell and drops every other escape sequence.
 
 ## Images
 
-Terminals that support the Kitty graphics protocol (Ghostty, kitty), the
-iTerm2 protocol (iTerm2, WezTerm) or Sixel show an image inline. Other
-terminals get a coarse rendering in blocks. Inside tmux, images reach the
-terminal only when tmux passes escape sequences through, and without that
-asqr shows images as coarse blocks. [Notifications, the terminal and
-tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives the line for your tmux
-configuration.
+Terminals that support the Kitty graphics protocol (Ghostty, kitty), the iTerm2
+protocol (iTerm2, WezTerm) or Sixel show an image inline. Other terminals get a
+coarse rendering in blocks. Inside tmux, images reach the terminal only when
+tmux passes escape sequences through, and without that asqr shows images as
+coarse blocks. [Notifications, the terminal and
+tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives
+the line for your tmux configuration.
 
 asqr scales an image to fill the pane as far as its proportions allow. An
 entry the asker marked with `"enlarge": false` keeps its natural size and

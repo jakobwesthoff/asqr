@@ -83,12 +83,12 @@ move, `enter` switches to the session, and `esc` or `L` close the list.
 
 ### Moving to another queue
 
-`w` opens the queue switcher, so you can change the queue without a
-restart. It lists the queues in use, sorted by name, with
-`default` among them. A queue with waiting sessions shows `N waiting`,
-and the queue this asqr watches ends in `◀ this asqr`. A queue given by
-`--dir` stands first. Queues that another asqr watches follow below a blank row, dim,
-with `watched in tmux <session>`, and the cursor never reaches them.
+`w` opens the queue switcher, so you can change the queue without a restart. It
+lists the queues in use, sorted by name, with `default` among them. A queue with
+waiting sessions shows `N waiting`, and the queue this asqr watches ends in
+`◀ this asqr`. A queue given by `--dir` stands first. Queues that another asqr
+watches follow below a blank row, dim, with `watched in tmux <session>`, and the
+cursor never reaches them.
 
 `↑`/`↓` or `k`/`j` move, `enter` switches to the queue under the cursor,
 `backspace` removes it from the lists, and `esc`, `q` or `w` close the
@@ -160,15 +160,15 @@ starts, when the switcher closes and every 5 seconds.
 
 ### The start picker
 
-Outside tmux, when no flag or variable chose a queue, and when there is a
-queue besides `default` that no other asqr watches, asqr asks which queue
-to watch before it starts. The picker is the switcher's list under a title
-line that reads `asqr`. `↑`/`↓` move, `enter` watches the queue under the
-cursor, `backspace` removes it from the lists and `q` quits. While the new-queue row has the keys, the key bar reads
-`enter  create   esc  stop typing`. A queue that another asqr took in the
-meantime, or one asqr cannot watch or read, leaves the picker open with the
-notice of a failed switch in its status line. The first-start screen, where
-it shows, comes before the picker.
+Outside tmux, when no flag or variable chose a queue, and when there is a queue
+besides `default` that no other asqr watches, asqr asks which queue to watch
+before it starts. The picker is the switcher's list under a title line that
+reads `asqr`. `↑`/`↓` move, `enter` watches the queue under the cursor,
+`backspace` removes it from the lists and `q` quits. While the new-queue row has
+the keys, the key bar reads `enter  create   esc  stop typing`. A queue that
+another asqr took in the meantime, or one asqr cannot watch or read, leaves the
+picker open with the notice of a failed switch in its status line. The
+first-start screen, where it shows, comes before the picker.
 
 On a terminal smaller than 60 columns by 15 rows the picker shows the
 message that asqr needs at least that size, as the session screen does.

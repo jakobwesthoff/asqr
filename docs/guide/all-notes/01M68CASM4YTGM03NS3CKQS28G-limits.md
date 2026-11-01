@@ -14,9 +14,9 @@ What asqr does not do, and where it is tested.
   filesystems, such as NFS, Dropbox and iCloud Drive, are not supported.
 
 Inside tmux, images and desktop notifications need
-`set -g allow-passthrough all`. The page on
-[notifications, the terminal and tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
-has the details.
+`set -g allow-passthrough all`. The page on [notifications, the terminal and
+tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) has the
+details.
 
 ## Large entries
 

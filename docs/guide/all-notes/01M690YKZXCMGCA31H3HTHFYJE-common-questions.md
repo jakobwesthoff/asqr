@@ -26,10 +26,10 @@ skill`, which prints the skill of the asqr you run: the format, the
 waiting and what to do with your answers.
 
 > [!TIP]
-> If your agent does not find its way, tell it to run `asqr skill`. You
-> can also install the skill as a file with `asqr skill --install`; [The
-> skill and other agents](01M68C6WTY7EK8Q9RB1MCWSFM3-the-skill-and-other-agents.md)
-> says where and what that means for updates.
+> If your agent does not find its way, tell it to run `asqr skill`. You can also
+> install the skill as a file with `asqr skill --install`; [The skill and other
+> agents](01M68C6WTY7EK8Q9RB1MCWSFM3-the-skill-and-other-agents.md) says where
+> and what that means for updates.
 
 ## Will my agent start using asqr on its own?
 
@@ -59,30 +59,33 @@ tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives.
 
 ## Can I stop in the middle?
 
-Yes. `q` quits asqr and keeps your answers as a draft, and asqr shows
-them again when it shows the session the next time. [Review, submit and come back
-later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) says more.
+Yes. `q` quits asqr and keeps your answers as a draft, and asqr shows them again
+when it shows the session the next time. [Review, submit and come back
+later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) says
+more.
 
 ## What if I do not want to answer a session?
 
-On the review tab, type a reason into the Reject field and press `enter`.
-Your agent gets the reason. If you answered in the chat instead, tell your
-agent to take the session back. [Review, submit and come back
-later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) shows both.
+On the review tab, type a reason into the Reject field and press `enter`. Your
+agent gets the reason. If you answered in the chat instead, tell your agent to
+take the session back. [Review, submit and come back
+later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) shows
+both.
 
 ## What does my agent get back?
 
-Every answer, the questions you skipped, whether you left a default as it
-was, and every note. [How an agent asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md)
-shows a result.
+Every answer, the questions you skipped, whether you left a default as it was,
+and every note. [How an agent
+asks](01M68C6WTNJGM2A5WY0C3EYKRT-how-an-agent-asks.md) shows a result.
 
 ## Can I see what I answered later?
 
-Yes. Your answers go to your agent as a result file in the queue's
-directory on your machine, and a finished session stays in the queue's
-archive. `asqr history` lists the finished sessions, and `asqr replay
-<REF>` shows one again, read-only, with your answers and the copies asqr
-kept of the files it showed. [History and replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
+Yes. Your answers go to your agent as a result file in the queue's directory on
+your machine, and a finished session stays in the queue's archive.
+`asqr history` lists the finished sessions, and `asqr replay <REF>` shows one
+again, read-only, with your answers and the copies asqr kept of the files it
+showed. [History and
+replay](01M68KBBY1Y1YB4YFQ8WC37QP5-history-and-replay-look-at-what-you-answered.md)
 explains both.
 
 ## Can several agents ask at once?
@@ -112,34 +115,34 @@ how.
 
 ### Nothing shows up when my agent asks
 
-asqr and your agent use different queues. That happens when one of them
-runs inside a tmux session and the other outside it, or in another tmux
-session. While asqr has nothing else to say, its status line counts the
-sessions waiting in queues no asqr watches, such as `1 session waits in
-default   w  queues`, and `w` opens the queue switcher, where `enter`
-switches to that queue. Or start both the
-same way. [Queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) explains which
-queue each of them uses.
+asqr and your agent use different queues. That happens when one of them runs
+inside a tmux session and the other outside it, or in another tmux session.
+While asqr has nothing else to say, its status line counts the sessions waiting
+in queues no asqr watches, such as `1 session waits in default   w  queues`, and
+`w` opens the queue switcher, where `enter` switches to that queue. Or start
+both the same way.
+[Queues](01M68C1XV58STWHBH179QYXPZR-queues-keep-your-projects-apart.md) explains
+which queue each of them uses.
 
 ### No desktop notification arrives
 
-asqr sends its notification as an escape sequence, OSC 9 or OSC 777,
-which terminals such as Ghostty, iTerm2 and kitty show, and rings the
-bell with it. Sessions that already wait when asqr starts trigger
-nothing. Inside tmux the notification reaches your terminal only when
-tmux passes escape sequences through; without that asqr rings the bell
-instead. `--no-notify` switches notifications off. [Notifications, the
-terminal and tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives the line for your tmux
-configuration.
+asqr sends its notification as an escape sequence, OSC 9 or OSC 777, which
+terminals such as Ghostty, iTerm2 and kitty show, and rings the bell with it.
+Sessions that already wait when asqr starts trigger nothing. Inside tmux the
+notification reaches your terminal only when tmux passes escape sequences
+through; without that asqr rings the bell instead. `--no-notify` switches
+notifications off. [Notifications, the terminal and
+tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives
+the line for your tmux configuration.
 
 ### Images show as coarse blocks
 
-Inline images need a terminal with the Kitty graphics protocol (Ghostty,
-kitty), the iTerm2 protocol (iTerm2, WezTerm) or Sixel; other terminals
-get blocks. Inside tmux the image reaches your terminal only when tmux
-passes escape sequences through. [Notifications, the terminal and
-tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives the line for your tmux
-configuration.
+Inline images need a terminal with the Kitty graphics protocol (Ghostty, kitty),
+the iTerm2 protocol (iTerm2, WezTerm) or Sixel; other terminals get blocks.
+Inside tmux the image reaches your terminal only when tmux passes escape
+sequences through. [Notifications, the terminal and
+tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives
+the line for your tmux configuration.
 
 ### asqr says another asqr is watching this queue
 
