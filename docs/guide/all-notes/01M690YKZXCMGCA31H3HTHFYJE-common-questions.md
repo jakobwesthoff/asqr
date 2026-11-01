@@ -63,14 +63,9 @@ it, the session shows.
 
 No. Outside tmux, asqr and your agents use the default queue. Inside tmux,
 they use the queue of the tmux session, so several tmux sessions keep
-their questions apart.
-
-> [!TIP]
-> In tmux, put `set -g allow-passthrough all` into your tmux
-> configuration, so desktop notifications and images reach your terminal.
-> [Notifications, the terminal and
-> tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md)
-> has the details.
+their questions apart. In tmux, desktop notifications and images need one
+line in your tmux configuration, which [Notifications, the terminal and
+tmux](01M68C1XVP8WV9Z6NWRJ1BEWT8-notifications-the-terminal-and-tmux.md) gives.
 
 ## Can I stop in the middle?
 
@@ -82,9 +77,7 @@ later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) says mor
 
 On the review tab, type a reason into the Reject field and press `enter`.
 Your agent gets the reason. If you answered in the chat instead, tell your
-agent: it takes the session back with `asqr withdraw`, after checking with
-you if you had started on it in asqr. The session leaves your screen, with
-a notice if you had it open or had entered answers. [Review, submit and come back
+agent to take the session back. [Review, submit and come back
 later](01M68BT9BMFVCVEAACWR03B827-review-submit-and-come-back-later.md) shows both.
 
 ## What does my agent get back?

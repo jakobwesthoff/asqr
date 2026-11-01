@@ -45,6 +45,13 @@ time they change while the session waits, and when it shows the session
 again it restores them. It matches the answers by question and option, and
 drops what no longer fits the session.
 
+> [!TIP]
+> Answered your agent's questions in the chat instead? Tell your agent: it
+> takes the session back with `asqr withdraw`, after checking with you if
+> you had started on it in asqr. The session then leaves your screen, as
+> [When the asker takes a session
+> back](#when-the-asker-takes-a-session-back) says.
+
 ## Details
 
 ### What happens next

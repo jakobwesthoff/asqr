@@ -25,6 +25,11 @@ questions of your projects apart, and most of the time they need no setup.
   remove it, and `enter` or `y` does. [Removing a
   queue](#removing-a-queue) has the rest.
 
+> [!TIP]
+> You do not need to quit asqr to watch another queue: `w` opens the
+> queue switcher, and asqr saves the drafts of the old queue before it
+> switches.
+
 ## Details
 
 This part covers choosing the queue in detail, moving between queues

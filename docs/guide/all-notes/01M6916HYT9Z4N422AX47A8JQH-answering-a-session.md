@@ -37,11 +37,19 @@ pages after it have the details.
   answer. `esc` leaves the field.
 - `n` writes a note on the question.
 
-Every question is optional, so skip what you cannot decide and say why in
-a note if you like. An option marked `◀ default` is the asker's
+Every question is optional. An option marked `◀ default` is the asker's
 recommendation, and left as it is, it counts as your answer. [Questions
 and answers](01M68BT9AXJNJQR45K1FBR9VTG-questions-and-answers.md) explains
 each kind of question.
+
+> [!TIP]
+> Skip what you cannot decide yet, and say why in a note (`n`). Your
+> agent gets the note with the skipped question.
+
+> [!TIP]
+> Where every question carries a `◀ default` you agree with, go to the
+> review tab: it shows each answer and how many are skipped, and `enter`
+> on `[ Submit ]` sends them.
 
 ## Context beside the question
 
