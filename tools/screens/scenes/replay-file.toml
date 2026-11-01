@@ -6,9 +6,9 @@ rows = 30
 file = "../../../examples/sessions/archived-fetch.json"
 
 [replay]
-reference = "H3WQ8N5X"
+reference = "K7RT2M9C"
 outcome = "sent"
-finished = "Thu 29 Oct 16:41"
+finished = "Thu 29 Oct 17:05"
 bundle = "2026-10.zip"
 
 [[replay.files]]

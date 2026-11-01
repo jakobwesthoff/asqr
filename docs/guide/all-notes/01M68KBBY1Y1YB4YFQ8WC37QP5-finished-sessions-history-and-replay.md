@@ -24,8 +24,9 @@ answers filled in and the copies asqr kept of the files it showed. `q` leaves it
 queue: default
 finished (10 of 52):
 REF       WHEN          STATUS      FILES        TITLE
-H3WQ8N5X  30 Oct 09:14  sent        -            Release 0.2.0
-D0M6Z4TB  29 Oct 11:20  withdrawn*  1 of 2 gone  Migration plan: drop legacy tables
+K7RT2M9C  29 Oct 17:05  sent        1 of 3 gone  Look at the fetcher change
+H3WQ8N5X  29 Oct 16:41  sent        -            Release 0.2.0
+D0M6Z4TB  29 Oct 11:20  withdrawn*  -            Release 0.2.0
 
 * withdrawn by the asker; the answers you had entered are kept as a draft
 

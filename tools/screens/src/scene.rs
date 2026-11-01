@@ -592,7 +592,7 @@ mod tests {
             SwitcherQueue {
                 name: Some("asqr-todos".to_owned()),
                 dir: None,
-                waiting: 2,
+                waiting: 1,
                 watched: true
             }
         );

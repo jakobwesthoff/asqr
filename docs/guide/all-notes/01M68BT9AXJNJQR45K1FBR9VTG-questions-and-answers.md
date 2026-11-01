@@ -53,9 +53,10 @@ again.
 A text question is one field that has the keys as soon as you reach it.
 `enter` moves on. When the question sets a length, a counter at the right
 edge shows how many characters you typed. The number after the slash is
-the end of the target range the asker set. The counter reads `112/125`
-within the target, `140/125 !` above it and `182/125 !!` above the
-warning limit. A line break counts as one character. asqr never refuses
+the end of the target range the asker set. For a target of 40 to 120
+characters and a warning limit of 140, the counter reads `61/120` within
+the target, `130/120 !` above it and `150/120 !!` above the warning
+limit. A line break counts as one character. asqr never refuses
 input because of the length.
 
 ![A text question whose length counter shows the answer is inside the target range](../pictures/text-counter.png)

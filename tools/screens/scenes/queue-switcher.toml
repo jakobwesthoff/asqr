@@ -16,11 +16,11 @@ tmux_session = "asqr"
 root = "/data/asqr"
 
 [[switcher.queues]]
-name = "asqr-todo"
+name = "api-docs"
 
 [[switcher.queues]]
 name = "asqr-todos"
-waiting = 2
+waiting = 1
 watched = true
 
 [[switcher.queues]]

@@ -53,7 +53,7 @@ terminal. This page names the parts of the screen from the top down.
 `i` shows the whole intro in a frame over the question. It renders
 Markdown like every text of a session. When the intro is longer than the
 frame, it scrolls with `↑`/`↓`, and the frame's bottom edge shows which
-lines you see, such as `4–15 of 16`. `esc`, `q` or `i` close it. A session
+lines you see, such as `1–15 of 20`. `esc`, `q` or `i` close it. A session
 without an intro ignores `i`.
 
 ![The whole intro of a session, shown by i, in a frame that scrolls](../pictures/intro-overlay.png)
