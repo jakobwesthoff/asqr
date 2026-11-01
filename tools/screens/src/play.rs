@@ -22,7 +22,7 @@ use asqr::tui::render::{Drawn, Glyphs, PaneLayout, View, draw, draw_first_start,
 use asqr::tui::{
     App, AppEffect, FirstStart, FirstStartKey, Invalid, Notice, Outcome, PanePage, Place,
     QueueChoice, QueueRow, REFUSED_NAME, SessionState, Switcher, SwitcherKey, TOO_LONG_NAME,
-    TakenQueue, Tone,
+    TakenQueue, Tone, not_removed_notice,
 };
 use clap::CommandFactory;
 use jiff::tz::TimeZone;
@@ -536,6 +536,8 @@ fn play_picker(scene: &Scene) -> Result<Buffer> {
                 SwitcherKey::Stay | SwitcherKey::Close => None,
                 SwitcherKey::Quit => return Err(refused("quits asqr")),
                 SwitcherKey::Switch(_) => return Err(refused("takes a queue")),
+                SwitcherKey::Remove(_) => return Err(refused("removes a queue")),
+                SwitcherKey::CannotRemove(why) => Some(not_removed_notice(&why)),
                 SwitcherKey::Refused => Some(Notice::new(Tone::Warning, REFUSED_NAME)),
                 SwitcherKey::TooLong => Some(Notice::new(Tone::Warning, TOO_LONG_NAME)),
             };
