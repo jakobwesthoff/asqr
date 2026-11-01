@@ -282,14 +282,14 @@ fn a_failed_recording_after_a_withdrawal_is_only_logged() {
     };
 
     let failed = crate::tui::render::test_support::logged(|| {
-        record_after_withdrawal(&archived.location, Some(unreadable));
+        record_without_copies(&archived.location, Some(unreadable));
     });
     let nothing_archived = crate::tui::render::test_support::logged(|| {
-        record_after_withdrawal(&archived.location, None);
+        record_without_copies(&archived.location, None);
     });
 
     assert!(
-        failed.contains("could not record the files a withdrawn session showed"),
+        failed.contains("could not record the files an archived session showed"),
         "{failed}"
     );
     assert!(nothing_archived.is_empty(), "{nothing_archived}");

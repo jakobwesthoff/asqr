@@ -172,15 +172,17 @@ pub fn snapshot_seen(
     }
 }
 
-/// [`record_fingerprints`] for the session a withdrawal archived, if it
-/// did. A failure is logged and goes no further: the withdrawal is done and
-/// the plain archived session is complete.
-pub fn record_after_withdrawal(location: &QueueLocation, archived: Option<ArchivedSession>) {
+/// [`record_fingerprints`] for the session a command archived, if it did:
+/// a withdrawal, `ask --replaces`, or the removal of a queue with `--force`.
+/// Only the asqr that shows a queue keeps copies. A failure is logged and
+/// goes no further: the command is done and the plain archived session is
+/// complete.
+pub fn record_without_copies(location: &QueueLocation, archived: Option<ArchivedSession>) {
     let Some(archived) = archived else {
         return;
     };
     if let Err(error) = record_fingerprints(location, archived, &|_| {}) {
-        tracing::warn!(%error, "could not record the files a withdrawn session showed");
+        tracing::warn!(%error, "could not record the files an archived session showed");
     }
 }
 

@@ -143,8 +143,11 @@ Inside tmux, asqr and the agents in the same tmux session use one queue
 without any setup: the one asqr pinned in the session, at first the one
 named after the session, so several tmux sessions keep their questions
 apart. `asqr --queue <name>` in a session pins another queue there.
-`asqr queues` lists every queue with its waiting and answered sessions
-and the asqr watching it, with that asqr's tmux session. `asqr history` lists the
+`asqr queues` lists the queues in use with their waiting and answered
+sessions and the asqr watching each, with that asqr's tmux session.
+`asqr queues remove <name>` takes a queue out of that list and keeps its
+history; the next session asked into it brings it back, and `asqr queues
+--removed` lists the removed ones. `asqr history` lists the
 finished sessions of a queue, newest first, each with a reference;
 `--all` lists every queue under the data directory. `asqr replay <ref>`
 opens one of them read-only, with the files it showed. `asqr replay <ref>

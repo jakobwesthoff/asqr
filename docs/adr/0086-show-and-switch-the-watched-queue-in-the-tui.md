@@ -12,6 +12,8 @@ it and the text after it first
 
 Amended by [93. Show a `--dir` queue's path absolute, with `~` for home](0093-show-a-dir-queues-path-absolute-with-for-home.md)
 
+Amended by [108. Mark the queues in use and remove a queue from the lists](0108-mark-the-queues-in-use-and-remove-a-queue-from-the-lists.md)
+
 ## Context
 
 - One asqr watches one queue (ADR 14), and inside tmux each tmux

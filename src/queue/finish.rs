@@ -18,7 +18,7 @@ use ulid::Ulid;
 
 use super::atomic::write_new_atomically;
 use super::{
-    Archived, Gate, INVALID_STEM_ID, QueueLocation, Step, archive_name, delete_draft,
+    Archived, Gate, INVALID_STEM_ID, QueueLocation, Step, Waiting, archive_name, delete_draft,
     find_session_file, lock_drafts, scan_inbox,
 };
 use crate::format::SessionResult;
@@ -44,7 +44,7 @@ pub enum FinishError {
 
 /// How the outbox relates to a waiting session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutboxState {
+pub(super) enum OutboxState {
     NoResult,
     /// The result answers exactly these session bytes.
     ThisSession,
@@ -53,7 +53,7 @@ enum OutboxState {
     OtherSession,
 }
 
-fn outbox_state(
+pub(super) fn outbox_state(
     location: &QueueLocation,
     id: &str,
     session_bytes: &[u8],
@@ -229,20 +229,42 @@ pub fn recover_with(location: &QueueLocation, mut gate: Gate<'_>) -> io::Result<
             continue;
         }
         (gate.step)(Step::Checked);
-        let archived = archive_session(location, &waiting.path, &waiting.id)?;
-        (gate.step)(Step::Archived);
-        if state == OutboxState::ThisSession {
-            delete_draft(location, &waiting.id)?;
-            (gate.step)(Step::DraftDeleted);
-            recovered.push(Recovery::Completed {
-                id: waiting.id,
-                archived: archived.map(|path| ArchivedSession { path, bytes }),
-            });
-        } else {
-            recovered.push(Recovery::Conflict(waiting.id));
-        }
+        recovered.push(recover_one(
+            location,
+            &waiting,
+            bytes,
+            state,
+            &mut gate.step,
+        )?);
     }
     Ok(recovered)
+}
+
+/// Recovers the waiting session `waiting`, whose file holds `bytes`, next to
+/// a result in the outbox in `state`, which is not
+/// [`OutboxState::NoResult`]: it is archived, and its draft is deleted only
+/// where the result answers it. The caller holds the drafts lock. The
+/// removal of a queue with `--force` takes the same path (spec section
+/// 5.11).
+pub(super) fn recover_one(
+    location: &QueueLocation,
+    waiting: &Waiting,
+    bytes: Vec<u8>,
+    state: OutboxState,
+    step: &mut dyn FnMut(Step),
+) -> io::Result<Recovery> {
+    let archived = archive_session(location, &waiting.path, &waiting.id)?;
+    step(Step::Archived);
+    if state == OutboxState::ThisSession {
+        delete_draft(location, &waiting.id)?;
+        step(Step::DraftDeleted);
+        Ok(Recovery::Completed {
+            id: waiting.id.clone(),
+            archived: archived.map(|path| ArchivedSession { path, bytes }),
+        })
+    } else {
+        Ok(Recovery::Conflict(waiting.id.clone()))
+    }
 }
 
 /// What happened to an invalid session file.

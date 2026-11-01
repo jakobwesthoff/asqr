@@ -444,13 +444,8 @@ fn withdraw_after_a_newer_session_without_a_result_says_gone() {
 #[test]
 fn queues_counts_bundled_results() {
     let sandbox = Sandbox::new();
-    let output = sandbox
-        .asqr()
-        .args(["--queue", "work", "paths", "--json"])
-        .output()
-        .expect("runs");
-    let paths: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("JSON");
-    let work = QueueLocation::at(paths["queue"].as_str().expect("a queue"));
+    // A named queue in use: its layout carries the `active` marker.
+    let work = QueueLocation::named(&sandbox.data_dir(), "work");
     work.create_layout().expect("layout");
     std::fs::write(
         work.outbox().join("fresh.json"),

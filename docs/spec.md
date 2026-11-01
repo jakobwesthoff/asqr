@@ -601,9 +601,11 @@ text changes nothing and leaves the question untouched.
   archive/files/<sha256>.<ext>        files a finished session showed, kept by asqr (below)
   lock                                the instance lock (section 5.6)
   drafts.lock                         the drafts lock (section 5.6)
+  active                              a named queue is in use (section 5.11)
 ```
 
-The four directories are created on first use.
+The four directories are created on first use, and with them `active` in a
+named queue.
 
 **Month bundles.** `archive/<YYYY-MM>.zip` is one zip per queue and UTC
 calendar month, such as `archive/2026-10.zip`. Its entries are
@@ -1144,7 +1146,8 @@ files, which may be gone by then. `asqr withdraw` and `asqr ask
 copies, since only the asqr that shows the queue reads the settings.
 After the lock is let go of they read the files and record each as
 `not_kept`, with `keep` recorded as `off`, then replace the archived file
-under the lock as the worker does. A session that was rejected as invalid
+under the lock as the worker does. `asqr queues remove --force` records
+the sessions it rejects the same way (section 5.11). A session that was rejected as invalid
 is archived as it is.
 
 Recovery runs whenever asqr reads the inbox, on start and after every
@@ -1324,11 +1327,12 @@ makes the exit code 1.
 - `prune` also removes every named queue under the root (section 5.2)
   that no asqr watches and that holds no file: its four directories are
   empty or missing and nothing else lies in it. An empty `archive/files/`
-  directory counts as empty and goes with `archive/`. `lock` and `drafts.lock`
-  hold no session data and do not count. It takes both locks without
-  waiting and skips a queue where either is taken, removes the four
-  directories and then the lock files while it holds them, and the
-  queue's directory last; each queue prints like a file does, as `would
+  directory counts as empty and goes with `archive/`. `lock`, `drafts.lock`
+  and `active` (section 5.11) hold no session data and do not count. It
+  takes both locks without waiting and skips a queue where either is
+  taken, removes the four directories, then `active` where it is there,
+  then the lock files while it holds them, and the queue's directory
+  last; each queue prints like a file does, as `would
   remove <directory>` or `removed <directory>`. The default queue goes too when it holds nothing, and is
   made again on its next use. Which queues go does not depend on
   `--queue` or `--dir`. Without `--yes`, a queue counts as empty if
@@ -1395,6 +1399,100 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 - The withdrawn result stays in the outbox like any result, so `ask` of
   the same id afterwards needs `--force` (section 5.5).
 
+### 5.11 Queues in use and removing a queue
+
+A named queue is in use while its directory holds the file `active`,
+while a session waits in its inbox, or while an asqr watches it; the
+default queue is always in use. The lists for new work show the named
+queues in use: `asqr queues`, the queue switcher, the start picker and the
+count of sessions waiting in other queues (section 7). Every other
+command takes every queue under the root: `history --all`, the search of
+`replay`, the search of `wait`, `result` and `withdraw` in other queues,
+`compact --all` and `prune`.
+
+Every use of a named queue for new work writes `active` as it makes the
+queue's directories: `ask`, also with `--replaces`, under the drafts lock,
+and an asqr that starts on the queue or switches to it, from the new-queue
+row and the start picker too, under the queue lock. An `active` that is
+there already stays as it is. Read-only commands write nothing. A queue
+given by `--dir` gets no `active`.
+
+`asqr queues remove <name>` takes a named queue out of the lists for new
+work. It deletes `active` and nothing else: the finished sessions, the
+results, the drafts and the month bundles stay, and `asqr history` and
+`asqr replay` show them as before. The next use writes `active` again. It
+prints what it did:
+
+    removed queue old-work from the lists; its finished sessions stay in asqr history
+    queue old-work is removed already
+
+The second is the answer for a queue that is not in use, exit code 0.
+
+- A queue in which a session waits is refused, exit code 1: `error: 3
+  sessions wait in queue weekly; `asqr queues remove --force weekly`
+  removes it anyway and rejects them`. With `--force`, each waiting
+  session is rejected first, on the path of section 5.7, with the reason
+  `the person removed queue <name> while this session waited in it` and
+  the note and answers of its draft as a rejected result carries them
+  (section 4.1), an untouched default with `"defaulted": true`; a session
+  without a draft, and a file that is no valid session, get none. `wait`
+  for such a session ends with 10. A session whose result is in the
+  outbox already, or that waits next to an unread result of an earlier
+  session, also one written meanwhile, is archived as recovery archives it
+  (section 5.7) and named on stderr, as `asqr: <id> was answered already;
+  its result stays in the outbox` or `asqr: <id> waited next to an unread
+  result of an earlier session; archived without a result`. The output
+  then reads `removed queue weekly from the lists and rejected its 3
+  waiting sessions; its finished sessions stay in asqr history`. A session
+  file that cannot be read stops the removal: the queue stays in use, each
+  session rejected before it is named as `asqr: rejected <id> before
+  stopping`, and the error reads `error: cannot read session <id> of
+  queue <name>: <reason>; queue <name> stays in the lists`. A file whose
+  name is no session id waits for nobody and stays in the inbox for the
+  next asqr that watches the queue (section 5.8).
+- A queue an asqr watches is refused: `error: queue <name> is watched by
+  <holder>, tmux session <session>; switch that asqr to another queue or
+  quit it first`, the tmux part where tmux still knows the holder's pane
+  (section 5.6). A queue a command holds, `asqr compact` or another
+  removal, is busy: `error: cannot remove queue <name>: it is busy
+  (<holder>); try again in a moment`.
+- The default queue is refused: `error: the default queue cannot be
+  removed`. A name that is no queue name is a usage error with the
+  message of `--queue`. A queue without a directory is `error: no queue
+  <name> under <root>`, and a queue directory that is a symbolic link,
+  also one that leads to another queue, is `error: queue <name> is a
+  symbolic link; asqr removes only queue directories`. Where the
+  filesystem ignores case, the output names the queue as its directory
+  spells it.
+- `--queue` and `--dir` choose nothing here; a bad one is a usage error as
+  for every command (section 5.2). `--json` and `--removed` belong to the
+  listing and are a usage error with `remove`.
+
+The removal takes the queue lock, trying as long as a start does
+(section 5.6), and writes `pid <pid> on <host>, running asqr queues
+remove` into the lock file. Then it takes the drafts lock, trying as long,
+and holds both from its look at the inbox to the deletion of `active`. A
+drafts lock that stays taken is `error: cannot remove queue <name>: the
+queue is busy`, and nothing changes. So an `ask` or a start on the queue
+at that moment comes either before the look, and the queue is refused,
+or after the deletion, and writes `active` again. A start or a switch
+refused in that moment names the holder as it does for `asqr compact`.
+Taking a lock makes the queue's directory (section 5.6): a queue `prune`
+removes at the moment the removal takes its locks comes back as a
+directory that holds only its lock files, is answered as removed
+already, and is listed by `asqr queues --removed` until the next `prune`
+removes it.
+
+A tmux session's pin of a removed queue stays (section 7.1); the next
+`ask` or start there writes `active`.
+
+asqr 0.16.0 and earlier know no `active`. Their `ask`, start and switch do
+not write it, they list every queue, and their `prune` counts `active` as
+a file, so it keeps an empty queue that carries one. Nothing writes
+`active` into a queue made before it existed until the queue's next use;
+until then such a queue is listed while a session waits in it or an asqr
+watches it, and the default queue always.
+
 ## 6. The command line
 
 ### 6.1 Commands
@@ -1410,7 +1508,8 @@ the draft is deleted. Every `asqr wait` for the session then ends, and
 | `asqr status [--json] [--limit <count> \| --all] [--since <age>]` | waiting sessions (with or without a draft answer), answered sessions (results in the outbox), and the lock holder |
 | `asqr history [--json] [--all] [--limit <count>] [--since <age>]` | the finished sessions of the queue, newest first, each with the reference `asqr replay` takes (section 6.5) |
 | `asqr replay <ref> [--json] [--extract <dir>]` | opens a finished session read-only in the terminal UI, or with `--json` or `--extract` prints or writes it as data (section 6.5, 7.11) |
-| `asqr queues [--json]` | every named queue, the sessions waiting in it and its results, and the asqr watching it (section 6.5) |
+| `asqr queues [--json] [--removed]` | the named queues in use, or with `--removed` the others, the sessions waiting in each and its results, and the asqr watching it (section 6.5) |
+| `asqr queues remove <name> [--force]` | takes a named queue out of the lists for new work, keeping its finished sessions; `--force` rejects the sessions waiting in it first (section 5.11) |
 | `asqr paths [--json]` | section 5.2 |
 | `asqr validate <file>`, `asqr schema [--result]` | sections 3.4 and 3.5 |
 | `asqr compact [--all]` | bundles sessions and results older than 30 days into month bundles (section 5.9) |
@@ -1568,9 +1667,9 @@ them:
   list is cut and "answered (3):" when it is not.
 - `waiting` always lists every waiting session.
 
-`asqr queues` lists every named queue under the root (section 5.2),
-sorted by name, the default queue also before its first use: the
-sessions waiting in its inbox, the results in its outbox and in its
+`asqr queues` lists the named queues in use under the root (sections
+5.2 and 5.11), sorted by name, the default queue also before its first
+use: the sessions waiting in its inbox, the results in its outbox and in its
 month bundles and the asqr watching it, with the tmux session of that asqr where its lock names a
 pane (section 5.6) and tmux still knows it. A queue whose files cannot
 be read counts as empty and unwatched; the rows of the TUI's switcher
@@ -1591,6 +1690,11 @@ default           0       516  nobody
 `--json` prints an array of objects with `queue`, `waiting_total`,
 `answered_total`, `watched_by` (the first line of the lock, or `null`)
 and `tmux_session` (or `null`).
+
+`--removed` lists the named queues that are not in use instead, the ones
+`asqr queues remove` took out of the lists and those not used since
+`active` came to be (section 5.11), in the same forms. `asqr queues remove`
+is in section 5.11.
 
 `asqr history` lists the finished sessions of the queue: the loose
 files `archive/<id>.<ulid>.json` and the `sessions/` entries of the month
@@ -1772,7 +1876,7 @@ session ended shows in its row and never as 10 to 14.
 | Code | Meaning |
 |---|---|
 | 0 | success: the result is `submitted`, or the file was dropped (`ask` without `--wait`), or `withdraw` withdrew the session, or the command did its job |
-| 1 | failure of asqr itself (I/O, a refused `ask` or `withdraw`, a held lock, no terminal) |
+| 1 | failure of asqr itself (I/O, a refused `ask`, `withdraw` or `queues remove`, a held lock, no terminal) |
 | 2 | usage error |
 | 10 | the result is `cancelled` |
 | 11 | the result is `error`, or a file fails validation |
@@ -1926,8 +2030,8 @@ compacts the queue (section 5.9) before it looks for the terminal, so a
 start without one has done all three.
 
 Outside tmux, with no queue chosen by a flag or a variable, and with a
-queue besides `default` under the data directory that no other asqr
-watches, asqr shows the start picker (ADR 86), after the first-start
+queue in use (section 5.11) besides `default` under the data directory
+that no other asqr watches, asqr shows the start picker (ADR 86), after the first-start
 screen where that shows, before it takes a lock. It is the queue switcher's frame of section 7.6 under a title
 line that reads `asqr`, without `◀ this asqr`, with the key bar `↑/↓
 move   enter  watch   q  quit` and asqr's version at its right end. The
@@ -2542,8 +2646,8 @@ Overlays and dialogs:
   list and over the empty queue; in a field `w` types, and the focused
   pane and the full-screen view take it. The general help names it on
   the line of `L`: `L, w, backspace  the sessions; the queues; clear the
-  pick`. Its frame, titled `Queues`, lists the queues asqr can switch
-  to, sorted by name with `default` among them: each with `N waiting`
+  pick`. Its frame, titled `Queues`, lists the queues in use (section
+  5.11) that asqr can switch to, sorted by name with `default` among them: each with `N waiting`
   where sessions wait, the watched one with `◀ this asqr` at its row's
   end, bold in the primary colour. A queue this run was given by `--dir`
   stands first, by its absolute path with `~` for the home folder, for the

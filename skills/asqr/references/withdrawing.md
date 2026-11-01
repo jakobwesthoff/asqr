@@ -94,4 +94,11 @@ refuses while an unread result with the same id is in the outbox.
 refuses the same way for the old session, and its `--force` takes that
 one too.
 
+`asqr queues remove <name>` takes a queue out of the lists the person
+picks queues from and keeps its history; the next session asked into
+it brings it back. Run it only when the person asks you to remove that
+queue. It refuses a queue in which sessions wait, and `--force` rejects
+them first, each with a reason that names the queue, so their `wait`
+ends with 10: use it only when the person says so.
+
 End of references/withdrawing.md.

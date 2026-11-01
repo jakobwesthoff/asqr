@@ -241,11 +241,19 @@ enum Command {
         extract: Option<PathBuf>,
     },
 
-    /// List every queue, what waits in it and which asqr watches it.
+    /// List the queues in use, what waits in them and which asqr watches
+    /// them.
     Queues {
         /// Print the queues as JSON.
         #[arg(long)]
         json: bool,
+
+        /// List the queues taken out of the lists instead.
+        #[arg(long)]
+        removed: bool,
+
+        #[command(subcommand)]
+        action: Option<QueuesAction>,
     },
 
     /// Bundle sessions and results older than 30 days into month bundles.
@@ -307,6 +315,21 @@ enum Command {
         /// Print the schema of result files instead.
         #[arg(long)]
         result: bool,
+    },
+}
+
+/// What `asqr queues` does besides listing.
+#[derive(Debug, Subcommand)]
+enum QueuesAction {
+    /// Take a queue out of the lists for new work; its finished sessions
+    /// stay for `asqr history` and `asqr replay`.
+    Remove {
+        /// The queue's name.
+        name: String,
+
+        /// Also remove a queue in which sessions wait, rejecting them.
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -646,7 +669,21 @@ fn dispatch_with(
             },
             replay_ui,
         ),
-        Command::Queues { json } => queues::run(root.as_deref(), tmux, json),
+        Command::Queues {
+            json,
+            removed,
+            action: None,
+        } => queues::run(root.as_deref(), tmux, json, removed),
+        // `--json` and `--removed` are flags of `queues` that clap takes
+        // before a subcommand; they shape a listing only.
+        Command::Queues { json: true, .. } | Command::Queues { removed: true, .. } => {
+            eprintln!("error: --json and --removed only apply to listing the queues");
+            Exit::Usage
+        }
+        Command::Queues {
+            action: Some(QueuesAction::Remove { name, force }),
+            ..
+        } => queues::run_remove(root.as_deref(), tmux, &name, force),
         Command::Compact { all } => compact::run(&location, root.as_deref(), all),
         Command::Prune { results: true, .. } => {
             eprintln!(

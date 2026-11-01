@@ -19,6 +19,7 @@ mod lock;
 mod names;
 mod prune;
 mod queues;
+mod remove;
 mod replay;
 mod withdraw;
 
@@ -36,5 +37,6 @@ pub use lock::*;
 pub use names::*;
 pub use prune::*;
 pub use queues::*;
+pub use remove::*;
 pub use replay::*;
 pub use withdraw::*;

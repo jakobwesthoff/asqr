@@ -20,7 +20,7 @@ use crate::format::{
     SessionResult, WarningKind, array_mut, is_valid_session_id, make_context_paths_absolute,
     same_session_id, validate, warnings,
 };
-use crate::keep::apply::record_after_withdrawal;
+use crate::keep::apply::record_without_copies;
 use crate::pairing::{self, Tmux, TmuxPane, TmuxSession};
 use crate::queue::{
     Carry, DropError, Dropped, Gate, Origin, QueueLocation, ReplaceError, Replaced, WithdrawError,
@@ -220,7 +220,7 @@ fn replace(
             archived,
             carried,
         }) => {
-            record_after_withdrawal(location, archived);
+            record_without_copies(location, archived);
             // The result holds what the person typed, so the log gets its
             // status and counts only (ADR 90).
             let (outcome, result) = match &withdrawn {

@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `asqr queues remove <name>` takes a named queue out of `asqr queues`,
+  the queue switcher and the start picker, and keeps its finished
+  sessions, results and drafts for `asqr history` and `asqr replay`; the
+  next session asked into it, or an asqr started on it, brings it back. A
+  queue in which sessions wait is refused unless `--force` is given, which
+  rejects them first with a reason that names the removed queue, so the
+  asker's `wait` ends with 10. A queue an asqr watches and the default
+  queue are never removed. `asqr queues --removed` lists the removed
+  queues.
+
 ### Changed
 
+- `asqr queues`, the queue switcher and the start picker list the queues
+  in use: a queue shows there once something is asked into it or an asqr
+  is started on it, and while a session waits in it or an asqr watches
+  it; `default` always shows. A queue not used since this version is out
+  of these lists until then; `asqr history --all` and `asqr replay` still
+  find its sessions.
 - With patine 2.2.1, GitHub alerts show as callouts wherever asqr renders
   Markdown: intros, question texts, option labels and descriptions,
   captions and Markdown entries. `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,

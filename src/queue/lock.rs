@@ -240,20 +240,48 @@ fn try_lock_queue_waiting(
     attempts: u32,
     wait: &mut dyn FnMut(),
 ) -> io::Result<Option<QueueLock>> {
+    match lock_queue_waiting(location, attempts, "asqr compact", wait) {
+        Ok(lock) => Ok(Some(lock)),
+        Err(LockError::Held(_)) => Ok(None),
+        Err(LockError::Io(error)) => Err(error),
+    }
+}
+
+/// Takes the queue lock for the command `purpose`, such as `asqr queues
+/// remove`, trying `attempts` times as [`try_lock_queue_for`] does. The file
+/// names this process as `pid <pid> on <host>, running <purpose>`, so a TUI
+/// that is refused meanwhile says who holds the queue, and a refusal here
+/// names the holder.
+pub fn lock_queue_for(
+    location: &QueueLocation,
+    attempts: u32,
+    purpose: &str,
+) -> Result<QueueLock, LockError> {
+    lock_queue_waiting(location, attempts, purpose, &mut || {
+        std::thread::sleep(LOCK_RETRY);
+    })
+}
+
+fn lock_queue_waiting(
+    location: &QueueLocation,
+    attempts: u32,
+    purpose: &str,
+    wait: &mut dyn FnMut(),
+) -> Result<QueueLock, LockError> {
     let path = location.lock_file();
     let mut file = match take_waiting(&path, || open_lock_file(location), attempts, wait)? {
         Taken::Locked(file) => file,
-        Taken::Held(_) => return Ok(None),
+        Taken::Held(mut file) => return Err(LockError::Held(read_holder(&mut file)?)),
     };
     file.set_len(0)?;
     file.rewind()?;
     writeln!(
         file,
-        "pid {} on {}, running asqr compact",
+        "pid {} on {}, running {purpose}",
         std::process::id(),
         gethostname::gethostname().to_string_lossy()
     )?;
-    Ok(Some(QueueLock { _file: file }))
+    Ok(QueueLock { _file: file })
 }
 
 /// Who holds the queue lock, if anyone, without taking it. Commands that
@@ -442,6 +470,29 @@ mod tests {
             )
         );
         match lock_queue(&location, None) {
+            Err(LockError::Held(refused)) => assert_eq!(refused, holder),
+            other => panic!("refused with the holder, not {other:?}"),
+        }
+        drop(held);
+    }
+
+    #[test]
+    fn a_command_names_itself_as_the_holder_and_is_refused_with_the_holder() {
+        let (_scratch, location) = queue();
+        location.create_layout().expect("layout");
+
+        let held = lock_queue_for(&location, 1, "asqr queues remove").expect("free");
+
+        let holder = lock_holder(&location).expect("readable").expect("held");
+        assert_eq!(
+            holder.text,
+            format!(
+                "pid {} on {}, running asqr queues remove",
+                std::process::id(),
+                gethostname::gethostname().to_string_lossy()
+            )
+        );
+        match lock_queue_for(&location, 1, "asqr compact") {
             Err(LockError::Held(refused)) => assert_eq!(refused, holder),
             other => panic!("refused with the holder, not {other:?}"),
         }

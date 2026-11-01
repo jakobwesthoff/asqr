@@ -16,7 +16,8 @@ use crate::cli::shell_word;
 use crate::keep::worker::KeepWorker;
 use crate::pairing::{self, Tmux, TmuxFailure, TmuxPane};
 use crate::queue::{
-    LockError, QueueLocation, QueueLock, compact_quietly, list_queues, lock_queue, summarize,
+    LockError, QueueLocation, QueueLock, QueueSummary, compact_quietly, list_queues, lock_queue,
+    summarize,
 };
 use crate::settings::SettingsStore;
 
@@ -33,9 +34,13 @@ pub fn queue_choice(
     tmux: &dyn Tmux,
     home: Option<&Path>,
 ) -> QueueChoice {
+    // The named queues in use (spec section 5.11); the `--dir` queue of
+    // this run stays first for the whole run, also after a switch away.
     let named = root
         .map(|root| list_queues(root).unwrap_or_default())
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(QueueSummary::in_use);
     let summaries: Vec<_> = dir
         .map(|dir| summarize(dir.clone()))
         .into_iter()
@@ -430,6 +435,32 @@ mod tests {
         );
         assert_eq!(choice.place, Place::Tmux("asqr".into()));
         assert_eq!(choice.root.as_deref(), Some(root));
+    }
+
+    #[test]
+    fn the_choice_leaves_out_the_queues_not_in_use() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let root = scratch.path();
+        let watched = queue(root, "default", 0);
+        let _mine = lock_queue(&watched, None).expect("locked");
+        queue(root, "work", 0);
+        let old = queue(root, "old", 0);
+        std::fs::remove_file(old.active_marker()).expect("removed from the lists");
+        // A queue an asqr that knows no marker asked into.
+        let weekly = queue(root, "weekly", 1);
+        std::fs::remove_file(weekly.active_marker()).expect("no marker");
+
+        let choice = queue_choice(
+            Some(root),
+            Some(&watched),
+            None,
+            None,
+            &pairing::testing::Unasked,
+            None,
+        );
+
+        let labels: Vec<_> = choice.rows.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(labels, ["default", "weekly", "work"]);
     }
 
     #[test]

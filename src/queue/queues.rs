@@ -22,6 +22,8 @@ pub struct QueueSummary {
     pub answered: usize,
     /// The asqr watching it, if one does.
     pub holder: Option<Holder>,
+    /// Whether its directory holds the `active` marker.
+    pub active: bool,
 }
 
 impl QueueSummary {
@@ -30,6 +32,20 @@ impl QueueSummary {
         self.location
             .name()
             .expect("a summary is made of a named queue")
+    }
+
+    /// Whether the queue shows in the lists for new work (spec section
+    /// 5.11). A named queue is in use while it carries `active`, and also
+    /// without it while a session waits in it, an asqr watches it, or it is
+    /// the default queue, so a session dropped by an asqr that knows no
+    /// marker never waits unseen. A queue given by `--dir` is in no list
+    /// of named queues and always counts as in use.
+    pub fn in_use(&self) -> bool {
+        self.location.name().is_none()
+            || self.location.is_default()
+            || self.active
+            || self.waiting > 0
+            || self.holder.is_some()
     }
 }
 
@@ -98,6 +114,7 @@ pub(crate) fn summarize(location: QueueLocation) -> QueueSummary {
         waiting: sessions(&location.inbox()),
         answered: sessions(&location.outbox()),
         holder: lock_holder(&location).ok().flatten(),
+        active: location.active_marker().is_file(),
         location,
     }
 }
@@ -215,6 +232,79 @@ mod tests {
             counts(&summaries.expect("lists")),
             [("default", 0, 0, false), ("work", 0, 0, false)]
         );
+    }
+
+    /// The named queue `name` as asqr 0.16.0 made it, or as a queue looks
+    /// after `asqr queues remove`: its directories without `active`.
+    fn unmarked(root: &Path, name: &str) -> QueueLocation {
+        let location = QueueLocation::named(root, name);
+        for dir in [location.inbox(), location.outbox(), location.archive()] {
+            std::fs::create_dir_all(dir).expect("dir");
+        }
+        location
+    }
+
+    fn in_use(root: &Path, name: &str) -> bool {
+        list_queues(root)
+            .expect("lists")
+            .iter()
+            .find(|summary| summary.name() == name)
+            .expect("listed")
+            .in_use()
+    }
+
+    #[test]
+    fn a_queue_used_for_new_work_is_in_use() {
+        let (_scratch, root) = root();
+        queue(&root, "work");
+
+        assert!(in_use(&root, "work"));
+    }
+
+    #[test]
+    fn a_queue_without_active_is_not_in_use() {
+        let (_scratch, root) = root();
+        let old = unmarked(&root, "old");
+        std::fs::write(
+            old.archive().join("a.01M6BG39EPAPHYHPJX7F8YBCMZ.json"),
+            "{}",
+        )
+        .expect("archived");
+
+        assert!(!in_use(&root, "old"));
+    }
+
+    #[test]
+    fn a_waiting_session_keeps_a_queue_without_active_in_use() {
+        let (_scratch, root) = root();
+        let old = unmarked(&root, "old");
+        std::fs::write(old.inbox().join("a.json"), "{}").expect("written");
+
+        assert!(in_use(&root, "old"));
+    }
+
+    #[test]
+    fn a_watched_queue_without_active_is_in_use() {
+        let (_scratch, root) = root();
+        let old = unmarked(&root, "old");
+        let _watching = lock_queue(&old, None).expect("an older asqr watches it");
+
+        assert!(in_use(&root, "old"));
+    }
+
+    #[test]
+    fn the_default_queue_is_always_in_use() {
+        let (_scratch, root) = root();
+        unmarked(&root, "default");
+
+        assert!(in_use(&root, "default"));
+    }
+
+    #[test]
+    fn a_dir_queue_is_always_in_use() {
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        assert!(summarize(QueueLocation::at(dir.path())).in_use());
     }
 
     #[test]

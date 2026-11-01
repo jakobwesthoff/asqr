@@ -13,7 +13,7 @@ use super::Exit;
 use super::hint::{self, Invocation, Refusing};
 use super::wait::{Elsewhere, elsewhere, stored_result};
 use crate::format::SessionResult;
-use crate::keep::apply::record_after_withdrawal;
+use crate::keep::apply::record_without_copies;
 use crate::queue::{Gate, QueueLocation, WithdrawError, Withdrawn, withdraw_session_archived};
 
 pub(super) fn run(
@@ -27,7 +27,7 @@ pub(super) fn run(
         Ok((withdrawn, archived)) => {
             // The drafts lock is let go of by now: reading the files can be
             // slow, and the TUI saves drafts under that lock.
-            record_after_withdrawal(location, archived);
+            record_without_copies(location, archived);
             match withdrawn {
                 Withdrawn::Now(result) => print(&result, None),
                 Withdrawn::Already(result) => {

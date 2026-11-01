@@ -352,9 +352,9 @@ pub fn prune_session(entry: &EntryRef, remove: bool) -> io::Result<Vec<Removal>>
 /// Removes every named queue under `root` that no asqr watches and that
 /// holds no file, or only lists them when `remove` is not set, and
 /// returns their directories. Files in `also_gone` count as removed. A
-/// queue's lock files, `lock` and `drafts.lock`, hold no session data and
-/// do not count. A queue that cannot be locked at once, or holds anything,
-/// stays.
+/// queue's lock files, `lock` and `drafts.lock`, and its `active` marker
+/// hold no session data and do not count. A queue that cannot be locked at
+/// once, or holds anything, stays.
 ///
 /// Both locks are held while the queue goes, and the lock files are
 /// removed while they are held, so a process that waits on one finds its
@@ -391,6 +391,9 @@ pub fn prune_empty_queues(
             ] {
                 remove_if_present(std::fs::remove_dir(dir))?;
             }
+            // A queue made before the marker, or removed from the lists,
+            // has no `active`.
+            remove_if_present(std::fs::remove_file(location.active_marker()))?;
             std::fs::remove_file(location.drafts_lock_file())?;
             std::fs::remove_file(location.lock_file())?;
             std::fs::remove_dir(location.dir())?;
@@ -400,9 +403,9 @@ pub fn prune_empty_queues(
     Ok(removed)
 }
 
-/// Whether the queue at `location` holds no file but its lock files: its
-/// four directories are empty or missing, and nothing else lies beside
-/// them. The files in `also_gone` count as removed: a dry run asks as if
+/// Whether the queue at `location` holds no file but its lock files and
+/// its `active` marker: its four directories are empty or missing, and
+/// nothing else lies beside them. The files in `also_gone` count as removed: a dry run asks as if
 /// the files it lists were gone already.
 fn holds_nothing(location: &QueueLocation, also_gone: &[PathBuf]) -> io::Result<bool> {
     let layout = ["inbox", "outbox", "drafts", "archive"];
@@ -419,7 +422,7 @@ fn holds_nothing(location: &QueueLocation, also_gone: &[PathBuf]) -> io::Result<
                             || is_empty_kept_dir(location, inside)?))
                 },
             )?;
-        if !empty_dir && name != "lock" && name != "drafts.lock" {
+        if !empty_dir && !matches!(name, "lock" | "drafts.lock" | "active") {
             return Ok(false);
         }
     }
@@ -661,6 +664,43 @@ mod tests {
 
         assert_eq!(removed, [stray.dir().to_path_buf()]);
         assert!(!stray.dir().exists());
+    }
+
+    #[test]
+    fn an_empty_queue_with_the_active_marker_is_removed() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let stray = used(scratch.path(), "asqr-todo");
+        assert!(stray.active_marker().is_file(), "a use marks the queue");
+
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
+
+        assert_eq!(removed, [stray.dir().to_path_buf()]);
+        assert!(!stray.dir().exists());
+    }
+
+    #[test]
+    fn an_empty_queue_without_the_active_marker_is_still_removed() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let stray = used(scratch.path(), "asqr-todo");
+        fs::remove_file(stray.active_marker()).expect("removed from the lists");
+
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
+
+        assert_eq!(removed, [stray.dir().to_path_buf()]);
+        assert!(!stray.dir().exists());
+    }
+
+    #[test]
+    fn a_removed_queue_with_its_archive_stays() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let old = used(scratch.path(), "old");
+        fs::remove_file(old.active_marker()).expect("removed from the lists");
+        let archived = archive_file(&old, "a.01M6BG39EPAPHYHPJX7F8YBCMZ.json");
+
+        let removed = prune_empty_queues(scratch.path(), true, &[]).expect("prunes");
+
+        assert_eq!(removed, Vec::<PathBuf>::new());
+        assert!(archived.is_file());
     }
 
     #[test]

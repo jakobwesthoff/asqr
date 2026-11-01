@@ -8,6 +8,8 @@ Accepted
 
 Amended by [97. Delete only through prune --older-than with long units, after a dry run](0097-delete-only-through-prune-older-than-with-long-units-after-a-dry-run.md)
 
+Amended by [108. Mark the queues in use and remove a queue from the lists](0108-mark-the-queues-in-use-and-remove-a-queue-from-the-lists.md)
+
 Amends [5. Keep all queues under one platform data root](0005-keep-all-queues-under-one-platform-data-root.md):
 inside tmux the queue comes from the pane's tmux session
 

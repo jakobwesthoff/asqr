@@ -250,13 +250,37 @@ impl QueueLocation {
         self.dir.join("drafts.lock")
     }
 
-    /// Creates the four queue directories. Every command that touches a
-    /// queue calls it, so a queue exists from its first use on.
+    /// The file that marks a named queue as in use (spec section 5.11).
+    pub fn active_marker(&self) -> PathBuf {
+        self.dir.join("active")
+    }
+
+    /// Creates the four queue directories and, for a named queue, the
+    /// `active` marker. Only the uses of a queue for new work call it:
+    /// `ask` under the drafts lock, and an asqr that starts on the queue or
+    /// switches to it under the queue lock. So a queue is in use from its
+    /// first use on, and any use takes back an earlier `asqr queues
+    /// remove` (spec section 5.11).
     pub fn create_layout(&self) -> std::io::Result<()> {
         for dir in [self.inbox(), self.outbox(), self.drafts(), self.archive()] {
             std::fs::create_dir_all(dir)?;
         }
-        Ok(())
+        // A queue given by `--dir` is the person's own directory and is in
+        // none of the lists the marker is for.
+        if self.name.is_none() {
+            return Ok(());
+        }
+        // `create_new` leaves an existing marker alone, so a marker without
+        // write permission for this user still counts.
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(self.active_marker())
+        {
+            Ok(_) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -508,6 +532,67 @@ mod tests {
         ] {
             assert!(dir.is_dir(), "{}", dir.display());
         }
+    }
+
+    #[test]
+    fn making_the_layout_marks_a_named_queue_active() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let location = QueueLocation::named(scratch.path(), "work");
+
+        location.create_layout().expect("layout is created");
+
+        assert!(location.active_marker().is_file());
+    }
+
+    #[test]
+    fn making_the_layout_leaves_a_dir_queue_without_a_marker() {
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let location = QueueLocation::at(scratch.path().join("queue"));
+
+        location.create_layout().expect("layout is created");
+
+        assert!(!location.active_marker().exists());
+    }
+
+    #[test]
+    fn making_the_layout_takes_an_existing_read_only_marker_as_it_is() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let location = QueueLocation::named(scratch.path(), "work");
+        std::fs::create_dir_all(location.dir()).expect("queue dir");
+        std::fs::write(location.active_marker(), "").expect("marker");
+        std::fs::set_permissions(
+            location.active_marker(),
+            std::fs::Permissions::from_mode(0o444),
+        )
+        .expect("read-only");
+
+        let made = location.create_layout();
+
+        assert!(made.is_ok(), "{made:?}");
+        assert!(location.inbox().is_dir());
+    }
+
+    #[test]
+    fn a_marker_that_cannot_be_written_fails_the_layout() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = tempfile::tempdir().expect("temp dir");
+        let location = QueueLocation::named(scratch.path(), "work");
+        location.create_layout().expect("layout");
+        std::fs::remove_file(location.active_marker()).expect("removed from the lists");
+        std::fs::set_permissions(location.dir(), std::fs::Permissions::from_mode(0o500))
+            .expect("read-only");
+
+        let made = location.create_layout();
+        std::fs::set_permissions(location.dir(), std::fs::Permissions::from_mode(0o755))
+            .expect("writable again");
+
+        assert_eq!(
+            made.map_err(|error| error.kind()),
+            Err(std::io::ErrorKind::PermissionDenied)
+        );
     }
 
     #[test]
