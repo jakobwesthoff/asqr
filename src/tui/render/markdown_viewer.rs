@@ -11,7 +11,8 @@
 
 use std::path::Path;
 
-use patine::{QuoteStyle, RenderOptions, StyledLine};
+use super::patine_adapter::MarkdownLook;
+use patine::{RenderOptions, StyledLine};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
@@ -27,12 +28,12 @@ use crate::format::{LARGE_ENTRY_BYTES, MarkdownEntry};
 use crate::graphics::PlacedImage;
 use crate::tui::Offset;
 
-/// The viewer of `entry`: reads the text, whose quotes show in `quote`.
+/// The viewer of `entry`: reads the text, shown in `look`.
 /// Rendering depends on the width, so it waits for `lay_out`. The home
 /// folder `home` shows as `~` in the path of a file that cannot be read.
 pub(super) fn markdown_content(
     entry: &MarkdownEntry,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     home: Option<&Path>,
 ) -> Content<Markdown> {
     let source = read_source(
@@ -40,14 +41,14 @@ pub(super) fn markdown_content(
         entry.content.as_deref(),
         LineBreaks::Any,
     );
-    content_of(source, quote, home)
+    content_of(source, look, home)
 }
 
 /// The caption of an image entry, `text`, shown as a Markdown entry's
 /// content is, cut by the same line limit and plain above the same size,
-/// with quotes in `quote`.
-pub(super) fn caption(text: &str, quote: QuoteStyle) -> Markdown {
-    document(inline(text, LineBreaks::Any), quote)
+/// in `look`.
+pub(super) fn caption(text: &str, look: MarkdownLook) -> Markdown {
+    document(inline(text, LineBreaks::Any), look)
 }
 
 /// Why a text shows as plain text instead of rendered Markdown.
@@ -80,22 +81,22 @@ fn plain_limit() -> usize {
 }
 
 /// What the viewer shows of `source`, as read for its entry: its
-/// Markdown with quotes in `quote`, a card when the file cannot be read,
+/// Markdown in `look`, a card when the file cannot be read,
 /// or a note when there is no text at all. A cut text whose kept lines
 /// are all blank has more after them, so it shows the notes of its cut
 /// rather than "empty".
 fn content_of(
     source: Result<Source, Unreadable>,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     home: Option<&Path>,
 ) -> Content<Markdown> {
-    content_within(source, quote, home, plain_limit())
+    content_within(source, look, home, plain_limit())
 }
 
 /// [`content_of`] with plain text above `limit` bytes.
 fn content_within(
     source: Result<Source, Unreadable>,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     home: Option<&Path>,
     limit: usize,
 ) -> Content<Markdown> {
@@ -104,18 +105,18 @@ fn content_within(
         Ok(source) if source.cut.is_none() && source.text.trim().is_empty() => {
             Content::Note(Placeholder::note("empty"))
         }
-        Ok(source) => Content::Body(document_within(source, quote, limit)),
+        Ok(source) => Content::Body(document_within(source, look, limit)),
     }
 }
 
 /// The Markdown `source`, the start of a longer text where the limit
-/// `cut` ended it, with quotes in `quote`, not laid out yet.
-fn document(source: Source, quote: QuoteStyle) -> Markdown {
-    document_within(source, quote, plain_limit())
+/// `cut` ended it, in `look`, not laid out yet.
+fn document(source: Source, look: MarkdownLook) -> Markdown {
+    document_within(source, look, plain_limit())
 }
 
 /// [`document`] shown as plain text above `limit` bytes.
-fn document_within(source: Source, quote: QuoteStyle, limit: usize) -> Markdown {
+fn document_within(source: Source, look: MarkdownLook, limit: usize) -> Markdown {
     let Source { text, cut, size } = source;
     // Only a cut text gets here blank. It shows the notes of its cut alone:
     // it has no text to show as plain text, so its size, which counts the
@@ -130,7 +131,7 @@ fn document_within(source: Source, quote: QuoteStyle, limit: usize) -> Markdown 
         // A document keeps patine's defaults, where a single newline joins
         // the lines and raw HTML is left out (ADR 35). Only its quotes take
         // the style the screen asks for.
-        options: RenderOptions::new().with_quote_style(quote),
+        options: look.options(),
         rows: Vec::new(),
         laid_out: None,
         #[cfg(test)]
@@ -258,7 +259,7 @@ mod tests {
 
     use ratatui::style::{Color, Modifier};
 
-    use super::super::patine_adapter::quote_style;
+    use super::super::patine_adapter::MarkdownLook;
     use super::super::test_support::{
         LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS, drawn, row, shown,
     };
@@ -267,7 +268,7 @@ mod tests {
     /// The viewer of the entry `json`, as drawn with colours.
     fn built(json: &str) -> Content<Markdown> {
         let entry: MarkdownEntry = serde_json::from_str(json).expect("test entry parses");
-        markdown_content(&entry, quote_style(false), None)
+        markdown_content(&entry, MarkdownLook::new(false), None)
     }
 
     fn inline(markdown: &str) -> Content<Markdown> {
@@ -291,7 +292,7 @@ mod tests {
                 cut: Some(Cut::Lines),
                 size: 9,
             }),
-            quote_style(false),
+            MarkdownLook::new(false),
             None,
         );
 
@@ -313,7 +314,7 @@ mod tests {
 
     #[test]
     fn a_caption_above_the_line_limit_says_so() {
-        let mut viewer = caption(&blank_lines_then_x(), quote_style(false));
+        let mut viewer = caption(&blank_lines_then_x(), MarkdownLook::new(false));
 
         assert_eq!(viewer.lay_out(40, 2).lines, 2);
         let buf = drawn(&mut viewer, 40, 2, Offset::default());
@@ -340,7 +341,7 @@ mod tests {
 
     /// The viewer of `text` as a text of `source` and `limit` would show it.
     fn within(source: Source, limit: usize) -> Content<Markdown> {
-        content_within(Ok(source), quote_style(false), None, limit)
+        content_within(Ok(source), MarkdownLook::new(false), None, limit)
     }
 
     #[test]
@@ -477,7 +478,7 @@ mod tests {
             cut: Some(Cut::Bytes),
             size: 8 * 1024 * 1024,
         };
-        let mut viewer = content_of(Ok(cut), quote_style(false), None);
+        let mut viewer = content_of(Ok(cut), MarkdownLook::new(false), None);
 
         assert_eq!(
             shown(&mut viewer, 40, 0),
@@ -499,7 +500,7 @@ mod tests {
             cut: Some(Cut::Lines),
             size: 2 * 1024 * 1024,
         };
-        let mut viewer = content_of(Ok(cut), quote_style(false), None);
+        let mut viewer = content_of(Ok(cut), MarkdownLook::new(false), None);
 
         let buf = drawn(&mut viewer, 40, 4, Offset::default());
 
@@ -572,7 +573,7 @@ mod tests {
     // A wiring check of the constant, as for the inline text above.
     #[test]
     fn a_caption_of_one_mib_and_a_byte_shows_as_plain_text() {
-        let mut viewer = caption(&one_mib_and_a_byte(), quote_style(false));
+        let mut viewer = caption(&one_mib_and_a_byte(), MarkdownLook::new(false));
 
         let buf = drawn(&mut viewer, 40, 3, Offset::default());
 
@@ -599,7 +600,7 @@ mod tests {
 
     /// The Markdown `text`, whose renderer panics.
     fn failing(text: &str) -> Markdown {
-        let mut markdown = document(source(text), quote_style(false));
+        let mut markdown = document(source(text), MarkdownLook::new(false));
         markdown.render = parser_panics;
         markdown
     }
@@ -630,7 +631,7 @@ mod tests {
 
     #[test]
     fn a_caption_the_parser_panics_on_shows_as_plain_text_too() {
-        let mut viewer = caption(MIXED, quote_style(false));
+        let mut viewer = caption(MIXED, MarkdownLook::new(false));
         viewer.render = parser_panics;
 
         let buf = drawn(&mut viewer, 40, 2, Offset::default());
@@ -803,7 +804,7 @@ mod tests {
             serde_json::from_str(r#"{"type": "markdown", "content": "> quoted"}"#)
                 .expect("test entry parses");
         let bar_and_text = |no_color| {
-            let mut viewer = markdown_content(&entry, quote_style(no_color), None);
+            let mut viewer = markdown_content(&entry, MarkdownLook::new(no_color), None);
             let buf = drawn(&mut viewer, 20, 1, Offset::default());
             assert_eq!(row(&buf, 0), "│ quoted");
             (buf[(0, 0)].clone(), buf[(2, 0)].clone())
@@ -1031,7 +1032,7 @@ mod tests {
                 cut: Some(Cut::Bytes),
                 size: 9,
             }),
-            quote_style(false),
+            MarkdownLook::new(false),
             None,
         );
 

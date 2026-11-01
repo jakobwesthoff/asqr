@@ -21,7 +21,7 @@ use super::code::code_content;
 use super::diff::diff_content;
 use super::loading::{self, Ahead, Finished, Job, Loaded, Tools, Wake};
 use super::markdown_viewer::{self, Markdown, markdown_content};
-use super::patine_adapter::colours_on;
+use super::patine_adapter::MarkdownLook;
 use super::problem::Card;
 use super::source_file::{Unreadable, read_image};
 use super::theme;
@@ -29,7 +29,6 @@ use super::wrap::wrap;
 use crate::format::{ContextEntry, ImageEntry};
 use crate::graphics::{Graphics, Image, Images, KittyBook, PlacedImage};
 use crate::tui::{DiffLayout, EntryKey, Offset};
-use patine::QuoteStyle;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect, Size};
 use ratatui::text::Line;
@@ -175,12 +174,12 @@ pub(super) struct ViewerKey {
     pub(super) entry: EntryKey,
 }
 
-/// A viewer with the entry and the quote style it was built from, and the
+/// A viewer with the entry and the look it was built from, and the
 /// body size it was last laid out for with the size its content took
 /// there.
 struct Kept {
     entry: ContextEntry,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     viewer: Box<dyn Viewer>,
     laid_out: (Room, ContentSize),
     /// Whether a frame showed the viewer.
@@ -191,7 +190,7 @@ struct Kept {
 struct Request {
     ticket: u64,
     entry: ContextEntry,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     /// The job lays out a viewer a frame showed, rather than building one.
     lays_out: bool,
 }
@@ -337,22 +336,21 @@ impl Viewers {
         entry: &ContextEntry,
         width: u16,
         height: u16,
-        quote: QuoteStyle,
+        look: MarkdownLook,
     ) -> (&mut dyn Viewer, ContentSize) {
         let room = Room::pane(width, height);
-        self.laid_out_in(session, key, entry, room, quote)
+        self.laid_out_in(session, key, entry, room, look)
     }
 
     /// The viewer of `entry`, which session `session` shows as `key`, with
-    /// Markdown quotes in `quote`, laid out for a body of `size`, its width
+    /// Markdown in `look`, laid out for a body of `size`, its width
     /// and height, as `shape` asks, and the size its content takes there.
     /// The full-screen view reached from a pane shows an image alone,
     /// without its caption (ADR 69), and a diff the person switched shows
     /// side by side (ADR 70); the viewer is the same one, laid out again,
     /// so its file is not read again. A viewer is built when its key shows
     /// an entry for the first time, another entry than before, as a
-    /// replaced session file can, or the entry with quotes in another
-    /// style.
+    /// replaced session file can, or the entry in another look.
     ///
     /// Building and laying out run on a thread of their own. The call
     /// waits for that job up to [`LOAD_WAIT`], once per job; a job that
@@ -365,10 +363,10 @@ impl Viewers {
         entry: &ContextEntry,
         size: (u16, u16),
         shape: Shape,
-        quote: QuoteStyle,
+        look: MarkdownLook,
     ) -> (&mut dyn Viewer, ContentSize) {
         let room = Room::for_entry(entry, size.0, size.1, shape);
-        self.laid_out_in(session, key, entry, room, quote)
+        self.laid_out_in(session, key, entry, room, look)
     }
 
     fn laid_out_in(
@@ -377,7 +375,7 @@ impl Viewers {
         key: EntryKey,
         entry: &ContextEntry,
         size: Room,
-        quote: QuoteStyle,
+        look: MarkdownLook,
     ) -> (&mut dyn Viewer, ContentSize) {
         let key = ViewerKey {
             session: session.to_owned(),
@@ -385,11 +383,11 @@ impl Viewers {
         };
         self.shown = Some(key.clone());
         self.collect();
-        if !self.ready(&key, entry, quote, size) {
-            self.request(&key, entry, quote, size);
-            self.wait_for(&key, entry, quote, size);
+        if !self.ready(&key, entry, look, size) {
+            self.request(&key, entry, look, size);
+            self.wait_for(&key, entry, look, size);
         }
-        if self.ready(&key, entry, quote, size) {
+        if self.ready(&key, entry, look, size) {
             self.waiting = None;
             let kept = self.viewers.get_mut(&key).expect("a ready viewer is kept");
             kept.shown = true;
@@ -399,16 +397,16 @@ impl Viewers {
         (&mut self.placeholder, content)
     }
 
-    /// Whether the viewer kept for `key` shows `entry` with quotes in
-    /// `quote`, laid out for `size`.
-    fn ready(&self, key: &ViewerKey, entry: &ContextEntry, quote: QuoteStyle, size: Room) -> bool {
+    /// Whether the viewer kept for `key` shows `entry` in the look
+    /// `look`, laid out for `size`.
+    fn ready(&self, key: &ViewerKey, entry: &ContextEntry, look: MarkdownLook, size: Room) -> bool {
         self.viewers.get(key).is_some_and(|kept| {
-            kept.entry == *entry && kept.quote == quote && kept.laid_out.0 == size
+            kept.entry == *entry && kept.look == look && kept.laid_out.0 == size
         })
     }
 
     /// Starts the job that makes the viewer of `key` ready, unless the
-    /// right one is in flight. A viewer kept for another entry or quote
+    /// right one is in flight. A viewer kept for another entry or look
     /// goes, as no frame shows it again, and a new one is built; a job in
     /// flight for that other entry is outrun, and its result is not taken.
     /// A viewer kept for another size is laid out again; while that job
@@ -417,15 +415,15 @@ impl Viewers {
     /// entry shown goes first, or goes first in the queue while the cap's
     /// jobs run on threads of their own. This runs on every draw while
     /// the entry is not ready, so a job freed of the cap starts then.
-    fn request(&mut self, key: &ViewerKey, entry: &ContextEntry, quote: QuoteStyle, size: Room) {
+    fn request(&mut self, key: &ViewerKey, entry: &ContextEntry, look: MarkdownLook, size: Room) {
         let current = self
             .viewers
             .get(key)
-            .is_some_and(|kept| kept.entry == *entry && kept.quote == quote);
+            .is_some_and(|kept| kept.entry == *entry && kept.look == look);
         let in_flight = self
             .loading
             .get(key)
-            .is_some_and(|request| request.entry == *entry && request.quote == quote);
+            .is_some_and(|request| request.entry == *entry && request.look == look);
         if in_flight {
             if !self.below_cap() {
                 self.ahead.to_front(key);
@@ -441,23 +439,23 @@ impl Viewers {
         }
         if current {
             let kept = self.viewers.remove(key).expect("a current viewer is kept");
-            self.start(key, entry, quote, size, Some(kept));
+            self.start(key, entry, look, size, Some(kept));
         } else {
             self.viewers.remove(key);
-            self.start(key, entry, quote, size, None);
+            self.start(key, entry, look, size, None);
         }
     }
 
     /// Starts a job for `key` under a new ticket: one that lays `kept` out
     /// again, or without it one that builds the viewer. A job still queued
-    /// for `key` was asked for another entry or quote, as `request` takes
+    /// for `key` was asked for another entry or look, as `request` takes
     /// the right one out of the queue, and goes: a queued job is always
     /// the one its key's note names.
     fn start(
         &mut self,
         key: &ViewerKey,
         entry: &ContextEntry,
-        quote: QuoteStyle,
+        look: MarkdownLook,
         size: Room,
         kept: Option<Kept>,
     ) {
@@ -466,7 +464,7 @@ impl Viewers {
             self.built += 1;
         }
         drop(self.ahead.take(key));
-        let job = self.job(key, entry, quote, size, kept);
+        let job = self.job(key, entry, look, size, kept);
         self.run_first(job);
     }
 
@@ -494,7 +492,7 @@ impl Viewers {
         &mut self,
         key: &ViewerKey,
         entry: &ContextEntry,
-        quote: QuoteStyle,
+        look: MarkdownLook,
         size: Room,
         kept: Option<Kept>,
     ) -> Job {
@@ -503,7 +501,7 @@ impl Viewers {
             &mut self.next_ticket,
             key,
             entry,
-            quote,
+            look,
             size,
             kept,
         )
@@ -517,8 +515,8 @@ impl Viewers {
     /// it over; what it made goes when it arrives. A job queued and not
     /// started goes. With the body's `size`, which a pane shown as a
     /// one-line hint has none of, the entries of the window that are not
-    /// loaded yet are queued to load ahead in that order, with quotes in
-    /// `quote`.
+    /// loaded yet are queued to load ahead in that order, in
+    /// `look`.
     ///
     /// A viewer loaded for another size is left as it is: it is laid out
     /// again when it is shown.
@@ -527,7 +525,7 @@ impl Viewers {
         session: &str,
         window: &[(EntryKey, &ContextEntry)],
         size: Option<(u16, u16)>,
-        quote: QuoteStyle,
+        look: MarkdownLook,
     ) {
         let keys: Vec<ViewerKey> = window
             .iter()
@@ -563,7 +561,7 @@ impl Viewers {
                 let entry = *entry;
                 let current = viewers
                     .get(key)
-                    .is_some_and(|kept| kept.entry == *entry && kept.quote == quote);
+                    .is_some_and(|kept| kept.entry == *entry && kept.look == look);
                 if current {
                     continue;
                 }
@@ -576,19 +574,19 @@ impl Viewers {
                     .position(|(job, _)| job.key == *key && noted(job))
                 {
                     let (mut job, job_tools) = waiting.remove(at);
-                    if job.entry == *entry && job.quote == quote {
+                    if job.entry == *entry && job.look == look {
                         job.size = size;
                         queue.push_back((job, job_tools));
                         continue;
                     }
                 } else if note
-                    .is_some_and(|request| request.entry == *entry && request.quote == quote)
+                    .is_some_and(|request| request.entry == *entry && request.look == look)
                 {
                     // Noted and not queued: it runs already.
                     continue;
                 }
                 viewers.remove(key);
-                let job = noted_job(loading, next_ticket, key, entry, quote, size, None);
+                let job = noted_job(loading, next_ticket, key, entry, look, size, None);
                 queue.push_back((job, tools.clone()));
             }
             // Every queued job left is of an entry replaced in the window,
@@ -607,7 +605,7 @@ impl Viewers {
     /// With input waiting behind the draw, there is no wait: the next
     /// draw replaces this one at once. The job keeps its wait for the
     /// first draw without input.
-    fn wait_for(&mut self, key: &ViewerKey, entry: &ContextEntry, quote: QuoteStyle, size: Room) {
+    fn wait_for(&mut self, key: &ViewerKey, entry: &ContextEntry, look: MarkdownLook, size: Room) {
         if self.input_pending && self.skips_wait_for_input {
             return;
         }
@@ -638,10 +636,10 @@ impl Viewers {
                 return;
             };
             self.take(finished);
-            if self.ready(key, entry, quote, size) {
+            if self.ready(key, entry, look, size) {
                 return;
             }
-            self.request(key, entry, quote, size);
+            self.request(key, entry, look, size);
         }
     }
 
@@ -675,7 +673,7 @@ impl Viewers {
             key,
             ticket,
             entry,
-            quote,
+            look,
             size,
             viewer,
             content,
@@ -700,7 +698,7 @@ impl Viewers {
             key,
             Kept {
                 entry,
-                quote,
+                look,
                 viewer,
                 laid_out: (size, content),
                 shown,
@@ -863,7 +861,7 @@ fn noted_job(
     next_ticket: &mut u64,
     key: &ViewerKey,
     entry: &ContextEntry,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     size: Room,
     kept: Option<Kept>,
 ) -> Job {
@@ -874,7 +872,7 @@ fn noted_job(
         Request {
             ticket,
             entry: entry.clone(),
-            quote,
+            look,
             lays_out: kept.is_some(),
         },
     );
@@ -886,7 +884,7 @@ fn noted_job(
         key: key.clone(),
         ticket,
         entry: entry.clone(),
-        quote,
+        look,
         size,
         viewer,
         shown,
@@ -897,18 +895,18 @@ fn noted_job(
 fn viewer_for(
     entry: &ContextEntry,
     images: &Images,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     home: Option<&Path>,
 ) -> Box<dyn Viewer> {
     match entry {
         ContextEntry::Image(image) => match image.shown_caption() {
-            Some(caption) => Box::new(captioned_content(image, caption, images, quote, home)),
+            Some(caption) => Box::new(captioned_content(image, caption, images, look, home)),
             None => Box::new(image_content(image, images, home)),
         },
         ContextEntry::Code(code) => Box::new(code_content(code, home)),
-        ContextEntry::Markdown(markdown) => Box::new(markdown_content(markdown, quote, home)),
+        ContextEntry::Markdown(markdown) => Box::new(markdown_content(markdown, look, home)),
         ContextEntry::Diff(diff) => Box::new(diff_content(diff, home)),
-        ContextEntry::Ansi(ansi) => Box::new(ansi_content(ansi, colours_on(quote), home)),
+        ContextEntry::Ansi(ansi) => Box::new(ansi_content(ansi, look.colours_on(), home)),
     }
 }
 
@@ -917,11 +915,11 @@ fn viewer_for(
 /// loading an entry. Only a debug build has it.
 #[cfg(debug_assertions)]
 pub(super) fn panicking_on(path: std::ffi::OsString) -> loading::Build {
-    Arc::new(move |entry, images, quote, home| {
+    Arc::new(move |entry, images, look, home| {
         if entry.image_path().is_some_and(|image| path == image) {
             panic!("ASQR_TEST_PANIC_ON_LOAD names {}", path.to_string_lossy());
         }
-        viewer_for(entry, images, quote, home)
+        viewer_for(entry, images, look, home)
     })
 }
 
@@ -1081,14 +1079,14 @@ enum CaptionLayout {
     Stacked { rows: usize },
 }
 
-/// The viewer of the image entry `entry` with the caption `caption`, whose
-/// quotes show in `quote`. The home folder `home` shows as `~` in the path
+/// The viewer of the image entry `entry` with the caption `caption`, with
+/// Markdown in `look`. The home folder `home` shows as `~` in the path
 /// of an image that cannot be shown.
 fn captioned_content(
     entry: &ImageEntry,
     caption: &str,
     images: &Images,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     home: Option<&Path>,
 ) -> Captioned {
     let shown = match load(entry, images) {
@@ -1100,7 +1098,7 @@ fn captioned_content(
     };
     Captioned {
         shown,
-        caption: markdown_viewer::caption(caption, quote),
+        caption: markdown_viewer::caption(caption, look),
         note: Placeholder::note(IMAGE_ON_Z),
         layout: CaptionLayout::Alone,
     }
@@ -1291,16 +1289,14 @@ mod tests {
     use std::sync::{Mutex, MutexGuard};
     use std::thread::{self, ThreadId};
 
-    use patine::AnsiColor;
-
-    use super::super::patine_adapter::quote_style;
+    use super::super::patine_adapter::MarkdownLook;
     use super::super::source_file::regular_file;
     use super::super::test_support::{self, Gate, row};
     use super::*;
     use crate::graphics::Protocol;
 
     /// Quotes as the screen draws them with colours.
-    const COLOURED: QuoteStyle = quote_style(false);
+    const COLOURED: MarkdownLook = MarkdownLook::new(false);
 
     fn entry(json: &str) -> ContextEntry {
         serde_json::from_str(json).expect("test entry parses")
@@ -1522,7 +1518,12 @@ mod tests {
         let coloured = entry(
             r#"{"type": "ansi", "content": "\u001b[1;38;2;255;0;0;48;5;4mbold\u001b[0m \u001b[32mgreen"}"#,
         );
-        let mut viewer = viewer_for(&coloured, &Images::half_blocks(), quote_style(true), None);
+        let mut viewer = viewer_for(
+            &coloured,
+            &Images::half_blocks(),
+            MarkdownLook::new(true),
+            None,
+        );
 
         let buf = test_support::drawn(viewer.as_mut(), 20, 1, Offset::default());
 
@@ -1632,11 +1633,11 @@ mod tests {
     ) -> (Viewers, Arc<AtomicUsize>) {
         let mut viewers = viewers();
         let theirs = gate.clone();
-        viewers.building(Arc::new(move |entry, images, quote, home| {
+        viewers.building(Arc::new(move |entry, images, look, home| {
             if held(entry) {
                 theirs.wait();
             }
-            viewer_for(entry, images, quote, home)
+            viewer_for(entry, images, look, home)
         }));
         viewers.waiting(wait);
         let woken = counted(&mut viewers);
@@ -1925,12 +1926,12 @@ mod tests {
         let threads = Arc::new(Mutex::new(Vec::new()));
         let mut viewers = viewers();
         let theirs = Arc::clone(&threads);
-        viewers.building(Arc::new(move |entry, images, quote, home| {
+        viewers.building(Arc::new(move |entry, images, look, home| {
             theirs
                 .lock()
                 .expect("no test thread panicked")
                 .push(thread::current().id());
-            viewer_for(entry, images, quote, home)
+            viewer_for(entry, images, look, home)
         }));
 
         for (key, kind) in [
@@ -2047,7 +2048,7 @@ mod tests {
         let mut viewers = viewers();
         let (held_other, released_other, held_shown) =
             (other.clone(), other.clone(), shown.clone());
-        viewers.building(Arc::new(move |entry, images, quote, home| {
+        viewers.building(Arc::new(move |entry, images, look, home| {
             match entry {
                 ContextEntry::Markdown(_) => held_other.wait(),
                 _ => {
@@ -2055,7 +2056,7 @@ mod tests {
                     held_shown.wait();
                 }
             }
-            viewer_for(entry, images, quote, home)
+            viewer_for(entry, images, look, home)
         }));
         let woken = Arc::new(AtomicUsize::new(0));
         let theirs = Arc::clone(&woken);
@@ -2109,9 +2110,9 @@ mod tests {
         let gate = Gate::default();
         let mut viewers = kitty_viewers();
         let theirs = gate.clone();
-        viewers.building(Arc::new(move |entry, images, quote, home| {
+        viewers.building(Arc::new(move |entry, images, look, home| {
             Box::new(HeldLayOut {
-                inner: viewer_for(entry, images, quote, home),
+                inner: viewer_for(entry, images, look, home),
                 gate: theirs.clone(),
                 laid_out: false,
             })
@@ -2174,7 +2175,7 @@ mod tests {
         let mut viewers = viewers();
         let (theirs, their_count, held_back) =
             (Arc::clone(&built), Arc::clone(&began), gate.clone());
-        viewers.building(Arc::new(move |entry, images, quote, home| {
+        viewers.building(Arc::new(move |entry, images, look, home| {
             if let ContextEntry::Code(code) = entry {
                 their_count.fetch_add(1, Ordering::SeqCst);
                 let text = code.content.clone().unwrap_or_default();
@@ -2186,7 +2187,7 @@ mod tests {
                     .expect("no test thread panicked")
                     .push((text, thread::current().id()));
             }
-            viewer_for(entry, images, quote, home)
+            viewer_for(entry, images, look, home)
         }));
         let woken = counted(&mut viewers);
         Noting {
@@ -2560,7 +2561,7 @@ mod tests {
         let began = Arc::new(AtomicUsize::new(0));
         let mut viewers = viewers();
         let (their_one, their_busy, their_count) = (one.clone(), busy.clone(), Arc::clone(&began));
-        viewers.building(Arc::new(move |entry, images, quote, home| {
+        viewers.building(Arc::new(move |entry, images, look, home| {
             if let ContextEntry::Code(code) = entry {
                 their_count.fetch_add(1, Ordering::SeqCst);
                 match code.content.as_deref() {
@@ -2569,7 +2570,7 @@ mod tests {
                     _ => {}
                 }
             }
-            viewer_for(entry, images, quote, home)
+            viewer_for(entry, images, look, home)
         }));
         let woken = counted(&mut viewers);
         viewers.capping(1);
@@ -2722,19 +2723,12 @@ mod tests {
     }
 
     #[test]
-    fn a_viewer_is_built_again_for_another_quote_style() {
+    fn a_viewer_is_built_again_for_another_look() {
         let mut viewers = viewers();
         let notes = entry(r#"{"type": "markdown", "content": "> quoted"}"#);
 
-        viewers.laid_out(
-            "s",
-            QUESTION,
-            &notes,
-            40,
-            10,
-            QuoteStyle::Bar(AnsiColor::Blue),
-        );
-        viewers.laid_out("s", QUESTION, &notes, 40, 10, QuoteStyle::DimBar);
+        viewers.laid_out("s", QUESTION, &notes, 40, 10, MarkdownLook::new(false));
+        viewers.laid_out("s", QUESTION, &notes, 40, 10, MarkdownLook::new(true));
 
         assert_eq!(viewers.built, 2, "its quotes show in the new style");
         assert_eq!(viewers.viewers.len(), 1, "the old one is gone");

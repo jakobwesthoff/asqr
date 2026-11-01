@@ -30,7 +30,7 @@ use super::keys::{
 use super::mascot::Glyphs;
 use super::overlay::{draw_intro, draw_session_list};
 use super::panes::{MIN_BELOW_HEIGHT, PaneLayout, ReadingWidth};
-use super::patine_adapter::quote_style;
+use super::patine_adapter::MarkdownLook;
 use super::problem::{self, Problem, draw_dialog};
 use super::settings::draw_settings;
 use super::source_line::columns;
@@ -375,10 +375,10 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
         };
     }
 
-    // Every place that renders Markdown draws its quotes in this style, the
+    // Every place that renders Markdown draws it in this look, the
     // one place the colours are decided before drawing rather than taken
     // off the finished screen.
-    let quote = quote_style(view.no_color);
+    let look = MarkdownLook::new(view.no_color);
 
     // The header gives its rows to the tab's area until that has the rows
     // a context pane below the question needs.
@@ -390,7 +390,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 state,
                 usize::from(area.width),
                 usize::from(spare),
-                quote,
+                look,
                 view.tab.reading,
             )
         })
@@ -468,13 +468,13 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                         frame.buffer_mut(),
                         state,
                         &mut view.tab.viewers,
-                        quote,
+                        look,
                         Ledge::Beside,
                     );
                     (pane, None, None)
                 } else {
                     let (pane, shape, cut) =
-                        draw_tab(main, frame.buffer_mut(), state, &mut view.tab, quote);
+                        draw_tab(main, frame.buffer_mut(), state, &mut view.tab, look);
                     (pane, shape, Some(cut))
                 };
             let (pane_page, image) = match pane {
@@ -536,7 +536,7 @@ fn draw_screen(frame: &mut Frame, app: &App, view: &mut View) -> Drawn {
                 Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
             let intro = state.session().intro.as_deref();
             let intro = intro.expect("the intro overlay is open only on an intro");
-            let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll, quote);
+            let page = draw_intro(above_keys, frame.buffer_mut(), intro, scroll, look);
             drawn.intro_page = Some(page);
             intro_hints(page)
         }
@@ -4916,7 +4916,7 @@ mod tests {
         view.tab.question_height.need(
             state,
             Rect::new(1, 5, width, 24),
-            quote_style(false),
+            MarkdownLook::new(false),
             ReadingWidth::default(),
         )
     }

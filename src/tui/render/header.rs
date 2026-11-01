@@ -7,7 +7,7 @@
 //! intro, which hang under the title. On a low terminal the header gives
 //! its rows to the tab's area, the blank line first, then intro lines.
 
-use patine::QuoteStyle;
+use super::patine_adapter::MarkdownLook;
 use ratatui::text::{Line, Span};
 
 use super::panes::ReadingWidth;
@@ -151,12 +151,12 @@ fn replay_title_bar(
 ///
 /// A cut intro ends in `… i: more`, as `i` shows all of it, or in
 /// `… esc, i: more` where `i` would be typed or taken by the pane. Its
-/// quotes show in `quote`.
+/// Markdown shows in `look`.
 pub(super) fn header_lines(
     state: &SessionState,
     width: usize,
     spare: usize,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     reading: ReadingWidth,
 ) -> Vec<Line<'static>> {
     let text_width = text_width(width, reading);
@@ -167,7 +167,7 @@ pub(super) fn header_lines(
         .session()
         .intro
         .as_deref()
-        .map(|intro| field_lines(intro, text_width, quote))
+        .map(|intro| field_lines(intro, text_width, look))
         .unwrap_or_default()
         .into_iter()
         .map(|line| indented(line, INDENT))
@@ -285,7 +285,7 @@ fn ending_in(line: Line<'static>, marker: &str, width: usize) -> Line<'static> {
 mod tests {
     use ratatui::style::{Style, Stylize};
 
-    use super::super::patine_adapter::quote_style;
+    use super::super::patine_adapter::MarkdownLook;
     use super::super::test_support::line_texts;
     use super::*;
 
@@ -339,7 +339,7 @@ mod tests {
                 state,
                 80,
                 10,
-                quote_style(false),
+                MarkdownLook::new(false),
                 ReadingWidth::default(),
             ))[0]
                 .clone()
@@ -380,7 +380,7 @@ mod tests {
             state,
             80,
             spare,
-            quote_style(false),
+            MarkdownLook::new(false),
             ReadingWidth::default(),
         ))
     }
@@ -449,7 +449,13 @@ mod tests {
     #[test]
     fn a_long_note_is_cut_to_the_text_width() {
         let state = continuing("", Some("a title that is far too long for the line"));
-        let lines = header_lines(&state, 30, 10, quote_style(false), ReadingWidth::default());
+        let lines = header_lines(
+            &state,
+            30,
+            10,
+            MarkdownLook::new(false),
+            ReadingWidth::default(),
+        );
 
         assert_eq!(line_texts(&lines)[0], "       continues your draft …");
     }
@@ -459,7 +465,13 @@ mod tests {
         // 20 columns leave the intro 12 after the indent and the column
         // before the edge.
         let state = session_with(r#""intro": "Round **two** of the new layout here","#);
-        let lines = header_lines(&state, 20, 10, quote_style(false), ReadingWidth::default());
+        let lines = header_lines(
+            &state,
+            20,
+            10,
+            MarkdownLook::new(false),
+            ReadingWidth::default(),
+        );
 
         assert_eq!(
             line_texts(&lines),

@@ -20,7 +20,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
-use patine::QuoteStyle;
+use super::patine_adapter::MarkdownLook;
 use tracing::Dispatch;
 
 use super::viewer::{ContentSize, Room, Viewer, ViewerKey};
@@ -29,8 +29,9 @@ use crate::graphics::Images;
 
 /// Builds the viewer for an entry, given what makes its images, how
 /// Markdown quotes look and the home folder, which paths show as `~`.
-pub(super) type Build =
-    Arc<dyn Fn(&ContextEntry, &Images, QuoteStyle, Option<&Path>) -> Box<dyn Viewer> + Send + Sync>;
+pub(super) type Build = Arc<
+    dyn Fn(&ContextEntry, &Images, MarkdownLook, Option<&Path>) -> Box<dyn Viewer> + Send + Sync,
+>;
 
 /// Tells the run loop that a load finished, so it draws again.
 pub(super) type Wake = Arc<dyn Fn() + Send + Sync>;
@@ -48,7 +49,7 @@ pub(super) struct Job {
     /// latest one is taken.
     pub(super) ticket: u64,
     pub(super) entry: ContextEntry,
-    pub(super) quote: QuoteStyle,
+    pub(super) look: MarkdownLook,
     pub(super) size: Room,
     /// A viewer built before, to be laid out again for another size, or
     /// `None` to build one.
@@ -65,7 +66,7 @@ pub(super) struct Loaded {
     pub(super) key: ViewerKey,
     pub(super) ticket: u64,
     pub(super) entry: ContextEntry,
-    pub(super) quote: QuoteStyle,
+    pub(super) look: MarkdownLook,
     pub(super) size: Room,
     pub(super) viewer: Box<dyn Viewer>,
     pub(super) content: ContentSize,
@@ -94,12 +95,7 @@ impl Job {
     /// entry goes this one way.
     fn run(self, tools: &Tools) -> Loaded {
         let mut viewer = self.viewer.unwrap_or_else(|| {
-            (tools.build)(
-                &self.entry,
-                &tools.images,
-                self.quote,
-                tools.home.as_deref(),
-            )
+            (tools.build)(&self.entry, &tools.images, self.look, tools.home.as_deref())
         });
         let Room {
             width,
@@ -118,7 +114,7 @@ impl Job {
             key: self.key,
             ticket: self.ticket,
             entry: self.entry,
-            quote: self.quote,
+            look: self.look,
             size: self.size,
             viewer,
             content,
@@ -504,7 +500,7 @@ mod tests {
             ticket: 1,
             entry: serde_json::from_str(r#"{"type": "code", "content": "x"}"#)
                 .expect("test entry parses"),
-            quote: QuoteStyle::DimBar,
+            look: MarkdownLook::new(true),
             size: Room::pane(40, 10),
             viewer: None,
             shown: false,

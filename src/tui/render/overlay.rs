@@ -7,7 +7,7 @@
 //! they take their place and their frame; what each shows inside is its
 //! own widget.
 
-use patine::QuoteStyle;
+use super::patine_adapter::MarkdownLook;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::text::Line;
@@ -54,20 +54,20 @@ pub(super) fn overlay_block(title: &str, footer: Option<&str>) -> Block<'static>
 /// The whole intro in a frame over the screen, from line `scroll` on, and
 /// what of it fits. An intro longer than the frame scrolls, and the frame's
 /// bottom edge says which lines show. The intro shows in patine's styles,
-/// with its quotes in `quote`.
+/// in `look`.
 pub(super) fn draw_intro(
     area: Rect,
     buf: &mut Buffer,
     intro: &str,
     scroll: usize,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> Extent {
     // The text keeps to the reading width inside the frame.
     let width = area.width.saturating_sub(4).min(FRAME_WIDTH + 4);
     let inner = overlay_block("Intro", None)
         .inner(Rect::new(0, 0, width, 2))
         .width;
-    let lines = field_lines(intro, usize::from(inner), quote);
+    let lines = field_lines(intro, usize::from(inner), look);
     let wanted = u16::try_from(lines.len() + 2).unwrap_or(u16::MAX);
     // An intro taller than the screen gets the rows there are and scrolls
     // in them.
@@ -126,7 +126,7 @@ mod tests {
     use ratatui::buffer::Cell;
     use ratatui::style::{Color, Modifier};
 
-    use super::super::patine_adapter::quote_style;
+    use super::super::patine_adapter::MarkdownLook;
     use super::super::test_support::{find, row, rows};
     use super::*;
     use crate::tui::SessionState;
@@ -269,7 +269,7 @@ mod tests {
         let area = Rect::new(0, 0, 30, 7);
         let mut buf = Buffer::empty(area);
 
-        draw_intro(area, &mut buf, "1. ~~~\n*", 0, quote_style(false));
+        draw_intro(area, &mut buf, "1. ~~~\n*", 0, MarkdownLook::new(false));
 
         assert!(!rows(&buf).iter().any(|row| row.contains("~~~")));
         assert!(rows(&buf).iter().any(|row| row.contains('•')));
@@ -283,7 +283,7 @@ mod tests {
             .join("\n\n");
         let area = Rect::new(0, 0, 30, 7);
         let mut buf = Buffer::empty(area);
-        let page = draw_intro(area, &mut buf, &intro, 99, quote_style(false));
+        let page = draw_intro(area, &mut buf, &intro, 99, MarkdownLook::new(false));
 
         assert_eq!(
             page,

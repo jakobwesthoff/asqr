@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use patine::QuoteStyle;
+use super::patine_adapter::MarkdownLook;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -211,14 +211,14 @@ impl QuestionHeight {
     /// deleting a line while typing leaves the pane where it is. A resize,
     /// another session or a replaced file start afresh.
     ///
-    /// The questions are counted with their quotes in `quote`. A quote's
+    /// The questions are counted in `look`. A quote's
     /// bar takes the same columns in every style, so the rows kept from
     /// another frame stay right.
     pub(super) fn need(
         &mut self,
         state: &SessionState,
         area: Rect,
-        quote: QuoteStyle,
+        look: MarkdownLook,
         reading: ReadingWidth,
     ) -> usize {
         let width = area.width.min(reading.columns());
@@ -248,7 +248,7 @@ impl QuestionHeight {
             }
             let key = (state.id().to_owned(), state.revision(), index, width);
             let count = |pass| {
-                question_content(state, index, usize::from(width), pass, quote)
+                question_content(state, index, usize::from(width), pass, look)
                     .lines
                     .len()
             };
@@ -292,7 +292,7 @@ impl QuestionHeight {
 
 /// Draws the current tab into `area`: the question, or the review, at no
 /// more than the reading width, and the context pane where
-/// [`panes::choose`] puts it, with Markdown quotes in `quote`. Says what
+/// [`panes::choose`] puts it, in `look`. Says what
 /// the pane showed, if one did, where the field or note that has the keys
 /// was drawn, if one was, and what the area showed of the range of the row
 /// under the cursor, if it has one.
@@ -301,7 +301,7 @@ pub(super) fn draw_tab(
     buf: &mut Buffer,
     state: &SessionState,
     tab: &mut TabState,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> (Option<DrawnPane>, Option<FieldShape>, Option<RowCut>) {
     let arrangement = state.has_context_area().then(|| {
         let arrangement = panes::choose(area.width, area.height, tab.layout, tab.shown);
@@ -312,11 +312,11 @@ pub(super) fn draw_tab(
     });
 
     let content_at = |width: u16| match state.question() {
-        Some(_) => question_content(state, state.tab(), usize::from(width), Pass::Live, quote),
-        None => review_content(state, usize::from(width), quote),
+        Some(_) => question_content(state, state.tab(), usize::from(width), Pass::Live, look),
+        None => review_content(state, usize::from(width), look),
     };
     let question_rows = match arrangement {
-        Some(Arrangement::Below) => tab.question_height.need(state, area, quote, tab.reading),
+        Some(Arrangement::Below) => tab.question_height.need(state, area, look, tab.reading),
         _ => 0,
     };
     let (text_area, context_area) = panes::areas(area, arrangement, question_rows, tab.reading);
@@ -333,7 +333,7 @@ pub(super) fn draw_tab(
             context_hint(state.shown_context(), &z, area.width).render(area, buf);
             None
         }
-        Some(area) => draw_pane(area, buf, state, &mut tab.viewers, quote, ledge),
+        Some(area) => draw_pane(area, buf, state, &mut tab.viewers, look, ledge),
         None => None,
     };
     // The viewers keep the window of the question shown, and load what it
@@ -347,7 +347,7 @@ pub(super) fn draw_tab(
                 (body.width, body.height)
             });
         tab.viewers
-            .load_window(state.id(), &state.window(), body, quote);
+            .load_window(state.id(), &state.window(), body, look);
     }
 
     // At rest the area shows the whole current row. A row taller than the
@@ -572,19 +572,19 @@ enum Pass {
 }
 
 /// The lines of question `index`, wrapped to `width`, with Markdown quotes
-/// in `quote`. Counting and drawing share this function, so the rows
+/// in `look`. Counting and drawing share this function, so the rows
 /// counted are the rows drawn.
 fn question_content(
     state: &SessionState,
     index: usize,
     width: usize,
     pass: Pass,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> Content {
     let question = &state.session().questions[index];
     let live = pass == Pass::Live;
     let mut content = Content {
-        lines: field_lines(&question.text, width, quote),
+        lines: field_lines(&question.text, width, look),
         cursor: (0, 0),
         shape: None,
         text_cursor: None,
@@ -614,13 +614,7 @@ fn question_content(
             } else {
                 0
             };
-            label_rows(
-                &option.label,
-                option_prefix_width(index),
-                width,
-                room,
-                quote,
-            )
+            label_rows(&option.label, option_prefix_width(index), width, room, look)
         })
         .collect();
     // Descriptions line up in one column after the widest label while
@@ -687,7 +681,7 @@ fn question_content(
                     marker,
                     width,
                     filled,
-                    quote,
+                    look,
                 );
                 // A replay dims what the person did not pick, and all of a
                 // draft they never sent. The row under the cursor keeps
@@ -826,8 +820,8 @@ impl LabelRows {
 }
 
 /// `label` rendered as the label of an option whose pointer, mark and
-/// number take `prefix` of `width` columns, with Markdown quotes in
-/// `quote`. It follows the number and wraps under its own start while that
+/// number take `prefix` of `width` columns, with Markdown in
+/// `look`. It follows the number and wraps under its own start while that
 /// leaves it `MIN_LABEL_WIDTH` columns; otherwise the whole label goes on
 /// the lines below, from `DESCRIPTION_INDENT`, or from the left edge
 /// where not even a wide character would fit after that indent.
@@ -842,7 +836,7 @@ fn label_rows(
     prefix: usize,
     width: usize,
     room: usize,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> LabelRows {
     let below = if width >= DESCRIPTION_INDENT + WIDEST_GRAPHEME {
         DESCRIPTION_INDENT
@@ -851,17 +845,17 @@ fn label_rows(
     };
     let beside_room = width.saturating_sub(prefix);
     let (beside, indent, lines) = if beside_room >= MIN_LABEL_WIDTH {
-        let lines = field_lines(label, beside_room, quote);
+        let lines = field_lines(label, beside_room, look);
         if !reaches_room(&lines, beside_room, room) {
             (true, prefix, lines)
         } else if beside_room - room >= MIN_LABEL_WIDTH {
-            let lines = field_lines_from(label, beside_room - room, beside_room, quote);
+            let lines = field_lines_from(label, beside_room - room, beside_room, look);
             (true, prefix, lines)
         } else {
-            (false, below, field_lines(label, width - below, quote))
+            (false, below, field_lines(label, width - below, look))
         }
     } else {
-        (false, below, field_lines(label, width - below, quote))
+        (false, below, field_lines(label, width - below, look))
     };
     let rows = lines
         .into_iter()
@@ -880,17 +874,17 @@ fn label_rows(
     }
 }
 
-/// `source` rendered for `width` columns with quotes in `quote`, leaving
+/// `source` rendered for `width` columns in `look`, leaving
 /// the last `room` columns of its first line free for the marker of a
 /// default option.
 ///
 /// A text whose first line stays clear of that room keeps the full width
 /// on every line (ADR 76). Otherwise only its first line renders `room`
 /// columns narrower, and the lines below take the full width (ADR 79).
-fn leaving_room(source: &str, width: usize, room: usize, quote: QuoteStyle) -> Vec<Line<'static>> {
-    let lines = field_lines(source, width, quote);
+fn leaving_room(source: &str, width: usize, room: usize, look: MarkdownLook) -> Vec<Line<'static>> {
+    let lines = field_lines(source, width, look);
     if reaches_room(&lines, width, room) {
-        field_lines_from(source, width.saturating_sub(room), width, quote)
+        field_lines_from(source, width.saturating_sub(room), width, look)
     } else {
         lines
     }
@@ -916,7 +910,7 @@ fn line_columns(line: &Line) -> usize {
 /// `description_column`, the description starts there on the option's row,
 /// rendered for the columns from there to the end and so wrapped under its
 /// own start; without one, it goes on the lines below the label's, from
-/// `DESCRIPTION_INDENT` on. The description's quotes show in `quote`. An
+/// `DESCRIPTION_INDENT` on. The description shows in `look`. An
 /// option with a `marker` ends its first line in it at the right edge
 /// where the line has room for it.
 #[allow(clippy::too_many_arguments)]
@@ -928,7 +922,7 @@ fn option_lines(
     marker: Option<&'static str>,
     width: usize,
     filled: bool,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> Vec<Line<'static>> {
     let (description, marked) = (option.description.as_deref(), marker.is_some());
     let fill = |spans: Vec<Span<'static>>| -> Vec<Span<'static>> {
@@ -954,7 +948,7 @@ fn option_lines(
         0
     };
     let mut descriptions = description
-        .map(|description| leaving_room(description, width.saturating_sub(indent), room, quote))
+        .map(|description| leaving_room(description, width.saturating_sub(indent), room, look))
         .unwrap_or_default()
         .into_iter();
     // A description beside its label starts on the option's row, padded
@@ -1077,7 +1071,7 @@ fn result_headline(replay: &crate::tui::ReplayInfo) -> String {
     }
 }
 
-fn review_content(state: &SessionState, width: usize, quote: QuoteStyle) -> Content {
+fn review_content(state: &SessionState, width: usize, look: MarkdownLook) -> Content {
     let headline = match state.replay_info() {
         Some(replay) => result_headline(replay),
         None => "Review your answers, then submit or reject.".to_owned(),
@@ -1130,7 +1124,7 @@ fn review_content(state: &SessionState, width: usize, quote: QuoteStyle) -> Cont
                 let lead_width: usize = lead.iter().map(|span| columns(&span.content)).sum();
                 let room = width.saturating_sub(lead_width);
                 let summary = cut_spans(
-                    answer_summary(question, &answers[question_index], room, quote),
+                    answer_summary(question, &answers[question_index], room, look),
                     room,
                     theme::secondary(),
                 );
@@ -1234,7 +1228,7 @@ mod tests {
 
     use ratatui::style::{Color, Modifier, Stylize};
 
-    use super::super::patine_adapter::quote_style;
+    use super::super::patine_adapter::MarkdownLook;
     use super::super::test_support;
     use super::*;
     use crate::tui::Page;
@@ -1336,8 +1330,10 @@ mod tests {
     /// The current tab of `state` drawn 40 columns wide.
     fn tab_of(state: &SessionState) -> (Content, Buffer) {
         let content = match state.question() {
-            Some(_) => question_content(state, state.tab(), 40, Pass::Live, quote_style(false)),
-            None => review_content(state, 40, quote_style(false)),
+            Some(_) => {
+                question_content(state, state.tab(), 40, Pass::Live, MarkdownLook::new(false))
+            }
+            None => review_content(state, 40, MarkdownLook::new(false)),
         };
         let height = u16::try_from(content.lines.len()).expect("a short tab");
         let area = Rect::new(0, 0, 40, height);
@@ -1791,7 +1787,7 @@ mod tests {
         let state = with_pane_focused("jE");
         let lines = |pass| {
             test_support::line_texts(
-                &question_content(&state, state.tab(), 19, pass, quote_style(false)).lines,
+                &question_content(&state, state.tab(), 19, pass, MarkdownLook::new(false)).lines,
             )
         };
 
@@ -1810,7 +1806,8 @@ mod tests {
         // 20th, so in 19 that blank is one past the end of the first row.
         let own_rows = |state: &SessionState| {
             let lines = test_support::line_texts(
-                &question_content(state, state.tab(), 19, Pass::Live, quote_style(false)).lines,
+                &question_content(state, state.tab(), 19, Pass::Live, MarkdownLook::new(false))
+                    .lines,
             );
             let head = lines
                 .iter()
@@ -1851,7 +1848,14 @@ mod tests {
         }
         state.handle(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         let drawn = test_support::line_texts(
-            &question_content(&state, state.tab(), 19, Pass::Live, quote_style(false)).lines,
+            &question_content(
+                &state,
+                state.tab(),
+                19,
+                Pass::Live,
+                MarkdownLook::new(false),
+            )
+            .lines,
         );
         assert!(
             drawn.ends_with(&[
@@ -1867,7 +1871,7 @@ mod tests {
         let area = Rect::new(0, 0, 19, 30);
         let mut buf = Buffer::empty(area);
         let mut tab = TabState::for_tests(PaneLayout::Auto, Images::half_blocks());
-        draw_tab(area, &mut buf, &state, &mut tab, quote_style(false));
+        draw_tab(area, &mut buf, &state, &mut tab, MarkdownLook::new(false));
 
         let shown = test_support::rows(&buf);
         assert_eq!(
@@ -1893,7 +1897,7 @@ mod tests {
         let area = Rect::new(0, 0, 140, 30);
         let mut buf = Buffer::empty(area);
 
-        draw_tab(area, &mut buf, &state, &mut tab, quote_style(false));
+        draw_tab(area, &mut buf, &state, &mut tab, MarkdownLook::new(false));
 
         assert_eq!(
             tab.viewers.pending(),
@@ -1922,7 +1926,8 @@ mod tests {
     /// columns wide, counted without a cursor: from the first option's row
     /// to the blank row before the notes line every question ends with.
     fn option_rows(state: &SessionState, width: usize) -> Vec<Line<'static>> {
-        let lines = question_content(state, 0, width, Pass::Counted, quote_style(false)).lines;
+        let lines =
+            question_content(state, 0, width, Pass::Counted, MarkdownLook::new(false)).lines;
         // The first option's row by its number after the pointer's blanks
         // and a mark of any state, as a default shows its mark chosen.
         let first = lines
@@ -2115,7 +2120,7 @@ mod tests {
         let mut state =
             SessionState::new("count", serde_json::from_str(json).expect("parses"), None);
         let count = |state: &SessionState, pass| {
-            question_content(state, 0, 40, pass, quote_style(false))
+            question_content(state, 0, 40, pass, MarkdownLook::new(false))
                 .lines
                 .len()
         };
@@ -2464,8 +2469,14 @@ mod tests {
     /// The question of `state` drawn as the person sees it, `width`
     /// columns wide.
     fn question_at(state: &SessionState, width: u16) -> Buffer {
-        let lines =
-            question_content(state, 0, usize::from(width), Pass::Live, quote_style(false)).lines;
+        let lines = question_content(
+            state,
+            0,
+            usize::from(width),
+            Pass::Live,
+            MarkdownLook::new(false),
+        )
+        .lines;
         let area = Rect::new(
             0,
             0,
@@ -2517,7 +2528,7 @@ mod tests {
         let area = Rect::new(0, 0, width, 6);
         let mut buf = Buffer::empty(area);
         let mut tab = TabState::for_tests(PaneLayout::Auto, Images::half_blocks());
-        let (_, _, cut) = draw_tab(area, &mut buf, state, &mut tab, quote_style(false));
+        let (_, _, cut) = draw_tab(area, &mut buf, state, &mut tab, MarkdownLook::new(false));
         let rows = (0..6).map(|y| test_support::row(&buf, y)).collect();
         (rows, cut)
     }

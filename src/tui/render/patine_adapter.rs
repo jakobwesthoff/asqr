@@ -8,7 +8,7 @@
 //! line wider than the space it gets wraps, and each further row starts
 //! with a dim `↪`, so nothing is cut off.
 
-use patine::{AnsiColor, QuoteStyle, StyledLine, TextStyle, Underline};
+use patine::{AnsiColor, QuoteStyle, RenderOptions, StyledLine, TextStyle, Underline};
 use ratatui::style::{Color, Modifier, Style};
 
 use super::source_line::{SourceLine, columns};
@@ -21,23 +21,47 @@ const CONTINUATION: &str = "↪ ";
 /// do.
 pub(super) const WIDEST_GRAPHEME: usize = 2;
 
-/// How Markdown quotes look wherever asqr renders Markdown: a blue bar,
-/// apart from the cyan that marks what can be acted on, and a dim one
-/// under `NO_COLOR`. The colours come off the finished screen there and
-/// dim stays (spec section 7.3), so a blue bar would be left in the text
-/// colour, like the quoted text beside it.
-pub(super) const fn quote_style(no_color: bool) -> QuoteStyle {
+/// How Markdown looks wherever asqr renders it, decided once per frame by
+/// whether the screen draws colours. A screen without colours loses them
+/// after drawing and keeps dim (spec section 7.3), so what patine draws in
+/// colour has to be drawn dim before that, or it is left in the text
+/// colour like the text beside it.
+///
+/// It is the one value handed to every place that renders Markdown, and
+/// the key a kept viewer is checked against, so a frame with another look
+/// builds the viewer again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct MarkdownLook {
+    no_color: bool,
+}
+
+impl MarkdownLook {
+    /// The look of a screen that draws without colours when `no_color` is
+    /// set.
+    pub(super) const fn new(no_color: bool) -> Self {
+        Self { no_color }
+    }
+
+    /// Whether the screen draws colours.
+    pub(super) const fn colours_on(self) -> bool {
+        !self.no_color
+    }
+
+    /// patine's options for this look: the style of quotes, on top of
+    /// which each place sets what else it renders differently.
+    pub(super) const fn options(self) -> RenderOptions {
+        RenderOptions::new().with_quote_style(quote_style(self.no_color))
+    }
+}
+
+/// A blue quote bar, apart from the cyan that marks what can be acted on,
+/// and a dim one under `NO_COLOR`.
+const fn quote_style(no_color: bool) -> QuoteStyle {
     if no_color {
         QuoteStyle::DimBar
     } else {
         QuoteStyle::Bar(AnsiColor::Blue)
     }
-}
-
-/// Whether the screen draws colours, read off the quote style it asks
-/// for: the inverse of how [`quote_style`] is chosen.
-pub(super) fn colours_on(quote: QuoteStyle) -> bool {
-    quote != quote_style(true)
 }
 
 /// What patine draws in place of a bullet for a task list item, open or
@@ -285,9 +309,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn colours_on_is_the_inverse_of_the_quote_style() {
-        assert!(colours_on(quote_style(false)));
-        assert!(!colours_on(quote_style(true)));
+    fn a_look_has_colours_unless_no_color() {
+        assert!(MarkdownLook::new(false).colours_on());
+        assert!(!MarkdownLook::new(true).colours_on());
     }
 
     fn text_style(change: impl FnOnce(&mut TextStyle)) -> TextStyle {
@@ -504,8 +528,14 @@ mod tests {
 
     #[test]
     fn quotes_have_a_blue_bar_and_a_dim_one_without_colours() {
-        assert_eq!(quote_style(false), QuoteStyle::Bar(AnsiColor::Blue));
-        assert_eq!(quote_style(true), QuoteStyle::DimBar);
+        assert_eq!(
+            MarkdownLook::new(false).options().quote_style,
+            QuoteStyle::Bar(AnsiColor::Blue)
+        );
+        assert_eq!(
+            MarkdownLook::new(true).options().quote_style,
+            QuoteStyle::DimBar
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@
 //! Texts the screen is built from, kept apart from the layout so they can
 //! be tested on their own.
 
-use patine::QuoteStyle;
+use super::patine_adapter::MarkdownLook;
 use ratatui::text::Span;
 
 use super::text::field_source_lines;
@@ -41,12 +41,12 @@ pub(super) fn answer_mark(state: AnswerState) -> Span<'static> {
 /// own text in quotes, a text answer as typed on one line, `-` for a
 /// skipped question, and marks for a default and a note. A label shows its
 /// Markdown on one line, rendered for the `room` the summary gets, with
-/// quotes in `quote`.
+/// in `look`.
 pub(super) fn answer_summary(
     question: &Question,
     answer: &Answer,
     room: usize,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> Vec<Span<'static>> {
     let dim = |text: String| Span::styled(text, theme::secondary());
     // A single's own text shows only where it is the answer: a chosen
@@ -77,7 +77,7 @@ pub(super) fn answer_summary(
             .map(|id| {
                 options.iter().find(|option| &option.id == id).map_or_else(
                     || vec![dim(id.clone())],
-                    |option| label_line(&option.label, room, quote),
+                    |option| label_line(&option.label, room, look),
                 )
             })
             .collect();
@@ -99,12 +99,12 @@ pub(super) fn answer_summary(
 }
 
 /// An option's `label` on one line of the summary: rendered for `room`
-/// columns with quotes in `quote`, in the summary's dim under its Markdown
+/// columns in `look`, in the summary's dim under its Markdown
 /// styles. Its lines join with a blank, each without the blanks at its
 /// ends, and a line patine leaves wider than `room` stays whole, so the
 /// cut of the summary ends it.
-fn label_line(label: &str, room: usize, quote: QuoteStyle) -> Vec<Span<'static>> {
-    let lines = field_source_lines(label, room, quote)
+fn label_line(label: &str, room: usize, look: MarkdownLook) -> Vec<Span<'static>> {
+    let lines = field_source_lines(label, room, look)
         .into_iter()
         .map(|line| {
             let spans = line
@@ -167,7 +167,7 @@ pub(super) fn question_key(state: &SessionState, key: &str) -> String {
 mod tests {
     use ratatui::style::{Color, Modifier, Style};
 
-    use super::super::patine_adapter::quote_style;
+    use super::super::patine_adapter::MarkdownLook;
     use super::*;
     use crate::format::{Answer, Question};
 
@@ -177,7 +177,7 @@ mod tests {
 
     /// The text of the review's summary of `answer`.
     fn summary_text(question: &Question, answer: &Answer) -> String {
-        answer_summary(question, answer, 100, quote_style(false))
+        answer_summary(question, answer, 100, MarkdownLook::new(false))
             .iter()
             .map(|span| span.content.as_ref())
             .collect()
@@ -195,7 +195,7 @@ mod tests {
             selected: vec!["a".into()],
             ..Answer::new("s")
         };
-        answer_summary(&single, &chosen, room, quote_style(false))
+        answer_summary(&single, &chosen, room, MarkdownLook::new(false))
     }
 
     /// The text of `spans`.

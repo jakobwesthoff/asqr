@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use patine::QuoteStyle;
+use super::patine_adapter::MarkdownLook;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -51,7 +51,7 @@ pub(super) enum Ledge {
 
 /// Draws the pane for the entry `state` shows into `area`, on the ledge
 /// `ledge`, scrolled as far as the person scrolled it, and says what it
-/// showed. The viewer fills the body with Markdown quotes in `quote`. A
+/// showed. The viewer fills the body in `look`. A
 /// row without context leaves the pane empty, its ledge included, so it
 /// keeps its place while the cursor moves on.
 pub(super) fn draw_pane(
@@ -59,7 +59,7 @@ pub(super) fn draw_pane(
     buf: &mut Buffer,
     state: &SessionState,
     viewers: &mut Viewers,
-    quote: QuoteStyle,
+    look: MarkdownLook,
     ledge: Ledge,
 ) -> Option<DrawnPane> {
     let (key, entry) = state.shown_entry()?;
@@ -89,7 +89,7 @@ pub(super) fn draw_pane(
             entry,
             (body.width, body.height),
             shape,
-            quote,
+            look,
         ),
     };
     // Content reports lines wider than the body only where it cuts them, so
@@ -471,7 +471,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::style::{Color, Modifier};
 
-    use super::super::patine_adapter::quote_style;
+    use super::super::patine_adapter::MarkdownLook;
     use super::super::test_support::{Gate, find, row};
     use super::super::viewer::Placeholder;
     use super::*;
@@ -853,7 +853,7 @@ mod tests {
             &mut buf,
             state,
             &mut viewers,
-            quote_style(false),
+            MarkdownLook::new(false),
             ledge,
         );
         buf
@@ -869,7 +869,7 @@ mod tests {
             &mut buf,
             state,
             &mut viewers,
-            quote_style(false),
+            MarkdownLook::new(false),
             Ledge::Beside,
         )
         .expect("a pane shows");
@@ -1120,7 +1120,7 @@ mod tests {
             &mut buf,
             &state,
             &mut viewers,
-            quote_style(false),
+            MarkdownLook::new(false),
             Ledge::Beside,
         );
         gate.open();
@@ -1170,7 +1170,7 @@ mod tests {
             &mut buf,
             &state,
             &mut viewers,
-            quote_style(false),
+            MarkdownLook::new(false),
             Ledge::Beside,
         );
 

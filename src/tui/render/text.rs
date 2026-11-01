@@ -15,28 +15,27 @@ use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use patine::{Html, QuoteStyle, RenderOptions, SoftBreaks, StyledLine};
+use patine::{Html, RenderOptions, SoftBreaks, StyledLine};
 use ratatui::text::{Line, Span};
 
 use super::loading::contain;
-use super::patine_adapter::{markdown_rows_from, plain_rows_from, source_line};
+use super::patine_adapter::{MarkdownLook, markdown_rows_from, plain_rows_from, source_line};
 use super::source_line::SourceLine;
 
 /// How the text fields differ from Markdown documents (ADR 35): a single
-/// newline breaks the line, and raw HTML shows as written. Quotes take
-/// `quote`, as in a Markdown entry.
-const fn field_options(quote: QuoteStyle) -> RenderOptions {
-    RenderOptions::new()
+/// newline breaks the line, and raw HTML shows as written. Quotes and
+/// callouts take `look`, as in a Markdown entry.
+const fn field_options(look: MarkdownLook) -> RenderOptions {
+    look.options()
         .with_soft_breaks(SoftBreaks::Break)
         .with_html(Html::Literal)
-        .with_quote_style(quote)
 }
 
 /// `source` rendered for `width` columns, as lines of at most that width,
-/// with quotes in `quote`. Text without any content renders to no lines at
+/// in `look`. Text without any content renders to no lines at
 /// all.
-pub(super) fn field_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<Line<'static>> {
-    field_lines_from(source, width, width, quote)
+pub(super) fn field_lines(source: &str, width: usize, look: MarkdownLook) -> Vec<Line<'static>> {
+    field_lines_from(source, width, width, look)
 }
 
 /// `source` rendered as [`field_lines`] renders it, with its first line at
@@ -47,9 +46,9 @@ pub(super) fn field_lines_from(
     source: &str,
     first: usize,
     width: usize,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> Vec<Line<'static>> {
-    field_lines_with(patine::render_lines_with, source, first, width, quote)
+    field_lines_with(patine::render_lines_with, source, first, width, look)
 }
 
 /// Renders Markdown to styled lines for a width. Tests put a renderer in
@@ -62,9 +61,9 @@ fn field_lines_with(
     source: &str,
     first: usize,
     width: usize,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> Vec<Line<'static>> {
-    let options = field_options(quote).with_first_line_width(first);
+    let options = field_options(look).with_first_line_width(first);
     let rows = match rendered(render, source, width, &options) {
         Some(lines) => markdown_rows_from(&lines, first, width),
         None => plain_rows_from(&patine::highlight(source, None), first, width),
@@ -81,10 +80,14 @@ fn field_lines_with(
 }
 
 /// `source` rendered for `width` columns as patine lays it out, with
-/// quotes in `quote`: each line whole, also where patine leaves it wider,
+/// in `look`: each line whole, also where patine leaves it wider,
 /// for a text shown on one line that a cut ends.
-pub(super) fn field_source_lines(source: &str, width: usize, quote: QuoteStyle) -> Vec<SourceLine> {
-    field_source_lines_with(patine::render_lines_with, source, width, quote)
+pub(super) fn field_source_lines(
+    source: &str,
+    width: usize,
+    look: MarkdownLook,
+) -> Vec<SourceLine> {
+    field_source_lines_with(patine::render_lines_with, source, width, look)
 }
 
 /// [`field_source_lines`] with `render` in place of patine's.
@@ -92,9 +95,9 @@ fn field_source_lines_with(
     render: Render,
     source: &str,
     width: usize,
-    quote: QuoteStyle,
+    look: MarkdownLook,
 ) -> Vec<SourceLine> {
-    let lines = rendered(render, source, width, &field_options(quote))
+    let lines = rendered(render, source, width, &field_options(look))
         .unwrap_or_else(|| patine::highlight(source, None));
     lines.iter().map(source_line).collect()
 }
@@ -148,7 +151,7 @@ fn rendered(
 
 #[cfg(test)]
 mod tests {
-    use super::super::patine_adapter::quote_style;
+    use super::super::patine_adapter::MarkdownLook;
     use super::super::source_line::columns;
     use super::super::test_support::{
         LONG_LINK_RECORDS_AT_40, LONG_LINK_TABLE, TWELVE_COLUMNS, logged,
@@ -159,7 +162,7 @@ mod tests {
 
     /// `source` as the fields render it with colours.
     fn lines(source: &str, width: usize) -> Vec<Line<'static>> {
-        field_lines(source, width, quote_style(false))
+        field_lines(source, width, MarkdownLook::new(false))
     }
 
     /// The text of each line.
@@ -212,7 +215,7 @@ mod tests {
             "**alpha** beta gamma delta",
             11,
             20,
-            quote_style(false),
+            MarkdownLook::new(false),
         );
 
         let texts = texts(&rows);
@@ -226,7 +229,7 @@ mod tests {
             parser_panics,
             "**one**\nsecond line is longer than the room",
             8,
-            quote_style(false),
+            MarkdownLook::new(false),
         );
 
         assert_eq!(
@@ -241,8 +244,8 @@ mod tests {
         let text = "**again** and again";
 
         for _ in 0..3 {
-            field_lines_with(parser_panics, text, 20, 20, quote_style(false));
-            field_source_lines_with(parser_panics, text, 20, quote_style(false));
+            field_lines_with(parser_panics, text, 20, 20, MarkdownLook::new(false));
+            field_source_lines_with(parser_panics, text, 20, MarkdownLook::new(false));
         }
 
         assert_eq!(PARSER_CALLS.get(), 1);
@@ -257,12 +260,12 @@ mod tests {
                 &format!("text {number}"),
                 20,
                 20,
-                quote_style(false),
+                MarkdownLook::new(false),
             );
         }
         assert_eq!(PARSER_CALLS.get(), FAILED_TEXTS + 1);
 
-        field_lines_with(parser_panics, "text 0", 20, 20, quote_style(false));
+        field_lines_with(parser_panics, "text 0", 20, 20, MarkdownLook::new(false));
 
         assert_eq!(PARSER_CALLS.get(), FAILED_TEXTS + 2, "forgotten again");
     }
@@ -273,7 +276,13 @@ mod tests {
         // may reach the `warn!` first without a subscriber.
         let log = logged(|| {
             for _ in 0..3 {
-                field_lines_with(parser_panics, "secret words", 20, 20, quote_style(false));
+                field_lines_with(
+                    parser_panics,
+                    "secret words",
+                    20,
+                    20,
+                    MarkdownLook::new(false),
+                );
             }
         });
 
@@ -299,7 +308,7 @@ mod tests {
         let words = "a01 a02 a03 a04 a05 a06 a07 a08 a09 a10 a11 a12";
 
         assert_eq!(
-            texts(&field_lines_from(words, 20, 31, quote_style(false))),
+            texts(&field_lines_from(words, 20, 31, MarkdownLook::new(false))),
             ["a01 a02 a03 a04 a05", "a06 a07 a08 a09 a10 a11 a12"]
         );
     }
@@ -328,7 +337,8 @@ mod tests {
             ("b".to_owned(), Style::new().add_modifier(Modifier::ITALIC)),
             (" c".to_owned(), Style::new()),
         ];
-        let quoted = |no_color| spans(&field_lines("> a *b* c", 40, quote_style(no_color))[0]);
+        let quoted =
+            |no_color| spans(&field_lines("> a *b* c", 40, MarkdownLook::new(no_color))[0]);
 
         let coloured = quoted(false);
         assert_eq!(
