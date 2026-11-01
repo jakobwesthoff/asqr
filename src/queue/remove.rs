@@ -120,20 +120,23 @@ pub fn remove_queue_with(
         // person's own directory.
         return Err(RemoveError::NotThere);
     };
-    if location.is_default() || location.same_queue(&QueueLocation::named(root, DEFAULT_QUEUE)) {
-        return Err(RemoveError::Default);
-    }
     // The name as given, before anything else: `same_queue` and every open
     // follow a link, and a link's name must never stand for the queue it
-    // leads to.
+    // leads to, the default queue included.
     match std::fs::symlink_metadata(location.dir()) {
         Ok(metadata) if metadata.is_symlink() => return Err(RemoveError::Link),
         Ok(metadata) if metadata.is_dir() => {}
+        // The default queue is listed before its first use, when it has no
+        // directory yet.
+        _ if location.is_default() => return Err(RemoveError::Default),
         Ok(_) => return Err(RemoveError::NotThere),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Err(RemoveError::NotThere);
         }
         Err(error) => return Err(error.into()),
+    }
+    if location.is_default() || location.same_queue(&QueueLocation::named(root, DEFAULT_QUEUE)) {
+        return Err(RemoveError::Default);
     }
 
     // Both locks are held from the look at the inbox to the deletion of the

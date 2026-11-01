@@ -205,6 +205,26 @@ fn a_link_to_another_queue_is_refused_and_that_queue_keeps_active() {
 }
 
 #[test]
+fn the_default_queue_before_its_first_use_is_refused_as_the_default() {
+    let root = root();
+
+    let refused = remove_queue(&QueueLocation::named(root.path(), DEFAULT_QUEUE), false);
+
+    assert!(matches!(refused, Err(RemoveError::Default)), "{refused:?}");
+}
+
+#[test]
+fn a_link_to_the_default_queue_is_refused_as_a_link() {
+    let root = root();
+    let default = used(root.path(), DEFAULT_QUEUE);
+    std::os::unix::fs::symlink(default.dir(), root.path().join("queues/main")).expect("linked");
+
+    let refused = remove_queue(&QueueLocation::named(root.path(), "main"), false);
+
+    assert!(matches!(refused, Err(RemoveError::Link)), "{refused:?}");
+}
+
+#[test]
 fn a_queue_that_is_not_there_is_an_error_and_nothing_is_made() {
     let root = root();
     let ghost = QueueLocation::named(root.path(), "ghost");

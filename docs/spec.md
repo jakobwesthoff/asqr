@@ -1460,10 +1460,12 @@ The second is the answer for a queue that is not in use, exit code 0.
   removed`. A name that is no queue name is a usage error with the
   message of `--queue`. A queue without a directory is `error: no queue
   <name> under <root>`, and a queue directory that is a symbolic link,
-  also one that leads to another queue, is `error: queue <name> is a
-  symbolic link; asqr removes only queue directories`. Where the
-  filesystem ignores case, the output names the queue as its directory
-  spells it.
+  also one that leads to another queue or to the default queue, is
+  `error: queue <name> is a symbolic link; asqr removes only queue
+  directories`. The name is looked at as given, so a link whose name
+  differs from its queue's only in case, which a filesystem that keeps
+  case apart allows, is refused the same way. Where the filesystem
+  ignores case, the output names the queue as its directory spells it.
 - `--queue` and `--dir` choose nothing here; a bad one is a usage error as
   for every command (section 5.2). `--json` and `--removed` belong to the
   listing and are a usage error with `remove`.

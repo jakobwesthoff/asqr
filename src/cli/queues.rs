@@ -159,9 +159,14 @@ pub(super) fn run_remove(root: Option<&Path>, tmux: &dyn Tmux, name: &str, force
 /// ignores case, `Work` names the directory `work`, and the output says
 /// `work`. Only names equal to `name` ignoring ASCII case count, since a
 /// symbolic link under another name leads to the same directory and must
-/// not stand for it.
+/// not stand for it. A name that is itself a link stays as given, so the
+/// removal refuses it: where the filesystem keeps case apart, a link
+/// `Work` next to `work` leads to `work` too.
 fn spelled(root: &Path, name: &str) -> String {
     let given = QueueLocation::named(root, name);
+    if std::fs::symlink_metadata(given.dir()).is_ok_and(|metadata| metadata.is_symlink()) {
+        return name.to_owned();
+    }
     list_queues(root)
         .unwrap_or_default()
         .into_iter()
@@ -245,6 +250,30 @@ mod tests {
     #[test]
     fn without_a_data_directory_there_is_no_queue_to_remove() {
         assert_eq!(run_remove(None, &Unasked, "work", false), Exit::Failure);
+    }
+
+    #[test]
+    fn a_link_whose_name_differs_only_in_case_never_stands_for_its_queue() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let work = QueueLocation::named(root.path(), "work");
+        work.create_layout().expect("layout");
+        let upper = root.path().join("queues/Work");
+        // A link under another name is taken as given everywhere.
+        std::os::unix::fs::symlink(work.dir(), root.path().join("queues/alias")).expect("linked");
+        assert_eq!(spelled(root.path(), "alias"), "alias");
+        // Where the filesystem ignores case, `Work` is `work` itself and
+        // there is no room for a link of that name.
+        if upper.exists() {
+            return;
+        }
+        std::os::unix::fs::symlink(work.dir(), &upper).expect("linked");
+
+        assert_eq!(spelled(root.path(), "Work"), "Work");
+        assert_eq!(
+            run_remove(Some(root.path()), &Unasked, "Work", false),
+            Exit::Failure
+        );
+        assert!(work.active_marker().is_file());
     }
 
     #[test]
