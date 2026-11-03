@@ -75,3 +75,34 @@ item, which item shows when the cursor returns to a row (the last shown
 or the first), and how an item without a title is named in the strip.
 The limit `MAX_CONTEXT_ENTRIES = 1` sits in `src/format/validate.rs:26`,
 and `skills/asqr/SKILL.md` tells agents the same.
+
+## A case from the antiq mascot work, 2026-11-03
+
+An agent wanted to show the layer views of two earlier emblems (Talqi
+and Snappy) in one info item as references, to explain how a new
+emblem's layers should be built. asqr refused the session with
+"questions[2].context: 2 entries, but this asqr shows one per question
+or option" (exit code 11), so the agent split them into two info items
+with the same purpose. Jakob asked for this case to be added here
+(chat, 2026-11-03). In this case the two images were references to
+compare against each other, so the agent would have preferred to see
+them next to each other rather than one at a time.
+
+Jakob's thought on this case (chat, 2026-11-03): maybe the answer is not
+this feature but a passage in the skill that explains how to spread
+such material sensibly over several questions. Today the skill says
+`context` is "a list with one entry", that an option's own `context`
+lets the person flip through variants, and that more content goes into
+short info items, one topic each. It does not say what to do with
+several images on one topic. A passage could say:
+
+- Images that belong together but are read one by one: one info item
+  each, placed one after the other, each `header` naming its image.
+- Images the person picks among: one question, one image in each
+  option's `context`.
+- Images the person compares: one composite image with them side by
+  side (for example `magick a.png b.png +append out.png`), as the
+  single entry.
+
+Settling this todo includes deciding between that passage and the
+feature, or both.
