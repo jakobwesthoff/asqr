@@ -106,3 +106,34 @@ several images on one topic. A passage could say:
 
 Settling this todo includes deciding between that passage and the
 feature, or both.
+
+## A case from the antiq page review, 2026-11-05
+
+An agent asked one question, "Does the page fit?", about two images that
+belonged to the same result: a screenshot of the new project page and
+the page's link preview image (`og.png`). asqr refused the session with
+"questions[0].context: 2 entries, but this asqr shows one per question
+or option". The agent then hung the screenshot on the option "Fits" and
+the preview image on the option "Change". That is misleading: each image
+looks as if it belonged to its option, and the person only sees the
+second image while the cursor rests on "Change".
+
+Jakob's position (chat, 2026-11-05):
+
+- He does not want several context entries that the person switches
+  through in the pane. It is intuitive for the agent, not for the
+  person: one more context switch, and the person has to notice that
+  there are several entries and flip between them.
+- His current tendency: material that seems to belong together is often
+  two answers that can be split. Then it is two questions, each with
+  "fits" and "does not fit" and one image attached, since one image can
+  be right and the other wrong, and each may need its own note.
+- If a strict connection exists that the session must show, a different
+  solution is needed; he does not know which yet.
+
+To discuss in detail: a solution the person can see at a glance. It may
+be stricter instructions in the skill for agents building a session
+(split into one question per image unless the images must be judged
+together, and then a composite image as the one entry), rather than the
+feature above. This case leans towards settling the todo with the skill
+passage instead of a switcher.
