@@ -69,7 +69,7 @@ unicode-segmentation = "1.13.3"
 # draws such a mark in two cells where terminals and patine use one. asqr
 # does not use the crate itself; the pin only holds the version in the
 # lockfile.
-unicode-width = "=0.2.2"
+unicode-width = "=0.2.3"
 # Reads and writes the month bundles of the archive. Deflate goes through
 # `flate2` and its pure-Rust backend; the default features would bring in
 # bzip2, zstd, lzma and aes.
