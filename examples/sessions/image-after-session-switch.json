@@ -1,0 +1,21 @@
+{
+  "asqr": 2,
+  "title": "Image after a tmux session switch",
+  "intro": "Repro for the todo about context images that stay blank after switching tmux sessions. Ask it while another tmux session is shown, then switch back.",
+  "from": "asqr repro",
+  "questions": [
+    {
+      "id": "seen",
+      "header": "Image",
+      "kind": "single",
+      "text": "Is the image beside this question drawn?",
+      "context": [
+        { "type": "image", "path": "../../assets/mascot-1536.png", "caption": "Talqi on its branch" }
+      ],
+      "options": [
+        { "id": "yes", "label": "Drawn", "default": true },
+        { "id": "no", "label": "Blank" }
+      ]
+    }
+  ]
+}
