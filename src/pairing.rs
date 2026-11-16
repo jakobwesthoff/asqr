@@ -243,6 +243,30 @@ pub fn ask_session(tmux: &dyn Tmux, pane: &TmuxPane) -> Result<TmuxSession, Tmux
     })
 }
 
+/// The number of clients attached to the session of a pane, or to a
+/// session grouped with it, which shares its windows.
+const CLIENTS_ON_SESSION: &str =
+    "#{?session_grouped,#{session_group_attached},#{session_attached}}";
+
+/// Asks tmux how many clients show the session of `pane`, counting those
+/// on a session grouped with it. Under `allow-passthrough all` tmux passes
+/// what the pane writes only to clients whose session holds its window, so
+/// with none it passes nothing (ADR 110). A window linked into another
+/// session is not counted for that session's clients.
+pub fn clients_on_session(tmux: &dyn Tmux, pane: &TmuxPane) -> Result<u32, TmuxFailure> {
+    let Some(id) = pane.pane.as_deref() else {
+        return Err(TmuxFailure("TMUX_PANE is not set".into()));
+    };
+    let answer = tmux.run(
+        None,
+        &["display-message", "-p", "-t", id, CLIENTS_ON_SESSION],
+    )?;
+    answer
+        .trim()
+        .parse()
+        .map_err(|_| TmuxFailure(format!("tmux named no number of clients: {answer:?}")))
+}
+
 /// The queue named after the tmux session `name`, which tmux allows to
 /// hold anything: each run of characters a queue name cannot hold becomes
 /// one `-`, a leading `.` becomes `_`, and the name is cut at the longest
@@ -417,6 +441,50 @@ mod tests {
             socket: "/tmp/tmux-501/default".into(),
             pane: Some(id.into()),
         }
+    }
+
+    #[test]
+    fn the_clients_on_a_session_are_asked_for_the_pane() {
+        let tmux = StandIn::answering("1\n");
+
+        assert_eq!(clients_on_session(&tmux, &pane("%3")), Ok(1));
+        assert_eq!(
+            tmux.calls(),
+            [[
+                "display-message",
+                "-p",
+                "-t",
+                "%3",
+                "#{?session_grouped,#{session_group_attached},#{session_attached}}"
+            ]]
+        );
+        assert_eq!(
+            clients_on_session(&StandIn::answering("0"), &pane("%3")),
+            Ok(0)
+        );
+    }
+
+    /// An answer that names no number, as from a tmux that does not know
+    /// the format, is no answer.
+    #[test]
+    fn an_answer_without_a_number_of_clients_fails() {
+        for answer in ["", "\n", "x", "-1"] {
+            assert!(
+                clients_on_session(&StandIn::answering(answer), &pane("%3")).is_err(),
+                "{answer:?}"
+            );
+        }
+        assert!(clients_on_session(&StandIn::failing("no server running"), &pane("%3")).is_err());
+    }
+
+    #[test]
+    fn without_a_pane_tmux_is_not_asked_for_its_clients() {
+        let without = TmuxPane {
+            socket: "/tmp/tmux-501/default".into(),
+            pane: None,
+        };
+
+        assert!(clients_on_session(&testing::Unasked, &without).is_err());
     }
 
     // -----------------------------------------------------------------

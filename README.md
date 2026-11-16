@@ -187,17 +187,23 @@ you whether to update the copy.
 ## Inside tmux
 
 Inline images and desktop notifications only reach the terminal around
-tmux when tmux passes escape sequences through:
+tmux when tmux passes escape sequences through, and images that arrive
+while you look elsewhere need focus reports:
 
     set -g allow-passthrough all
+    set -g focus-events on
 
-Without it, asqr shows images as coarse blocks and rings the bell
-instead of sending a notification. With `on` instead of `all`, tmux
-drops what asqr sends while its window is in the background, and an
-image that arrives then stays empty until asqr gets the focus again,
-which it only learns from tmux with `set -g focus-events on`. In kitty
-and Ghostty, with tmux 3.4 or later, asqr sets `all` for its own pane
-while it runs and puts the pane's setting back when it quits.
+Without passthrough, asqr shows images as coarse blocks and rings the
+bell instead of sending a notification. Even with `all`, tmux drops what
+asqr sends while your client shows another tmux session or is detached;
+asqr sends such an image again when it gets the focus back, which it
+only learns from tmux with `focus-events on`. tmux applies a change of
+`focus-events` to an attached client only after you detach and attach
+again. With `on` instead of `all`, tmux also drops what asqr sends while
+its window is in the background, and asqr sends the image again on every
+focus gain. In kitty and Ghostty, with tmux 3.4 or later, asqr sets
+`all` for its own pane while it runs and puts the pane's setting back
+when it quits.
 
 ## Known limitations
 

@@ -19,6 +19,7 @@ pub(crate) mod testing;
 
 use std::io::Cursor;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use ::image::ImageError;
 use ratatui_image::picker::{Capability, Picker, ProtocolType};
@@ -56,8 +57,159 @@ pub enum Passthrough {
     /// `on`: tmux passes sequences only while a client shows the pane, and
     /// drops what is sent while it is hidden.
     WhileVisible,
-    /// `all`: tmux passes sequences from a hidden pane too.
+    /// `all`: tmux passes sequences from a hidden pane too, to every client
+    /// whose session holds the pane's window. With no such client attached,
+    /// as while the client shows another session or after a detach, it
+    /// passes nothing (ADR 110).
     Always,
+}
+
+/// When a focus gain sends the Kitty images again and repeats the deletes,
+/// as the passthrough may have dropped them while asqr was out of view
+/// (ADRs 24, 42 and 110).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusRule {
+    /// Nothing is lost: no tmux in between, or images that are drawn into
+    /// the cells with every frame or written where the cursor is.
+    Never,
+    /// tmux with `on` drops whatever a hidden pane writes, so every focus
+    /// gain sends again.
+    EveryGain,
+    /// tmux with `all` drops only what goes out while no client shows the
+    /// pane's session, so a focus gain sends again only what a
+    /// [`FocusWatch`] counts as possibly lost.
+    AfterHiddenWrites,
+}
+
+/// How long after a frame that wrote Kitty commands a focus change still
+/// counts that frame as possibly lost. tmux decides whether to pass a
+/// command when it reads it from the pane, which can be after asqr's write
+/// returned; tmux 3.8 passed 4 MB in 4096-byte chunks 25 ms after the
+/// write returned (ADR 110). The rest is room for a loop that handles the
+/// focus event late.
+pub const FOCUS_GRACE: Duration = Duration::from_secs(1);
+
+/// Which kinds of Kitty command went out: image transmissions, deletes or
+/// both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Writes {
+    pub sent: bool,
+    pub deleted: bool,
+}
+
+impl Writes {
+    fn any(self) -> bool {
+        self.sent || self.deleted
+    }
+
+    fn add(&mut self, other: Writes) {
+        self.sent |= other.sent;
+        self.deleted |= other.deleted;
+    }
+}
+
+/// The last frame that wrote Kitty commands.
+#[derive(Debug, Clone, Copy)]
+struct KittyFrame {
+    /// When its writes, the deletes after it included, were done.
+    at: Instant,
+    wrote: Writes,
+    /// Whether asqr had no focus while it was written.
+    unfocused: bool,
+}
+
+/// Follows the focus reports and the frames that wrote Kitty commands,
+/// under the [`FocusRule::AfterHiddenWrites`] of tmux's `all`, and tells
+/// on a focus gain which of those writes may have been lost (ADR 110).
+///
+/// tmux reports a change of the pane's focus only, and nothing when asqr
+/// turns the reports on, so the watch starts as having the focus.
+#[derive(Debug)]
+pub struct FocusWatch {
+    focused: bool,
+    last_frame: Option<KittyFrame>,
+    /// What went out since the last focus gain, for a gain that follows no
+    /// loss: asqr missed that loss and cannot tell when it was.
+    since_gain: Writes,
+    /// What went out since the last focus gain and may have been lost.
+    hidden: Writes,
+}
+
+impl Default for FocusWatch {
+    fn default() -> Self {
+        FocusWatch {
+            focused: true,
+            last_frame: None,
+            since_gain: Writes::default(),
+            hidden: Writes::default(),
+        }
+    }
+}
+
+impl FocusWatch {
+    /// A frame wrote `wrote`, done at `at`. While asqr has no focus, it
+    /// asks `shown` whether a tmux client shows the pane's session, unless
+    /// what the frame wrote counts as possibly lost already: what went out
+    /// while no client showed it never reached the terminal. A focus loss
+    /// alone does not mean that, as the terminal may only have lost the
+    /// focus to another app, or the client may show another window of the
+    /// same session, and tmux passed the frame then.
+    pub fn frame_written(&mut self, wrote: Writes, at: Instant, shown: impl FnOnce() -> bool) {
+        if !wrote.any() {
+            return;
+        }
+        self.since_gain.add(wrote);
+        self.last_frame = Some(KittyFrame {
+            at,
+            wrote,
+            unfocused: !self.focused,
+        });
+        let unmarked = (wrote.sent && !self.hidden.sent) || (wrote.deleted && !self.hidden.deleted);
+        if !self.focused && unmarked && !shown() {
+            self.hidden.add(wrote);
+        }
+    }
+
+    /// asqr lost the focus; the report arrived at `arrived`. A frame
+    /// finished less than [`FOCUS_GRACE`] before, or after it arrived, may
+    /// still have been in the pane's output when tmux hid it.
+    pub fn focus_lost(&mut self, arrived: Instant) {
+        self.focused = false;
+        if let Some(frame) = self.last_frame
+            && frame.at + FOCUS_GRACE > arrived
+        {
+            self.hidden.add(frame.wrote);
+        }
+    }
+
+    /// asqr gained the focus; the report arrived at `arrived`. Gives what
+    /// may have been lost since the last gain, and starts over.
+    ///
+    /// After a loss, that is what was marked, and a frame written without
+    /// the focus less than [`FOCUS_GRACE`] before: the client may have come
+    /// back between its write and the question whether a client shows the
+    /// session. A gain that follows no loss means asqr missed the loss, as
+    /// from a client killed, or while the person's editor had the terminal
+    /// and its focus reports were off; everything since the last gain
+    /// counts then.
+    pub fn focus_gained(&mut self, arrived: Instant) -> Writes {
+        let mut lost = if self.focused {
+            self.since_gain
+        } else {
+            self.hidden
+        };
+        if !self.focused
+            && let Some(frame) = self.last_frame
+            && frame.unfocused
+            && frame.at + FOCUS_GRACE > arrived
+        {
+            lost.add(frame.wrote);
+        }
+        self.focused = true;
+        self.since_gain = Writes::default();
+        self.hidden = Writes::default();
+        lost
+    }
 }
 
 /// The size of a terminal cell in pixels.
@@ -138,12 +290,17 @@ impl Graphics {
         matches!(self.protocol, Protocol::Sixel | Protocol::Iterm2)
     }
 
-    /// Whether images must be sent again when asqr regains the focus: the
-    /// Kitty protocol sends an image's data once and afterwards only
-    /// refers to it, and tmux with `allow-passthrough on` drops that
-    /// transfer while asqr's pane is hidden (ADR 24).
-    pub fn resends_on_focus(self) -> bool {
-        self.protocol == Protocol::Kitty && self.passthrough == Passthrough::WhileVisible
+    /// When images are sent again as asqr regains the focus: the Kitty
+    /// protocol sends an image's data once and afterwards only refers to
+    /// it, and tmux drops that transfer from a pane no client shows, with
+    /// `on` while the pane is hidden (ADR 24), with `all` while no client
+    /// shows its session (ADR 110).
+    pub fn focus_rule(self) -> FocusRule {
+        match (self.protocol, self.passthrough) {
+            (Protocol::Kitty, Passthrough::WhileVisible) => FocusRule::EveryGain,
+            (Protocol::Kitty, Passthrough::Always) => FocusRule::AfterHiddenWrites,
+            _ => FocusRule::Never,
+        }
     }
 }
 
@@ -245,8 +402,10 @@ mod tests {
         }
     }
 
+    /// Only Kitty transfers can be lost to tmux: with `on` on every focus
+    /// gain, with `all` after writes no client may have seen.
     #[test]
-    fn only_kitty_images_behind_passthrough_on_are_sent_again_on_focus() {
+    fn only_kitty_images_behind_tmux_are_sent_again_on_focus() {
         for protocol in PROTOCOLS {
             for passthrough in [
                 Passthrough::None,
@@ -258,12 +417,178 @@ mod tests {
                     passthrough,
                     ..Graphics::HALF_BLOCKS
                 };
+                let expected = match (protocol, passthrough) {
+                    (Protocol::Kitty, Passthrough::WhileVisible) => FocusRule::EveryGain,
+                    (Protocol::Kitty, Passthrough::Always) => FocusRule::AfterHiddenWrites,
+                    _ => FocusRule::Never,
+                };
                 assert_eq!(
-                    graphics.resends_on_focus(),
-                    protocol == Protocol::Kitty && passthrough == Passthrough::WhileVisible,
+                    graphics.focus_rule(),
+                    expected,
                     "{protocol:?} {passthrough:?}"
                 );
             }
         }
+    }
+
+    // -----------------------------------------------------------------
+    // The focus watch (ADR 110)
+    // -----------------------------------------------------------------
+
+    const SENT: Writes = Writes {
+        sent: true,
+        deleted: false,
+    };
+    const DELETED: Writes = Writes {
+        sent: false,
+        deleted: true,
+    };
+    const NOTHING: Writes = Writes {
+        sent: false,
+        deleted: false,
+    };
+
+    /// A time and the time `millis` milliseconds after it.
+    fn later(start: Instant, millis: u64) -> Instant {
+        start + Duration::from_millis(millis)
+    }
+
+    /// An answer to whether a client shows the session that must not be
+    /// asked for.
+    fn never_asked() -> bool {
+        panic!("asked whether a client shows the session")
+    }
+
+    #[test]
+    fn a_frame_written_with_the_focus_asks_nothing_and_loses_nothing() {
+        let start = Instant::now();
+        let mut watch = FocusWatch::default();
+
+        watch.frame_written(SENT, start, never_asked);
+        watch.focus_lost(later(start, 2000));
+
+        assert_eq!(watch.focus_gained(later(start, 3000)), NOTHING);
+    }
+
+    /// A frame that wrote no Kitty command has nothing to lose, so tmux is
+    /// not asked about it, focus or not.
+    #[test]
+    fn a_frame_without_kitty_commands_asks_nothing() {
+        let start = Instant::now();
+        let mut watch = FocusWatch::default();
+        watch.focus_lost(start);
+
+        watch.frame_written(NOTHING, later(start, 2000), never_asked);
+
+        assert_eq!(watch.focus_gained(later(start, 4000)), NOTHING);
+    }
+
+    /// Written without the focus while no client showed the session: the
+    /// gain gives it once.
+    #[test]
+    fn a_frame_written_while_no_client_shows_the_session_is_lost() {
+        let start = Instant::now();
+        let mut watch = FocusWatch::default();
+        watch.focus_lost(start);
+
+        watch.frame_written(SENT, later(start, 2000), || false);
+
+        assert_eq!(watch.focus_gained(later(start, 4000)), SENT);
+        assert_eq!(watch.focus_gained(later(start, 5000)), NOTHING, "once");
+    }
+
+    /// Without the focus but with a client on the session, as in another
+    /// app or another window of the session, tmux passed the frame.
+    #[test]
+    fn a_frame_written_while_a_client_shows_the_session_is_kept() {
+        let start = Instant::now();
+        let mut watch = FocusWatch::default();
+        watch.focus_lost(start);
+
+        watch.frame_written(DELETED, later(start, 2000), || true);
+
+        assert_eq!(watch.focus_gained(later(start, 4000)), NOTHING);
+    }
+
+    /// Once a kind of write counts as lost, later frames of that kind
+    /// need no answer from tmux; another kind still does.
+    #[test]
+    fn tmux_is_asked_once_per_kind_until_the_gain() {
+        let start = Instant::now();
+        let mut watch = FocusWatch::default();
+        watch.focus_lost(start);
+        let mut asked = 0;
+
+        for at in [2000, 3000] {
+            watch.frame_written(SENT, later(start, at), || {
+                asked += 1;
+                false
+            });
+        }
+        watch.frame_written(DELETED, later(start, 4000), || {
+            asked += 1;
+            true
+        });
+
+        assert_eq!(asked, 2);
+        assert_eq!(watch.focus_gained(later(start, 6000)), SENT);
+    }
+
+    /// A loss that arrives within the grace after a frame, or before a
+    /// frame finished, counts that frame: tmux may have hidden the pane
+    /// before it read the frame's last bytes.
+    #[test]
+    fn a_loss_close_after_a_frame_counts_the_frame() {
+        let start = Instant::now();
+        for (frame, loss, lost) in [(0, 500, SENT), (0, 2000, NOTHING), (1000, 500, SENT)] {
+            let mut watch = FocusWatch::default();
+            watch.frame_written(SENT, later(start, frame), never_asked);
+            watch.focus_lost(later(start, loss));
+
+            assert_eq!(
+                watch.focus_gained(later(start, 5000)),
+                lost,
+                "frame at {frame}, loss at {loss}"
+            );
+        }
+    }
+
+    /// A gain close after a frame written without the focus counts it,
+    /// whatever tmux said: the client may have come back between the
+    /// write and the question.
+    #[test]
+    fn a_gain_close_after_a_frame_written_without_the_focus_counts_it() {
+        let start = Instant::now();
+        for (gain, lost) in [(2500, DELETED), (4000, NOTHING)] {
+            let mut watch = FocusWatch::default();
+            watch.focus_lost(start);
+            watch.frame_written(DELETED, later(start, 2000), || true);
+
+            assert_eq!(
+                watch.focus_gained(later(start, gain)),
+                lost,
+                "gain at {gain}"
+            );
+        }
+    }
+
+    /// A gain with no loss before it means a loss went unreported, at any
+    /// time since the last gain; everything written since counts. That
+    /// holds for the first gain after the start too.
+    #[test]
+    fn a_gain_without_a_loss_counts_everything_since_the_last_gain() {
+        let start = Instant::now();
+        let mut watch = FocusWatch::default();
+        watch.frame_written(SENT, start, never_asked);
+        watch.frame_written(DELETED, later(start, 100), never_asked);
+
+        assert_eq!(
+            watch.focus_gained(later(start, 5000)),
+            Writes {
+                sent: true,
+                deleted: true
+            }
+        );
+        assert_eq!(watch.focus_gained(later(start, 6000)), NOTHING, "once");
     }
 }

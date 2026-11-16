@@ -714,13 +714,15 @@ impl Viewers {
     /// Drops every image viewer a frame showed, so each of those images is
     /// read and sent to the terminal again when it is next shown, behind
     /// the placeholder. The Kitty protocol sends an image's data once, on
-    /// its first draw, and afterwards only refers to it; tmux with
-    /// `allow-passthrough on` drops that transfer while the pane is not
-    /// visible, and the image would never appear (ADR 24). A job that lays
-    /// out an image a frame showed is not taken back either, as it may keep
-    /// the encoding sent before. An image loaded ahead and never shown, or
-    /// a job that builds one, has sent nothing. Other viewers keep what
-    /// they derived, as nothing of theirs went to the terminal.
+    /// its first draw, and afterwards only refers to it; tmux drops that
+    /// transfer from a pane no client shows, with `allow-passthrough on`
+    /// while the pane is not visible (ADR 24), with `all` while no client
+    /// shows its session (ADR 110), and the image would never appear. A
+    /// job that lays out an image a frame showed is not taken back either,
+    /// as it may keep the encoding sent before. An image loaded ahead and
+    /// never shown, or a job that builds one, has sent nothing. Other
+    /// viewers keep what they derived, as nothing of theirs went to the
+    /// terminal.
     pub(super) fn forget_images(&mut self) {
         let image = |entry: &ContextEntry| matches!(entry, ContextEntry::Image(_));
         self.viewers

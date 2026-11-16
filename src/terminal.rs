@@ -27,7 +27,7 @@ use asqr::graphics::{
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
 use asqr::keep::worker::{KeepWorker, job_panicked, quit_notice};
-use asqr::pairing::{self, SystemTmux, Tmux, TmuxFailure, TmuxPane};
+use asqr::pairing::{self, Multiplexer, SystemTmux, Tmux, TmuxFailure, TmuxPane};
 use asqr::queue::{
     QueueLocation, QueueLock, RemoveError, Removed, WaitingQueue, platform_data_dir, remove_queue,
     waiting_elsewhere,
@@ -1192,6 +1192,27 @@ impl Host for TerminalHost {
         let mut stdout = io::stdout().lock();
         stdout.write_all(&deletes.to_bytes())?;
         stdout.flush()
+    }
+
+    /// Asks the tmux of asqr's pane. An answer it cannot get counts as no
+    /// client, so the images go out again on the next focus gain rather
+    /// than stay blank (ADR 110).
+    fn session_attached(&mut self) -> bool {
+        let Multiplexer::Tmux(pane) =
+            Multiplexer::from_variables(self.env.set("TMUX"), self.env.set("TMUX_PANE"))
+        else {
+            return false;
+        };
+        match pairing::clients_on_session(&SystemTmux::default(), &pane) {
+            Ok(clients) => clients > 0,
+            Err(TmuxFailure(reason)) => {
+                tracing::warn!(
+                    %reason,
+                    "could not ask tmux whether a client shows asqr's session"
+                );
+                false
+            }
+        }
     }
 
     fn open(&mut self, path: &Path, name: &str) -> io::Result<()> {

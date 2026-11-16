@@ -9,7 +9,7 @@
 use std::io;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::Event as TerminalEvent;
 
@@ -125,7 +125,10 @@ impl KeyReader {
                 let event = match event {
                     TerminalEvent::Key(key) => Event::Key(key),
                     TerminalEvent::Resize(..) => Event::Resize,
-                    TerminalEvent::FocusGained => Event::FocusGained,
+                    // The time a focus report arrived, which the loop may
+                    // handle well after it (ADR 110).
+                    TerminalEvent::FocusLost => Event::FocusLost(Instant::now()),
+                    TerminalEvent::FocusGained => Event::FocusGained(Instant::now()),
                     TerminalEvent::Paste(text) => Event::Paste(text),
                     _ => continue,
                 };
@@ -200,7 +203,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::mpsc::{self, Receiver};
 
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
     use super::*;
 
@@ -526,15 +529,24 @@ mod tests {
         drop(reader);
     }
 
+    /// The focus reports reach the loop with the time they were read at;
+    /// the mouse, which asqr does not use, is skipped.
     #[test]
-    fn events_that_are_no_input_are_skipped() {
+    fn focus_reports_reach_the_loop_with_their_time_and_the_mouse_is_skipped() {
         let tty = FakeTty::default();
         let (_reader, events) = reading(&tty);
         tty.wait_for_the_reader_to_poll();
+        let before = Instant::now();
 
         {
             let mut state = tty.lock();
             state.queued.push_back(TerminalEvent::FocusLost);
+            state.queued.push_back(TerminalEvent::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            }));
             state.queued.push_back(TerminalEvent::Resize(80, 24));
             state.queued.push_back(TerminalEvent::FocusGained);
             state
@@ -543,17 +555,26 @@ mod tests {
         }
         tty.push('x');
 
-        let received: Vec<Event> = (0..4)
+        let received: Vec<Event> = (0..5)
             .map(|_| events.recv_timeout(PATIENCE).expect("an event arrives"))
             .collect();
-        assert_eq!(
-            received,
-            [
-                Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
-                Event::Resize,
-                Event::FocusGained,
-                Event::Paste("pasted".to_owned()),
-            ]
+        let after = Instant::now();
+        let read_meanwhile = |at: &Instant| (before..=after).contains(at);
+        assert!(
+            matches!(
+                &received[..],
+                [
+                    Event::Key(key),
+                    Event::FocusLost(lost),
+                    Event::Resize,
+                    Event::FocusGained(gained),
+                    Event::Paste(pasted),
+                ] if *key == KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)
+                    && read_meanwhile(lost)
+                    && read_meanwhile(gained)
+                    && pasted == "pasted"
+            ),
+            "{received:?}"
         );
     }
 }

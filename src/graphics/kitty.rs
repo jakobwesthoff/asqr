@@ -13,7 +13,7 @@ use std::io::Write;
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 
-use super::Graphics;
+use super::{FocusRule, Graphics};
 use crate::terminal_env::passthrough;
 
 /// Where Kitty ids come from. It is `Send` as the book is shared with the
@@ -54,14 +54,22 @@ struct Ids {
     tmux: bool,
 }
 
-/// Inside tmux with `allow-passthrough on`, a delete written while asqr's
-/// pane is hidden is lost, as a transfer is (ADR 24). The deletes since
-/// the last focus gain are written again after the frame that follows the
-/// next one, and only then forgotten.
+/// Inside tmux, a delete written while no client shows asqr's pane is
+/// lost, as a transfer is: with `allow-passthrough on` while the pane is
+/// hidden (ADR 24), with `all` while no client shows its session (ADR
+/// 110). The deletes since the last focus gain are written again after the
+/// frame that follows a gain that asks for it, and only then forgotten; a
+/// gain that does not ask forgets them.
 #[derive(Default)]
 struct FocusRepeat {
     since_focus: Vec<u32>,
     regained: bool,
+    /// Whether the deletes written after a repeat are kept for the next
+    /// gain, as under `all`: the frame that follows the gain can itself
+    /// go out while no client shows the session, and a later gain may ask
+    /// for them again. With `on` every gain repeats, and the list would
+    /// only grow.
+    keep_regained: bool,
 }
 
 /// The ids ratatui-image's capability probe queries with: 31 for the
@@ -116,7 +124,14 @@ impl KittyBook {
             issued: HashSet::new(),
             live: BTreeSet::new(),
             dropped: Vec::new(),
-            repeat: graphics.resends_on_focus().then(FocusRepeat::default),
+            repeat: match graphics.focus_rule() {
+                FocusRule::Never => None,
+                FocusRule::EveryGain => Some(FocusRepeat::default()),
+                FocusRule::AfterHiddenWrites => Some(FocusRepeat {
+                    keep_regained: true,
+                    ..FocusRepeat::default()
+                }),
+            },
             tmux: graphics.tmux_wrapped,
         })))
     }
@@ -127,17 +142,22 @@ impl KittyBook {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Notes that asqr regained the focus and sends its images again, so
-    /// the deletes after the next frame repeat those since the last time.
-    pub fn focus_gained(&self) {
-        if let Some(repeat) = &mut self.lock().repeat {
-            repeat.regained = true;
+    /// Notes that asqr regained the focus. With `repeat`, the deletes after
+    /// the next frame repeat those since the last gain, as they may have
+    /// been lost; without, they reached the terminal and are forgotten.
+    pub fn focus_gained(&self, repeat: bool) {
+        if let Some(focus) = &mut self.lock().repeat {
+            if repeat {
+                focus.regained = true;
+            } else {
+                focus.since_focus.clear();
+            }
         }
     }
 
     /// The deletes to write after a frame is on the screen: the images
     /// that went before it, which it no longer shows, and after a focus
-    /// gain those since the one before (ADR 42).
+    /// gain that asked for it those since the one before (ADR 42).
     pub fn after_frame(&self) -> KittyDeletes {
         let mut book = self.lock();
         let book = &mut *book;
@@ -145,6 +165,9 @@ impl KittyBook {
         if let Some(repeat) = &mut book.repeat {
             if std::mem::take(&mut repeat.regained) {
                 ids.splice(0..0, repeat.since_focus.drain(..));
+                if repeat.keep_regained {
+                    repeat.since_focus.clone_from(&ids);
+                }
             } else {
                 repeat.since_focus.extend(&ids);
             }
@@ -436,30 +459,73 @@ mod tests {
         drop(second);
         assert_eq!(book.after_frame().ids(), [2]);
 
-        book.focus_gained();
+        book.focus_gained(true);
         drop(third);
 
         assert_eq!(book.after_frame().ids(), [1, 2, 3]);
-        book.focus_gained();
+        book.focus_gained(true);
         assert_eq!(book.after_frame().ids(), [0_u32; 0], "written once");
     }
 
-    /// Only tmux with `allow-passthrough on` loses deletes from a hidden
-    /// pane; everywhere else a focus gain repeats nothing.
+    /// Without tmux nothing is lost, and a focus gain repeats nothing.
     #[test]
     fn regaining_the_focus_repeats_nothing_where_no_delete_is_lost() {
-        for passthrough in [Passthrough::None, Passthrough::Always] {
-            let book = counting(Graphics {
-                passthrough,
-                ..Graphics::KITTY
-            });
-            drop(HeldId::issued(&book));
-            assert_eq!(book.after_frame().ids(), [1], "{passthrough:?}");
+        let book = counting(Graphics {
+            passthrough: Passthrough::None,
+            ..Graphics::KITTY
+        });
+        drop(HeldId::issued(&book));
+        assert_eq!(book.after_frame().ids(), [1]);
 
-            book.focus_gained();
+        book.focus_gained(true);
 
-            assert_eq!(book.after_frame().ids(), [0_u32; 0], "{passthrough:?}");
+        assert_eq!(book.after_frame().ids(), [0_u32; 0]);
+    }
+
+    /// The Kitty protocol inside tmux with `allow-passthrough all`, where a
+    /// focus gain repeats the deletes only when they may have been lost.
+    fn always() -> Graphics {
+        Graphics {
+            passthrough: Passthrough::Always,
+            ..Graphics::KITTY
         }
+    }
+
+    /// A gain that does not ask for the repeat forgets the deletes since
+    /// the last gain: they reached the terminal.
+    #[test]
+    fn a_gain_without_a_repeat_forgets_the_deletes_since_the_last_one() {
+        let book = counting(always());
+        let [first, second] = [(); 2].map(|()| HeldId::issued(&book));
+        drop(first);
+        assert_eq!(book.after_frame().ids(), [1]);
+
+        book.focus_gained(false);
+        drop(second);
+        assert_eq!(book.after_frame().ids(), [2]);
+        book.focus_gained(true);
+
+        assert_eq!(book.after_frame().ids(), [2], "1 was forgotten");
+    }
+
+    /// Under `all` the frame after a repeat can be lost too, so what it
+    /// wrote is repeated at the next gain that asks, until one does not.
+    #[test]
+    fn under_all_the_deletes_of_a_repeat_are_kept_for_the_next_gain() {
+        let book = counting(always());
+        let [first, second] = [(); 2].map(|()| HeldId::issued(&book));
+        drop(first);
+        assert_eq!(book.after_frame().ids(), [1]);
+        drop(second);
+
+        book.focus_gained(true);
+        assert_eq!(book.after_frame().ids(), [1, 2]);
+        book.focus_gained(true);
+        assert_eq!(book.after_frame().ids(), [1, 2], "repeated again");
+        book.focus_gained(false);
+        assert_eq!(book.after_frame().ids(), [0_u32; 0]);
+        book.focus_gained(true);
+        assert_eq!(book.after_frame().ids(), [0_u32; 0], "forgotten");
     }
 
     /// A panic while the book was locked leaves it poisoned; the ids in

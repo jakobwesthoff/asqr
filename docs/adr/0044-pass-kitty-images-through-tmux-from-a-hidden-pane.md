@@ -14,6 +14,10 @@ Amended by [45. Keep image handling in a graphics module around an asqr-owned va
 the focus rule of ADR 24 and the repeated deletes of ADR 42 hold for
 Kitty images only, not for Sixel and iTerm2
 
+Amended by [110. Send Kitty images again after a tmux session switch](0110-send-kitty-images-again-after-a-tmux-session-switch.md):
+`all` passes from a hidden window of a session a client shows, not from
+a session no client shows
+
 ## Context
 
 - tmux with `allow-passthrough on` passes escape sequences only from a

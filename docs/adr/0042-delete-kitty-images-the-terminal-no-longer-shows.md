@@ -21,6 +21,10 @@ Amended by [45. Keep image handling in a graphics module around an asqr-owned va
 the deletes since the last focus gain are written again only where the
 images are sent again on regaining the focus
 
+Amended by [110. Send Kitty images again after a tmux session switch](0110-send-kitty-images-again-after-a-tmux-session-switch.md):
+under `all` the deletes do not pass while no client shows asqr's
+session; a focus gain repeats them where they may have been lost
+
 ## Context
 
 Copies of images pile up in the terminal under the Kitty graphics

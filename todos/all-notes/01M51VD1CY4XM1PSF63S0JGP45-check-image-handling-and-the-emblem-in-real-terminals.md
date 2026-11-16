@@ -65,6 +65,13 @@ attached, and a tmux before 3.4 if one is at hand.
   (`tmux show-options -p allow-passthrough`).
 - An image that arrives in a background window shows on switching to
   it, also without `focus-events`.
+- With `focus-events on` and `all`, an image that arrives while the
+  client shows another tmux session, or while no client is attached,
+  shows on switching back or attaching (ADR 110). Repro:
+  `examples/sessions/image-after-session-switch.json`, asked from
+  another session; with the client on another window of asqr's session
+  instead, the image is not sent again on return (one
+  "frame sent a Kitty image" line in the log under `ASQR_LOG=debug`).
 - Resizing the pane in Ghostty does not blank the image; the old id's
   delete is written.
 - The help, the intro and the session list over a Kitty image in the

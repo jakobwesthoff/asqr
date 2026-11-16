@@ -1,7 +1,7 @@
 {
   "asqr": 2,
   "title": "Image after a tmux session switch",
-  "intro": "Repro for the todo about context images that stay blank after switching tmux sessions. Ask it while another tmux session is shown, then switch back.",
+  "intro": "Repro for ADR 110: a context image sent while the tmux client shows another session. Ask it while another tmux session is shown, then switch back.",
   "from": "asqr repro",
   "questions": [
     {

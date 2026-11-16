@@ -22,6 +22,11 @@ Amended by [46. Build and lay out context viewers on worker threads](0046-build-
 asqr forgets only the images a frame showed and loads them again behind
 the placeholder; an image loaded ahead and never shown is kept
 
+Amended by [110. Send Kitty images again after a tmux session switch](0110-send-kitty-images-again-after-a-tmux-session-switch.md):
+under `allow-passthrough all` a focus gain sends the images again when
+what asqr wrote since the last gain may have been lost; with `all`
+tmux drops what asqr writes while no client shows its session
+
 ## Context
 
 The image of a session's first question never appeared when the session

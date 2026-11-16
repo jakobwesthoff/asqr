@@ -3773,9 +3773,15 @@ warning for it.
   Kitty protocol behind a tmux pane with `allow-passthrough on` (section
   8.9), asqr loads every image a frame showed again behind `loading…`
   and sends it as it is next shown once its terminal regains the focus;
-  an image loaded ahead and not shown yet has sent nothing. Elsewhere
-  the terminal keeps what it got, and regaining the focus changes
-  nothing.
+  an image loaded ahead and not shown yet has sent nothing. Behind a
+  tmux pane with `all`, it does so only when an image it sent since the
+  last focus gain may have been lost (ADR 110): one sent while asqr had
+  no focus and no tmux client showed its session (asqr asks tmux after
+  such a frame), one sent less than a second before a focus loss, one
+  sent without the focus less than a second before the focus gain, or
+  any one sent since the last gain when the gain follows no loss. Such
+  a resend reads the image's file again. Elsewhere the terminal keeps
+  what it got, and regaining the focus changes nothing.
 - Closing the help, the intro or the session list over an image entry
   draws the whole screen afresh under Sixel and iTerm2, which leave the
   cells under the image to the terminal. Half blocks and the Kitty
@@ -3788,7 +3794,9 @@ warning for it.
   when the image was sent again on regaining the focus or under a new id
   at another size, when its entry was replaced, or when its session
   left. Where regaining the focus sends the images again, it also writes
-  the deletes since the last time again (section 8.9). On quitting, also
+  the deletes since the last time again (section 8.9); behind `all` it
+  writes them again also where only deletes may have been lost, by the
+  rule above. On quitting, also
   after a panic, asqr deletes every image it sent and has not deleted
   yet, before it leaves the alternate screen (ADR 42).
 - The character U+10EEEE, which the Kitty protocol reserves for image
@@ -3809,9 +3817,16 @@ warning for it.
   focus reports (`set -g focus-events on`). tmux with `on` also drops
   Kitty deletes while asqr's pane is hidden, so asqr writes them again
   on regaining the focus (section 8.8).
+- With `all`, tmux passes sequences from a hidden window too, but only
+  to clients whose session holds asqr's window: while the client shows
+  another session, or no client is attached, what asqr sends is lost.
+  asqr sends such images and deletes again when its pane gains the
+  focus again (section 8.8, ADR 110), which also needs
+  `set -g focus-events on`. tmux takes a change of `focus-events` for
+  attached clients only after they detach and attach again.
 - Under the Kitty protocol inside tmux 3.4 or later, asqr sets
   `allow-passthrough all` for its own pane while it runs, so its images
-  and their deletes pass from a hidden pane too (ADR 44). Sixel and
+  and their deletes pass from a hidden window too (ADR 44). Sixel and
   iTerm2 images keep the pane's setting: from a hidden pane they would
   paint over the window that shows.
 - Inside tmux, asqr asks tmux whether passthrough is on for its pane,

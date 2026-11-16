@@ -8,6 +8,7 @@
 //! overlay and keeps what the screen remembers from one draw to the next.
 
 use std::path::PathBuf;
+use std::time::Instant;
 
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
@@ -38,7 +39,9 @@ use super::switcher::draw_switcher;
 use super::tabs::tab_bar;
 use super::theme;
 use crate::format::ContextEntry;
-use crate::graphics::{Images, KittyBook, PlacedImage, disarm_placeholders};
+use crate::graphics::{
+    FocusRule, FocusWatch, Images, KittyBook, PlacedImage, Writes, disarm_placeholders,
+};
 use crate::queue::HistoryOutcome;
 use crate::settings::Settings;
 use crate::tui::text_field::FieldShape;
@@ -143,6 +146,9 @@ pub struct View<'a> {
     /// asqr's name and version, such as `asqr 0.13.1`, which the empty
     /// queue's key bar and the help name.
     version: &'a str,
+    /// What may have been lost to tmux's `all` since the last focus gain
+    /// (ADR 110).
+    focus: FocusWatch,
 }
 
 impl<'a> View<'a> {
@@ -166,6 +172,7 @@ impl<'a> View<'a> {
             image_shown: false,
             no_color: false,
             version,
+            focus: FocusWatch::default(),
         }
     }
 
@@ -301,15 +308,50 @@ impl<'a> View<'a> {
             && self.tab.viewers.graphics().cells_are_skipped()
     }
 
-    /// asqr regained the focus. Where tmux dropped the Kitty transfers
-    /// while it was hidden, every image is read and sent again as it is
-    /// next shown, and the deletes since the last time are written again
-    /// (ADRs 24 and 42).
-    pub fn focus_gained(&mut self) {
-        if self.tab.viewers.graphics().resends_on_focus() {
-            self.tab.viewers.forget_images();
-            self.tab.viewers.kitty_book().focus_gained();
+    /// A frame and the deletes after it went out at `at`, and wrote
+    /// `wrote` of Kitty commands. Under tmux's `all`, `shown` tells whether
+    /// a client shows asqr's session; it is asked only for a frame written
+    /// while asqr has no focus (ADR 110).
+    pub fn frame_written(&mut self, wrote: Writes, at: Instant, shown: impl FnOnce() -> bool) {
+        if self.focus_rule() == FocusRule::AfterHiddenWrites {
+            self.focus.frame_written(wrote, at, shown);
         }
+    }
+
+    /// asqr lost the focus; the report arrived at `arrived`.
+    pub fn focus_lost(&mut self, arrived: Instant) {
+        if self.focus_rule() == FocusRule::AfterHiddenWrites {
+            self.focus.focus_lost(arrived);
+        }
+    }
+
+    /// asqr regained the focus; the report arrived at `arrived`. Where tmux
+    /// may have dropped Kitty transfers while asqr was out of view, every
+    /// image a frame showed is read and sent again as it is next shown, and
+    /// the deletes since the last gain are written again; where only
+    /// deletes may have been dropped, only those (ADRs 24, 42 and 110).
+    pub fn focus_gained(&mut self, arrived: Instant) {
+        let lost = match self.focus_rule() {
+            FocusRule::Never => return,
+            FocusRule::EveryGain => Writes {
+                sent: true,
+                deleted: true,
+            },
+            FocusRule::AfterHiddenWrites => self.focus.focus_gained(arrived),
+        };
+        if lost.sent {
+            self.tab.viewers.forget_images();
+        }
+        // Forgetting the images drops their ids, and the deletes that
+        // follow belong to the repeat too.
+        self.tab
+            .viewers
+            .kitty_book()
+            .focus_gained(lost.sent || lost.deleted);
+    }
+
+    fn focus_rule(&self) -> FocusRule {
+        self.tab.viewers.graphics().focus_rule()
     }
 
     /// asqr took the terminal back from the person's editor (ADR 74): the
@@ -3834,7 +3876,7 @@ mod tests {
         );
         let shown = shown_kitty_images(&app, &mut view);
 
-        view.focus_gained();
+        view.focus_gained(Instant::now());
         measured_in(&app, &mut view, 140, 24);
 
         assert_eq!(deleted(&view), shown);

@@ -21,6 +21,11 @@ as read instead of its decoded picture
 Amended by [48. Mend Kitty images an overlay is drawn over](0048-mend-kitty-images-an-overlay-is-drawn-over.md):
 the screen mends a Kitty image once the overlays are drawn
 
+Amended by [110. Send Kitty images again after a tmux session switch](0110-send-kitty-images-again-after-a-tmux-session-switch.md):
+images are sent again on a focus gain under `all` too, by its rule,
+and such a resend reads the image files again, so a changed file no
+longer keeps showing what asqr read first
+
 ## Context
 
 - The library took the detected image protocol as ratatui-image's

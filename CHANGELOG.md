@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Inside tmux with `allow-passthrough all`, which asqr sets for its own
+  pane under the Kitty protocol, an image that arrived while the tmux
+  client showed another session, or while no client was attached, stayed
+  blank after switching back. tmux passes nothing from a session no
+  client shows. asqr now sends such an image again when it gets the
+  focus back, and writes the deletes of images it let go meanwhile
+  again. That needs `set -g focus-events on`. To tell this case apart
+  from leaving for another window or app, where tmux passes everything,
+  asqr asks tmux after a frame with an image or a delete written while
+  it had no focus. A focus loss less than a second after asqr sent an
+  image or a delete also leads to sending the images again, as does a
+  focus gain with no loss before it. Before 0.12 every focus gain did.
+
 ## [0.17.2] - 2026-11-02
 
 ### Changed

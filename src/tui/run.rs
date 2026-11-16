@@ -28,7 +28,7 @@ use super::{
     SessionState, Tone, edited_text, editor_file, remove_from_lists, session_progress,
     switch_queue,
 };
-use crate::graphics::KittyDeletes;
+use crate::graphics::{KittyDeletes, Writes};
 use crate::keep::worker::KeepWorker;
 use crate::pairing::TmuxFailure;
 use crate::queue::{QueueLocation, RemoveError, Removed, WaitingQueue};
@@ -45,8 +45,11 @@ pub enum Event {
     Resize,
     /// Something changed in the inbox.
     InboxChanged,
-    /// The terminal has the focus again.
-    FocusGained,
+    /// The terminal lost the focus, as reported at the time it holds,
+    /// when the key reader read the report (ADR 110).
+    FocusLost(Instant),
+    /// The terminal has the focus again, as reported at the time it holds.
+    FocusGained(Instant),
     /// A context entry finished loading apart from drawing; the next draw
     /// shows it (ADR 46).
     Loaded,
@@ -77,7 +80,8 @@ impl Event {
             Event::Key(key) => key.kind == KeyEventKind::Press,
             Event::Paste(_) | Event::Resize | Event::Quit => true,
             Event::InboxChanged
-            | Event::FocusGained
+            | Event::FocusLost(_)
+            | Event::FocusGained(_)
             | Event::Loaded
             | Event::KeepAlive
             | Event::QueuesTick
@@ -100,6 +104,11 @@ pub trait Host {
     /// Ask the terminal to delete the Kitty images `deletes` names, which
     /// the frame just written no longer shows (ADR 42).
     fn delete_images(&mut self, deletes: &KittyDeletes) -> io::Result<()>;
+    /// Whether a tmux client is attached to the session of asqr's pane, or
+    /// to one grouped with it: under `allow-passthrough all` tmux passes
+    /// what asqr writes to those clients only (ADR 110). `false` where tmux
+    /// cannot say.
+    fn session_attached(&mut self) -> bool;
     /// Show `percent` as the terminal's progress, or remove the progress
     /// for `None`, where the terminal is known to show it (ADR 73).
     fn progress(&mut self, percent: Option<u8>);
@@ -490,14 +499,28 @@ where
         // The frame is flushed and shows no Kitty image that went, so the
         // terminal may let go of them (ADR 42). A frame that failed returned
         // above and left them in the book, for the deletes on quitting.
-        let book = view.kitty_book();
+        let book = view.kitty_book().clone();
         let deletes = book.after_frame();
-        if !deletes.is_empty()
-            && let Err(error) = host.delete_images(&deletes)
-        {
-            tracing::warn!(%error, "could not delete the images");
-            book.put_back(deletes);
+        let mut deleted = false;
+        if !deletes.is_empty() {
+            match host.delete_images(&deletes) {
+                Ok(()) => deleted = true,
+                Err(error) => {
+                    tracing::warn!(%error, "could not delete the images");
+                    book.put_back(deletes);
+                }
+            }
         }
+        // What the frame wrote may not reach the terminal while no tmux
+        // client shows asqr's session. The view asks tmux about that only
+        // under `all`, for a frame written while asqr has no focus (ADR
+        // 110). The time is taken after the deletes, which tmux can drop
+        // as well.
+        let wrote = Writes {
+            sent: drawn.image_sent > 0,
+            deleted,
+        };
+        view.frame_written(wrote, Instant::now(), || host.session_attached());
         // How far the intro overlay and the context pane can scroll depends
         // on the size they were drawn at, and where `↑`/`↓` go in a field
         // on where its rows break. A frame without a tab, as below the
@@ -580,12 +603,18 @@ where
             Event::InputEnded(reason) => {
                 return Err(anyhow::Error::msg(reason)).context("reading the terminal's input");
             }
+            // Going out of view is when tmux may start to drop what asqr
+            // writes (ADR 110).
+            Event::FocusLost(arrived) => {
+                view.focus_lost(arrived);
+                continue;
+            }
             // Coming back into view is when a transfer lost in the
             // background can be repeated, where one can be lost at all,
             // the progress included: tmux drops passthrough from a pane no
             // client shows (spec section 8.9).
-            Event::FocusGained => {
-                view.focus_gained();
+            Event::FocusGained(arrived) => {
+                view.focus_gained(arrived);
                 sent_progress = SentProgress::Unknown;
                 continue;
             }
@@ -656,6 +685,11 @@ mod tests {
         "context": [{"type": "image", "path": "/nowhere/cat.png"}],
         "options": [{"id": "a", "label": "Apples"}, {"id": "b", "label": "Bananas"}]}]}"#;
 
+    /// A focus gain, reported now.
+    fn gained() -> Event {
+        Event::FocusGained(Instant::now())
+    }
+
     #[derive(Default)]
     struct Recorder {
         alerts: Vec<Vec<String>>,
@@ -669,6 +703,11 @@ mod tests {
         /// Writing deletes fails, as writing to a terminal that went away
         /// does, when set.
         refuse_deletes: bool,
+        /// No tmux client is attached to asqr's session, when set; by
+        /// default one is, as while the person works in another window.
+        detached: bool,
+        /// How often the loop asked whether a client is attached.
+        asked_attached: usize,
         /// Where the Kitty images the loop deletes go, among the frames a
         /// [`Logging`] backend notes.
         log: Log,
@@ -767,6 +806,11 @@ mod tests {
                 .borrow_mut()
                 .push(Step::Deleted(deletes.ids().to_vec()));
             Ok(())
+        }
+
+        fn session_attached(&mut self) -> bool {
+            self.asked_attached += 1;
+            !self.detached
         }
 
         fn title(&mut self, title: &str) {
@@ -1627,7 +1671,8 @@ mod tests {
             (Event::Quit, true),
             (Event::Key(release), false),
             (Event::InboxChanged, false),
-            (Event::FocusGained, false),
+            (gained(), false),
+            (Event::FocusLost(Instant::now()), false),
             (Event::Loaded, false),
             (Event::InputEnded("the terminal is gone".to_owned()), false),
             (Event::OpenerFailed("cannot open x".to_owned()), false),
@@ -1723,7 +1768,7 @@ mod tests {
     fn gaining_the_focus_sends_the_progress_again() {
         let mut harness = two_questions();
 
-        harness.run(vec![Event::FocusGained]).expect("runs");
+        harness.run(vec![gained()]).expect("runs");
 
         assert_eq!(harness.host.progress, [Some(0), Some(0)]);
     }
@@ -3275,23 +3320,25 @@ mod tests {
                 &mut app,
                 &mut inbox,
                 &mut view,
-                vec![Event::Resize, Event::FocusGained],
+                vec![Event::Resize, gained()],
             )
             .expect("runs");
         assert!(shows_hue(&harness.terminal, red), "{}", harness.screen());
         assert!(!shows_hue(&harness.terminal, blue), "{}", harness.screen());
     }
 
-    /// Only tmux with `allow-passthrough on` drops a Kitty transfer, while
-    /// asqr's pane is hidden. There the images are read and sent again
-    /// under new ids when asqr regains the focus; elsewhere the terminal
-    /// still has them, and they stay as they are (ADR 24).
+    /// Only tmux drops a Kitty transfer. With `allow-passthrough on` it
+    /// drops it while asqr's pane is hidden, so every focus gain reads and
+    /// sends the images again under new ids (ADR 24). With `all`, a gain
+    /// with no loss before it means a loss went unreported, and the image
+    /// sent before it may be lost too (ADR 110). Without tmux the terminal
+    /// still has the images, and they stay as they are.
     #[test]
-    fn gaining_focus_sends_kitty_images_again_only_where_tmux_drops_them() {
+    fn gaining_focus_sends_kitty_images_again_where_tmux_may_have_dropped_them() {
         for (passthrough, again) in [
             (Passthrough::WhileVisible, true),
             (Passthrough::None, false),
-            (Passthrough::Always, false),
+            (Passthrough::Always, true),
         ] {
             let mut watched = Watched::new();
             watched.put("a", PICTURE, [255, 0, 0]);
@@ -3300,7 +3347,7 @@ mod tests {
             let mut view =
                 View::for_tests("test", PaneLayout::Auto, Images::kitty_through(passthrough));
 
-            watched.run(&mut app, &mut inbox, &mut view, vec![Event::FocusGained]);
+            watched.run(&mut app, &mut inbox, &mut view, vec![gained()]);
 
             let shown: Vec<BTreeSet<u32>> = watched
                 .steps()
@@ -3328,6 +3375,267 @@ mod tests {
             };
             assert_eq!(deleted, expected, "{passthrough:?}");
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Kitty images behind tmux's `allow-passthrough all` (ADR 110)
+    // -----------------------------------------------------------------
+
+    /// A view that sends Kitty images through tmux with `all`.
+    fn through_all() -> View<'static> {
+        View::for_tests(
+            "test",
+            PaneLayout::Auto,
+            Images::kitty_through(Passthrough::Always),
+        )
+    }
+
+    /// The time `secs` seconds from now, for a focus report that arrives
+    /// well after the frames of a test, outside the grace.
+    fn in_secs(secs: u64) -> Instant {
+        Instant::now() + std::time::Duration::from_secs(secs)
+    }
+
+    /// The Kitty ids of the frames that show an image, each once in a row.
+    fn images_shown(steps: &[Step]) -> Vec<u32> {
+        let mut shown: Vec<u32> = steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Frame(shown) => shown.first().copied(),
+                _ => None,
+            })
+            .collect();
+        shown.dedup();
+        shown
+    }
+
+    /// The deletes written, in order.
+    fn deletes(steps: &[Step]) -> Vec<Vec<u32>> {
+        steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Deleted(ids) => Some(ids.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The bug of ADR 110: an image arrives while the client shows another
+    /// tmux session, so tmux passes its transfer to no terminal. Back on
+    /// asqr's session, the image goes out again.
+    #[test]
+    fn an_image_sent_while_no_client_shows_the_session_goes_out_again_on_return() {
+        let mut watched = Watched::new();
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
+        let mut view = through_all();
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+        watched.run(app, inbox, view, vec![Event::FocusLost(Instant::now())]);
+
+        watched.put("a", PICTURE, [255, 0, 0]);
+        watched.harness.host.detached = true;
+        watched.run(
+            app,
+            inbox,
+            view,
+            vec![Event::InboxChanged, Event::FocusGained(in_secs(3))],
+        );
+
+        let steps = watched.steps();
+        assert_eq!(images_shown(&steps), [1, 2], "{steps:?}");
+        assert_eq!(deletes(&steps), [vec![1]], "{steps:?}");
+        assert_eq!(watched.harness.host.asked_attached, 1);
+    }
+
+    /// An image that arrives while the person works in another window of
+    /// the session, or in another app, reaches the terminal: a client
+    /// shows the session. It stays as it is on return.
+    #[test]
+    fn an_image_sent_while_a_client_shows_the_session_stays_on_return() {
+        let mut watched = Watched::new();
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
+        let mut view = through_all();
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+        watched.run(app, inbox, view, vec![Event::FocusLost(Instant::now())]);
+
+        watched.put("a", PICTURE, [255, 0, 0]);
+        watched.run(
+            app,
+            inbox,
+            view,
+            vec![Event::InboxChanged, Event::FocusGained(in_secs(3))],
+        );
+
+        let steps = watched.steps();
+        assert_eq!(images_shown(&steps), [1], "{steps:?}");
+        assert!(deletes(&steps).is_empty(), "{steps:?}");
+        assert_eq!(watched.harness.host.asked_attached, 1);
+    }
+
+    /// A focus loss reported close after an image went out may have come
+    /// as tmux hid the pane before it read the image: it goes out again,
+    /// whatever tmux would say afterwards.
+    #[test]
+    fn an_image_sent_just_before_the_focus_went_goes_out_again() {
+        let mut watched = Watched::new();
+        watched.put("a", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
+        let mut view = through_all();
+
+        watched.run(
+            &mut app,
+            &mut inbox,
+            &mut view,
+            vec![
+                Event::FocusLost(Instant::now()),
+                Event::FocusGained(in_secs(3)),
+            ],
+        );
+
+        let steps = watched.steps();
+        assert_eq!(images_shown(&steps), [1, 2], "{steps:?}");
+        assert_eq!(watched.harness.host.asked_attached, 0);
+    }
+
+    /// Leaving and coming back long after the image went out, with the
+    /// focus, sends nothing again and asks tmux nothing.
+    #[test]
+    fn an_image_sent_with_the_focus_stays_after_leaving_and_coming_back() {
+        let mut watched = Watched::new();
+        watched.put("a", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
+        let mut view = through_all();
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+        watched.run(app, inbox, view, vec![]);
+
+        watched.run(
+            app,
+            inbox,
+            view,
+            vec![Event::FocusLost(in_secs(2)), Event::FocusGained(in_secs(3))],
+        );
+
+        let steps = watched.steps();
+        assert_eq!(images_shown(&steps), [1], "{steps:?}");
+        assert!(deletes(&steps).is_empty(), "{steps:?}");
+        assert_eq!(watched.harness.host.asked_attached, 0);
+    }
+
+    /// The person may come back between the image's write and the question
+    /// to tmux, which then names a client: a return close after an image
+    /// sent without the focus sends it again all the same.
+    #[test]
+    fn a_return_close_after_an_image_sent_without_the_focus_sends_it_again() {
+        let mut watched = Watched::new();
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
+        let mut view = through_all();
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+        watched.run(app, inbox, view, vec![Event::FocusLost(Instant::now())]);
+
+        watched.put("a", PICTURE, [255, 0, 0]);
+        let back = Instant::now();
+        watched.run(
+            app,
+            inbox,
+            view,
+            vec![Event::InboxChanged, Event::FocusGained(back)],
+        );
+
+        let steps = watched.steps();
+        assert_eq!(images_shown(&steps), [1, 2], "{steps:?}");
+    }
+
+    /// The editor has the terminal with focus reports off (ADR 74), so a
+    /// loss while it runs goes unreported, and the images asqr sends as it
+    /// takes the terminal back may be lost. The gain that follows, with no
+    /// loss before it, sends them again.
+    #[test]
+    fn a_return_after_the_editor_sends_the_images_again() {
+        let mut watched = Watched::new();
+        let picture = watched.harness.location.dir().join("picture.png");
+        image::RgbImage::from_pixel(8, 8, image::Rgb([255, 0, 0]))
+            .save(&picture)
+            .expect("image written");
+        let session = format!(
+            r#"{{"asqr": 2, "questions": [{{"id": "q", "text": "What changed?", "kind": "text",
+                "context": [{{"type": "image", "path": "{}"}}]}}]}}"#,
+            picture.display()
+        );
+        fs::write(watched.harness.location.inbox().join("text.json"), session).expect("written");
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
+        let mut view = through_all();
+
+        watched.run(
+            &mut app,
+            &mut inbox,
+            &mut view,
+            vec![ctrl('g'), Event::FocusGained(in_secs(3))],
+        );
+
+        let steps = watched.steps();
+        assert_eq!(watched.harness.host.edited.len(), 1);
+        assert_eq!(images_shown(&steps), [1, 2, 3], "{steps:?}");
+    }
+
+    /// Only a delete went out while no client showed the session: it is
+    /// written again on return, and the image shown stays.
+    #[test]
+    fn a_delete_written_while_no_client_shows_the_session_is_written_again() {
+        let mut watched = Watched::new();
+        watched.put("a", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
+        let mut view = through_all();
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+        watched.run(app, inbox, view, vec![]);
+        watched.run(app, inbox, view, vec![Event::FocusLost(in_secs(2))]);
+
+        watched.remove("a");
+        watched.harness.host.detached = true;
+        watched.run(
+            app,
+            inbox,
+            view,
+            vec![Event::InboxChanged, Event::FocusGained(in_secs(4))],
+        );
+
+        let steps = watched.steps();
+        assert_eq!(images_shown(&steps), [1], "{steps:?}");
+        assert_eq!(deletes(&steps), [vec![1], vec![1]], "{steps:?}");
+    }
+
+    /// An image and a delete went out while no client showed the session:
+    /// on return the image goes out again under a new id, and the delete
+    /// is written again with that of the image's earlier copy.
+    #[test]
+    fn an_image_and_a_delete_written_while_no_client_shows_the_session_go_out_again() {
+        let mut watched = Watched::new();
+        watched.put("a", PICTURE, [255, 0, 0]);
+        let (mut app, mut inbox) =
+            start(watched.harness.location.clone(), SettingsStore::default()).expect("started");
+        let mut view = through_all();
+        let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
+        watched.run(app, inbox, view, vec![]);
+        watched.run(app, inbox, view, vec![Event::FocusLost(in_secs(2))]);
+
+        watched.remove("a");
+        watched.put("b", PICTURE, [0, 0, 255]);
+        watched.harness.host.detached = true;
+        watched.run(
+            app,
+            inbox,
+            view,
+            vec![Event::InboxChanged, Event::FocusGained(in_secs(4))],
+        );
+
+        let steps = watched.steps();
+        assert_eq!(images_shown(&steps), [1, 2, 3], "{steps:?}");
+        assert_eq!(deletes(&steps), [vec![1], vec![1, 2]], "{steps:?}");
     }
 
     #[test]
@@ -4000,7 +4308,7 @@ mod tests {
         );
         let (app, inbox, view) = (&mut app, &mut inbox, &mut view);
 
-        watched.run(app, inbox, view, vec![Event::Resize, Event::FocusGained]);
+        watched.run(app, inbox, view, vec![Event::Resize, gained()]);
         watched.put("a", PICTURE, [0, 255, 0]);
         watched.run(app, inbox, view, vec![Event::InboxChanged]);
         watched.put(
@@ -4018,12 +4326,7 @@ mod tests {
         );
         watched.run(app, inbox, view, vec![Event::InboxChanged]);
         watched.put("a", PICTURE, [255, 0, 255]);
-        watched.run(
-            app,
-            inbox,
-            view,
-            vec![Event::InboxChanged, Event::FocusGained],
-        );
+        watched.run(app, inbox, view, vec![Event::InboxChanged, gained()]);
         watched.remove("a");
         watched.run(app, inbox, view, vec![Event::InboxChanged]);
         watched.remove("b");
@@ -4098,7 +4401,7 @@ mod tests {
             app,
             inbox,
             view,
-            vec![Event::InboxChanged, Event::FocusGained, Event::FocusGained],
+            vec![Event::InboxChanged, gained(), gained()],
         );
 
         let steps = watched.steps();
