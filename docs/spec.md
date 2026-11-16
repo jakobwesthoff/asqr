@@ -3823,7 +3823,11 @@ warning for it.
   asqr sends such images and deletes again when its pane gains the
   focus again (section 8.8, ADR 110), which also needs
   `set -g focus-events on`. tmux takes a change of `focus-events` for
-  attached clients only after they detach and attach again.
+  attached clients only after they detach and attach again. Where images
+  go out under the Kitty protocol behind tmux and tmux says
+  `focus-events` is off, the status line shows "set tmux's focus-events
+  on, or images may stay blank" at start, unless another notice holds it
+  (ADR 111).
 - Under the Kitty protocol inside tmux 3.4 or later, asqr sets
   `allow-passthrough all` for its own pane while it runs, so its images
   and their deletes pass from a hidden window too (ADR 44). Sixel and

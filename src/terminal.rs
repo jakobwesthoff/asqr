@@ -21,8 +21,8 @@ use anyhow::Context;
 use asqr::cli::{Exit, Replay, Watch};
 use asqr::graphics::{
     Graphics, Images, KittyBook, KittyDeletes, KittyExit, PanePassthrough, QUERY_WAIT,
-    answers_may_follow_the_query, may_query_protocol, passthrough_all_for_images,
-    settle_passthrough,
+    answers_may_follow_the_query, focus_reports_off, may_query_protocol,
+    passthrough_all_for_images, settle_passthrough,
 };
 #[cfg(unix)]
 use asqr::graphics::{LATE_ANSWER_CAP, LATE_ANSWER_QUIET, discard_late_answers};
@@ -278,6 +278,15 @@ fn run_tui(
         kitty_compression = graphics.kitty_compression,
         "graphics protocol detected"
     );
+    // Without focus reports, a Kitty image tmux dropped while asqr was out
+    // of view stays blank, so the status line says so at start (ADR 111).
+    let no_focus_reports = focus_reports_off(&graphics, tmux.as_ref());
+    if no_focus_reports {
+        tracing::warn!(
+            "tmux sends no focus reports (focus-events off): an image tmux drops while asqr \
+             is out of view stays blank; set it on, then detach and attach again"
+        );
+    }
     log_window_size();
 
     let images = Images::new(graphics);
@@ -436,6 +445,9 @@ fn run_tui(
         }
     };
     app.report_settings_problems(&config.warnings);
+    if no_focus_reports {
+        app.report_focus_reports_off();
+    }
     if let Some(notice) = first_start {
         app.show_first_start_notice(notice);
     }

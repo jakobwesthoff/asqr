@@ -14,7 +14,7 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::time::Instant;
 
-use super::{Graphics, Passthrough, Protocol};
+use super::{FocusRule, Graphics, Passthrough, Protocol};
 use crate::terminal_env::{TerminalEnv, TmuxState};
 
 // ---------------------------------------------------------------------
@@ -103,6 +103,20 @@ pub fn settle_passthrough(
         Some("on") => Passthrough::WhileVisible,
         _ => Passthrough::None,
     }
+}
+
+// ---------------------------------------------------------------------
+// Focus reports
+// ---------------------------------------------------------------------
+
+/// Whether tmux sends asqr's pane no focus reports, its `focus-events` is
+/// off, where only a focus gain brings back Kitty images and deletes tmux
+/// dropped (ADRs 24 and 110). Without the reports such an image stays
+/// blank until its session is asked again. A tmux that did not say counts
+/// as sending them, as a warning about it would be a guess.
+pub fn focus_reports_off(graphics: &Graphics, tmux: Option<&TmuxState>) -> bool {
+    graphics.focus_rule() != FocusRule::Never
+        && tmux.and_then(TmuxState::focus_events) == Some(false)
 }
 
 /// Puts the pane's `allow-passthrough` back as it was before the `Picker`
@@ -732,5 +746,57 @@ mod tests {
         assert!(!follow(quick, None), "answered in time");
         assert!(!follow(quick, Some("on\t1\tkitty\n")));
         assert!(!follow(quick, Some("on\tmany\t\n")));
+    }
+
+    // -----------------------------------------------------------------
+    // Focus reports
+    // -----------------------------------------------------------------
+
+    /// Only Kitty images behind tmux depend on focus reports, and only a
+    /// tmux that says `focus-events` is off gets the warning.
+    #[test]
+    fn focus_reports_count_as_off_only_where_tmux_says_so_and_images_need_them() {
+        let tmux = |focus_events: &str| {
+            Some(TmuxState::parse(&format!(
+                "all\t1\t\t1\t1\t0\t3.8\t{focus_events}"
+            )))
+        };
+        let kitty = |passthrough| Graphics {
+            passthrough,
+            ..Graphics::KITTY
+        };
+
+        assert!(focus_reports_off(
+            &kitty(Passthrough::Always),
+            tmux("0").as_ref()
+        ));
+        assert!(focus_reports_off(
+            &kitty(Passthrough::WhileVisible),
+            tmux("0").as_ref()
+        ));
+        assert!(!focus_reports_off(
+            &kitty(Passthrough::Always),
+            tmux("1").as_ref()
+        ));
+        assert!(
+            !focus_reports_off(&kitty(Passthrough::Always), tmux("").as_ref()),
+            "not said"
+        );
+        assert!(
+            !focus_reports_off(&kitty(Passthrough::Always), None),
+            "not asked"
+        );
+        assert!(
+            !focus_reports_off(&kitty(Passthrough::None), tmux("0").as_ref()),
+            "no passthrough"
+        );
+        let sixel = Graphics {
+            protocol: Protocol::Sixel,
+            ..kitty(Passthrough::Always)
+        };
+        assert!(
+            !focus_reports_off(&sixel, tmux("0").as_ref()),
+            "drawn where the cursor is"
+        );
     }
 }

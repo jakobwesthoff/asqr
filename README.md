@@ -197,9 +197,9 @@ Without passthrough, asqr shows images as coarse blocks and rings the
 bell instead of sending a notification. Even with `all`, tmux drops what
 asqr sends while your client shows another tmux session or is detached;
 asqr sends such an image again when it gets the focus back, which it
-only learns from tmux with `focus-events on`. tmux applies a change of
-`focus-events` to an attached client only after you detach and attach
-again. With `on` instead of `all`, tmux also drops what asqr sends while
+only learns from tmux with `focus-events on`, and asqr warns at start
+when it is off. tmux applies a change of `focus-events` to an attached
+client only after you detach and attach again. With `on` instead of `all`, tmux also drops what asqr sends while
 its window is in the background, and asqr sends the image again on every
 focus gain. In kitty and Ghostty, with tmux 3.4 or later, asqr sets
 `all` for its own pane while it runs and puts the pane's setting back

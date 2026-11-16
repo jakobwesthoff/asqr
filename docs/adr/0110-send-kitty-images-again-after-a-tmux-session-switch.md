@@ -22,6 +22,9 @@ Amends [45. Keep image handling in a graphics module around an asqr-owned value]
 images are sent again on a focus gain under `all` too, by the rule
 below, and such a resend reads the image files again
 
+Amended by [111. Warn when tmux sends no focus reports](0111-warn-when-tmux-sends-no-focus-reports.md):
+asqr warns at start where tmux sends no focus reports
+
 ## Context
 
 An image of a session that arrived while the tmux client showed another

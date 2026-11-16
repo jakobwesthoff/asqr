@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Inside tmux with `focus-events off`, under the Kitty protocol, the
+  status line warns at start: "set tmux's focus-events on, or images may
+  stay blank". Without focus reports, asqr cannot send an image again
+  that tmux dropped while asqr was out of view. The log says that an
+  attached client takes the change only after it detaches and attaches
+  again.
+
 ## [0.17.3] - 2026-11-16
 
 ### Fixed

@@ -170,6 +170,7 @@ pub struct TmuxState {
     termtype: Option<String>,
     shown: Option<bool>,
     version: Option<String>,
+    focus_events: Option<bool>,
 }
 
 impl TmuxState {
@@ -178,10 +179,11 @@ impl TmuxState {
     /// the session, the client terminal's answer to XTVERSION, such as
     /// `iTerm2 3.6.7`, whether the pane's window is the current one of its
     /// session, whether the pane is the current one of its window, whether
-    /// the window is zoomed, and tmux's version. The answer to XTVERSION
-    /// holds blanks, so tabs keep the fields apart.
+    /// the window is zoomed, tmux's version, and whether tmux sends focus
+    /// reports to its panes (`focus-events`). The answer to XTVERSION holds
+    /// blanks, so tabs keep the fields apart.
     pub const FORMAT: &str = "#{allow-passthrough}\t#{session_attached}\t#{client_termtype}\t\
-         #{window_active}\t#{pane_active}\t#{window_zoomed_flag}\t#{version}";
+         #{window_active}\t#{pane_active}\t#{window_zoomed_flag}\t#{version}\t#{focus-events}";
 
     /// Reads what tmux printed for [`TmuxState::FORMAT`].
     pub fn parse(answer: &str) -> Self {
@@ -189,21 +191,27 @@ impl TmuxState {
         let passthrough = fields.next().map(str::to_owned);
         let clients = fields.next().and_then(|clients| clients.parse().ok());
         let termtype = fields.next().map(str::to_owned);
-        let mut flag = || match fields.next() {
+        let flag = |field: Option<&str>| match field {
             Some("1") => Some(true),
             Some("0") => Some(false),
             _ => None,
         };
-        let (window_active, pane_active, zoomed) = (flag(), flag(), flag());
+        let (window_active, pane_active, zoomed) = (
+            flag(fields.next()),
+            flag(fields.next()),
+            flag(fields.next()),
+        );
         let shown = window_active.zip(pane_active).zip(zoomed).map(
             |((window_active, pane_active), zoomed)| window_active && (pane_active || !zoomed),
         );
+        let version = fields.next().map(str::to_owned);
         TmuxState {
             passthrough,
             clients,
             termtype,
             shown,
-            version: fields.next().map(str::to_owned),
+            version,
+            focus_events: flag(fields.next()),
         }
     }
 
@@ -215,6 +223,11 @@ impl TmuxState {
     /// How many clients are attached to the pane's session.
     pub fn clients(&self) -> Option<u32> {
         self.clients
+    }
+
+    /// Whether tmux sends focus reports to its panes, its `focus-events`.
+    pub fn focus_events(&self) -> Option<bool> {
+        self.focus_events
     }
 
     /// The client terminal's answer to XTVERSION, empty when it gave none.
@@ -321,7 +334,8 @@ mod tests {
         assert_eq!(
             TmuxState::FORMAT,
             "#{allow-passthrough}\t#{session_attached}\t#{client_termtype}\t\
-             #{window_active}\t#{pane_active}\t#{window_zoomed_flag}\t#{version}"
+             #{window_active}\t#{pane_active}\t#{window_zoomed_flag}\t#{version}\t\
+             #{focus-events}"
         );
     }
 
@@ -329,9 +343,11 @@ mod tests {
     /// the fields.
     #[test]
     fn every_field_of_tmux_s_answer_is_read() {
-        let state = TmuxState::parse("all\t2\tWezTerm 20240203-110809-5046fc22\t1\t1\t0\t3.5a\n");
+        let state =
+            TmuxState::parse("all\t2\tWezTerm 20240203-110809-5046fc22\t1\t1\t0\t3.5a\t1\n");
 
         assert_eq!(state.passthrough(), Some("all"));
+        assert_eq!(state.focus_events(), Some(true));
         assert_eq!(state.clients(), Some(2));
         assert_eq!(state.termtype(), Some("WezTerm 20240203-110809-5046fc22"));
         assert_eq!(state.shown(), Some(true));
@@ -359,6 +375,19 @@ mod tests {
                 ..TmuxState::default()
             }
         );
+    }
+
+    /// An answer without the last field, as the format asked before it,
+    /// says nothing about the focus reports.
+    #[test]
+    fn focus_events_read_as_on_off_or_unknown() {
+        let focus_events =
+            |last: &str| TmuxState::parse(&format!("all\t1\t\t1\t1\t0\t3.8{last}")).focus_events();
+
+        assert_eq!(focus_events("\t1\n"), Some(true));
+        assert_eq!(focus_events("\t0\n"), Some(false));
+        assert_eq!(focus_events("\n"), None);
+        assert_eq!(focus_events("\ton\n"), None);
     }
 
     /// With `on`, tmux passes nothing through from a pane no client shows:

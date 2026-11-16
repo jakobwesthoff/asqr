@@ -18,6 +18,9 @@ Amended by [110. Send Kitty images again after a tmux session switch](0110-send-
 `all` passes from a hidden window of a session a client shows, not from
 a session no client shows
 
+Amended by [111. Warn when tmux sends no focus reports](0111-warn-when-tmux-sends-no-focus-reports.md):
+the question to tmux at start also asks for `focus-events`
+
 ## Context
 
 - tmux with `allow-passthrough on` passes escape sequences only from a

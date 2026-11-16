@@ -82,6 +82,11 @@ pub enum Overlay {
     Settings,
 }
 
+/// The warning that tmux sends no focus reports. It fits the status line at
+/// the minimum width of 60 columns with its mark, and names the option to
+/// set; the README and spec section 8.9 say why.
+pub const FOCUS_REPORTS_OFF: &str = "set tmux's focus-events on, or images may stay blank";
+
 /// What kind of news a notice or a session's message is, which decides
 /// its colour in the status line (ADR 38).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,6 +277,16 @@ impl App {
                     problems.len()
                 ),
             ),
+        }
+    }
+
+    /// Warns that tmux sends asqr no focus reports, so a Kitty image that
+    /// tmux dropped while asqr was out of view stays blank (ADR 111). A
+    /// notice already showing stays, as for the settings problems; the log
+    /// has the warning either way.
+    pub fn report_focus_reports_off(&mut self) {
+        if self.notice.is_none() {
+            self.notice(Tone::Warning, FOCUS_REPORTS_OFF);
         }
     }
 
@@ -876,6 +891,30 @@ mod tests {
         app.show_first_start_notice(failed.clone());
 
         assert_eq!(app.current_notice(), Some(&failed));
+    }
+
+    #[test]
+    fn the_focus_reports_warning_shows_unless_a_notice_is_there() {
+        let mut app = App::default();
+        app.report_focus_reports_off();
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(Tone::Warning, FOCUS_REPORTS_OFF))
+        );
+
+        let mut app = App::default();
+        app.report_settings_problems(&problems(&["a problem"]));
+        app.report_focus_reports_off();
+        assert_eq!(
+            app.current_notice(),
+            Some(&Notice::new(Tone::Warning, "a problem"))
+        );
+    }
+
+    /// With its mark, the warning fits the narrowest screen asqr draws.
+    #[test]
+    fn the_focus_reports_warning_fits_the_minimum_width() {
+        assert!(FOCUS_REPORTS_OFF.chars().count() + 2 <= 60);
     }
 
     #[test]

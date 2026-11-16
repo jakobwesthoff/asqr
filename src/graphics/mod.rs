@@ -30,7 +30,7 @@ use crate::image_format::reader_with_format;
 pub use detect::discard_late_answers;
 pub use detect::{
     LATE_ANSWER_CAP, LATE_ANSWER_QUIET, PanePassthrough, QUERY_WAIT, answers_may_follow_the_query,
-    may_query_protocol, passthrough_all_for_images, settle_passthrough,
+    focus_reports_off, may_query_protocol, passthrough_all_for_images, settle_passthrough,
 };
 pub use image::Image;
 use image::Read;
