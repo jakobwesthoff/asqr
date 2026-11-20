@@ -248,7 +248,8 @@ pub struct Question {
     #[schemars(with = "Option<Vec<ContextEntry>>", length(max = MAX_CONTEXT_ENTRIES))]
     pub context: Vec<ContextEntry>,
 
-    /// Bounds on the number of selected options of a `multi` question.
+    /// A target range for the number of selected options of a `multi`
+    /// question; the person may pick fewer or more.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<u32>,
 

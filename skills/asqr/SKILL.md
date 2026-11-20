@@ -264,8 +264,8 @@ paths --json` shows where the queue's files are.
 - The person can add a note to every question and info item: a
   condition on an answer, why they skipped, or that a question is wrong.
 - Every question is optional: the person may skip any of them, one with
-  a `default` included. `min` and `max` count the picked options; the
-  own answer of a `multi` comes on top of them.
+  a `default` included. `min` and `max` are a target, and the count of
+  picked options may fall outside it; own text comes on top.
 - `default: true` on an option marks it as your recommendation and
   preselects it. The option shows `◀ default`, also after the person
   picks another, so they can tell your recommendation from their own

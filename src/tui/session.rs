@@ -1685,15 +1685,11 @@ impl SessionState {
             .map(str::to_owned)
             .expect("callers only toggle options the question has");
         let working = &mut self.working[self.tab];
+        // `max` is a target, not a limit: the hint's count turns yellow
+        // past it, and the pick goes through (spec section 4.2).
         if working.selected.contains(&id) {
             working.selected.retain(|selected| *selected != id);
         } else {
-            if let Some(max) = question.max
-                && working.selected.len() >= max as usize
-            {
-                self.message = Some(Notice::new(Tone::Warning, format!("at most {max} options")));
-                return Effect::None;
-            }
             working.selected.push(id);
             let order: Vec<&str> = option_ids(question).collect();
             working
@@ -2324,7 +2320,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_toggles_with_space_and_digits_up_to_max_and_enter_moves_on() {
+    fn multi_toggles_with_space_and_digits_past_max_and_enter_moves_on() {
         let mut state = state();
         press(&mut state, "l");
 
@@ -2334,9 +2330,12 @@ mod tests {
             ["x", "z"],
             "kept in option order"
         );
-        assert_eq!(press(&mut state, "2"), Effect::None);
-        assert_eq!(state.message(), Some(&refused("at most 2 options")));
-        press(&mut state, "1");
+        // `max` is a target, so a pick past it goes through (spec section
+        // 4.2).
+        assert_eq!(press(&mut state, "2"), Effect::DraftChanged);
+        assert_eq!(state.message(), None);
+        assert_eq!(answer(&state, "multi").selected, ["x", "y", "z"]);
+        press(&mut state, "12");
         assert_eq!(answer(&state, "multi").selected, ["z"]);
         assert_eq!(state.tab(), 1, "toggling stays on the question");
 

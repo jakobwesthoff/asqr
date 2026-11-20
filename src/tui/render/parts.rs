@@ -12,6 +12,7 @@ use super::text::field_source_lines;
 use super::theme;
 use super::wrap::{trim_end, trim_start};
 use crate::format::{Answer, Kind, Question, has_note, is_answered};
+use crate::tui::text_field::Level;
 use crate::tui::{AnswerState, Focus, SessionState};
 
 /// What marks the row under the cursor in the question, the review and the
@@ -150,6 +151,25 @@ pub(super) fn kind_hint(question: &Question) -> String {
     } else {
         hint
     }
+}
+
+/// How many options of a `multi` with `min` or `max` are picked, once one
+/// is: green within the bounds and yellow outside them, like the length
+/// counter of a typed field. The bounds guide and refuse no pick.
+pub(super) fn pick_count(question: &Question, picked: usize) -> Option<Span<'static>> {
+    if question.kind != Kind::Multi
+        || picked == 0
+        || (question.min.is_none() && question.max.is_none())
+    {
+        return None;
+    }
+    let within = question.min.is_none_or(|min| picked >= min as usize)
+        && question.max.is_none_or(|max| picked <= max as usize);
+    let level = if within { Level::Fine } else { Level::Warn };
+    Some(Span::styled(
+        format!("{picked} picked"),
+        theme::for_level(level),
+    ))
 }
 
 /// How the header and the context hint name a key of the question, such
@@ -438,6 +458,37 @@ mod tests {
             hint(r#"{"id": "q", "text": "?", "kind": "info"}"#),
             "nothing to answer"
         );
+    }
+
+    #[test]
+    fn the_pick_count_is_green_within_the_bounds_and_yellow_outside() {
+        use crate::tui::text_field::Level;
+
+        let between = question(
+            r#"{"id": "q", "text": "?", "kind": "multi", "min": 2, "max": 3, "options": []}"#,
+        );
+        let count = |question: &Question, picked: usize| {
+            pick_count(question, picked).map(|span| (span.content.into_owned(), span.style))
+        };
+        let fine = theme::for_level(Level::Fine);
+        let warn = theme::for_level(Level::Warn);
+
+        assert_eq!(count(&between, 0), None, "a skipped question has no count");
+        assert_eq!(count(&between, 1), Some(("1 picked".to_owned(), warn)));
+        assert_eq!(count(&between, 2), Some(("2 picked".to_owned(), fine)));
+        assert_eq!(count(&between, 3), Some(("3 picked".to_owned(), fine)));
+        assert_eq!(count(&between, 4), Some(("4 picked".to_owned(), warn)));
+
+        let up_to =
+            question(r#"{"id": "q", "text": "?", "kind": "multi", "max": 1, "options": []}"#);
+        assert_eq!(count(&up_to, 2), Some(("2 picked".to_owned(), warn)));
+        let at_least =
+            question(r#"{"id": "q", "text": "?", "kind": "multi", "min": 2, "options": []}"#);
+        assert_eq!(count(&at_least, 5), Some(("5 picked".to_owned(), fine)));
+
+        // Without bounds there is no target to measure against.
+        let any = question(r#"{"id": "q", "text": "?", "kind": "multi", "options": []}"#);
+        assert_eq!(count(&any, 3), None);
     }
 
     #[test]

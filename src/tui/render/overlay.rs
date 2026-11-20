@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn the_session_list_counts_a_default_answer_and_not_one_short_of_its_minimum() {
+    fn the_session_list_counts_a_default_answer_also_one_short_of_its_minimum() {
         let mut app = App::default();
         let json = r#"{"asqr": 2, "questions": [
             {"id": "s", "text": "?", "kind": "single",
@@ -243,7 +243,7 @@ mod tests {
         let mut buf = Buffer::empty(area);
         draw_session_list(area, &mut buf, &app, 0);
 
-        assert_eq!(row(&buf, 1), "  │ ❯ batch  (1/3 answered)          │");
+        assert_eq!(row(&buf, 1), "  │ ❯ batch  (2/3 answered)          │");
     }
 
     #[test]

@@ -460,8 +460,8 @@ A question is **answered** when:
   answer (`custom`), the custom text is not empty after trimming and is
   the pick (see the answer shape below)
 - `multi`: on a question that takes an own answer (`custom`), the custom
-  text is not empty after trimming, or the number of selected options
-  lies within `min` and `max`
+  text is not empty after trimming, or at least one option is selected,
+  however many `min` and `max` ask for
 - `text`: the typed text is not empty after trimming
 
 Otherwise it is **skipped**. An info item takes no answer and is
@@ -475,11 +475,14 @@ neither: nothing answers it, and it never counts as skipped.
   `single`, a default included (section 7.6), so the question is
   skipped.
 - A note never answers a question. A skipped question keeps its note.
-- `min` and `max` only apply once something is selected, so a `multi`
-  with `min: 2` can be skipped. They count the picked options only; the
-  own answer of a `multi` comes on top of them, so on a question that
-  takes an own answer (`custom`), custom text answers the question
-  whatever is selected (ADR 28).
+- `min` and `max` are a target range for the number of picked options,
+  not a limit (ADR 112). The TUI shows the count against them and never
+  refuses a pick, and a selection below `min` or above `max` answers the
+  question and comes back in `selected`. A `multi` with `min: 2` can
+  still be skipped. They count the picked options only; the own answer
+  of a `multi` comes on top of them, so on a question that takes an own
+  answer (`custom`), custom text answers the question whatever is
+  selected (ADR 28).
 - Nothing blocks a submit: every question is optional.
 - Typed text and notes go into the result as typed; only the check
   whether they are empty trims them. Every typed field takes line
@@ -539,8 +542,8 @@ the new file, in place of coming back `cleared`. A `cleared` mark the
 person made stays. The session note, the reject reason and the current
 question are carried with the answers. What the draft of a session
 withdrawn before can give is what the `draft` of its result holds
-(section 4.1): no `cleared` mark, no own text that was unpicked, no
-selection below `min` without a note and no own text next to a pick. No
+(section 4.1): no `cleared` mark, no own text that was unpicked and no
+own text next to a pick. No
 draft is written where nothing fits, and a reject reason alone does not
 count, as for a draft that "has an answer" (below).
 It is written on every change while the session waits in the inbox; a
@@ -2234,7 +2237,10 @@ has context (section 7.4, ADRs 30 and 31):
   "pick 2 items", "pick any" or "type your answer", and on an info item
   "nothing to answer". A `single` with
   `custom` adds ", or type your own"; a `multi` does not mention its own
-  answer (ADR 8).
+  answer (ADR 8). A `multi` with `min` or `max` adds the count of picked
+  options once one is picked, as in "pick up to 3 items · 4 picked": the
+  count is green within `min` and `max` and yellow outside them, like the
+  length counter (section 7.7), and nothing is refused (ADR 112).
 - Options show `( )`/`(•)` in a `single` and `[ ]`/`[x]` in a `multi`,
   a chosen mark bold in the primary colour and the option's number dim.
   The label follows the number in bold and wraps under its own start; it
@@ -2536,8 +2542,8 @@ On an option row (vim style plus arrows):
 | `q`, `ctrl-c` | quit, keeping the draft; in the context pane `q` goes back |
 | `?` | help |
 
-- A selection beyond `max` in a `multi` is refused with the message "at
-  most N options".
+- A pick beyond `max` in a `multi` goes through; the count beside the
+  hint turns yellow (section 7.2).
 - `enter` on the last question moves on to the review tab.
 - `enter` on the option already picked keeps it picked. `backspace` on
   any other row does nothing, so moving around never clears a pick; in a

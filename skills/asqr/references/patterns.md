@@ -27,7 +27,8 @@ without that request.
 - **Pick candidates inside a pipeline.** Ask for the candidates of one
   step as a `multi` pick, each option with its own `context` where the
   person needs to see the candidate, and `max` when the next step takes
-  at most so many.
+  at most so many. `max` is a target: the person may pick more, so the
+  next step handles a longer list or asks again.
 - **Debug walk-through.** Say what you found in a few lines, in the
   text of the question on the fix. Each candidate fix is an option of it
   whose `context` is its `diff`, so the log or trace goes into a short

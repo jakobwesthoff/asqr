@@ -21,7 +21,9 @@ use ratatui::widgets::{Clear, Paragraph, Widget};
 
 use super::context::{DrawnPane, Ledge, context_hint, draw_pane, pane_body};
 use super::panes::{self, Arrangement, PaneLayout, ReadingWidth};
-use super::parts::{POINTER, answer_mark, answer_summary, kind_hint, pointer, question_key};
+use super::parts::{
+    POINTER, answer_mark, answer_summary, kind_hint, pick_count, pointer, question_key,
+};
 use super::patine_adapter::WIDEST_GRAPHEME;
 use super::source_line::{columns, fitting};
 use super::text::{field_lines, field_lines_from};
@@ -590,15 +592,15 @@ fn question_content(
         text_cursor: None,
         marked: Vec::new(),
     };
-    content.lines.extend(wrap(
-        Line::styled(kind_hint(question), theme::secondary()),
-        width,
-        0,
-        0,
-    ));
+    let answer = &state.answers()[index];
+    let mut hint = vec![Span::styled(kind_hint(question), theme::secondary())];
+    if let Some(count) = pick_count(question, answer.selected.len()) {
+        hint.push(Span::styled(" · ", theme::secondary()));
+        hint.push(count);
+    }
+    content.lines.extend(wrap(Line::from(hint), width, 0, 0));
     content.lines.push(Line::default());
 
-    let answer = &state.answers()[index];
     let labels: Vec<LabelRows> = question
         .options
         .iter()

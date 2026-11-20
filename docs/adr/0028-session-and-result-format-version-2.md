@@ -34,6 +34,8 @@ Amended by [77. Count a cleared default as the person having started](0077-count
 
 Amended by [102. Drop the note field from questions within format version 2](0102-drop-the-note-field-from-questions-within-format-version-2.md)
 
+Amended by [112. Make the option bounds of a multi question a target](0112-make-the-option-bounds-of-a-multi-question-a-target.md)
+
 ## Context
 
 The file format is what other tools build on, so it has to be small,

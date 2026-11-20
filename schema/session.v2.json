@@ -556,7 +556,7 @@
           ]
         },
         "min": {
-          "description": "Bounds on the number of selected options of a `multi` question.",
+          "description": "A target range for the number of selected options of a `multi`\nquestion; the person may pick fewer or more.",
           "format": "uint32",
           "minimum": 0,
           "type": [

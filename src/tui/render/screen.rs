@@ -2835,9 +2835,9 @@ mod tests {
 
     #[test]
     fn messages_and_notices_show_in_the_status_line() {
-        // With `max` 2 and the default ticked, the third pick is refused.
-        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
-        keys(&mut app, "l23");
+        // `o` on a question without context is refused with a message.
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "lo");
         insta::assert_snapshot!("message", screen(&app, 80, 24));
 
         app.notice(
@@ -2845,6 +2845,43 @@ mod tests {
             "batch-01 collided with an unread result and was archived",
         );
         insta::assert_snapshot!("notice", screen(&app, 80, 24));
+    }
+
+    #[test]
+    fn a_multi_counts_its_picks_beside_the_hint_and_takes_one_past_max() {
+        // The channels question has one default ticked; with `max` 2 a
+        // third pick goes through and the count turns yellow.
+        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
+        let hint_row = |backend: &TestBackend| {
+            test_support::rows(backend.buffer())
+                .into_iter()
+                .find(|line| line.contains("pick up to"))
+                .map(|line| line.trim_end().to_owned())
+        };
+        keys(&mut app, "l");
+        let backend = screen(&app, 80, 24);
+        assert_eq!(
+            hint_row(&backend).as_deref(),
+            Some(" pick up to 2 items · 1 picked"),
+            "{backend}"
+        );
+        assert_eq!(
+            style_at(backend.buffer(), "1 picked").fg,
+            Some(Color::Green)
+        );
+
+        keys(&mut app, "23");
+        let backend = screen(&app, 80, 24);
+        assert_eq!(
+            hint_row(&backend).as_deref(),
+            Some(" pick up to 2 items · 3 picked"),
+            "{backend}"
+        );
+        assert_eq!(
+            style_at(backend.buffer(), "3 picked").fg,
+            Some(Color::Yellow)
+        );
+        assert_eq!(app.active().and_then(SessionState::message), None);
     }
 
     #[test]
@@ -2966,13 +3003,13 @@ mod tests {
 
     #[test]
     fn a_notice_shows_over_the_session_message_and_the_key_bar_stays() {
-        // With `max` 2 and the default ticked, the third pick is refused.
-        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
-        keys(&mut app, "l23");
+        // `o` on a question without context is refused with a message.
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "lo");
         let message = app
             .active()
             .and_then(SessionState::message)
-            .expect("the third pick is refused")
+            .expect("o is refused")
             .text
             .clone();
         let key_bar =
@@ -3002,15 +3039,15 @@ mod tests {
     #[test]
     fn the_status_line_prefers_the_notice_to_the_session_message() {
         let text = |line: Line| line.to_string();
-        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
+        let mut app = app(&[("release", RELEASE)]);
         let state = app.active().cloned();
         assert_eq!(text(status_line(&app, None, 80)), "");
         assert_eq!(text(status_line(&app, state.as_ref(), 80)), "");
 
-        keys(&mut app, "l23");
+        keys(&mut app, "lo");
         let state = app.active().cloned();
         let line = status_line(&app, state.as_ref(), 80);
-        assert_eq!(text(line.clone()), "! at most 2 options");
+        assert_eq!(text(line.clone()), "! nothing to open here");
         assert_eq!(line.style.fg, Some(Color::Yellow));
         assert_eq!(
             text(status_line(&app, None, 80)),
@@ -3095,11 +3132,11 @@ mod tests {
         assert_eq!(status_line(&app, None, 80).to_string(), "✔ sent \"batch\"");
     }
 
-    /// The release session after a third pick its `max` of 2 refuses,
-    /// which leaves a warning message.
+    /// The release session after `o` on a question without context, which
+    /// leaves a warning message.
     fn app_with_message() -> App {
-        let mut app = app(&[("release", &RELEASE.replace(r#""max": 3"#, r#""max": 2"#))]);
-        keys(&mut app, "l23");
+        let mut app = app(&[("release", RELEASE)]);
+        keys(&mut app, "lo");
         app
     }
 

@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   10 no longer cuts it; `--limit` still does. Without a queue flag,
   `--all` lists every queue as before, also when `ASQR_QUEUE` or
   `ASQR_DIR` chose the queue.
+- `min` and `max` of a `multi` question are a target, not a limit. asqr
+  no longer refuses a pick past `max` ("at most N options"); the hint
+  under the question counts the picks, green within the range and yellow
+  outside it, as in "pick up to 3 items · 4 picked". A selection below
+  `min` or above `max` answers the question and comes back in `selected`
+  instead of as skipped. The skill tells agents that the count may fall
+  outside their range. More defaults than `max` is still an invalid
+  session.
 
 ### Fixed
 

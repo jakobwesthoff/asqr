@@ -37,16 +37,9 @@ pub fn is_answered(question: &Question, answer: &Answer) -> bool {
     match question.kind {
         // Own text answers a single only while it is the pick.
         Kind::Single => !answer.selected.is_empty() || (own_text && !answer.custom_unpicked),
-        Kind::Multi => {
-            // Custom text answers the question on its own. `min` and `max`
-            // bound the selected options, so they only apply once one is
-            // selected, and only decide when there is no text.
-            let count = answer.selected.len() as u32;
-            own_text
-                || (count > 0
-                    && question.min.is_none_or(|min| count >= min)
-                    && question.max.is_none_or(|max| count <= max))
-        }
+        // `min` and `max` are a target the person may go past (spec
+        // section 4.2), so any pick answers, as does own text alone.
+        Kind::Multi => own_text || !answer.selected.is_empty(),
         Kind::Text => has_text(answer),
         // An info item takes no answer, so nothing a draft carries answers
         // it.
@@ -190,17 +183,28 @@ mod tests {
     }
 
     #[test]
-    fn multi_bounds_apply_once_an_option_is_selected() {
+    fn multi_bounds_are_a_target_any_selection_answers() {
         let multi = question(MULTI);
 
-        assert!(!is_answered(&multi, &selected("m", &["a"])), "below min");
+        assert!(!is_answered(&multi, &selected("m", &[])), "nothing picked");
+        assert!(is_answered(&multi, &selected("m", &["a"])), "below min");
         assert!(is_answered(&multi, &selected("m", &["a", "b"])));
         assert!(
-            !is_answered(&multi, &selected("m", &["a", "b", "c"])),
+            is_answered(&multi, &selected("m", &["a", "b", "c"])),
             "above max"
         );
         // The bounds count options; custom text alone answers the question.
         assert!(is_answered(&multi, &custom("m", "own")));
+    }
+
+    #[test]
+    fn a_selection_outside_the_bounds_comes_back_as_picked() {
+        let above_max = selected("m", &["a", "b", "c"]);
+
+        assert_eq!(
+            result_answers(&session(MULTI), std::slice::from_ref(&above_max)),
+            [above_max]
+        );
     }
 
     #[test]
@@ -344,13 +348,13 @@ mod tests {
     #[test]
     fn a_skipped_question_keeps_only_its_note() {
         let session = session(MULTI);
-        let below_min = Answer {
+        let blank_text = Answer {
             note: Some("none fit".into()),
-            ..selected("m", &["a"])
+            ..custom("m", "  ")
         };
 
         assert_eq!(
-            result_answers(&session, &[below_min]),
+            result_answers(&session, &[blank_text]),
             [Answer {
                 note: Some("none fit".into()),
                 ..Answer::skipped("m")
@@ -516,10 +520,10 @@ mod tests {
     #[test]
     fn a_rejected_result_keeps_a_skipped_question_with_its_note() {
         let session = session(MULTI);
-        let below_min = noted(selected("m", &["a"]), "none fit");
+        let nothing_picked = noted(selected("m", &[]), "none fit");
 
         assert_eq!(
-            rejected_answers(&session, &[below_min]),
+            rejected_answers(&session, &[nothing_picked]),
             [noted(Answer::skipped("m"), "none fit")]
         );
     }
