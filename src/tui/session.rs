@@ -6551,4 +6551,79 @@ mod tests {
 
         assert_eq!(state.field_text().as_deref(), Some("a   b[31mc"));
     }
+
+    // ---------------------------------------------------------------
+    // A note beside an untouched default
+    // ---------------------------------------------------------------
+
+    // The first question's default, `b`, stays picked in each case. A note
+    // is an edit of the question (spec section 4.2), so the answer carries
+    // the note and no `defaulted`, however the person moves on.
+
+    /// The first question's answer in a submit, after the note
+    /// `elsewhere` was written on it and left with `enter`, then the keys
+    /// `moving_on` were pressed.
+    fn submitted_after_a_note(moving_on: &[KeyEvent]) -> Answer {
+        let mut state = state();
+        press(&mut state, "n");
+        press(&mut state, "elsewhere");
+        state.handle(code(KeyCode::Enter));
+        for key in moving_on {
+            state.handle(*key);
+        }
+        submitted(&mut state)
+            .into_iter()
+            .find(|answer| answer.question == "single")
+            .expect("every question is in the result")
+    }
+
+    #[test]
+    fn a_note_beside_a_default_reaches_the_result_when_the_person_moves_on() {
+        let single = submitted_after_a_note(&[code(KeyCode::Char('l'))]);
+
+        assert_eq!(single.selected, ["b"]);
+        assert_eq!(single.note.as_deref(), Some("elsewhere"));
+        assert!(!single.defaulted, "a note is an edit of the question");
+    }
+
+    #[test]
+    fn a_note_beside_a_default_reaches_the_result_when_the_person_goes_to_the_review() {
+        // `submitted` goes to the review straight from the question.
+        let single = submitted_after_a_note(&[]);
+
+        assert_eq!(single.selected, ["b"]);
+        assert_eq!(single.note.as_deref(), Some("elsewhere"));
+        assert!(!single.defaulted);
+    }
+
+    #[test]
+    fn a_note_beside_a_default_reaches_the_result_when_the_person_picks_the_default() {
+        let single = submitted_after_a_note(&[code(KeyCode::Down), code(KeyCode::Enter)]);
+
+        assert_eq!(single.selected, ["b"]);
+        assert_eq!(single.note.as_deref(), Some("elsewhere"));
+        assert!(!single.defaulted);
+    }
+
+    #[test]
+    fn a_note_beside_a_default_survives_the_draft() {
+        let mut state = state();
+        press(&mut state, "n");
+        press(&mut state, "elsewhere");
+        state.handle(code(KeyCode::Enter));
+
+        let mut restored = SessionState::new(
+            "batch",
+            serde_json::from_str(SESSION).expect("test session parses"),
+            Some(&state.to_draft()),
+        );
+
+        let single = submitted(&mut restored)
+            .into_iter()
+            .find(|answer| answer.question == "single")
+            .expect("every question is in the result");
+        assert_eq!(single.selected, ["b"]);
+        assert_eq!(single.note.as_deref(), Some("elsewhere"));
+        assert!(!single.defaulted);
+    }
 }
