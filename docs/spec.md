@@ -3913,13 +3913,16 @@ such as `asqr skill context`. An unknown part is a usage error (exit 2)
 that names the parts and says that `asqr skill` prints the skill of
 this asqr. An agent told to use asqr can read the skill this way, so
 installing it is possible but in most cases not needed. `asqr skill
---install <dir>` takes a skills root, writes `<dir>/asqr/SKILL.md`,
-replaces `<dir>/asqr/references/` whole and leaves any other file in
-`<dir>/asqr/` alone, so `asqr skill --install .claude/skills` works and
-running it again replaces an older copy, parts included. It prints
-`installed <path>` on stdout for `SKILL.md` and each part as it is
-written. When writing fails it prints `error: cannot install the skill
-into <dir>/asqr: <error>` and exits with 1.
+--install <dir>` takes a skills root, replaces `<dir>/asqr/references/`
+whole with the parts, then writes `<dir>/asqr/SKILL.md`, and leaves any
+other file in `<dir>/asqr/` alone, so `asqr skill --install
+.claude/skills` works and running it again replaces an older copy, parts
+included. It prints `installed <path>` on stdout for each part and then
+`SKILL.md` as it is written. `SKILL.md` comes last as it carries the
+version stamp, so an install that fails half way leaves the stamp of the
+copy it found, and the hint about that older copy stays. When writing
+fails it prints `error: cannot install the skill into <dir>/asqr:
+<error>` and exits with 1.
 
 `asqr ask` and `asqr validate` look for installed copies of the skill and
 print one hint on stderr (section 6.7) when a copy is older than the asqr

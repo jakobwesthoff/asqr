@@ -150,9 +150,7 @@ fn installs_the_skill_and_its_parts_under_a_skills_root() {
         .expect("runs");
 
     assert_eq!(output.status.code(), Some(0));
-    let core = root.join("asqr/SKILL.md");
-    assert_eq!(std::fs::read_to_string(&core).expect("installed"), SKILL);
-    let mut lines = format!("installed {}\n", core.display());
+    let mut lines = String::new();
     for name in PART_NAMES {
         let file = root.join(format!("asqr/references/{name}.md"));
         assert_eq!(
@@ -162,7 +160,33 @@ fn installs_the_skill_and_its_parts_under_a_skills_root() {
         );
         lines += &format!("installed {}\n", file.display());
     }
+    let core = root.join("asqr/SKILL.md");
+    assert_eq!(std::fs::read_to_string(&core).expect("installed"), SKILL);
+    lines += &format!("installed {}\n", core.display());
     assert_eq!(stdout(&output), lines);
+}
+
+#[test]
+fn a_failed_install_keeps_the_stamp_of_the_copy_it_found() {
+    // The stamp says which asqr the parts beside it belong to, so an
+    // install that stops half way must not leave a current stamp over
+    // parts of an older asqr: the warning about the old copy has to stay.
+    let sandbox = Sandbox::new();
+    let root = sandbox.home().join("skills");
+    let old = "---\nname: asqr\nmetadata:\n  asqr-version: \"0.14.0\"\n---\n";
+    let core = sandbox.file("skills/asqr/SKILL.md", old);
+    sandbox.file("skills/asqr/references", "a file where the parts should go");
+
+    let output = sandbox
+        .asqr()
+        .args(["skill", "--install"])
+        .arg(&root)
+        .output()
+        .expect("runs");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(std::fs::read_to_string(core).expect("kept"), old);
+    assert_eq!(stdout(&output), "", "no file was written");
 }
 
 #[test]

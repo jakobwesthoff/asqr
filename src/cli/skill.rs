@@ -79,14 +79,16 @@ fn install_into(root: &Path) -> Exit {
     }
 }
 
-/// Writes the core and every part into `dir`, naming each file on stdout
-/// once it is written, so a failure half way leaves stdout naming what
-/// was written.
+/// Writes every part and then the core into `dir`, naming each file on
+/// stdout once it is written, so a failure half way leaves stdout naming
+/// what was written.
+///
+/// The core carries the `asqr-version` stamp that says which asqr the
+/// parts beside it belong to, so it is written last: an install that
+/// stops half way leaves the stamp of the copy it found, and the hint
+/// about that older copy stays.
 fn write_skill(dir: &Path) -> io::Result<()> {
     std::fs::create_dir_all(dir)?;
-    let core = dir.join("SKILL.md");
-    std::fs::write(&core, SKILL)?;
-    println!("installed {}", core.display());
 
     // asqr owns `references/`: it is replaced whole, so a part an older
     // asqr wrote and this one no longer ships disappears. Any other file
@@ -102,6 +104,10 @@ fn write_skill(dir: &Path) -> io::Result<()> {
         std::fs::write(&file, text)?;
         println!("installed {}", file.display());
     }
+
+    let core = dir.join("SKILL.md");
+    std::fs::write(&core, SKILL)?;
+    println!("installed {}", core.display());
     Ok(())
 }
 

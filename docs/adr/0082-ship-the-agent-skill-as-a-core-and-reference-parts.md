@@ -58,9 +58,11 @@ that installed it
   30,000 characters. An unknown part is a usage error that names the
   parts and says that `asqr skill` prints the skill of this asqr, since
   the skill that named the part may belong to another version.
-- `asqr skill --install <dir>` writes `<dir>/asqr/SKILL.md`, replaces
-  `<dir>/asqr/references/` whole and leaves any other file in
-  `<dir>/asqr/` alone. asqr owns `references/`.
+- `asqr skill --install <dir>` replaces `<dir>/asqr/references/` whole,
+  then writes `<dir>/asqr/SKILL.md`, and leaves any other file in
+  `<dir>/asqr/` alone. asqr owns `references/`. The core is written last
+  because it carries the stamp: an install that stops half way leaves the
+  stamp of the copy it found.
 - The core's frontmatter carries `metadata` with `asqr-version`, equal
   to the crate version. It travels with every copy of the skill, a
   plugin, a hand copy and `asqr skill > file` alike. A test fails until
