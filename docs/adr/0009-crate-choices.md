@@ -18,6 +18,8 @@ Amended by [96. Bundle finished sessions and results per month in a zip](0096-bu
 
 Amended by [100. Keep the files a finished session showed](0100-keep-the-files-a-finished-session-showed.md)
 
+Amended by [113. Watch the inbox through kqueue on macOS, with a watch per file](0113-watch-the-inbox-through-kqueue-on-macos-with-a-watch-per-file.md)
+
 ## Context
 
 The tool uses clap, anyhow and thiserror, and other crates where they
