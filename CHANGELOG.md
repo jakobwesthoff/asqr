@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SKILL.md` carries the version stamp, and an install that failed after
   writing it left a copy stamped as current over missing or older parts,
   so the hint about an older installed skill stayed silent.
+- On macOS, a session that `asqr ask` dropped could show up in the TUI
+  seconds late or not at all while the system's `fseventsd` was behind,
+  which happens on a machine under heavy load. asqr now watches the inbox
+  through kqueue, which reports from the kernel, and watches each file in
+  the inbox too, so a session file rewritten in place is still reloaded.
+  This takes one file descriptor per waiting session.
 
 ## [0.18.0] - 2026-11-16
 
