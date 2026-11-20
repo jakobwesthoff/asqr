@@ -30,7 +30,7 @@ edit = { version = "0.1.5", features = ["quoted-env"] }
 flate2 = "1.1.10"
 gethostname = "1.1.0"
 image = "0.25.10"
-jiff = "0.2.37"
+jiff = "1.0.0"
 # libwebp 1.6.0, built from C source that ships in the crate (ADR 100), so a
 # build needs a C compiler. It encodes the images asqr keeps as WebP. The
 # bindings are pre-generated: `generate-bindings` would need libclang.
