@@ -1769,19 +1769,25 @@ Open one with: asqr replay <REF>
   those in the outbox, those moved aside by `ask --force` and those of
   the bundles, so a result in another month than its session is found.
 - `--limit <count>` lists at most that many sessions per queue, 10 when it
-  is not given, and must be at least 1. `--since <age>` keeps the sessions
+  is not given (all of them for `--all` with `--queue` or `--dir`), and
+  must be at least 1. `--since <age>` keeps the sessions
   archived within that age, in the units of `status --since`. The header
   reads `finished (10 of 52):` when the limit cut the list, `finished
   (4 in 3d):` with `--since` and `finished (3):` otherwise; both
   together read `finished (10 of 52 in 3d):`. The age is shown in the
   largest unit that holds it exactly, so `--since 24h` reads `1d` and
   `--since 7d` reads `1w`.
-- `--all` lists every queue under the root (section 5.2), the queue in use
-  first and the others by name, one block each; `--limit` and `--since`
-  apply per queue. A queue given by `--dir` is listed first and the
-  hint to open an entry names it with `--dir`.
+- `--all` without `--queue` and `--dir` lists every queue under the root
+  (section 5.2), the queue in use first and the others by name, one block
+  each; `--limit` and `--since` apply per queue. A queue chosen by
+  `ASQR_QUEUE`, `ASQR_DIR` or the tmux session counts as the queue in use
+  here, since a variable stays set for every command while a flag is
+  typed together with `--all`. With `--queue` or `--dir` on the command
+  line, `--all` keeps to that queue and lists every finished session of
+  it, unless `--limit` is given too. A queue given by `--dir` is
+  listed first and the hint to open an entry names it with `--dir`.
 - `--json` prints an array of objects, one per queue (one without
-  `--all`), each with `queue`, `total` (the sessions `--since` keeps,
+  `--all` or next to a queue flag), each with `queue`, `total` (the sessions `--since` keeps,
   before the limit cuts the list) and `entries`, a list of `ref`,
   `id`, `finished_at` (UTC, whole seconds), `status` (`sent`,
   `rejected`, `error`, `withdrawn` or `none`), `files` (`kept`, `gone`

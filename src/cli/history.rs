@@ -18,7 +18,8 @@ use crate::queue::{
     FileCounts, History, HistoryEntry, HistoryOutcome, QueueLocation, list_history, list_queues,
 };
 
-/// How many finished sessions `history` lists per queue without `--limit`.
+/// How many finished sessions `history` lists per queue without `--limit`,
+/// unless `--all` asks for every session of a queue a flag named.
 pub(super) const DEFAULT_LIMIT: usize = 10;
 
 /// Parses `--limit`: a whole number of at least 1, since a list that shows
@@ -33,8 +34,12 @@ pub(super) fn parse_limit(input: &str) -> Result<usize, String> {
 
 pub(super) struct HistoryOptions {
     pub all: bool,
+    /// `--queue` or `--dir` named the queue on the command line, as
+    /// opposed to a variable, tmux pairing or the default.
+    pub queue_flag: bool,
     pub since: Option<Duration>,
-    pub limit: usize,
+    /// `--limit` as given.
+    pub limit: Option<usize>,
     pub json: bool,
 }
 
@@ -267,9 +272,19 @@ fn terminal_width() -> Option<usize> {
 }
 
 pub(super) fn run(location: &QueueLocation, root: Option<&Path>, options: HistoryOptions) -> Exit {
+    // `--all` reads as "all entries" next to a queue flag on the same
+    // command line, and as "all queues" without one. A queue a variable
+    // chose is a standing default, so there it stays "all queues".
+    let every_queue = options.all && !options.queue_flag;
+    let limit = match options.limit {
+        Some(limit) => Some(limit),
+        None if options.all && options.queue_flag => None,
+        None => Some(DEFAULT_LIMIT),
+    };
+
     // The queue in use comes first, then the others by name.
     let mut queues = vec![location.clone()];
-    if options.all {
+    if every_queue {
         let Some(root) = root else {
             eprintln!("error: no platform data directory found, so there are no named queues");
             return Exit::Failure;
@@ -296,7 +311,7 @@ pub(super) fn run(location: &QueueLocation, root: Option<&Path>, options: Histor
     let mut lists = Vec::new();
     for queue in &queues {
         let name = queue_label(queue);
-        match list_history(queue, Some(options.limit), cutoff) {
+        match list_history(queue, limit, cutoff) {
             Ok(history) => lists.push((name, history)),
             Err(error) => {
                 eprintln!("error: cannot read the queue {name}: {error}");

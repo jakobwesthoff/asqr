@@ -139,9 +139,12 @@ fn history_all_covers_the_named_queues_under_the_data_directory_the_queue_in_use
     );
     finish_loose(&QueueLocation::named(&root, "work"), "b-1", "In work", 1);
 
+    // The variable chooses the queue in use; only a flag on the command
+    // line keeps `--all` to one queue.
     let output = sandbox
         .asqr()
-        .args(["--queue", "work", "history", "--all"])
+        .env("ASQR_QUEUE", "work")
+        .args(["history", "--all"])
         .output()
         .expect("runs");
 
@@ -157,6 +160,133 @@ fn history_all_covers_the_named_queues_under_the_data_directory_the_queue_in_use
         "{out}"
     );
     assert!(out.ends_with("Open one with: asqr replay <REF>\n"), "{out}");
+}
+
+/// Finishes `count` sessions in `location`, one a day from a day ago on.
+fn finish_many(location: &QueueLocation, count: u64) {
+    for day in 1..=count {
+        finish_loose(
+            location,
+            &format!("s-{day}"),
+            &format!("Session {day}"),
+            day,
+        );
+    }
+}
+
+#[test]
+fn history_all_with_a_queue_flag_lists_every_session_of_that_queue_only() {
+    let sandbox = Sandbox::new();
+    let root = sandbox.data_dir();
+    finish_loose(
+        &QueueLocation::named(&root, "default"),
+        "a-1",
+        "In the default",
+        1,
+    );
+    finish_many(&QueueLocation::named(&root, "work"), 12);
+
+    let output = sandbox
+        .asqr()
+        .args(["--queue", "work", "history", "--all", "--json"])
+        .output()
+        .expect("runs");
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let listed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("JSON");
+    assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
+    assert_eq!(listed[0]["queue"], "work");
+    assert_eq!(listed[0]["total"], 12);
+    assert_eq!(
+        listed[0]["entries"].as_array().map(Vec::len),
+        Some(12),
+        "--all lifts the default limit of 10"
+    );
+}
+
+#[test]
+fn history_all_with_a_dir_flag_lists_only_that_queue() {
+    let sandbox = Sandbox::new();
+    finish_loose(
+        &QueueLocation::named(&sandbox.data_dir(), "default"),
+        "a-1",
+        "In the default",
+        1,
+    );
+    finish_many(&QueueLocation::at(sandbox.queue_dir()), 11);
+
+    let output = sandbox
+        .asqr_in_queue(&["history", "--all"])
+        .output()
+        .expect("runs");
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output);
+    let queues: Vec<&str> = out
+        .lines()
+        .filter(|line| line.starts_with("queue: "))
+        .collect();
+    assert_eq!(
+        queues,
+        [format!("queue: {}", sandbox.queue_dir().display())],
+        "{out}"
+    );
+    assert!(out.contains("finished (11):"), "{out}");
+    assert!(!out.contains("In the default"), "{out}");
+}
+
+#[test]
+fn history_all_with_a_queue_flag_keeps_a_limit_given_with_it() {
+    let sandbox = Sandbox::new();
+    finish_many(&QueueLocation::named(&sandbox.data_dir(), "work"), 4);
+
+    let output = sandbox
+        .asqr()
+        .args(["--queue", "work", "history", "--all", "--limit", "2"])
+        .output()
+        .expect("runs");
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(out.contains("finished (2 of 4):"), "{out}");
+}
+
+#[test]
+fn history_all_without_a_flag_keeps_the_default_limit_per_queue() {
+    let sandbox = Sandbox::new();
+    finish_many(&QueueLocation::named(&sandbox.data_dir(), "default"), 11);
+
+    let output = sandbox
+        .asqr()
+        .args(["history", "--all"])
+        .output()
+        .expect("runs");
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output);
+    assert!(out.contains("finished (10 of 11):"), "{out}");
+}
+
+#[test]
+fn the_help_of_all_names_both_readings() {
+    let output = Sandbox::new()
+        .asqr()
+        .args(["history", "--help"])
+        .output()
+        .expect("runs");
+
+    let help = stdout(&output)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        help.contains("every queue under the data directory"),
+        "{help}"
+    );
+    assert!(
+        help.contains("with --queue or --dir, every finished session of that queue"),
+        "{help}"
+    );
 }
 
 #[test]

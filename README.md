@@ -149,7 +149,8 @@ sessions and the asqr watching each, with that asqr's tmux session.
 history; the next session asked into it brings it back, and `asqr queues
 --removed` lists the removed ones. `asqr history` lists the
 finished sessions of a queue, newest first, each with a reference;
-`--all` lists every queue under the data directory. `asqr replay <ref>`
+`--all` lists every queue under the data directory, and next to `--queue`
+or `--dir` every finished session of that queue. `asqr replay <ref>`
 opens one of them read-only, with the files it showed. `asqr replay <ref>
 --json` prints a finished session with its result and the state of each
 file it showed, and `--extract <dir>` writes them as plain files, images

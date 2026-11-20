@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `asqr history --all` next to `--queue` or `--dir` lists every finished
+  session of that queue, no longer every queue, and the default limit of
+  10 no longer cuts it; `--limit` still does. Without a queue flag,
+  `--all` lists every queue as before, also when `ASQR_QUEUE` or
+  `ASQR_DIR` chose the queue.
+
 ### Fixed
 
 - `asqr skill --install` writes the parts first and `SKILL.md` last.

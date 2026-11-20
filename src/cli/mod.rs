@@ -204,18 +204,15 @@ enum Command {
         json: bool,
 
         /// List the finished sessions of every queue under the data
-        /// directory.
+        /// directory, or, with --queue or --dir, every finished session of
+        /// that queue.
         #[arg(long)]
         all: bool,
 
-        /// List at most this many sessions per queue, the newest first.
-        #[arg(
-            long,
-            value_name = "COUNT",
-            default_value_t = history::DEFAULT_LIMIT,
-            value_parser = history::parse_limit
-        )]
-        limit: usize,
+        /// List at most this many sessions per queue, the newest first: 10
+        /// when not given, all of them for --all with --queue or --dir.
+        #[arg(long, value_name = "COUNT", value_parser = history::parse_limit)]
+        limit: Option<usize>,
 
         /// List only sessions finished within this age, such as 2d or 3w.
         #[arg(long, value_name = "AGE", value_parser = prune::parse_age)]
@@ -646,6 +643,7 @@ fn dispatch_with(
             root.as_deref(),
             history::HistoryOptions {
                 all,
+                queue_flag: origin == Origin::Flag,
                 since,
                 limit,
                 json,
