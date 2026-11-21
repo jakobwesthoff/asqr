@@ -1,18 +1,17 @@
 ---
-title: "Own text typed beside a picked default is dropped without a word"
+title: "Select the own answer when the person types in it on a single question"
 kind: improvement
 component: tui
-status: needs-discussion
 origin: incident
 tags: [ux]
 ---
-# Own text typed beside a picked default is dropped without a word
+# Select the own answer when the person types in it on a single question
 
 On a `single` question with a default, a person who types their own
 answer in the own-answer row and moves on with `→` or `←` keeps the
 default as the answer. The typed text stays in the draft but never
 reaches the result, and nothing on screen says so before the submit.
-This is the documented design (ADR 8 rejects "typing that selects the
+Jakob decided on 2026-11-21 that this changes (see Decisions). It is today's documented design (ADR 8 rejects "typing that selects the
 own answer on single-choice questions"; spec section 4.2: "the option
 counts while it is chosen"), and it is the one path found that matches
 the incident below.
@@ -47,12 +46,22 @@ Checked on 2026-11-20 against the code and the archived result:
 Which of the two happened (`enter` on the default with nothing typed,
 or own text that was dropped) cannot be told from the result.
 
-## Options
+## Decisions
 
-- Leave it as designed and close this todo.
-- Let typing into the own answer deselect a default the person has not
-  touched, while a pick the person made stays (only an untouched default
-  gives way). ADR 8 rejected this for picks in general.
-- Keep the design but say it: a warning when the person leaves the
-  question with own text that does not count, or a mark on the review
-  tab next to the question.
+- 2026-11-21, Jakob (asqr session of the GPUI rewrite run, "asqr default (a)"): typing selects the own answer; another option can still be picked afterwards while the typed text stays.
+
+## Goal
+
+On a `single` question, typing into the own-answer row makes the own answer the chosen one, so the typed text reaches the result as `custom` and a default does not silently win. Picking another option afterwards is still possible and leaves the typed text in its field, as `backspace` on a cleared pick does today.
+
+This reverses a design choice: ADR 8 lists "typing that selects the own answer on single-choice questions" among the rejected options, and spec section 4.2 says "the option counts while it is chosen". A new ADR records the decision and amends ADR 8, and the spec text follows.
+
+## Open questions
+
+- Whether typing also gives way a pick the person made themselves, or only an untouched default. The decision says "selects the own answer" without that distinction.
+
+## Done when
+
+- A test per path: typing over an untouched default, typing over an option the person picked, picking another option after typing (typed text stays), moving on with `→`, `←`, `l` and `enter`, and a draft round trip.
+- The test `a_chosen_option_wins_over_typed_text_until_the_own_answer_is_picked` in `src/tui/session.rs` is rewritten to the new behaviour.
+- A new ADR amends ADR 8, `docs/spec.md` section 4.2 is updated, and the CHANGELOG has an entry.
