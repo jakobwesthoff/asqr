@@ -49,16 +49,13 @@ or own text that was dropped) cannot be told from the result.
 ## Decisions
 
 - 2026-11-21, Jakob (asqr session of the GPUI rewrite run, "asqr default (a)"): typing selects the own answer; another option can still be picked afterwards while the typed text stays.
+- 2026-11-23, Jakob (asqr session of the GPUI rewrite run): typing always replaces the pick, also an option the person picked themselves, not only an untouched default.
 
 ## Goal
 
-On a `single` question, typing into the own-answer row makes the own answer the chosen one, so the typed text reaches the result as `custom` and a default does not silently win. Picking another option afterwards is still possible and leaves the typed text in its field, as `backspace` on a cleared pick does today.
+On a `single` question, typing into the own-answer row makes the own answer the chosen one, whether the pick it replaces is an untouched default or an option the person chose, so the typed text reaches the result as `custom` and a default does not silently win. Picking another option afterwards is still possible and leaves the typed text in its field, as `backspace` on a cleared pick does today.
 
 This reverses a design choice: ADR 8 lists "typing that selects the own answer on single-choice questions" among the rejected options, and spec section 4.2 says "the option counts while it is chosen". A new ADR records the decision and amends ADR 8, and the spec text follows.
-
-## Open questions
-
-- Whether typing also gives way a pick the person made themselves, or only an untouched default. The decision says "selects the own answer" without that distinction.
 
 ## Done when
 
