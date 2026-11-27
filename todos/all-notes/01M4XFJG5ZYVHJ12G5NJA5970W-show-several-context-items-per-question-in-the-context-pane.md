@@ -257,3 +257,18 @@ is still to be decided.
   The session showed two of them; the rest stayed in a file the person
   would have had to open. With several items the question could have
   carried the pairs that matter, named by page and theme.
+
+## A case from the Lanternfish UI rewrite, 2026-11-27
+
+After a night of work the lead put a morning round together that showed
+the person six screenshots of new UI building blocks: the same list in
+light and dark, a scrolling list with section headers, a grid, colour
+tones and the text sizes. It wanted them in one info item that the
+person flips through. asqr 0.19 refused the file at `asqr validate`:
+"questions[1].context: 6 entries, but this asqr shows one per question
+or option". The lead split the item into six info items, "Bild 1/6" to
+"Bild 6/6", each with one image and a sentence, so the person stepped
+through six items to see one set of results. Several items on one info
+item would have kept them together under one text. Jakob asked for this
+case to be added here (asqr round, 2026-11-27); like the cases above,
+whether it is a valid use is still to be decided.
